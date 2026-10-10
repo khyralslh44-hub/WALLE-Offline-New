@@ -21,6 +21,8 @@ jobs:
           mkdir -p project
           unzip -o 'WALLE_Offline_Android_Fixed (2).zip' -d project
           find project -name settings.gradle -print
+          # Align Java compilation with Kotlin JVM target 17
+          find project -name build.gradle -exec sed -i 's/JavaVersion\.VERSION_1_8/JavaVersion.VERSION_17/g' {} +
       - name: Build APK
         run: |
           curl -fsSL https://services.gradle.org/distributions/gradle-8.7-bin.zip -o /tmp/gradle.zip
