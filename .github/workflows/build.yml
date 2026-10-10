@@ -1,10 +1,37 @@
-android {
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
-    }
+name: WALL-E Android Build
 
-    kotlinOptions {
-        jvmTarget = "17"
-    }
-}
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'WALLE_Offline_Android_Fixed (2).zip'
+      - '.github/workflows/**'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y unzip curl openjdk-17-jdk
+      - name: Extract project
+        run: |
+          mkdir -p project
+          unzip -o 'WALLE_Offline_Android_Fixed (2).zip' -d project
+          find project -name settings.gradle -print
+      - name: Build APK
+        run: |
+          curl -fsSL https://services.gradle.org/distributions/gradle-8.7-bin.zip -o /tmp/gradle.zip
+          unzip -q /tmp/gradle.zip -d /tmp
+          SETTINGS="$(find "$GITHUB_WORKSPACE/project" -name settings.gradle -print -quit)"
+          test -n "$SETTINGS"
+          cd "$(dirname "$SETTINGS")"
+          /tmp/gradle-8.7/bin/gradle assembleDebug
+      - name: Save APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: WALL-E-APK
+          path: project/**/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
