@@ -1,4 +1,4 @@
-```yaml
+yaml
 name: Build WALL-E APK
 
 on:
@@ -47,3 +47,4 @@ jobs:
           name: WALLE-APK
           path: project/**/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+```
