@@ -20,10 +20,8 @@ jobs:
         run: |
           mkdir -p project
           unzip -o 'WALLE_Offline_Android_Fixed (2).zip' -d project
-          echo '--- Kotlin JVM settings before normalization ---'
+          echo '--- JVM target settings found in project ---'
           grep -R -n 'jvmTarget\|VERSION_17\|VERSION_1_8\|sourceCompatibility\|targetCompatibility' project --include='*.gradle' --include='*.gradle.kts' || true
-          # Keep Kotlin compatible with the existing Android Java 8 target.
-          find project -type f \( -name '*.gradle' -o -name '*.gradle.kts' \) -exec sed -i 's/jvmTarget[[:space:]]*=[[:space:]]*"17"/jvmTarget = "1.8"/g; s/jvmTarget[[:space:]]*=[[:space:]]*\x2717\x27/jvmTarget = \x271.8\x27/g' {} +
       - name: Build APK
         run: |
           curl -fsSL https://services.gradle.org/distributions/gradle-8.7-bin.zip -o /tmp/gradle.zip
@@ -31,7 +29,16 @@ jobs:
           SETTINGS="$(find "$GITHUB_WORKSPACE/project" -name settings.gradle -print -quit)"
           test -n "$SETTINGS"
           cd "$(dirname "$SETTINGS")"
-          /tmp/gradle-8.7/bin/gradle assembleDebug --stacktrace
+          cat > /tmp/walle-jvm-target.init.gradle <<'EOF'
+          gradle.projectsEvaluated {
+            allprojects {
+              tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+                kotlinOptions.jvmTarget = '1.8'
+              }
+            }
+          }
+          EOF
+          /tmp/gradle-8.7/bin/gradle -I /tmp/walle-jvm-target.init.gradle assembleDebug --stacktrace
       - name: Save APK
         uses: actions/upload-artifact@v4
         with:
