@@ -21,9 +21,10 @@ jobs:
           mkdir -p project
           unzip -o 'WALLE_Offline_Android_Fixed (2).zip' -d project
           find project -name settings.gradle -print
+          # Use the same JVM target for Java and Kotlin to avoid target mismatch.
           find project -name build.gradle -exec sed -i 's/VERSION_1_8/VERSION_17/g' {} +
-          # Align Java compilation with Kotlin JVM target 17
-          find project -name build.gradle -exec sed -i 's/JavaVersion\.VERSION_1_8/JavaVersion.VERSION_17/g' {} +
+          find project -name build.gradle -exec sed -i 's/jvmTarget[[:space:]]*=[[:space:]]*"1.8"/jvmTarget = "17"/g' {} +
+          find project -name build.gradle -exec sed -i "s/jvmTarget[[:space:]]*=[[:space:]]*'1.8'/jvmTarget = '17'/g" {} +
       - name: Build APK
         run: |
           curl -fsSL https://services.gradle.org/distributions/gradle-8.7-bin.zip -o /tmp/gradle.zip
@@ -31,14 +32,7 @@ jobs:
           SETTINGS="$(find "$GITHUB_WORKSPACE/project" -name settings.gradle -print -quit)"
           test -n "$SETTINGS"
           cd "$(dirname "$SETTINGS")"
-          cat > /tmp/force-jvm-target.gradle <<'EOF'
-          allprojects {
-            tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
-              kotlinOptions.jvmTarget = "1.8"
-            }
-          }
-          EOF
-          /tmp/gradle-8.7/bin/gradle -I /tmp/force-jvm-target.gradle assembleDebug
+          /tmp/gradle-8.7/bin/gradle assembleDebug --stacktrace
       - name: Save APK
         uses: actions/upload-artifact@v4
         with:
