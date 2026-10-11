@@ -31,6 +31,17 @@ jobs:
             echo 'ERROR: Found a remaining JVM 1.8 setting'
             exit 1
           fi
+      - name: Force consistent Java JVM target
+        run: |
+          cat > /tmp/force-java-target.gradle <<'EOF'
+          import org.gradle.api.tasks.compile.JavaCompile
+          allprojects {
+            tasks.withType(JavaCompile).configureEach {
+              sourceCompatibility = "17"
+              targetCompatibility = "17"
+            }
+          }
+          EOF
       - name: Build APK
         run: |
           curl -fsSL https://services.gradle.org/distributions/gradle-8.7-bin.zip -o /tmp/gradle.zip
@@ -38,7 +49,7 @@ jobs:
           SETTINGS="$(find "$GITHUB_WORKSPACE/project" -name settings.gradle -print -quit)"
           test -n "$SETTINGS"
           cd "$(dirname "$SETTINGS")"
-          /tmp/gradle-8.7/bin/gradle assembleDebug --stacktrace
+          /tmp/gradle-8.7/bin/gradle -I /tmp/force-java-target.gradle assembleDebug --stacktrace
       - name: Save APK
         uses: actions/upload-artifact@v4
         with:
