@@ -12,54 +12,37 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - name: Install tools
         run: |
           sudo apt-get update
           sudo apt-get install -y unzip curl openjdk-17-jdk
+
       - name: Extract project
         run: |
           mkdir -p project
           unzip -o 'WALLE_Offline_Android_Fixed (2).zip' -d project
-          echo '--- JVM target settings found in project ---'
-          grep -R -n 'jvmTarget\|VERSION_17\|VERSION_1_8\|sourceCompatibility\|targetCompatibility' project --include='*.gradle' --include='*.gradle.kts' || true
-      - name: Align Java and Kotlin JVM targets
+
+      - name: Align JVM targets to Java 17
         run: |
           APP_GRADLE="$(find "$GITHUB_WORKSPACE/project" -path '*/app/build.gradle' -print -quit)"
-          APP_GRADLE_KTS="$(find "$GITHUB_WORKSPACE/project" -path '*/app/build.gradle.kts' -print -quit)"
-          if [ -n "$APP_GRADLE" ]; then
-            cat >> "$APP_GRADLE" <<'EOF'
-
-          // CI compatibility: align Java and Kotlin bytecode targets.
-          android {
-              compileOptions {
-                  sourceCompatibility JavaVersion.VERSION_1_8
-                  targetCompatibility JavaVersion.VERSION_1_8
-              }
-              kotlinOptions {
-                  jvmTarget = "1.8"
-              }
-          }
-          EOF
-          elif [ -n "$APP_GRADLE_KTS" ]; then
-            cat >> "$APP_GRADLE_KTS" <<'EOF'
-
-          // CI compatibility: align Java and Kotlin bytecode targets.
-          android {
-              compileOptions {
-                  sourceCompatibility = JavaVersion.VERSION_1_8
-                  targetCompatibility = JavaVersion.VERSION_1_8
-              }
-              kotlinOptions {
-                  jvmTarget = "1.8"
-              }
-          }
-          EOF
-          else
-            echo "Could not find app/build.gradle or app/build.gradle.kts"
+          if [ -z "$APP_GRADLE" ]; then
+            echo "app/build.gradle not found"
             exit 1
           fi
-          echo "--- Effective JVM target declarations ---"
-          grep -n 'jvmTarget\|VERSION_1_8\|sourceCompatibility\|targetCompatibility' "${APP_GRADLE:-$APP_GRADLE_KTS}" || true
+          cat >> "$APP_GRADLE" <<'EOF'
+
+android {
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+}
+EOF
+
       - name: Build APK
         run: |
           curl -fsSL https://services.gradle.org/distributions/gradle-8.7-bin.zip -o /tmp/gradle.zip
@@ -68,6 +51,7 @@ jobs:
           test -n "$SETTINGS"
           cd "$(dirname "$SETTINGS")"
           /tmp/gradle-8.7/bin/gradle assembleDebug -Pkotlin.compiler.execution.strategy=in-process --stacktrace
+
       - name: Save APK
         uses: actions/upload-artifact@v4
         with:
