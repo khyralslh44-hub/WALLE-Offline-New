@@ -24,7 +24,13 @@ jobs:
           # Use the same JVM target for Java and Kotlin to avoid target mismatch.
           find project -name build.gradle -exec sed -i 's/VERSION_1_8/VERSION_17/g' {} +
           find project -name build.gradle -exec sed -i 's/jvmTarget[[:space:]]*=[[:space:]]*"1.8"/jvmTarget = "17"/g' {} +
-          find project -name build.gradle -exec sed -i "s/jvmTarget[[:space:]]*=[[:space:]]*'1.8'/jvmTarget = '17'/g" {} +
+          # Normalize all common Java/Kotlin target spellings in Gradle config.
+          find project \( -name 'build.gradle' -o -name 'build.gradle.kts' -o -name 'gradle.properties' \) -type f -exec sed -i 's/1\\.8/17/g; s/VERSION_1_8/VERSION_17/g' {} +
+          echo '--- Verify remaining JVM 1.8 settings ---'
+          if grep -R -n -E 'VERSION_1_8|1\\.8' project --include='*.gradle' --include='*.gradle.kts' --include='gradle.properties'; then
+            echo 'ERROR: Found a remaining JVM 1.8 setting'
+            exit 1
+          fi
       - name: Build APK
         run: |
           curl -fsSL https://services.gradle.org/distributions/gradle-8.7-bin.zip -o /tmp/gradle.zip
