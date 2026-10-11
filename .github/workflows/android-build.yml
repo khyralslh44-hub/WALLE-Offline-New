@@ -5,7 +5,7 @@ on:
   push:
     paths:
       - 'WALLE_Offline_Android_Fixed (2).zip'
-      - '.github/workflows/build.yml'
+      - '.github/workflows/**'
 
 jobs:
   build:
@@ -20,11 +20,12 @@ jobs:
         run: |
           mkdir -p project
           unzip -o 'WALLE_Offline_Android_Fixed (2).zip' -d project
-          # Android Java compile defaults to 1.8; match Kotlin to it.
+          echo '--- Kotlin JVM settings before normalization ---'
+          grep -R -n 'jvmTarget\|VERSION_17\|VERSION_1_8\|sourceCompatibility\|targetCompatibility' project --include='*.gradle' --include='*.gradle.kts' || true
+          # Keep Kotlin compatible with the existing Android Java 8 target.
           find project -type f \( -name '*.gradle' -o -name '*.gradle.kts' \) -exec sed -i 's/jvmTarget[[:space:]]*=[[:space:]]*"17"/jvmTarget = "1.8"/g; s/jvmTarget[[:space:]]*=[[:space:]]*\x2717\x27/jvmTarget = \x271.8\x27/g' {} +
-          find project -name settings.gradle -print
-                    # Align Java compilation with Kotlin JVM target 17
-          find project -name build.gradle -exec sed -i 's/JavaVersion\.VERSION_1_8/JavaVersion.VERSION_17/g' {} +
+          echo '--- Kotlin JVM settings after normalization ---'
+          grep -R -n 'jvmTarget\|VERSION_17\|VERSION_1_8\|sourceCompatibility\|targetCompatibility' project --include='*.gradle' --include='*.gradle.kts' || true
       - name: Build APK
         run: |
           curl -fsSL https://services.gradle.org/distributions/gradle-8.7-bin.zip -o /tmp/gradle.zip
