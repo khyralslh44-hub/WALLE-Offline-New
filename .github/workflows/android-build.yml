@@ -20,8 +20,24 @@ jobs:
         run: |
           mkdir -p project
           unzip -o 'WALLE_Offline_Android_Fixed (2).zip' -d project
-          echo '--- JVM target settings found in project ---'
-          grep -R -n 'jvmTarget\|VERSION_17\|VERSION_1_8\|sourceCompatibility\|targetCompatibility' project --include='*.gradle' --include='*.gradle.kts' || true
+          echo '--- Align app JVM targets to Java 1.8 for this test build ---'
+          APP_GRADLE="$(find "$GITHUB_WORKSPACE/project" -path '*/app/build.gradle' -print -quit)"
+          test -n "$APP_GRADLE"
+          cat >> "$APP_GRADLE" <<'EOF'
+
+          // Temporary CI compatibility override: keep Java and Kotlin targets aligned.
+          android {
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_1_8
+                  targetCompatibility = JavaVersion.VERSION_1_8
+              }
+              kotlinOptions {
+                  jvmTarget = "1.8"
+              }
+          }
+          EOF
+          echo '--- Effective JVM target declarations ---'
+          grep -n 'jvmTarget\|VERSION_1_8\|sourceCompatibility\|targetCompatibility' "$APP_GRADLE" || true
       - name: Build APK
         run: |
           curl -fsSL https://services.gradle.org/distributions/gradle-8.7-bin.zip -o /tmp/gradle.zip
