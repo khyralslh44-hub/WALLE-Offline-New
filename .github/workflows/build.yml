@@ -31,7 +31,14 @@ jobs:
           SETTINGS="$(find "$GITHUB_WORKSPACE/project" -name settings.gradle -print -quit)"
           test -n "$SETTINGS"
           cd "$(dirname "$SETTINGS")"
-          /tmp/gradle-8.7/bin/gradle assembleDebug
+          cat > /tmp/force-jvm-target.gradle <<'EOF'
+          allprojects {
+            tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+              kotlinOptions.jvmTarget = "1.8"
+            }
+          }
+          EOF
+          /tmp/gradle-8.7/bin/gradle -I /tmp/force-jvm-target.gradle assembleDebug
       - name: Save APK
         uses: actions/upload-artifact@v4
         with:
