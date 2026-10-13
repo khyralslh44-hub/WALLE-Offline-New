@@ -93,6 +93,7 @@ class MainActivity : ComponentActivity() {
                 }
                 MotionEvent.ACTION_UP -> {
                     val longPress = SystemClock.uptimeMillis() - touchDownAt >= 550L
+                    lastInteractionAt = SystemClock.elapsedRealtime()
                     react(brain.touched(longPress), true)
                     true
                 }
@@ -178,7 +179,7 @@ class MainActivity : ComponentActivity() {
                 lastLabelAt[label] = elapsed
                 val sightings = memory.remember(label)
                 val decision = brain.observe(label, best.confidence, sightings)
-                lastInteractionAt = elapsed
+                // Observing a scene is not a user interaction; do not suppress autonomous idle behavior.
                 Log.i("EVE", "VISION label=$label confidence=${best.confidence} sightings=$sightings mood=${decision.mood}")
                 react(decision, decision.playSound)
             }
