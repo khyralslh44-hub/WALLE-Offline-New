@@ -62,6 +62,7 @@ class MainActivity : ComponentActivity() {
             if (inactive >= 5_000L) {
                 val decision = brain.idle(inactive, idleCount)
                 face.setMood(decision.mood, System.currentTimeMillis() xor Random.nextLong())
+                Log.i("EVE", "AUTONOMOUS mood=${decision.mood} reason=${decision.reason} inactiveMs=$inactive")
             }
             main.postDelayed(this, 5200L + Random.nextLong(2200L))
         }
