@@ -22,88 +22,50 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-          cache: gradle
 
-      - name: Check and extract project
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y unzip curl openjdk-17-jdk
+
+      - name: Extract project and align JVM targets
         run: |
           set -euo pipefail
           ZIP='WALLE_Offline_Android_Fixed (2).zip'
           test -f "$ZIP" || { echo "ERROR: Project ZIP not found: $ZIP"; exit 1; }
           mkdir -p project
           unzip -o "$ZIP" -d project
-          SETTINGS="$(find project \( -name settings.gradle -o -name settings.gradle.kts \) -print -quit)"
-          test -n "$SETTINGS" || { echo "ERROR: settings.gradle(.kts) not found in ZIP"; exit 1; }
-          echo "GRADLE_ROOT=$(dirname "$SETTINGS")" >> "$GITHUB_ENV"
 
-      - name: Align Java and Kotlin JVM targets
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-          import re, sys
+          APP_GRADLE="$(find "$GITHUB_WORKSPACE/project" -path '*/app/build.gradle' -print -quit)"
+          test -n "$APP_GRADLE" || { echo "ERROR: app/build.gradle not found inside the project ZIP"; exit 1; }
 
-          root = Path("project")
-          candidates = [p for p in (root.rglob("app/build.gradle"), root.rglob("app/build.gradle.kts"))]
-          app_files = []
-          for group in candidates:
-              app_files.extend(group)
-          if not app_files:
-              sys.exit("ERROR: app/build.gradle or app/build.gradle.kts not found")
-          p = app_files[0]
-          s = p.read_text()
+          # The known-good Android build uses JVM 1.8 for both Java and Kotlin.
+          cat >> "$APP_GRADLE" <<'EOF'
 
-          # Normalize common Java 8/Kotlin 1.8 target declarations without relying on shell quoting.
-          s = re.sub(r'(jvmTarget\s*=\s*["\'])(?:1\.8|8)(["\'])', r'\g<1>17\2', s)
-          s = re.sub(r'JavaVersion\.VERSION_1_8', 'JavaVersion.VERSION_17', s)
-          s = re.sub(r'(sourceCompatibility\s*=\s*["\'])(?:1\.8|8)(["\'])', r'\g<1>17\2', s)
-          s = re.sub(r'(targetCompatibility\s*=\s*["\'])(?:1\.8|8)(["\'])', r'\g<1>17\2', s)
-
-          if p.suffix == ".kts":
-              s += """
-
-          // CI safeguard: align Java and Kotlin bytecode targets on JVM 17.
+          // CI override: Java and Kotlin must use the same JVM bytecode target.
           android {
               compileOptions {
-                  sourceCompatibility = JavaVersion.VERSION_17
-                  targetCompatibility = JavaVersion.VERSION_17
+                  sourceCompatibility = JavaVersion.VERSION_1_8
+                  targetCompatibility = JavaVersion.VERSION_1_8
               }
-          }
-          tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
               kotlinOptions {
-                  jvmTarget = "17"
+                  jvmTarget = "1.8"
               }
           }
-          """
-          else:
-              s += """
+          EOF
 
-          // CI safeguard: align Java and Kotlin bytecode targets on JVM 17.
-          android {
-              compileOptions {
-                  sourceCompatibility JavaVersion.VERSION_17
-                  targetCompatibility JavaVersion.VERSION_17
-              }
-              kotlinOptions {
-                  jvmTarget = "17"
-              }
-          }
-          """
-          p.write_text(s)
-          print(f"Aligned JVM targets in {p}")
-          PY
+          echo "--- Effective JVM target declarations ---"
+          grep -n 'jvmTarget\|VERSION_1_8\|sourceCompatibility\|targetCompatibility' "$APP_GRADLE" || true
 
       - name: Build APK
-        working-directory: ${{ env.GRADLE_ROOT }}
         run: |
-          set -euxo pipefail
-          if [ -f ./gradlew ]; then
-            chmod +x ./gradlew
-            ./gradlew assembleDebug --stacktrace
-          else
-            curl -fsSL https://services.gradle.org/distributions/gradle-8.7-bin.zip -o /tmp/gradle.zip
-            unzip -q /tmp/gradle.zip -d /tmp
-            /tmp/gradle-8.7/bin/gradle assembleDebug --stacktrace
-          fi
+          set -euo pipefail
+          curl -fsSL https://services.gradle.org/distributions/gradle-8.7-bin.zip -o /tmp/gradle.zip
+          unzip -q /tmp/gradle.zip -d /tmp
+          SETTINGS="$(find "$GITHUB_WORKSPACE/project" \( -name settings.gradle -o -name settings.gradle.kts \) -print -quit)"
+          test -n "$SETTINGS" || { echo "ERROR: settings.gradle(.kts) not found"; exit 1; }
+          cd "$(dirname "$SETTINGS")"
+          /tmp/gradle-8.7/bin/gradle assembleDebug -Pkotlin.compiler.execution.strategy=in-process --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
