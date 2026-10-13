@@ -17,6 +17,8 @@ jobs:
     timeout-minutes: 35
     strategy:
       fail-fast: false
+      # Avoid running CPU-heavy Android emulators at the same time.
+      max-parallel: 1
       matrix:
         api-level: [29, 35]
 
@@ -62,6 +64,79 @@ jobs:
           echo "SOURCE_RUN_ID=$RUN_ID" >> "$GITHUB_ENV"
           echo "APK located: $APK_PATH"
           sha256sum "$APK_PATH" | tee emulator-test-results/apk-sha256.txt
+
+      - name: Set up Java 17 for local face-model instrumentation
+        if: ${{ matrix.api-level == 35 }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Android SDK test build tools
+        if: ${{ matrix.api-level == 35 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager -print 2>/dev/null | sort -V | tail -n 1)"
+          if [ -z "$SDKMANAGER" ]; then
+            echo "ERROR: sdkmanager not found under $SDK_ROOT/cmdline-tools"
+            exit 1
+          fi
+          yes | "$SDKMANAGER" --sdk_root="$SDK_ROOT" --licenses >/dev/null 2>&1 || true
+          "$SDKMANAGER" --sdk_root="$SDK_ROOT" --install "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+          echo "$SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
+
+      - name: Install Gradle 8.9 for instrumentation
+        if: ${{ matrix.api-level == 35 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 "https://services.gradle.org/distributions/gradle-8.9-bin.zip" --output "$RUNNER_TEMP/gradle-8.9-bin.zip"
+          unzip -q "$RUNNER_TEMP/gradle-8.9-bin.zip" -d "$RUNNER_TEMP"
+
+      - name: Download pinned portrait and FER model for offline instrumentation
+        if: ${{ matrix.api-level == 35 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          FIXTURE="eve-project/app/src/androidTest/assets/face_fixture.jpg"
+          MODEL="eve-project/app/src/main/assets/eve_emotion_model.tflite"
+          mkdir -p "$(dirname "$FIXTURE")" "$(dirname "$MODEL")"
+          curl --fail --location --retry 3 \
+            "https://raw.githubusercontent.com/googlesamples/mlkit/f1047837fe1e02d58063bfc30b830fad23ffbc35/ios/quickstarts/vision/Resources/grace_hopper.jpg" \
+            --output "$FIXTURE"
+          EXPECTED_FIXTURE="d2a427810f679db537236c5430873a81a62ef412"
+          ACTUAL_FIXTURE="$(git hash-object "$FIXTURE")"
+          if [ "$ACTUAL_FIXTURE" != "$EXPECTED_FIXTURE" ]; then
+            echo "FAIL: portrait fixture hash mismatch: $ACTUAL_FIXTURE"
+            exit 1
+          fi
+          curl --fail --location --retry 3 \
+            "https://raw.githubusercontent.com/EnricoZanetti/moodstream/af59e5cdbd45936051a27e694b160996526f11bb/models/emotion_model.tflite" \
+            --output "$MODEL"
+          EXPECTED_MODEL="508da02d7ebad42e160ad4df0e946e2a16bf4c66"
+          ACTUAL_MODEL="$(git hash-object "$MODEL")"
+          if [ "$ACTUAL_MODEL" != "$EXPECTED_MODEL" ]; then
+            echo "FAIL: FER model hash mismatch: $ACTUAL_MODEL"
+            exit 1
+          fi
+          grep -Fq 'face_fixture.jpg' eve-project/app/src/androidTest/java/com/eve/robot/FaceVisionIntegrationTest.kt
+          echo "PASS: pinned face fixture and FER model verified."
+          sha256sum "$FIXTURE" "$MODEL" | tee "$RUNNER_TEMP/fer-input-sha256.txt"
+
+      - name: Prebuild instrumentation APK and logic tests
+        if: ${{ matrix.api-level == 35 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/gradle-8.9/bin/gradle" --no-daemon --stacktrace -p eve-project testDebugUnitTest assembleDebugAndroidTest
+          TEST_APK="$GITHUB_WORKSPACE/eve-project/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk"
+          test -s "$TEST_APK"
+          echo "TEST_APK_PATH=$TEST_APK" >> "$GITHUB_ENV"
+          mkdir -p emulator-test-results
+          cp "$RUNNER_TEMP/fer-input-sha256.txt" emulator-test-results/fer-input-sha256.txt
+          echo "PASS: instrumentation APK built from the same source revision."
 
       - name: Install, launch, and interact with APK offline in Android emulator
         uses: reactivecircus/android-emulator-runner@v2
