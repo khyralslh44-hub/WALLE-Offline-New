@@ -218,12 +218,18 @@ if grep -E "INSTRUMENTATION_FAILED|FAILURES!!!|INSTRUMENTATION_STATUS_CODE: -2" 
 fi
 
 for marker in FACE_ROBUSTNESS_PASS FACE_FIXTURE_PASS FER_MODEL_PASS OFFLINE_AFFECT_LEARNING_PASS; do
-  if ! grep -F "$marker" "$RESULT_DIR/logcat.txt" >/dev/null 2>&1; then
+  # AndroidJUnitRunner may capture test stdout while logcat can be lost if the emulator's
+  # background services restart. Accept the marker from either independent diagnostic stream.
+  if ! grep -F "$marker" "$RESULT_DIR/logcat.txt" "$RESULT_DIR/instrumentation-output.txt" >/dev/null 2>&1; then
     echo "FAIL: required instrumentation marker missing: $marker" | tee -a "$RESULT_DIR/environment.txt"
     echo "Inspect instrumentation-output.txt, logcat.txt, test-signals.txt and androidTests report." | tee -a "$RESULT_DIR/environment.txt"
     exit 12
   fi
   echo "PASS: instrumentation marker $marker" | tee -a "$RESULT_DIR/environment.txt"
 done
+if ! grep -Eq 'OK \([0-9]+ tests?\)' "$RESULT_DIR/instrumentation-output.txt"; then
+  echo "FAIL: AndroidJUnitRunner did not report a complete passing test suite." | tee -a "$RESULT_DIR/environment.txt"
+  exit 13
+fi
 
 echo "PASS: unit tests, offline face detection, TFLite expression inference, affect-to-eye mapping, offline preference memory and APK build." | tee -a "$RESULT_DIR/environment.txt"
