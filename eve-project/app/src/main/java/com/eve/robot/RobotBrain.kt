@@ -40,7 +40,7 @@ class RobotBrain {
     @Synchronized
     fun observe(label: String, confidence: Float, sightings: Int, learnedAffinity: Float = 0f): EveDecision {
         val item = label.trim().lowercase()
-        if (item.isBlank() || confidence < 0.45f) {
+        if (item.isBlank() || !confidence.isFinite() || confidence < 0.45f) {
             valence = (valence - 0.12f).coerceIn(-1f, 1f)
             arousal = 0.22f
             curiosity = (curiosity + 0.08f).coerceAtMost(1f)
@@ -115,6 +115,9 @@ class RobotBrain {
         rightEyeOpenProbability: Float?,
         headYawDegrees: Float
     ): EveDecision {
+        if (!headYawDegrees.isFinite()) {
+            return snapshot(EveMood.NEUTRAL, "uncertain head pose", false)
+        }
         if (abs(headYawDegrees) > 22f) {
             curiosity = (curiosity + 0.10f).coerceAtMost(1f)
             val decision = snapshot(EveMood.CURIOUS, "face turned partly away", false)
@@ -122,9 +125,12 @@ class RobotBrain {
             return decision
         }
 
-        val eyes = listOfNotNull(leftEyeOpenProbability, rightEyeOpenProbability)
+        val eyes = listOfNotNull(
+            leftEyeOpenProbability?.takeIf { it.isFinite() }?.coerceIn(0f, 1f),
+            rightEyeOpenProbability?.takeIf { it.isFinite() }?.coerceIn(0f, 1f)
+        )
         val eyesOpen = if (eyes.isEmpty()) null else eyes.average().toFloat()
-        val smile = smilingProbability?.coerceIn(0f, 1f)
+        val smile = smilingProbability?.takeIf { it.isFinite() }?.coerceIn(0f, 1f)
 
         val mood = when {
             smile != null && smile >= 0.72f -> {
@@ -247,7 +253,7 @@ class EveMemory(context: Context) {
         if (key.isBlank() || !reward.isFinite()) return learnedAffinity(label)
         val old = learnedAffinity(key)
         val boundedReward = reward.coerceIn(-1f, 1f)
-        val updated = (old * 0.88f + boundedReward * 0.12f).coerceIn(-1f, 1f)
+        val updated = (old * 0.78f + boundedReward * 0.22f).coerceIn(-1f, 1f)
         val count = (prefs.getInt("feedback:$key", 0) + 1).coerceAtMost(100_000)
         prefs.edit()
             .putFloat("affinity:$key", updated)
