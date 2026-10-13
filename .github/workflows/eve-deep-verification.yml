@@ -6,6 +6,7 @@ on:
     paths:
       - 'eve-project/**'
       - '.github/workflows/eve-deep-verification.yml'
+      - '.github/scripts/run-deep-face-test.sh'
 
 permissions:
   contents: read
