@@ -3,15 +3,19 @@ package com.eve.robot
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
-import android.util.Log
 import android.os.SystemClock
+import android.util.Log
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.PI
+import kotlin.math.exp
 import kotlin.math.sin
-import kotlin.random.Random
 
-/** Original synthesized electronic chirps; not an imitation or recording of a movie voice. */
+/**
+ * A locally synthesized, soft electronic character cue.
+ * This is an original EVE-inspired timbre, not copied movie audio or an actor voice clone.
+ * AudioTrack uses the media stream, so the phone's volume buttons control its loudness.
+ */
 class RobotVoice {
     private val executor = Executors.newSingleThreadExecutor()
     private val lastPlayed = AtomicLong(0L)
@@ -23,72 +27,126 @@ class RobotVoice {
         val now = SystemClock.elapsedRealtime()
         val previousMood = lastMood
         val elapsed = now - lastPlayed.get()
-        // Quietly ignore rapid repeats, especially the same mood caused by a jittery classifier.
-        if (!force && (elapsed < 35_000L || (previousMood == mood && elapsed < 120_000L))) return
+        // Character cues are rare by design: no sound loop and no repeated mood chatter.
+        if (!force && previousMood != null &&
+            (elapsed < 35_000L || (previousMood == mood && elapsed < 120_000L))
+        ) return
         lastPlayed.set(now)
         lastMood = mood
-        try { executor.execute { play(mood) } } catch (_: Exception) { }
+        try {
+            executor.execute { play(mood) }
+        } catch (_: Exception) {
+            Log.w("EVE_VOICE", "Voice executor is not available.")
+        }
     }
+
+    private data class VoiceProfile(
+        val pitch: Double,
+        val pitchLift: Double,
+        val pitchFall: Double,
+        val formant1: Double,
+        val formant2: Double,
+        val durationMs: Int
+    )
 
     private fun play(mood: EveMood) {
         if (closed) return
-        val r = Random(System.nanoTime())
-        // One continuous, softly gliding electronic tone per cue: no rapid multi-note chirps.
-        val (baseHz, glideHz, endingSlope) = when (mood) {
-            EveMood.HAPPY -> Triple(270.0, 28.0, 2.0)
-            EveMood.SURPRISED -> Triple(285.0, 42.0, -4.0)
-            EveMood.SLEEPY -> Triple(235.0, -12.0, -3.0)
-            EveMood.CONCERNED -> Triple(245.0, -15.0, -3.0)
-            EveMood.FAMILIAR -> Triple(255.0, 18.0, 2.0)
-            EveMood.FOCUSED -> Triple(250.0, 10.0, -2.0)
-            EveMood.AWAKE -> Triple(260.0, 24.0, 2.0)
-            else -> Triple(250.0, 14.0, 0.0)
+        // A low, stable, vowel-shaped electronic voice rather than fast, high-pitched bird chirps.
+        val profile = when (mood) {
+            EveMood.HAPPY -> VoiceProfile(205.0, 18.0, -5.0, 690.0, 1180.0, 900)
+            EveMood.SURPRISED -> VoiceProfile(218.0, 26.0, -12.0, 720.0, 1280.0, 760)
+            EveMood.SLEEPY -> VoiceProfile(178.0, 7.0, -15.0, 580.0, 990.0, 1050)
+            EveMood.CONCERNED -> VoiceProfile(188.0, 5.0, -14.0, 610.0, 1030.0, 950)
+            EveMood.FAMILIAR -> VoiceProfile(198.0, 13.0, -3.0, 670.0, 1120.0, 920)
+            EveMood.FOCUSED -> VoiceProfile(190.0, 8.0, -4.0, 620.0, 1090.0, 820)
+            EveMood.AWAKE -> VoiceProfile(202.0, 15.0, -3.0, 680.0, 1160.0, 850)
+            EveMood.CURIOUS -> VoiceProfile(210.0, 17.0, -7.0, 700.0, 1210.0, 850)
+            EveMood.NEUTRAL -> VoiceProfile(192.0, 9.0, -4.0, 640.0, 1080.0, 820)
         }
-        val rate = 24000
-        val sampleCount = rate * 7 / 10 // 700 ms, one low smooth electronic swell.
+
+        val rate = 24_000
+        val sampleCount = rate * profile.durationMs / 1000
         val pcm = ShortArray(sampleCount)
         var phase = 0.0
-        val individualOffset = r.nextInt(-5, 6)
+        val formant1 = profile.formant1
+        val formant2 = profile.formant2
+
         for (i in 0 until sampleCount) {
             val p = i.toDouble() / (sampleCount - 1)
-            val hz = baseHz + individualOffset + glideHz * sin(p * PI) + endingSlope * p
-            phase += 2.0 * PI * hz / rate
-            val fadeIn = (i / (rate * 0.075f)).coerceIn(0f, 1f)
-            val fadeOut = ((sampleCount - i) / (rate * 0.11f)).coerceIn(0f, 1f)
-            val envelope = minOf(fadeIn, fadeOut)
-            val fundamental = sin(phase)
-            val harmonic = fundamental * 0.985 + sin(phase * 2.0 + 0.18) * 0.015
-            val subtleVibrato = 1.0 + 0.002 * sin(p * PI * 6.0)
-            pcm[i] = (harmonic * envelope * subtleVibrato * 0.045 * Short.MAX_VALUE).toInt().toShort()
+            // Slow, smooth pitch contour; no random note hopping or sharp whistles.
+            val pitch = profile.pitch +
+                profile.pitchLift * sin(PI * p) +
+                profile.pitchFall * p
+            phase += 2.0 * PI * pitch / rate
+
+            val attack = (p / 0.12).coerceIn(0.0, 1.0)
+            val release = ((1.0 - p) / 0.24).coerceIn(0.0, 1.0)
+            val envelope = attack * release
+            var sample = 0.0
+            var weightSum = 0.0
+
+            // Harmonics weighted around two formant regions create a soft, vowel-like timbre.
+            // The fundamental stays dominant; upper harmonics are intentionally restrained.
+            for (harmonic in 1..9) {
+                val frequency = pitch * harmonic
+                val base = 1.0 / (harmonic.toDouble().powSoft(1.25))
+                val f1 = 0.38 * exp(-square((frequency - formant1) / 190.0))
+                val f2 = 0.19 * exp(-square((frequency - formant2) / 250.0))
+                val formantWeight = base + f1 + f2
+                sample += sin(phase * harmonic) * formantWeight
+                weightSum += formantWeight
+            }
+
+            val normalized = if (weightSum > 0.0) sample / weightSum else 0.0
+            // A tiny slow shimmer avoids a sterile beep without creating a bird-like warble.
+            val shimmer = 1.0 + 0.0015 * sin(2.0 * PI * 2.2 * p)
+            pcm[i] = (normalized * envelope * shimmer * 0.13 * Short.MAX_VALUE)
+                .toInt().coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
         }
+
         var track: AudioTrack? = null
         try {
             track = AudioTrack.Builder()
-                .setAudioAttributes(AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_MEDIA)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
-                .setAudioFormat(AudioFormat.Builder()
-                    .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                    .setSampleRate(rate)
-                    .setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                        .build()
+                )
+                .setAudioFormat(
+                    AudioFormat.Builder()
+                        .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                        .setSampleRate(rate)
+                        .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                        .build()
+                )
                 .setBufferSizeInBytes(pcm.size * 2)
                 .setTransferMode(AudioTrack.MODE_STATIC)
                 .build()
+
             val written = track.write(pcm, 0, pcm.size, AudioTrack.WRITE_BLOCKING)
             if (written == pcm.size && !closed) {
-                track.setVolume(0.18f)
+                // Gentle source gain; media volume buttons remain the master volume control.
+                track.setVolume(0.22f)
                 track.play()
-                Log.i("EVE_VOICE", "PLAYBACK_STARTED mood=$mood written=$written samples=${pcm.size} state=${track.playState}")
-                Thread.sleep(pcm.size * 1000L / rate + 80L)
+                Log.i("EVE_VOICE", "PLAYBACK_STARTED mood=$mood samples=$sampleCount state=${track.playState}")
+                Thread.sleep(profile.durationMs + 100L)
                 Log.i("EVE_VOICE", "PLAYBACK_FINISHED mood=$mood")
             } else {
-                Log.e("EVE_VOICE", "PLAYBACK_NOT_STARTED mood=$mood written=$written expected=${pcm.size} closed=$closed state=${track.state}")
+                Log.e("EVE_VOICE", "PLAYBACK_NOT_STARTED mood=$mood written=$written expected=${pcm.size}")
             }
         } catch (e: Exception) {
             Log.e("EVE_VOICE", "PLAYBACK_FAILED mood=$mood", e)
         } finally {
             try { track?.release() } catch (_: Exception) { }
         }
+    }
+
+    private fun square(value: Double) = value * value
+
+    private fun Double.powSoft(exponent: Double): Double {
+        // integer-loop version avoids bringing extra math libraries into this tiny offline synthesizer
+        return kotlin.math.pow(this, exponent)
     }
 
     fun close() {
