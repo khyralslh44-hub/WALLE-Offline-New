@@ -9,6 +9,7 @@ on:
       - '.github/workflows/emulator-smoke-test.yml'
       - '.github/workflows/eve-deep-verification.yml'
       - '.github/scripts/emulator-smoke-test.sh'
+      - '.github/scripts/run-deep-face-test.sh'
 
 permissions:
   contents: read
