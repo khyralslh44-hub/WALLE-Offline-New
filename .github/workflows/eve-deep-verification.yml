@@ -68,7 +68,7 @@ jobs:
           file "$FIXTURE" || true
           sha256sum "$FIXTURE" | tee "$RUNNER_TEMP/face-fixture-sha256.txt"
 
-      - name: Run unit and real face-model tests with emulator network disabled
+      - name: Run unit, adversarial affect stress, and real face-model tests offline
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: ${{ matrix.api-level }}
@@ -89,7 +89,8 @@ jobs:
             "$RUNNER_TEMP/gradle-8.9/bin/gradle" --no-daemon --stacktrace -p eve-project testDebugUnitTest connectedDebugAndroidTest assembleDebug > "$RESULT_DIR/gradle-test.log" 2>&1 || GRADLE_EXIT=$?
             cat "$RESULT_DIR/gradle-test.log"
             adb logcat -d -v threadtime > "$RESULT_DIR/logcat.txt" || true
-            grep -E "EVE_TEST|AndroidJUnitRunner|Tests run|OK \\(|FAILURES!!!|FATAL EXCEPTION|ANR in" "$RESULT_DIR/logcat.txt" "$RESULT_DIR/gradle-test.log" > "$RESULT_DIR/test-signals.txt" || true
+            cp "$RUNNER_TEMP/face-fixture-sha256.txt" "$RESULT_DIR/face-fixture-sha256.txt" 2>/dev/null || true
+            grep -E "EVE_TEST|AndroidJUnitRunner|Tests run|OK \\(|FAILURES!!!|FATAL EXCEPTION|ANR in|BUILD SUCCESSFUL|BUILD FAILED" "$RESULT_DIR/logcat.txt" "$RESULT_DIR/gradle-test.log" > "$RESULT_DIR/test-signals.txt" || true
             if [ "$GRADLE_EXIT" -ne 0 ]; then
               echo "FAIL: Gradle/instrumentation test exited with status $GRADLE_EXIT." >> "$RESULT_DIR/environment.txt"
               exit "$GRADLE_EXIT"
