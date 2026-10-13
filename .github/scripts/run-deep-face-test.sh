@@ -43,7 +43,7 @@ if grep -Eq 'android.permission.INTERNET' "$MANIFEST"; then
   echo "FAIL: app manifest requests INTERNET permission." | tee -a "$RESULT_DIR/environment.txt"
   exit 1
 fi
-if [ ! -s "$GITHUB_WORKSPACE/eve-project/app/src/androidTest/assets/face_smile.png" ]; then
+if [ ! -s "$GITHUB_WORKSPACE/eve-project/app/src/androidTest/assets/face_fixture.jpg" ]; then
   echo "FAIL: pinned face fixture is missing." | tee -a "$RESULT_DIR/environment.txt"
   exit 2
 fi
