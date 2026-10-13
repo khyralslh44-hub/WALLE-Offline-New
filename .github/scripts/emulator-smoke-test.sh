@@ -51,6 +51,29 @@ if [ -z "$PID" ]; then
 fi
 echo "PASS: EVE stayed alive after launch with Wi-Fi and mobile data disabled (PID $PID)." | tee -a "$RESULTS_DIR/result.txt"
 
+# Android 10 can show a one-time immersive-mode teaching overlay above the app.
+# Dismiss that system overlay before asserting the app's UI hierarchy.
+timeout 15s adb shell uiautomator dump /sdcard/eve-initial.xml > "$RESULTS_DIR/uiautomator-initial.txt" 2>&1 || true
+adb pull /sdcard/eve-initial.xml "$RESULTS_DIR/window-initial.xml" >/dev/null 2>&1 || true
+if [ -s "$RESULTS_DIR/window-initial.xml" ] && \
+   grep -F 'resource-id="android:id/immersive_cling_title"' "$RESULTS_DIR/window-initial.xml" >/dev/null && \
+   grep -F 'resource-id="android:id/ok"' "$RESULTS_DIR/window-initial.xml" >/dev/null; then
+  read -r OK_X OK_Y <<< "$(python3 - "$RESULTS_DIR/window-initial.xml" <<'PY'
+import re, sys
+from pathlib import Path
+xml = Path(sys.argv[1]).read_text(errors="replace")
+m = re.search(r'<node[^>]*resource-id="android:id/ok"[^>]*bounds="\\[(\\d+),(\\d+)\\]\\[(\\d+),(\\d+)\\]"', xml)
+if not m:
+    raise SystemExit("Could not parse immersive overlay's Got it button bounds")
+x1, y1, x2, y2 = map(int, m.groups())
+print((x1+x2)//2, (y1+y2)//2)
+PY
+)"
+  echo "Dismissing Android immersive-mode education overlay at ($OK_X,$OK_Y)." | tee -a "$RESULTS_DIR/result.txt"
+  adb shell input tap "$OK_X" "$OK_Y"
+  sleep 2
+fi
+
 adb exec-out screencap -p > "$RESULTS_DIR/eve-face.png"
 test -s "$RESULTS_DIR/eve-face.png"
 timeout 15s adb shell uiautomator dump /sdcard/eve-ui.xml > "$RESULTS_DIR/uiautomator.txt" 2>&1 || true
