@@ -104,21 +104,73 @@ if [ -s "$RESULTS_DIR/window.xml" ] && grep -F 'btnTalk' "$RESULTS_DIR/window.xm
   exit 1
 fi
 
-# Touch the center of the borderless face and check for a corresponding reaction.
+# Wait for an actual ML Kit label while Wi-Fi and mobile data are disabled.
+# Seeing only "camera started" is not enough to prove the classifier returned a result.
+VISION_FOUND=false
+for attempt in $(seq 1 35); do
+  adb logcat -d -v threadtime > "$RESULTS_DIR/logcat-camera-wait.txt"
+  if grep -F "VISION label=" "$RESULTS_DIR/logcat-camera-wait.txt" >/dev/null; then
+    VISION_FOUND=true
+    break
+  fi
+  sleep 1
+done
+if [ "$VISION_FOUND" != true ]; then
+  echo "FAIL: no ML Kit image label was returned while offline."
+  adb logcat -d -v threadtime > "$RESULTS_DIR/logcat-no-vision.txt"
+  exit 1
+fi
+LABEL="$(python3 - "$RESULTS_DIR/logcat-camera-wait.txt" <<'PY'
+import re, sys
+from pathlib import Path
+log = Path(sys.argv[1]).read_text(errors="replace")
+m = re.search(r'VISION label=(.*?) confidence=', log)
+if not m:
+    raise SystemExit("FAIL: a camera label could not be parsed from logcat.")
+print(m.group(1).strip().lower())
+PY
+)"
+echo "PASS: offline ML Kit returned label '$LABEL'." | tee -a "$RESULTS_DIR/result.txt"
+
+# Verify the label counter is actually persisted to private SharedPreferences.
+sleep 1
+adb shell run-as "$PACKAGE" cat shared_prefs/eve_local_memory.xml > "$RESULTS_DIR/memory-before-restart.xml" || {
+  echo "FAIL: could not read the app's local memory file."
+  exit 1
+}
+BEFORE_COUNT="$(python3 - "$RESULTS_DIR/memory-before-restart.xml" "$LABEL" <<'PY'
+import sys, xml.etree.ElementTree as ET
+root = ET.parse(sys.argv[1]).getroot()
+key = "count:" + sys.argv[2]
+for item in root:
+    if item.attrib.get("name") == key:
+        print(item.attrib.get("value", ""))
+        break
+else:
+    raise SystemExit(f"FAIL: no saved sighting counter for {key}")
+PY
+)"
+if ! [[ "$BEFORE_COUNT" =~ ^[0-9]+$ ]] || [ "$BEFORE_COUNT" -lt 1 ]; then
+  echo "FAIL: stored sighting counter is not a positive integer."
+  exit 1
+fi
+echo "PASS: local memory saved '$LABEL' with sighting count $BEFORE_COUNT." | tee -a "$RESULTS_DIR/result.txt"
+
+# Touch the center of the face and require a mood reaction plus an AudioTrack play call.
 SIZE="$(adb shell wm size | grep -Eo '[0-9]+x[0-9]+' | tail -n 1)"
-WIDTH="${SIZE%x*}"
-HEIGHT="${SIZE#*x}"
+WIDTH="$(printf '%s' "$SIZE" | cut -d x -f 1)"
+HEIGHT="$(printf '%s' "$SIZE" | cut -d x -f 2)"
 X=$((WIDTH / 2))
 Y=$((HEIGHT / 2))
 echo "Touching face center ($X,$Y)." | tee -a "$RESULTS_DIR/result.txt"
 adb shell input tap "$X" "$Y"
 sleep 2
-PID_AFTER="$(adb shell pidof "$PACKAGE" 2>/dev/null | tr -d '\\r' || true)"
+PID_AFTER="$(adb shell pidof "$PACKAGE" 2>/dev/null | tr -d '\r' || true)"
 test -n "$PID_AFTER" || { echo "FAIL: EVE died after touch."; exit 1; }
 adb exec-out screencap -p > "$RESULTS_DIR/eve-face-after-touch.png"
 
 adb logcat -d -v threadtime > "$RESULTS_DIR/logcat.txt"
-if grep -E 'FATAL EXCEPTION.*com\\.eve\\.robot|ANR in com\\.eve\\.robot' "$RESULTS_DIR/logcat.txt" >/dev/null; then
+if grep -E 'FATAL EXCEPTION.*com\.eve\.robot|ANR in com\.eve\.robot' "$RESULTS_DIR/logcat.txt" >/dev/null; then
   echo "FAIL: app-specific fatal exception or ANR observed."
   exit 1
 fi
@@ -134,4 +186,41 @@ if ! grep -F "AUTONOMOUS mood=" "$RESULTS_DIR/logcat.txt" >/dev/null; then
   echo "FAIL: no autonomous idle behavior was observed during the test."
   exit 1
 fi
-echo "PASS: offline launch, camera start, autonomous behavior, touch reaction, and no app crash/ANR." | tee -a "$RESULTS_DIR/result.txt"
+if ! grep -F "EVE_VOICE: PLAYBACK_STARTED mood=CURIOUS" "$RESULTS_DIR/logcat.txt" >/dev/null; then
+  echo "FAIL: AudioTrack did not confirm playback for the touch reaction."
+  grep -F "EVE_VOICE:" "$RESULTS_DIR/logcat.txt" | tail -20 || true
+  exit 1
+fi
+echo "PASS: a synthesized mood chirp was submitted to Android AudioTrack." | tee -a "$RESULTS_DIR/result.txt"
+
+# Force-stop/relaunch and verify that the saved label count persists.
+adb shell am force-stop "$PACKAGE"
+adb shell am start -W -n "$COMPONENT" 2>&1 | tee "$RESULTS_DIR/relaunch.txt"
+grep -F "Status: ok" "$RESULTS_DIR/relaunch.txt"
+sleep 3
+PID_AFTER_RESTART="$(adb shell pidof "$PACKAGE" 2>/dev/null | tr -d '\r' || true)"
+test -n "$PID_AFTER_RESTART" || { echo "FAIL: EVE did not stay alive after restart."; exit 1; }
+adb shell run-as "$PACKAGE" cat shared_prefs/eve_local_memory.xml > "$RESULTS_DIR/memory-after-restart.xml" || {
+  echo "FAIL: could not read local memory after restart."
+  exit 1
+}
+AFTER_COUNT="$(python3 - "$RESULTS_DIR/memory-after-restart.xml" "$LABEL" <<'PY'
+import sys, xml.etree.ElementTree as ET
+root = ET.parse(sys.argv[1]).getroot()
+key = "count:" + sys.argv[2]
+for item in root:
+    if item.attrib.get("name") == key:
+        print(item.attrib.get("value", ""))
+        break
+else:
+    raise SystemExit(f"FAIL: local memory key {key} disappeared after restart")
+PY
+)"
+if ! [[ "$AFTER_COUNT" =~ ^[0-9]+$ ]] || [ "$AFTER_COUNT" -lt "$BEFORE_COUNT" ]; then
+  echo "FAIL: saved sighting count did not survive restart (before=$BEFORE_COUNT after=$AFTER_COUNT)."
+  exit 1
+fi
+echo "PASS: local sighting memory survived force-stop/relaunch (before=$BEFORE_COUNT after=$AFTER_COUNT)." | tee -a "$RESULTS_DIR/result.txt"
+
+adb logcat -d -v threadtime > "$RESULTS_DIR/logcat-after-restart.txt"
+echo "PASS: offline launch, image labeling, autonomous idle behavior, touch reaction, synthesized audio submission, persistent sighting counter, and no app crash/ANR." | tee -a "$RESULTS_DIR/result.txt"
