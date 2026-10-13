@@ -23,10 +23,10 @@ jobs:
     timeout-minutes: 45
     strategy:
       fail-fast: false
-      # These CPU-only emulators are memory hungry; serialize them to avoid boot/test stalls.
-      max-parallel: 1
+      # The regular smoke workflow already checks Android 29 and 35. Run the heavyweight
+      # face/FER instrumentation once on API 35 to avoid competing low-memory emulators.
       matrix:
-        api-level: [29, 35]
+        api-level: [35]
 
     steps:
       - name: Check out exact source revision
