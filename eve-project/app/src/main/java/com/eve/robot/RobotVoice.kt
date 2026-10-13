@@ -3,6 +3,7 @@ package com.eve.robot
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
+import android.util.Log
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.PI
@@ -70,12 +71,16 @@ class RobotVoice {
                 .setTransferMode(AudioTrack.MODE_STATIC)
                 .build()
             val written = track.write(pcm, 0, pcm.size, AudioTrack.WRITE_BLOCKING)
-            if (written > 0 && !closed) {
+            if (written == pcm.size && !closed) {
                 track.play()
+                Log.i("EVE_VOICE", "PLAYBACK_STARTED mood=$mood written=$written samples=${pcm.size} state=${track.playState}")
                 Thread.sleep(pcm.size * 1000L / rate + 80L)
+                Log.i("EVE_VOICE", "PLAYBACK_FINISHED mood=$mood")
+            } else {
+                Log.e("EVE_VOICE", "PLAYBACK_NOT_STARTED mood=$mood written=$written expected=${pcm.size} closed=$closed state=${track.state}")
             }
-        } catch (_: Exception) {
-            // Audio failure should never interrupt vision or face animation.
+        } catch (e: Exception) {
+            Log.e("EVE_VOICE", "PLAYBACK_FAILED mood=$mood", e)
         } finally {
             try { track?.release() } catch (_: Exception) { }
         }
