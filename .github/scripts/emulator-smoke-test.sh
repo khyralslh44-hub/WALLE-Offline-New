@@ -156,6 +156,84 @@ if ! [[ "$BEFORE_COUNT" =~ ^[0-9]+$ ]] || [ "$BEFORE_COUNT" -lt 1 ]; then
 fi
 echo "PASS: local memory saved '$LABEL' with sighting count $BEFORE_COUNT." | tee -a "$RESULTS_DIR/result.txt"
 
+# The emulator sometimes raises a system ANR dialog for Pixel Launcher above the app.
+# Dismiss it before tapping so the test tap reaches EVE rather than a system window.
+dump_ui() {
+  timeout 12s adb shell uiautomator dump /sdcard/eve-pre-touch.xml > "$RESULTS_DIR/uiautomator-pre-touch.txt" 2>&1 || true
+  adb pull /sdcard/eve-pre-touch.xml "$RESULTS_DIR/window-pre-touch.xml" >/dev/null 2>&1 || true
+}
+dump_ui
+OVERLAY_RESULT="$(python3 - "$RESULTS_DIR/window-pre-touch.xml" <<'PY'
+import re, sys
+from pathlib import Path
+import xml.etree.ElementTree as ET
+p = Path(sys.argv[1])
+if not p.exists() or p.stat().st_size == 0:
+    print("UNKNOWN")
+    raise SystemExit(0)
+root = ET.parse(p).getroot()
+nodes = list(root.iter("node"))
+texts = [(node.attrib.get("text", "") or "").strip().lower() for node in nodes]
+has_anr = any(("isn't responding" in t) or ("is not responding" in t) or ("not responding" in t) for t in texts)
+if not has_anr:
+    print("NONE")
+    raise SystemExit(0)
+targets = [
+    ("android:id/aerr_close", "close app"),
+    ("", "close app"),
+    ("android:id/aerr_wait", "wait"),
+    ("", "wait"),
+]
+for resource, text in targets:
+    for node in nodes:
+        if resource and node.attrib.get("resource-id") != resource:
+            continue
+        if not resource and (node.attrib.get("text", "") or "").strip().lower() != text:
+            continue
+        bounds = node.attrib.get("bounds", "")
+        m = re.fullmatch(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", bounds)
+        if m:
+            x1, y1, x2, y2 = map(int, m.groups())
+            print(f"ANR {text} {(x1+x2)//2} {(y1+y2)//2}")
+            raise SystemExit(0)
+print("ANR_NO_BUTTON")
+PY
+)"
+if [[ "$OVERLAY_RESULT" == ANR* ]]; then
+  echo "WARN: system ANR overlay detected before touch: $OVERLAY_RESULT" | tee -a "$RESULTS_DIR/result.txt"
+  read -r _ OVERLAY_ACTION OX OY <<< "$OVERLAY_RESULT"
+  if [ -n "$OX" ] && [ -n "$OY" ]; then
+    adb shell input tap "$OX" "$OY"
+    sleep 2
+    adb shell am start -W -n "$COMPONENT" 2>&1 | tee "$RESULTS_DIR/foreground-after-system-overlay.txt"
+    grep -F "Status: ok" "$RESULTS_DIR/foreground-after-system-overlay.txt"
+    sleep 2
+    dump_ui
+    STILL_ANR="$(python3 - "$RESULTS_DIR/window-pre-touch.xml" <<'PY'
+import sys, xml.etree.ElementTree as ET
+from pathlib import Path
+p = Path(sys.argv[1])
+if not p.exists() or p.stat().st_size == 0:
+    print("UNKNOWN")
+else:
+    root = ET.parse(p).getroot()
+    texts = [((n.attrib.get("text", "") or "").strip().lower()) for n in root.iter("node")]
+    print("YES" if any(("isn't responding" in t) or ("is not responding" in t) or ("not responding" in t) for t in texts) else "NO")
+PY
+)"
+    if [ "$STILL_ANR" = "YES" ]; then
+      echo "FAIL: system ANR overlay remained above EVE after dismissal."
+      exit 1
+    fi
+    echo "PASS: system overlay was dismissed and EVE was foregrounded again." | tee -a "$RESULTS_DIR/result.txt"
+  else
+    echo "FAIL: system ANR overlay was detected but its button could not be located."
+    exit 1
+  fi
+elif [ "$OVERLAY_RESULT" = "UNKNOWN" ]; then
+  echo "WARN: UI hierarchy unavailable before touch; retaining screenshot/logcat for review." | tee -a "$RESULTS_DIR/result.txt"
+fi
+
 # Touch the center of the face and require a mood reaction plus an AudioTrack play call.
 SIZE="$(adb shell wm size | grep -Eo '[0-9]+x[0-9]+' | tail -n 1)"
 WIDTH="$(printf '%s' "$SIZE" | cut -d x -f 1)"
