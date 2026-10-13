@@ -109,7 +109,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        if (::face.isInitialized) face.startAnimation()
+        if (::face.isInitialized) {
+            face.startAnimation()
+            main.removeCallbacks(idleLoop)
+            main.postDelayed(idleLoop, 5200L)
+        }
         if (::face.isInitialized && hasCameraPermission() && !cameraStarted) startCamera()
     }
 
