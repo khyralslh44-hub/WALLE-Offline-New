@@ -106,8 +106,8 @@ fi
 
 # Touch the center of the borderless face and check for a corresponding reaction.
 SIZE="$(adb shell wm size | grep -Eo '[0-9]+x[0-9]+' | tail -n 1)"
-WIDTH="\${SIZE%x*}"
-HEIGHT="\${SIZE#*x}"
+WIDTH="${SIZE%x*}"
+HEIGHT="${SIZE#*x}"
 X=$((WIDTH / 2))
 Y=$((HEIGHT / 2))
 echo "Touching face center ($X,$Y)." | tee -a "$RESULTS_DIR/result.txt"
