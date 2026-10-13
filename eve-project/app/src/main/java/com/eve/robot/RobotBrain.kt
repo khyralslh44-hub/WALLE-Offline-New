@@ -38,7 +38,7 @@ class RobotBrain {
     private enum class Kind { FOOD, ANIMAL, PERSON, PLANT, OTHER }
 
     @Synchronized
-    fun observe(label: String, confidence: Float, sightings: Int): EveDecision {
+    fun observe(label: String, confidence: Float, sightings: Int, learnedAffinity: Float = 0f): EveDecision {
         val item = label.trim().lowercase()
         if (item.isBlank() || confidence < 0.45f) {
             valence = (valence - 0.12f).coerceIn(-1f, 1f)
@@ -48,26 +48,27 @@ class RobotBrain {
         }
 
         val kind = classify(item)
+        val affinity = learnedAffinity.takeIf { it.isFinite() }?.coerceIn(-1f, 1f) ?: 0f
         fatigue = (fatigue - 0.12f).coerceAtLeast(0f)
         when (kind) {
             Kind.FOOD -> {
-                valence = (valence + 0.24f).coerceAtMost(0.95f)
+                valence = (valence + 0.24f + affinity * 0.18f).coerceIn(-1f, 0.95f)
                 arousal = 0.56f
                 curiosity = 0.50f
             }
             Kind.ANIMAL -> {
-                valence = (valence + 0.18f).coerceAtMost(0.80f)
+                valence = (valence + 0.18f + affinity * 0.18f).coerceIn(-1f, 0.80f)
                 arousal = 0.63f
                 curiosity = 0.91f
             }
             Kind.PERSON -> {
-                valence = (valence + 0.10f).coerceAtMost(0.70f)
+                valence = (valence + 0.10f + affinity * 0.15f).coerceIn(-1f, 0.70f)
                 arousal = 0.46f
                 curiosity = 0.66f
                 familiarity = (familiarity + 0.04f).coerceAtMost(0.8f)
             }
             Kind.PLANT -> {
-                valence = (valence + 0.06f).coerceAtMost(0.65f)
+                valence = (valence + 0.06f + affinity * 0.12f).coerceIn(-1f, 0.65f)
                 arousal = 0.34f
                 curiosity = 0.76f
             }
@@ -79,10 +80,13 @@ class RobotBrain {
             }
         }
 
-        if (kind != Kind.OTHER && sightings >= 3) {
-            familiarity = (familiarity + 0.18f).coerceAtMost(1f)
-            valence = (valence + 0.06f).coerceAtMost(0.95f)
-            return snapshot(EveMood.FAMILIAR, "familiar $kind: $item", false)
+        val repeatedlySeen = sightings >= 3
+        val deliberatelyReinforced = sightings >= 2 && affinity >= 0.42f
+        if (kind != Kind.OTHER && (repeatedlySeen || deliberatelyReinforced)) {
+            familiarity = (familiarity + 0.18f + affinity.coerceAtLeast(0f) * 0.08f).coerceAtMost(1f)
+            valence = (valence + 0.06f + affinity.coerceAtLeast(0f) * 0.08f).coerceAtMost(0.95f)
+            val reason = if (deliberatelyReinforced) "familiar positive association: $item" else "familiar $kind: $item"
+            return snapshot(EveMood.FAMILIAR, reason, false)
         }
 
         val mood = when (kind) {
@@ -223,5 +227,36 @@ class EveMemory(context: Context) {
         return next
     }
 
-    fun sightings(label: String): Int = prefs.getInt("count:${label.trim().lowercase().take(80)}", 0)
+    fun sightings(label: String): Int =
+        prefs.getInt("count:${label.trim().lowercase().take(80)}", 0)
+
+    /** Persist a tiny per-label preference value, not camera frames or identity information. */
+    fun learnedAffinity(label: String): Float {
+        val key = label.trim().lowercase().take(80)
+        if (key.isBlank()) return 0f
+        return prefs.getFloat("affinity:$key", 0f).takeIf { it.isFinite() }?.coerceIn(-1f, 1f) ?: 0f
+    }
+
+    /**
+     * A long, deliberate hold can act as positive reinforcement for the last high-confidence
+     * meaningful label. This is transparent online personalization, not retraining the vision model.
+     */
+    @Synchronized
+    fun reinforce(label: String, reward: Float = 1f): Float {
+        val key = label.trim().lowercase().take(80)
+        if (key.isBlank() || !reward.isFinite()) return learnedAffinity(label)
+        val old = learnedAffinity(key)
+        val boundedReward = reward.coerceIn(-1f, 1f)
+        val updated = (old * 0.88f + boundedReward * 0.12f).coerceIn(-1f, 1f)
+        val count = (prefs.getInt("feedback:$key", 0) + 1).coerceAtMost(100_000)
+        prefs.edit()
+            .putFloat("affinity:$key", updated)
+            .putInt("feedback:$key", count)
+            .putLong("feedbackAt:$key", System.currentTimeMillis())
+            .apply()
+        return updated
+    }
+
+    fun feedbackCount(label: String): Int =
+        prefs.getInt("feedback:${label.trim().lowercase().take(80)}", 0)
 }
