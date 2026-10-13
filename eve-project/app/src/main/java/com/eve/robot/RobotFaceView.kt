@@ -39,6 +39,11 @@ class RobotFaceView(context: Context) : View(context) {
     private var blinkAt = SystemClock.uptimeMillis() + 2000L
     private var blinkStarted = 0L
     private var animate = false
+    private var glanceX = 0f
+    private var glanceY = 0f
+    private var targetGlanceX = 0f
+    private var targetGlanceY = 0f
+    private var nextGlanceAt = SystemClock.uptimeMillis() + 2400L
 
     init {
         isClickable = true
@@ -130,18 +135,27 @@ class RobotFaceView(context: Context) : View(context) {
             if (p < 0.5f) 1f - p * 1.8f else 0.1f + (p - 0.5f) * 1.8f
         } else 1f
         if (blinkStarted > 0L && now - blinkStarted >= 180L) blinkStarted = 0L
-        val idleGaze = if (animate) sin(now / 1370.0).toFloat() * 0.026f else 0f
-        val idleGazeY = if (animate) sin(now / 2110.0).toFloat() * 0.013f else 0f
-        val breath = if (animate) 0.972f + 0.028f * sin(now / 910.0).toFloat() else 1f
-        val w = min(width * 0.34f, height * 0.26f) * eyeWidth
-        val h = min(height * 0.34f, w * 1.40f) * eyeHeight
-        val gap = min(width * 0.19f, w * 0.60f) * spacing
+        if (animate && now >= nextGlanceAt) {
+            // Unscripted short glances make the face feel observant rather than a static icon.
+            targetGlanceX = rng.nextFloat() * 0.085f - 0.0425f
+            targetGlanceY = rng.nextFloat() * 0.038f - 0.019f
+            nextGlanceAt = now + 1900L + rng.nextLong(3900L)
+        }
+        val glanceEase = if (animate) 0.075f else 1f
+        glanceX += (targetGlanceX - glanceX) * glanceEase
+        glanceY += (targetGlanceY - glanceY) * glanceEase
+        val idleGaze = if (animate) sin(now / 1610.0).toFloat() * 0.012f else 0f
+        val idleGazeY = if (animate) sin(now / 2340.0).toFloat() * 0.007f else 0f
+        val breath = if (animate) 0.965f + 0.035f * sin(now / 980.0).toFloat() else 1f
+        val w = min(width * 0.35f, height * 0.27f) * eyeWidth
+        val h = min(height * 0.34f, w * 1.43f) * eyeHeight
+        val gap = min(width * 0.18f, w * 0.58f) * spacing
         val cy = height * 0.50f
-        drawEye(canvas, width * 0.5f - gap + (gazeX + idleGaze) * width,
-            cy + (gazeY + idleGazeY) * height, w * (1f + asymmetry * 0.24f), h,
+        drawEye(canvas, width * 0.5f - gap + (gazeX + idleGaze + glanceX) * width,
+            cy + (gazeY + idleGazeY + glanceY * 0.42f) * height, w * (1f + asymmetry * 0.24f), h,
             opening * blink * breath * (1f + asymmetry * 0.30f), tilt, glow, squint)
-        drawEye(canvas, width * 0.5f + gap + (gazeX + idleGaze + asymmetry * 0.025f) * width,
-            cy + (gazeY + idleGazeY - asymmetry * 0.035f) * height, w * (1f - asymmetry * 0.24f), h,
+        drawEye(canvas, width * 0.5f + gap + (gazeX + idleGaze + glanceX + asymmetry * 0.025f) * width,
+            cy + (gazeY + idleGazeY + glanceY * 0.42f - asymmetry * 0.035f) * height, w * (1f - asymmetry * 0.24f), h,
             opening * blink * breath * (1f - asymmetry * 0.30f), -tilt, glow, squint)
         if (animate) postInvalidateDelayed(32L)
     }
@@ -151,23 +165,38 @@ class RobotFaceView(context: Context) : View(context) {
         val hh = h * 0.5f * openness.coerceIn(0.06f, 1.18f)
         val curve = squinting.coerceIn(0.45f, 1.22f)
         shape.reset()
+        // Soft, large EVE-inspired oval almond. The silhouette and lid aperture are varied
+        // continuously by the emotional state, while the requested green eye color stays fixed.
         shape.moveTo(cx - hw, cy)
-        shape.cubicTo(cx - hw * 0.58f, cy - hh * curve, cx + hw * 0.50f, cy - hh * curve, cx + hw, cy)
-        shape.cubicTo(cx + hw * 0.54f, cy + hh * 0.83f, cx - hw * 0.56f, cy + hh * 0.83f, cx - hw, cy)
+        shape.cubicTo(cx - hw * 0.96f, cy - hh * 0.48f * curve, cx - hw * 0.54f, cy - hh * 0.98f * curve, cx, cy - hh * curve)
+        shape.cubicTo(cx + hw * 0.58f, cy - hh * 0.98f * curve, cx + hw * 0.98f, cy - hh * 0.46f * curve, cx + hw, cy)
+        shape.cubicTo(cx + hw * 0.98f, cy + hh * 0.58f, cx + hw * 0.54f, cy + hh * 0.98f, cx, cy + hh * 0.96f)
+        shape.cubicTo(cx - hw * 0.58f, cy + hh * 0.98f, cx - hw * 0.98f, cy + hh * 0.54f, cx - hw, cy)
         shape.close()
         c.save()
         c.rotate(angle, cx, cy)
         edge.shader = null
+        // Layered restrained glow gives the eyes depth without a black pupil or harsh neon rim.
+        edge.strokeWidth = max(2f, w * 0.20f)
+        edge.color = Color.argb((25f * intensity).toInt().coerceIn(0, 36), 25, 255, 105)
+        c.drawPath(shape, edge)
+        edge.strokeWidth = max(2f, w * 0.095f)
+        edge.color = Color.argb((42f * intensity).toInt().coerceIn(0, 55), 35, 255, 115)
+        c.drawPath(shape, edge)
         edge.strokeWidth = max(2f, w * 0.065f)
-        edge.color = Color.argb((35f * intensity).toInt().coerceIn(0, 48), 25, 255, 105)
+        edge.color = Color.argb((48f * intensity).toInt().coerceIn(0, 62), 25, 255, 105)
         c.drawPath(shape, edge)
         edge.strokeWidth = max(1.5f, w * 0.025f)
-        edge.color = Color.argb((80f * intensity).toInt().coerceIn(0, 100), 60, 255, 130)
+        edge.color = Color.argb((88f * intensity).toInt().coerceIn(0, 110), 60, 255, 130)
         c.drawPath(shape, edge)
         fill.style = Paint.Style.FILL
-        fill.shader = LinearGradient(cx, cy - hh, cx, cy + hh,
-            intArrayOf(Color.rgb(178, 255, 205), Color.rgb(42, 255, 120), Color.rgb(0, 145, 67)),
-            null, Shader.TileMode.CLAMP)
+        val eyeColors = when (mood) {
+            EveMood.SLEEPY, EveMood.CONCERNED -> intArrayOf(Color.rgb(150, 235, 178), Color.rgb(30, 218, 103), Color.rgb(0, 104, 48))
+            EveMood.HAPPY, EveMood.SURPRISED -> intArrayOf(Color.rgb(222, 255, 232), Color.rgb(70, 255, 144), Color.rgb(0, 162, 70))
+            else -> intArrayOf(Color.rgb(190, 255, 215), Color.rgb(44, 245, 119), Color.rgb(0, 137, 61))
+        }
+        fill.shader = LinearGradient(cx - hw * 0.2f, cy - hh, cx + hw * 0.12f, cy + hh,
+            eyeColors, null, Shader.TileMode.CLAMP)
         c.drawPath(shape, fill)
         fill.shader = null
         edge.strokeWidth = max(1.5f, w * 0.009f)
