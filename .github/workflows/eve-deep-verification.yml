@@ -58,7 +58,7 @@ jobs:
           set -euo pipefail
           FIXTURE="eve-project/app/src/androidTest/assets/face_smile.png"
           mkdir -p "$(dirname "$FIXTURE")"
-          curl --fail --location --retry 3             "https://raw.githubusercontent.com/ateymoori/android_face_detection/master/app/src/main/res/drawable-nodpi/smile.png"             --output "$FIXTURE"
+          curl --fail --location --retry 3             "https://raw.githubusercontent.com/ateymoori/android_face_detection/25cd4f20f18ef558ee653e59ea8461e09d2d44e3/app/src/main/res/drawable-nodpi/smile.png"             --output "$FIXTURE"
           EXPECTED="8a359b6b03383a9c9612da31b6c85ad5e93d54b8"
           ACTUAL="$(git hash-object "$FIXTURE")"
           echo "Fixture Git blob hash: $ACTUAL"
