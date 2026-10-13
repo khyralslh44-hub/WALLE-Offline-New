@@ -35,6 +35,13 @@ class EveFaceCueSmootherTest {
         assertTrue(requireNotNull(stable).smilingProbability!! >= 0.72f)
     }
 
+    @Test fun closedEyesWinOverConflictingHighSmileProbability() {
+        val smoother = EveFaceCueSmoother()
+        assertNull(smoother.add(EveFaceCue(0.99f, 0.05f, 0.08f, 0f)))
+        assertNull(smoother.add(EveFaceCue(0.98f, 0.06f, 0.07f, 0f)))
+        assertNull(smoother.add(EveFaceCue(0.97f, 0.08f, 0.05f, 0f)))
+    }
+
     @Test fun aSingleBlinkIsIgnoredAndRepeatedClosedEyeCuesNeverBecomeSadness() {
         val smoother = EveFaceCueSmoother()
         assertNull(smoother.add(EveFaceCue(0.05f, 0.05f, 0.08f, 0f)))
