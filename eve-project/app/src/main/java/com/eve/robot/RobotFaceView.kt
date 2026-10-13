@@ -74,6 +74,43 @@ class RobotFaceView(context: Context) : View(context) {
         invalidate()
     }
 
+    /**
+     * Compose each expression from continuous affect values as well as its mood.
+     * This deliberately generates a large space of parameterized expressions rather than
+     * cycling through a small set of fixed pictures.
+     */
+    fun setExpression(decision: EveDecision, seed: Long = SystemClock.uptimeMillis()) {
+        setMood(decision.mood, seed)
+        val r = Random(seed xor 0x4E56454L)
+        val emotion = decision.valence.coerceIn(-1f, 1f)
+        val alertness = decision.arousal.coerceIn(0f, 1f)
+        val curiosity = decision.curiosity.coerceIn(0f, 1f)
+        val familiarity = decision.familiarity.coerceIn(0f, 1f)
+        val tired = decision.fatigue.coerceIn(0f, 1f)
+        opening = (opening + (alertness - 0.42f) * 0.36f - tired * 0.18f
+            + (r.nextFloat() - 0.5f) * 0.18f).coerceIn(0.16f, 1.20f)
+        tilt = (tilt + emotion * 5.5f + (curiosity - 0.5f) * 9.0f
+            + (r.nextFloat() - 0.5f) * 5f).coerceIn(-17f, 17f)
+        gazeX = (gazeX + (curiosity - 0.5f) * 0.15f
+            + (r.nextFloat() - 0.5f) * 0.065f).coerceIn(-0.17f, 0.17f)
+        gazeY = (gazeY + tired * 0.065f - alertness * 0.035f
+            + (r.nextFloat() - 0.5f) * 0.05f).coerceIn(-0.12f, 0.12f)
+        glow = (glow * (0.82f + emotion * 0.12f + alertness * 0.06f))
+            .coerceIn(0.28f, 1f)
+        squint = (squint + emotion * 0.10f - tired * 0.30f
+            + (r.nextFloat() - 0.5f) * 0.16f).coerceIn(0.42f, 1.24f)
+        asymmetry = (asymmetry + (curiosity - 0.5f) * 0.44f
+            + (r.nextFloat() - 0.5f) * 0.34f).coerceIn(-0.42f, 0.42f)
+        eyeWidth = (eyeWidth + (alertness - 0.45f) * 0.11f
+            + (r.nextFloat() - 0.5f) * 0.10f).coerceIn(0.76f, 1.22f)
+        eyeHeight = (eyeHeight + emotion * 0.055f - tired * 0.12f
+            + (r.nextFloat() - 0.5f) * 0.10f).coerceIn(0.64f, 1.24f)
+        spacing = (spacing + (alertness - 0.4f) * 0.12f
+            + (r.nextFloat() - 0.5f) * 0.10f).coerceIn(0.80f, 1.20f)
+        blinkAt = SystemClock.uptimeMillis() + 1300L + r.nextLong(5200L)
+        invalidate()
+    }
+
     private fun vary(v: Float, range: Float, low: Float, high: Float, r: Random) =
         (v + (r.nextFloat() * 2f - 1f) * range).coerceIn(low, high)
 
@@ -93,14 +130,19 @@ class RobotFaceView(context: Context) : View(context) {
             if (p < 0.5f) 1f - p * 1.8f else 0.1f + (p - 0.5f) * 1.8f
         } else 1f
         if (blinkStarted > 0L && now - blinkStarted >= 180L) blinkStarted = 0L
-        val idleGaze = if (animate) sin(now / 1900.0).toFloat() * 0.012f else 0f
-        val breath = if (animate) 0.985f + 0.015f * sin(now / 850.0).toFloat() else 1f
+        val idleGaze = if (animate) sin(now / 1370.0).toFloat() * 0.026f else 0f
+        val idleGazeY = if (animate) sin(now / 2110.0).toFloat() * 0.013f else 0f
+        val breath = if (animate) 0.972f + 0.028f * sin(now / 910.0).toFloat() else 1f
         val w = min(width * 0.34f, height * 0.26f) * eyeWidth
         val h = min(height * 0.34f, w * 1.40f) * eyeHeight
         val gap = min(width * 0.19f, w * 0.60f) * spacing
         val cy = height * 0.50f
-        drawEye(canvas, width * 0.5f - gap + (gazeX + idleGaze) * width, cy + gazeY * height, w * (1f + asymmetry * 0.14f), h, opening * blink * breath, tilt, glow, squint)
-        drawEye(canvas, width * 0.5f + gap + (gazeX + idleGaze) * width, cy + gazeY * height, w * (1f - asymmetry * 0.14f), h, opening * blink * breath, -tilt, glow, squint)
+        drawEye(canvas, width * 0.5f - gap + (gazeX + idleGaze) * width,
+            cy + (gazeY + idleGazeY) * height, w * (1f + asymmetry * 0.24f), h,
+            opening * blink * breath * (1f + asymmetry * 0.30f), tilt, glow, squint)
+        drawEye(canvas, width * 0.5f + gap + (gazeX + idleGaze + asymmetry * 0.025f) * width,
+            cy + (gazeY + idleGazeY - asymmetry * 0.035f) * height, w * (1f - asymmetry * 0.24f), h,
+            opening * blink * breath * (1f - asymmetry * 0.30f), -tilt, glow, squint)
         if (animate) postInvalidateDelayed(32L)
     }
 
