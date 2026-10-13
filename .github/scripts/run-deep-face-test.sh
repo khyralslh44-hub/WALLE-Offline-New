@@ -15,11 +15,17 @@ GRADLE_LOG="$RESULT_DIR/gradle-test.log"
 mkdir -p "$RESULT_DIR"
 
 echo "EVE deep face test on Android API $API_LEVEL" | tee "$RESULT_DIR/environment.txt"
-echo "Expected offline execution: emulator Wi-Fi and mobile data disabled; app manifest declares no INTERNET permission." | tee -a "$RESULT_DIR/environment.txt"
+echo "Expected offline execution: app must not declare INTERNET; bundled ML models and data are local." | tee -a "$RESULT_DIR/environment.txt"
 
+MANIFEST="$GITHUB_WORKSPACE/eve-project/app/src/main/AndroidManifest.xml"
+if grep -Eq 'android.permission.INTERNET' "$MANIFEST"; then
+  echo "FAIL: app manifest requests INTERNET permission; offline-only invariant broken." | tee -a "$RESULT_DIR/environment.txt"
+  exit 1
+fi
 adb wait-for-device
+# Disable Wi-Fi if the emulator supports it. Do not call 'svc data disable': API 29
+# emulator's Telephony service can be null and crash the system command, killing ADB.
 adb shell svc wifi disable || true
-adb shell svc data disable || true
 adb logcat -c
 
 # Run Gradle directly and capture its exit code. Do not poll a background PID:
