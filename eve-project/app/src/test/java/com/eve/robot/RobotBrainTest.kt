@@ -90,6 +90,12 @@ class RobotBrainTest {
         assertFalse(decision.playSound)
     }
 
+    @Test fun closedEyesOverrideConflictingHighSmileProbability() {
+        val decision = RobotBrain().observeHumanFace(0.99f, 0.05f, 0.08f, 0f)
+        assertEquals(EveMood.FOCUSED, decision.mood)
+        assertFalse(decision.playSound)
+    }
+
     @Test fun oneClosedEyeFrameIsNotCalledSadnessOrSleep() {
         val decision = brain.observeHumanFace(0.10f, 0.08f, 0.12f, 0f)
         assertEquals(EveMood.FOCUSED, decision.mood)
