@@ -75,45 +75,7 @@ jobs:
           target: google_apis
           arch: x86_64
           profile: pixel_2
-          script: |
-            # android-emulator-runner invokes this block with /bin/sh, not Bash.
-            set -eu
-            mkdir -p "$GITHUB_WORKSPACE/eve-deep-results/api-${{ matrix.api-level }}"
-            RESULT_DIR="$GITHUB_WORKSPACE/eve-deep-results/api-${{ matrix.api-level }}"
-            adb wait-for-device
-            adb shell svc wifi disable || true
-            adb shell svc data disable || true
-            adb logcat -c
-            echo "Testing on Android API ${{ matrix.api-level }} with emulator Wi-Fi and mobile data disabled." > "$RESULT_DIR/environment.txt"
-            GRADLE_EXIT=0
-            (timeout 900s "$RUNNER_TEMP/gradle-8.9/bin/gradle" --no-daemon --stacktrace -p eve-project testDebugUnitTest connectedDebugAndroidTest assembleDebug > "$RESULT_DIR/gradle-test.log" 2>&1) &
-            GRADLE_PID=$!
-            LAST_LINE=0
-            while kill -0 "$GRADLE_PID" 2>/dev/null; do
-              CURRENT_LINE="$(wc -l < "$RESULT_DIR/gradle-test.log" 2>/dev/null || echo 0)"
-              if [ "$CURRENT_LINE" -gt "$LAST_LINE" ]; then
-                sed -n "$((LAST_LINE + 1)),${CURRENT_LINE}p" "$RESULT_DIR/gradle-test.log"
-                LAST_LINE="$CURRENT_LINE"
-              fi
-              sleep 10
-            done
-            wait "$GRADLE_PID" || GRADLE_EXIT=$?
-            CURRENT_LINE="$(wc -l < "$RESULT_DIR/gradle-test.log" 2>/dev/null || echo 0)"
-            if [ "$CURRENT_LINE" -gt "$LAST_LINE" ]; then
-              sed -n "$((LAST_LINE + 1)),${CURRENT_LINE}p" "$RESULT_DIR/gradle-test.log"
-            fi
-            adb logcat -d -v threadtime > "$RESULT_DIR/logcat.txt" || true
-            cp "$RUNNER_TEMP/face-fixture-sha256.txt" "$RESULT_DIR/face-fixture-sha256.txt" 2>/dev/null || true
-            grep -E "EVE_TEST|AndroidJUnitRunner|Tests run|OK \\(|FAILURES!!!|FATAL EXCEPTION|ANR in|BUILD SUCCESSFUL|BUILD FAILED" "$RESULT_DIR/logcat.txt" "$RESULT_DIR/gradle-test.log" > "$RESULT_DIR/test-signals.txt" || true
-            if [ "$GRADLE_EXIT" -ne 0 ]; then
-              echo "FAIL: Gradle/instrumentation test exited with status $GRADLE_EXIT." >> "$RESULT_DIR/environment.txt"
-              exit "$GRADLE_EXIT"
-            fi
-            if ! grep -F "FACE_FIXTURE_PASS" "$RESULT_DIR/logcat.txt" >/dev/null; then
-              echo "FAIL: real bundled face detector test did not log a successful face fixture result." | tee -a "$RESULT_DIR/environment.txt"
-              exit 1
-            fi
-            echo "PASS: bundled face model detected a face and the result flowed into affect and expression generation." | tee -a "$RESULT_DIR/environment.txt"
+          script: bash .github/scripts/run-deep-face-test.sh "${{ matrix.api-level }}"
 
       - name: Upload deep-test report, screenshots, and APK
         if: always()
