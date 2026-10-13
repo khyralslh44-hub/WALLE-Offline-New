@@ -1,0 +1,108 @@
+name: EVE Deep Offline Vision Verification
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'eve-project/**'
+      - '.github/workflows/eve-deep-verification.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  instrumented-face-test:
+    name: Real face-model test (API ${{ matrix.api-level }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        api-level: [29, 35]
+
+    steps:
+      - name: Check out exact source revision
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Android SDK packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager -print 2>/dev/null | sort -V | tail -n 1)"
+          if [ -z "$SDKMANAGER" ]; then
+            echo "ERROR: sdkmanager not found under $SDK_ROOT/cmdline-tools"
+            exit 1
+          fi
+          yes | "$SDKMANAGER" --sdk_root="$SDK_ROOT" --licenses >/dev/null 2>&1 || true
+          "$SDKMANAGER" --sdk_root="$SDK_ROOT" --install "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+          echo "$SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
+
+      - name: Install Gradle 8.9
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 "https://services.gradle.org/distributions/gradle-8.9-bin.zip" --output "$RUNNER_TEMP/gradle-8.9-bin.zip"
+          unzip -q "$RUNNER_TEMP/gradle-8.9-bin.zip" -d "$RUNNER_TEMP"
+
+      - name: Download and pin face-test fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          FIXTURE="eve-project/app/src/androidTest/assets/face_smile.png"
+          mkdir -p "$(dirname "$FIXTURE")"
+          curl --fail --location --retry 3             "https://raw.githubusercontent.com/ateymoori/android_face_detection/master/app/src/main/res/drawable-nodpi/smile.png"             --output "$FIXTURE"
+          EXPECTED="8a359b6b03383a9c9612da31b6c85ad5e93d54b8"
+          ACTUAL="$(git hash-object "$FIXTURE")"
+          echo "Fixture Git blob hash: $ACTUAL"
+          if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "FAIL: face fixture hash changed; refusing unreviewed input."
+            exit 1
+          fi
+          file "$FIXTURE" || true
+          sha256sum "$FIXTURE" | tee "$RUNNER_TEMP/face-fixture-sha256.txt"
+
+      - name: Run unit and real face-model tests with emulator network disabled
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api-level }}
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          script: |
+            set -euo pipefail
+            mkdir -p "$GITHUB_WORKSPACE/eve-deep-results/api-${{ matrix.api-level }}"
+            RESULT_DIR="$GITHUB_WORKSPACE/eve-deep-results/api-${{ matrix.api-level }}"
+            adb wait-for-device
+            adb shell svc wifi disable || true
+            adb shell svc data disable || true
+            adb logcat -c
+            echo "Testing on Android API ${{ matrix.api-level }} with emulator Wi-Fi and mobile data disabled." | tee "$RESULT_DIR/environment.txt"
+            "$RUNNER_TEMP/gradle-8.9/bin/gradle"               --no-daemon --stacktrace -p eve-project               testDebugUnitTest connectedDebugAndroidTest assembleDebug               2>&1 | tee "$RESULT_DIR/gradle-test.log"
+            adb logcat -d -v threadtime > "$RESULT_DIR/logcat.txt"
+            grep -E "EVE_TEST|AndroidJUnitRunner|Tests run|OK \(|FAILURES!!!|FATAL EXCEPTION|ANR in" "$RESULT_DIR/logcat.txt" "$RESULT_DIR/gradle-test.log" > "$RESULT_DIR/test-signals.txt" || true
+            if ! grep -F "FACE_FIXTURE_PASS" "$RESULT_DIR/logcat.txt" >/dev/null; then
+              echo "FAIL: real bundled face detector test did not log a successful face fixture result."
+              exit 1
+            fi
+            echo "PASS: bundled face model detected a face and the result flowed into affect and expression generation." | tee -a "$RESULT_DIR/environment.txt"
+
+      - name: Upload deep-test report, screenshots, and APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EVE-Deep-Verification-API-${{ matrix.api-level }}
+          path: |
+            eve-deep-results/**
+            eve-project/app/build/reports/tests/testDebugUnitTest/**
+            eve-project/app/build/reports/androidTests/connected/**
+            eve-project/app/build/outputs/androidTest-results/connected/**
+            eve-project/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: warn
+          retention-days: 14
