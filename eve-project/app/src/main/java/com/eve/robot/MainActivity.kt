@@ -3,6 +3,7 @@ package com.eve.robot
 import android.Manifest
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.graphics.ImageFormat
 import android.graphics.Matrix
 import android.graphics.Rect
 import android.os.Bundle
@@ -18,7 +19,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
-import androidx.camera.core.toBitmap
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.content.ContextCompat
 import com.google.mlkit.vision.common.InputImage
@@ -210,18 +210,9 @@ class MainActivity : ComponentActivity() {
         // crop a detected face, while the ML Kit tasks continue using the original camera image.
         val frameBitmap = if (emotionClassifier.isReady) {
             try {
-                val raw = proxy.toBitmap()
-                val rotation = proxy.imageInfo.rotationDegrees % 360
-                if (rotation == 0) {
-                    raw
-                } else {
-                    val matrix = Matrix().apply { postRotate(rotation.toFloat()) }
-                    Bitmap.createBitmap(raw, 0, 0, raw.width, raw.height, matrix, true).also {
-                        if (it !== raw) raw.recycle()
-                    }
-                }
+                imageProxyToUprightBitmap(proxy)
             } catch (error: Exception) {
-                Log.w("EVE_FER", "Could not convert camera frame for the local emotion model.", error)
+                Log.w("EVE_FER", "Could not convert camera YUV frame for the local emotion model.", error)
                 null
             }
         } else {
@@ -370,6 +361,59 @@ class MainActivity : ComponentActivity() {
                     finishFrameConsumer()
                 }
             }
+    }
+
+    /**
+     * Convert CameraX YUV_420_888 planes to RGB without relying on ImageProxy.toBitmap(),
+     * which is not present in all CameraX versions supported by this project. Rotate the
+     * resulting bitmap to the same upright coordinate space used by ML Kit's bounding box.
+     */
+    private fun imageProxyToUprightBitmap(proxy: ImageProxy): Bitmap? {
+        if (proxy.format != ImageFormat.YUV_420_888 || proxy.planes.size < 3) return null
+        val width = proxy.width
+        val height = proxy.height
+        if (width < 2 || height < 2) return null
+
+        val yPlane = proxy.planes[0]
+        val uPlane = proxy.planes[1]
+        val vPlane = proxy.planes[2]
+        val yBuffer = yPlane.buffer.duplicate()
+        val uBuffer = uPlane.buffer.duplicate()
+        val vBuffer = vPlane.buffer.duplicate()
+        val yBase = yBuffer.position()
+        val uBase = uBuffer.position()
+        val vBase = vBuffer.position()
+        val pixels = IntArray(width * height)
+
+        for (row in 0 until height) {
+            val yRow = yBase + row * yPlane.rowStride
+            val uvRowU = uBase + (row shr 1) * uPlane.rowStride
+            val uvRowV = vBase + (row shr 1) * vPlane.rowStride
+            for (col in 0 until width) {
+                val yy = (yBuffer.get(yRow + col * yPlane.pixelStride).toInt() and 0xff) - 16
+                val u = (uBuffer.get(uvRowU + (col shr 1) * uPlane.pixelStride).toInt() and 0xff) - 128
+                val v = (vBuffer.get(uvRowV + (col shr 1) * vPlane.pixelStride).toInt() and 0xff) - 128
+                val y = (yy.coerceAtLeast(0)) * 1192
+                val red = ((y + 1634 * v) shr 10).coerceIn(0, 255)
+                val green = ((y - 833 * v - 400 * u) shr 10).coerceIn(0, 255)
+                val blue = ((y + 2066 * u) shr 10).coerceIn(0, 255)
+                pixels[row * width + col] =
+                    (0xff shl 24) or (red shl 16) or (green shl 8) or blue
+            }
+        }
+
+        val raw = Bitmap.createBitmap(pixels, width, height, Bitmap.Config.ARGB_8888)
+        val rotation = ((proxy.imageInfo.rotationDegrees % 360) + 360) % 360
+        if (rotation == 0) return raw
+        val matrix = Matrix().apply { postRotate(rotation.toFloat()) }
+        return try {
+            Bitmap.createBitmap(raw, 0, 0, raw.width, raw.height, matrix, true).also {
+                if (it !== raw) raw.recycle()
+            }
+        } catch (error: Exception) {
+            raw.recycle()
+            throw error
+        }
     }
 
     private fun cropFaceBitmap(frame: Bitmap, box: Rect): Bitmap? {
