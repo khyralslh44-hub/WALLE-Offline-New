@@ -26,7 +26,9 @@ adb wait-for-device
 # Disable Wi-Fi if the emulator supports it. Do not call 'svc data disable': API 29
 # emulator's Telephony service can be null and crash the system command, killing ADB.
 adb shell svc wifi disable || true
-adb logcat -c
+# Clearing logcat can fail on some API 29 emulator images ("failed to clear the main log").
+# This is diagnostic-only; do not abort the face/model tests because a log buffer is busy.
+adb logcat -c >/dev/null 2>&1 || echo "WARN: could not clear emulator logcat buffer; tests will continue." | tee -a "$RESULT_DIR/environment.txt"
 
 # Run Gradle directly and capture its exit code. Do not poll a background PID:
 # kill -0 can remain true for an unreaped zombie, leaving CI apparently stuck forever.
