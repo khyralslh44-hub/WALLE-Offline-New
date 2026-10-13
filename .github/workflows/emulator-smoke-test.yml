@@ -125,18 +125,26 @@ jobs:
           echo "PASS: pinned face fixture and FER model verified."
           sha256sum "$FIXTURE" "$MODEL" | tee "$RUNNER_TEMP/fer-input-sha256.txt"
 
-      - name: Prebuild instrumentation APK and logic tests
+      - name: Build matching app and instrumentation APKs with the same signing key
         if: ${{ matrix.api-level == 35 }}
         shell: bash
         run: |
           set -euo pipefail
-          "$RUNNER_TEMP/gradle-8.9/bin/gradle" --no-daemon --stacktrace -p eve-project testDebugUnitTest assembleDebugAndroidTest
+          # Debug signing keys are generated per runner. The downloaded production APK was
+          # signed on another runner, so it cannot be instrumented by this runner's test APK.
+          # Build both APKs here so Android sees the same debug certificate on both packages.
+          "$RUNNER_TEMP/gradle-8.9/bin/gradle" --no-daemon --stacktrace -p eve-project testDebugUnitTest assembleDebug assembleDebugAndroidTest
+          LOCAL_APK="$GITHUB_WORKSPACE/eve-project/app/build/outputs/apk/debug/app-debug.apk"
           TEST_APK="$GITHUB_WORKSPACE/eve-project/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk"
+          test -s "$LOCAL_APK"
           test -s "$TEST_APK"
+          echo "APK_PATH=$LOCAL_APK" >> "$GITHUB_ENV"
           echo "TEST_APK_PATH=$TEST_APK" >> "$GITHUB_ENV"
+          echo "SOURCE_RUN_ID=local-$GITHUB_RUN_ID" >> "$GITHUB_ENV"
           mkdir -p emulator-test-results
           cp "$RUNNER_TEMP/fer-input-sha256.txt" emulator-test-results/fer-input-sha256.txt
-          echo "PASS: instrumentation APK built from the same source revision."
+          sha256sum "$LOCAL_APK" "$TEST_APK" | tee emulator-test-results/same-run-apk-sha256.txt
+          echo "PASS: app and instrumentation APKs were built together using the same debug signing identity."
 
       - name: Install, launch, and interact with APK offline in Android emulator
         uses: reactivecircus/android-emulator-runner@v2
