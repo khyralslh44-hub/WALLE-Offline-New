@@ -59,23 +59,38 @@ if ! timeout 90s adb wait-for-device >> "$RESULT_DIR/environment.txt" 2>&1; then
   echo "FAIL: ADB could not reach emulator within 90 seconds." | tee -a "$RESULT_DIR/environment.txt"
   exit 70
 fi
-if ! timeout 15s adb get-state 2>&1 | grep -q '^device$'; then
-  echo "FAIL: ADB has no usable device after wait-for-device." | tee -a "$RESULT_DIR/environment.txt"
+
+# Wait for Android boot and Package Manager, not merely the ADB transport.
+BOOTED=false
+for attempt in $(seq 1 180); do
+  BOOT_COMPLETE="$(timeout 8s adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
+  if [ "$BOOT_COMPLETE" = "1" ] && timeout 10s adb shell pm list packages >/dev/null 2>&1; then
+    BOOTED=true
+    break
+  fi
+  sleep 1
+done
+if [ "$BOOTED" != true ]; then
+  echo "FAIL: Android system/Package Manager did not become ready within 180 seconds." | tee -a "$RESULT_DIR/environment.txt"
+  timeout 15s adb devices -l > "$RESULT_DIR/adb-devices-boot-timeout.txt" 2>&1 || true
   exit 71
 fi
-echo "PASS: ADB transport ready." | tee -a "$RESULT_DIR/environment.txt"
+echo "PASS: Android boot and PackGRADLE_EXIT=0
+APK="$GITHUB_WORKSPACE/eve-project/app/build/outputs/apk/debug/app-debug.apk"
+TEST_APK="$GITHUB_WORKSPACE/eve-project/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk"
 
-# Disable network paths in the emulator. The production manifest also deliberately omits INTERNET.
-timeout 10s adb shell svc wifi disable >> "$RESULT_DIR/environment.txt" 2>&1 || true
-timeout 10s adb shell svc data disable >> "$RESULT_DIR/environment.txt" 2>&1 || true
-timeout 10s adb logcat -c >/dev/null 2>&1 || echo "WARN: logcat buffer could not be cleared." | tee -a "$RESULT_DIR/environment.txt"
-
-GRADLE_EXIT=0
-# Build both APKs first. We then install them with adb directly, avoiding the UTP
-# split-APK installer failure observed on the API-29 software emulator.
-timeout 900s "$GRADLE" --no-daemon --stacktrace -p "$GITHUB_WORKSPACE/eve-project" \
-  testDebugUnitTest assembleDebug assembleDebugAndroidTest > "$GRADLE_LOG" 2>&1 || GRADLE_EXIT=$?
-cat "$GRADLE_LOG"
+# Building Gradle while a 2 GB Android emulator is booted starved system_server on API 29.
+# The workflow prebuilds both APKs before starting the emulator. Fallback compilation remains
+# available only if this script is run manually without the prebuild step.
+if [ ! -s "$APK" ] || [ ! -s "$TEST_APK" ]; then
+  echo "INFO: APKs are not prebuilt; compiling fallback before install." | tee -a "$RESULT_DIR/environment.txt"
+  timeout 900s "$GRADLE" --no-daemon --stacktrace -p "$GITHUB_WORKSPACE/eve-project" \
+    testDebugUnitTest assembleDebug assembleDebugAndroidTest > "$GRADLE_LOG" 2>&1 || GRADLE_EXIT=$?
+  cat "$GRADLE_LOG"
+else
+  echo "PASS: using APKs prebuilt before emulator startup." | tee -a "$RESULT_DIR/environment.txt"
+  echo "Gradle build intentionally not run while emulator is using guest RAM." > "$GRADLE_LOG"
+fi
 cp "$RUNNER_TEMP/face-fixture-sha256.txt" "$RESULT_DIR/face-fixture-sha256.txt" 2>/dev/null || true
 
 if [ "$GRADLE_EXIT" -ne 0 ]; then
@@ -83,7 +98,17 @@ if [ "$GRADLE_EXIT" -ne 0 ]; then
   exit "$GRADLE_EXIT"
 fi
 
-APK="$GITHUB_WORKSPACE/eve-project/app/build/outputs/apk/debug/app-debug.apk"
+if [ ! -s "$APK" ]; then
+  echo "FAIL: debug APK was not generated at $APK." | tee -a "$RESULT_DIR/environment.txt"
+  exit 5
+fi
+if [ ! -s "$TEST_APK" ]; then
+  echo "FAIL: instrumentation APK was not generated at $TEST_APK." | tee -a "$RESULT_DIR/environment.txt"
+  find "$GITHUB_WORKSPACE/eve-project/app/build/outputs/apk" -maxdepth 5 -type f -name '*.apk' -print | tee -a "$RESULT_DIR/environment.txt"
+  exit 6
+fi
+
+ild/outputs/apk/debug/app-debug.apk"
 TEST_APK="$GITHUB_WORKSPACE/eve-project/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk"
 if [ ! -f "$APK" ]; then
   echo "FAIL: debug APK was not generated at $APK." | tee -a "$RESULT_DIR/environment.txt"
@@ -110,19 +135,51 @@ echo "Test APK package: $TEST_PACKAGE" | tee -a "$RESULT_DIR/environment.txt"
 sha256sum "$APK" | tee "$RESULT_DIR/apk-sha256.txt"
 sha256sum "$TEST_APK" | tee "$RESULT_DIR/android-test-apk-sha256.txt"
 
-# The emulated device remains offline while these APKs are installed and tested.
-if ! timeout 60s adb install -r "$APK" > "$RESULT_DIR/install-app.txt" 2>&1; then
-  cat "$RESULT_DIR/install-app.txt"
-  echo "FAIL: production APK did not install on API $API_LEVEL." | tee -a "$RESULT_DIR/environment.txt"
+# The emulated device remains offline while APKs are installed and tested.
+# The production APK is large; leave enough time for Package Manager on software emulators.
+install_apk() {
+  label="$1"
+  apk="$2"
+  output="$3"
+  for attempt in 1 2 3; do
+    echo "Installing $label (attempt $attempt/3)..." | tee -a "$RESULT_DIR/environment.txt"
+    if timeout 180s adb install -r "$apk" > "$output" 2>&1 && grep -F "Success" "$output" >/dev/null; then
+      cat "$output"
+      return 0
+    fi
+    cat "$output" || true
+    timeout 15s adb devices -l > "$RESULT_DIR/adb-after-install-failure-$label-$attempt.txt" 2>&1 || true
+    if [ "$attempt" -lt 3 ]; then
+      timeout 90s adb wait-for-device >> "$RESULT_DIR/environment.txt" 2>&1 || true
+      sleep 5
+      BOOT_COMPLETE="$(timeout 8s adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
+      if [ "$BOOT_COMPLETE" != "1" ]; then
+        echo "WARN: Android became unready during install; waiting for boot." | tee -a "$RESULT_DIR/environment.txt"
+        READY=false
+        for boot_try in $(seq 1 90); do
+          BOOT_COMPLETE="$(timeout 8s adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
+          if [ "$BOOT_COMPLETE" = "1" ] && timeout 10s adb shell pm list packages >/dev/null 2>&1; then
+            READY=true
+            break
+          fi
+          sleep 1
+        done
+        if [ "$READY" != true ]; then
+          echo "FAIL: Android did not recover after install attempt." | tee -a "$RESULT_DIR/environment.txt"
+          return 1
+        fi
+      fi
+    fi
+  done
+  echo "FAIL: $label did not install after three attempts." | tee -a "$RESULT_DIR/environment.txt"
+  return 1
+}
+if ! install_apk "production APK" "$APK" "$RESULT_DIR/install-app.txt"; then
   exit 9
 fi
-cat "$RESULT_DIR/install-app.txt"
-if ! timeout 60s adb install -r "$TEST_APK" > "$RESULT_DIR/install-test-apk.txt" 2>&1; then
-  cat "$RESULT_DIR/install-test-apk.txt"
-  echo "FAIL: instrumentation APK did not install on API $API_LEVEL." | tee -a "$RESULT_DIR/environment.txt"
+if ! install_apk "instrumentation APK" "$TEST_APK" "$RESULT_DIR/install-test-apk.txt"; then
   exit 10
 fi
-cat "$RESULT_DIR/install-test-apk.txt"
 adb logcat -c >/dev/null 2>&1 || true
 
 INSTRUMENTATION_EXIT=0
