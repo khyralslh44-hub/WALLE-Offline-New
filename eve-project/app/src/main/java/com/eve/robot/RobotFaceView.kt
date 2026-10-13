@@ -89,13 +89,13 @@ class RobotFaceView(context: Context) : View(context) {
         val tired = decision.fatigue.coerceIn(0f, 1f)
         opening = (opening + (alertness - 0.42f) * 0.36f - tired * 0.18f
             + (r.nextFloat() - 0.5f) * 0.18f).coerceIn(0.16f, 1.20f)
-        tilt = (tilt + emotion * 5.5f + (curiosity - 0.5f) * 9.0f
+        tilt = (tilt + emotion * 5.5f + (curiosity - 0.5f) * 9.0f + (familiarity - 0.3f) * 3.5f
             + (r.nextFloat() - 0.5f) * 5f).coerceIn(-17f, 17f)
         gazeX = (gazeX + (curiosity - 0.5f) * 0.15f
             + (r.nextFloat() - 0.5f) * 0.065f).coerceIn(-0.17f, 0.17f)
         gazeY = (gazeY + tired * 0.065f - alertness * 0.035f
             + (r.nextFloat() - 0.5f) * 0.05f).coerceIn(-0.12f, 0.12f)
-        glow = (glow * (0.82f + emotion * 0.12f + alertness * 0.06f))
+        glow = (glow * (0.79f + emotion * 0.10f + alertness * 0.06f + familiarity * 0.08f))
             .coerceIn(0.28f, 1f)
         squint = (squint + emotion * 0.10f - tired * 0.30f
             + (r.nextFloat() - 0.5f) * 0.16f).coerceIn(0.42f, 1.24f)
