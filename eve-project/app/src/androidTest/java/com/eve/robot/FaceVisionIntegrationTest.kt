@@ -96,6 +96,37 @@ class FaceVisionIntegrationTest {
     }
 
     @Test
+    fun positiveReinforcementPersistsOfflineAndChangesLaterObservation() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val preferences = context.getSharedPreferences("eve_local_memory", android.content.Context.MODE_PRIVATE)
+        preferences.edit()
+            .remove("affinity:dog")
+            .remove("feedback:dog")
+            .commit()
+        try {
+            val memory = EveMemory(context)
+            val before = memory.learnedAffinity("dog")
+            val first = memory.reinforce("dog", 1f)
+            val second = memory.reinforce("dog", 1f)
+            val third = memory.reinforce("dog", 1f)
+            assertTrue(first > before)
+            assertTrue(second > first)
+            assertTrue(third > second)
+            assertEquals(3, memory.feedbackCount("dog"))
+
+            val afterRestart = EveMemory(context).learnedAffinity("dog")
+            assertEquals(third, afterRestart, 0.0001f)
+            val base = RobotBrain().observe("dog", 0.91f, 2, before)
+            val adapted = RobotBrain().observe("dog", 0.91f, 2, afterRestart)
+            assertTrue(adapted.valence > base.valence)
+            assertEquals(EveMood.FAMILIAR, adapted.mood)
+            Log.i("EVE_TEST", "OFFLINE_AFFECT_LEARNING_PASS old=$before learned=$afterRestart")
+        } finally {
+            preferences.edit().remove("affinity:dog").remove("feedback:dog").commit()
+        }
+    }
+
+    @Test
     fun uncertainFaceEvidenceDoesNotCreateConfidentEmotionOrVoice() {
         val uncertainInputs = listOf(
             arrayOf<Float?>(null, null, null, 0f),
