@@ -63,7 +63,7 @@ jobs:
           echo "APK located: $APK_PATH"
           sha256sum "$APK_PATH" | tee emulator-test-results/apk-sha256.txt
 
-      - name: Install and launch APK offline in Android emulator
+      - name: Install, launch, and interact with APK offline in Android emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: ${{ matrix.api-level }}
