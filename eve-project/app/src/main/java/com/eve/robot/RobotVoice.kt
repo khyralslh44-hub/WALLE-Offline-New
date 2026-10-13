@@ -4,6 +4,7 @@ import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
 import android.util.Log
+import android.os.SystemClock
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.PI
@@ -14,45 +15,51 @@ import kotlin.random.Random
 class RobotVoice {
     private val executor = Executors.newSingleThreadExecutor()
     private val lastPlayed = AtomicLong(0L)
+    @Volatile private var lastMood: EveMood? = null
     @Volatile private var closed = false
 
     fun speakMood(mood: EveMood, force: Boolean = false) {
         if (closed) return
-        val now = System.currentTimeMillis()
-        if (!force && now - lastPlayed.get() < 1400L) return
+        val now = SystemClock.elapsedRealtime()
+        val previousMood = lastMood
+        val elapsed = now - lastPlayed.get()
+        // Quietly ignore rapid repeats, especially the same mood caused by a jittery classifier.
+        if (!force && (elapsed < 14_000L || (previousMood == mood && elapsed < 45_000L))) return
         lastPlayed.set(now)
+        lastMood = mood
         try { executor.execute { play(mood) } } catch (_: Exception) { }
     }
 
     private fun play(mood: EveMood) {
         if (closed) return
         val r = Random(System.nanoTime())
+        // A soft, lower-register electronic voice colour; avoid sharp high-pitched bird chirps.
         val tones = when (mood) {
-            EveMood.HAPPY -> intArrayOf(760, 960, 1120)
-            EveMood.SURPRISED -> intArrayOf(480, 1080, 840)
-            EveMood.SLEEPY -> intArrayOf(550, 420)
-            EveMood.CONCERNED -> intArrayOf(700, 610)
-            EveMood.FAMILIAR -> intArrayOf(600, 760, 820)
-            EveMood.FOCUSED -> intArrayOf(790)
-            EveMood.AWAKE -> intArrayOf(500, 740, 930)
-            else -> intArrayOf(620, 790)
+            EveMood.HAPPY -> intArrayOf(350, 425)
+            EveMood.SURPRISED -> intArrayOf(295, 455)
+            EveMood.SLEEPY -> intArrayOf(260, 235)
+            EveMood.CONCERNED -> intArrayOf(285, 265)
+            EveMood.FAMILIAR -> intArrayOf(330, 385)
+            EveMood.FOCUSED -> intArrayOf(305, 350)
+            EveMood.AWAKE -> intArrayOf(320, 400)
+            else -> intArrayOf(300, 365)
         }
-        val rate = 22050
-        val segment = rate / 8
-        val gap = rate / 40
+        val rate = 24000
+        val segment = rate / 6
+        val gap = rate / 30
         val pcm = ShortArray(tones.size * segment + (tones.size - 1) * gap)
         var offset = 0
         tones.forEachIndexed { index, base ->
             var phase = 0.0
-            val detune = r.nextInt(-28, 29)
+            val detune = r.nextInt(-7, 8)
             for (i in 0 until segment) {
                 val p = i.toFloat() / segment
-                val hz = (base + detune + 95.0 * sin(p * PI)).toDouble()
+                val hz = (base + detune + 34.0 * sin(p * PI)).toDouble()
                 phase += 2.0 * PI * hz / rate
-                val fadeIn = (i / (rate * 0.012f)).coerceIn(0f, 1f)
-                val fadeOut = ((segment - i) / (rate * 0.035f)).coerceIn(0f, 1f)
-                val harmonic = sin(phase) * 0.72 + sin(phase * 2.0) * 0.20 + sin(phase * 3.0) * 0.08
-                val sample = harmonic * minOf(fadeIn, fadeOut) * 0.24
+                val fadeIn = (i / (rate * 0.040f)).coerceIn(0f, 1f)
+                val fadeOut = ((segment - i) / (rate * 0.075f)).coerceIn(0f, 1f)
+                val harmonic = sin(phase) * 0.90 + sin(phase * 2.0) * 0.085 + sin(phase * 3.0) * 0.015
+                val sample = harmonic * minOf(fadeIn, fadeOut) * 0.105
                 pcm[offset++] = (sample * Short.MAX_VALUE).toInt().toShort()
             }
             if (index < tones.lastIndex) offset += gap
@@ -72,6 +79,7 @@ class RobotVoice {
                 .build()
             val written = track.write(pcm, 0, pcm.size, AudioTrack.WRITE_BLOCKING)
             if (written == pcm.size && !closed) {
+                track.setVolume(0.28f)
                 track.play()
                 Log.i("EVE_VOICE", "PLAYBACK_STARTED mood=$mood written=$written samples=${pcm.size} state=${track.playState}")
                 Thread.sleep(pcm.size * 1000L / rate + 80L)
