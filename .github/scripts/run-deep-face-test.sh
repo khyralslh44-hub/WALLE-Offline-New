@@ -12,6 +12,9 @@ esac
 GRADLE="$RUNNER_TEMP/gradle-8.9/bin/gradle"
 RESULT_DIR="$GITHUB_WORKSPACE/eve-deep-results/api-$API_LEVEL"
 GRADLE_LOG="$RESULT_DIR/gradle-test.log"
+APK="$GITHUB_WORKSPACE/eve-project/app/build/outputs/apk/debug/app-debug.apk"
+TEST_APK="$GITHUB_WORKSPACE/eve-project/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk"
+GRADLE_EXIT=0
 mkdir -p "$RESULT_DIR"
 echo "EVE deep face test on Android API $API_LEVEL" | tee "$RESULT_DIR/environment.txt"
 echo "Offline invariant: no INTERNET permission; local ML Kit + TFLite inference required." | tee -a "$RESULT_DIR/environment.txt"
@@ -40,11 +43,11 @@ if grep -Eq 'android.permission.INTERNET' "$MANIFEST"; then
   echo "FAIL: app manifest requests INTERNET permission." | tee -a "$RESULT_DIR/environment.txt"
   exit 1
 fi
-if [ ! -f "$GITHUB_WORKSPACE/eve-project/app/src/androidTest/assets/face_smile.png" ]; then
+if [ ! -s "$GITHUB_WORKSPACE/eve-project/app/src/androidTest/assets/face_smile.png" ]; then
   echo "FAIL: pinned face fixture is missing." | tee -a "$RESULT_DIR/environment.txt"
   exit 2
 fi
-if [ ! -f "$GITHUB_WORKSPACE/eve-project/app/src/main/assets/eve_emotion_model.tflite" ]; then
+if [ ! -s "$GITHUB_WORKSPACE/eve-project/app/src/main/assets/eve_emotion_model.tflite" ]; then
   echo "FAIL: bundled emotion model is missing." | tee -a "$RESULT_DIR/environment.txt"
   exit 3
 fi
@@ -75,21 +78,22 @@ if [ "$BOOTED" != true ]; then
   timeout 15s adb devices -l > "$RESULT_DIR/adb-devices-boot-timeout.txt" 2>&1 || true
   exit 71
 fi
-echo "PASS: Android boot and PackGRADLE_EXIT=0
-APK="$GITHUB_WORKSPACE/eve-project/app/build/outputs/apk/debug/app-debug.apk"
-TEST_APK="$GITHUB_WORKSPACE/eve-project/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk"
+echo "PASS: Android boot and Package Manager are ready." | tee -a "$RESULT_DIR/environment.txt"
 
-# Building Gradle while a 2 GB Android emulator is booted starved system_server on API 29.
-# The workflow prebuilds both APKs before starting the emulator. Fallback compilation remains
-# available only if this script is run manually without the prebuild step.
+# Disable network paths in the emulator. The production manifest also deliberately omits INTERNET.
+timeout 10s adb shell svc wifi disable >> "$RESULT_DIR/environment.txt" 2>&1 || true
+timeout 10s adb shell svc data disable >> "$RESULT_DIR/environment.txt" 2>&1 || true
+timeout 10s adb logcat -c >/dev/null 2>&1 || echo "WARN: logcat buffer could not be cleared." | tee -a "$RESULT_DIR/environment.txt"
+
+# The workflow should prebuild both APKs before booting the emulator. Fall back only for a manual run.
 if [ ! -s "$APK" ] || [ ! -s "$TEST_APK" ]; then
-  echo "INFO: APKs are not prebuilt; compiling fallback before install." | tee -a "$RESULT_DIR/environment.txt"
+  echo "INFO: one or both APKs are not prebuilt; compiling fallback before installation." | tee -a "$RESULT_DIR/environment.txt"
   timeout 900s "$GRADLE" --no-daemon --stacktrace -p "$GITHUB_WORKSPACE/eve-project" \
     testDebugUnitTest assembleDebug assembleDebugAndroidTest > "$GRADLE_LOG" 2>&1 || GRADLE_EXIT=$?
   cat "$GRADLE_LOG"
 else
-  echo "PASS: using APKs prebuilt before emulator startup." | tee -a "$RESULT_DIR/environment.txt"
-  echo "Gradle build intentionally not run while emulator is using guest RAM." > "$GRADLE_LOG"
+  echo "PASS: using app and instrumentation APKs prebuilt before emulator startup." | tee -a "$RESULT_DIR/environment.txt"
+  echo "Prebuild completed before emulator boot." > "$GRADLE_LOG"
 fi
 cp "$RUNNER_TEMP/face-fixture-sha256.txt" "$RESULT_DIR/face-fixture-sha256.txt" 2>/dev/null || true
 
@@ -97,24 +101,11 @@ if [ "$GRADLE_EXIT" -ne 0 ]; then
   echo "FAIL: unit-test/APK compilation exited with status $GRADLE_EXIT." | tee -a "$RESULT_DIR/environment.txt"
   exit "$GRADLE_EXIT"
 fi
-
 if [ ! -s "$APK" ]; then
   echo "FAIL: debug APK was not generated at $APK." | tee -a "$RESULT_DIR/environment.txt"
   exit 5
 fi
 if [ ! -s "$TEST_APK" ]; then
-  echo "FAIL: instrumentation APK was not generated at $TEST_APK." | tee -a "$RESULT_DIR/environment.txt"
-  find "$GITHUB_WORKSPACE/eve-project/app/build/outputs/apk" -maxdepth 5 -type f -name '*.apk' -print | tee -a "$RESULT_DIR/environment.txt"
-  exit 6
-fi
-
-ild/outputs/apk/debug/app-debug.apk"
-TEST_APK="$GITHUB_WORKSPACE/eve-project/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk"
-if [ ! -f "$APK" ]; then
-  echo "FAIL: debug APK was not generated at $APK." | tee -a "$RESULT_DIR/environment.txt"
-  exit 5
-fi
-if [ ! -f "$TEST_APK" ]; then
   echo "FAIL: instrumentation APK was not generated at $TEST_APK." | tee -a "$RESULT_DIR/environment.txt"
   find "$GITHUB_WORKSPACE/eve-project/app/build/outputs/apk" -maxdepth 5 -type f -name '*.apk' -print | tee -a "$RESULT_DIR/environment.txt"
   exit 6
@@ -135,12 +126,15 @@ echo "Test APK package: $TEST_PACKAGE" | tee -a "$RESULT_DIR/environment.txt"
 sha256sum "$APK" | tee "$RESULT_DIR/apk-sha256.txt"
 sha256sum "$TEST_APK" | tee "$RESULT_DIR/android-test-apk-sha256.txt"
 
-# The emulated device remains offline while APKs are installed and tested.
-# The production APK is large; leave enough time for Package Manager on software emulators.
+# Install with bounded retries and diagnostics if Package Manager is temporarily unavailable.
 install_apk() {
-  label="$1"
-  apk="$2"
-  output="$3"
+  local label="$1"
+  local apk="$2"
+  local output="$3"
+  local attempt
+  local boot_try
+  local ready
+  local boot_complete
   for attempt in 1 2 3; do
     echo "Installing $label (attempt $attempt/3)..." | tee -a "$RESULT_DIR/environment.txt"
     if timeout 180s adb install -r "$apk" > "$output" 2>&1 && grep -F "Success" "$output" >/dev/null; then
@@ -149,22 +143,23 @@ install_apk() {
     fi
     cat "$output" || true
     timeout 15s adb devices -l > "$RESULT_DIR/adb-after-install-failure-$label-$attempt.txt" 2>&1 || true
+    timeout 15s adb logcat -d -v threadtime > "$RESULT_DIR/logcat-install-failure-$label-$attempt.txt" 2>&1 || true
     if [ "$attempt" -lt 3 ]; then
       timeout 90s adb wait-for-device >> "$RESULT_DIR/environment.txt" 2>&1 || true
       sleep 5
-      BOOT_COMPLETE="$(timeout 8s adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
-      if [ "$BOOT_COMPLETE" != "1" ]; then
+      boot_complete="$(timeout 8s adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
+      if [ "$boot_complete" != "1" ]; then
         echo "WARN: Android became unready during install; waiting for boot." | tee -a "$RESULT_DIR/environment.txt"
-        READY=false
-        for boot_try in $(seq 1 90); do
-          BOOT_COMPLETE="$(timeout 8s adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
-          if [ "$BOOT_COMPLETE" = "1" ] && timeout 10s adb shell pm list packages >/dev/null 2>&1; then
-            READY=true
+        ready=false
+        for boot_try in $(seq 1 120); do
+          boot_complete="$(timeout 8s adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
+          if [ "$boot_complete" = "1" ] && timeout 10s adb shell pm list packages >/dev/null 2>&1; then
+            ready=true
             break
           fi
           sleep 1
         done
-        if [ "$READY" != true ]; then
+        if [ "$ready" != true ]; then
           echo "FAIL: Android did not recover after install attempt." | tee -a "$RESULT_DIR/environment.txt"
           return 1
         fi
@@ -174,13 +169,14 @@ install_apk() {
   echo "FAIL: $label did not install after three attempts." | tee -a "$RESULT_DIR/environment.txt"
   return 1
 }
+
 if ! install_apk "production APK" "$APK" "$RESULT_DIR/install-app.txt"; then
   exit 9
 fi
 if ! install_apk "instrumentation APK" "$TEST_APK" "$RESULT_DIR/install-test-apk.txt"; then
   exit 10
 fi
-adb logcat -c >/dev/null 2>&1 || true
+timeout 10s adb logcat -c >/dev/null 2>&1 || true
 
 INSTRUMENTATION_EXIT=0
 timeout 360s adb shell am instrument -w -r "$TEST_PACKAGE/androidx.test.runner.AndroidJUnitRunner" \
