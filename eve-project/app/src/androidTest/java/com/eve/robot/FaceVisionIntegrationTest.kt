@@ -263,8 +263,81 @@ class FaceVisionIntegrationTest {
             )
             Log.i("EVE_TEST", "FACE_NEGATIVE_CONTROL faces=${negativeFaces.size} background=uniform_gray")
             assertTrue("Uniform non-face control generated a false positive: $negativeFaces", negativeFaces.isEmpty())
-            Log.i("EVE_TEST", "FACE_ROBUSTNESS_PASS positives=$counts negativeFaces=${negativeFaces.size}")
-            System.out.println("FACE_ROBUSTNESS_PASS positives=$counts negativeFaces=${negativeFaces.size}")
+
+            // Test the actual TFLite emotion model on the same face under mirroring and brightness
+            // changes, not only the ML Kit face detector. This checks inference stability, not
+            // classification accuracy from an inadequately small one-person sample.
+            val fer = EveFacialEmotionClassifier(InstrumentationRegistry.getInstrumentation().targetContext)
+            try {
+                assertTrue("Bundled six-class FER model did not load.", fer.isReady)
+                val predictions = linkedMapOf<String, EveEmotionPrediction>()
+                val baseTimingsMs = ArrayList<Long>()
+
+                variants.forEach { (name, source) ->
+                    val variantFaces = Tasks.await(
+                        detector.process(InputImage.fromBitmap(source, 0)),
+                        30,
+                        TimeUnit.SECONDS
+                    )
+                    val largest = variantFaces.maxByOrNull {
+                        it.boundingBox.width() * it.boundingBox.height()
+                    } ?: return@forEach
+
+                    val box = largest.boundingBox
+                    val padX = (box.width() * 0.10f).toInt().coerceAtLeast(2)
+                    val padY = (box.height() * 0.10f).toInt().coerceAtLeast(2)
+                    val left = (box.left - padX).coerceIn(0, source.width - 1)
+                    val top = (box.top - padY).coerceIn(0, source.height - 1)
+                    val right = (box.right + padX).coerceIn(left + 1, source.width)
+                    val bottom = (box.bottom + padY).coerceIn(top + 1, source.height)
+                    val crop = Bitmap.createBitmap(source, left, top, right - left, bottom - top)
+                    try {
+                        val started = System.nanoTime()
+                        val prediction = fer.predict(crop)
+                        val latencyMs = (System.nanoTime() - started) / 1_000_000L
+                        assertNotNull("TFLite inference returned null for $name face variant.", prediction)
+                        val valid = requireNotNull(prediction)
+                        assertTrue("Unknown model output for $name: $valid", valid.label in EveFacialEmotionClassifier.LABELS)
+                        assertTrue("Invalid confidence on $name: $valid", valid.confidence.isFinite() && valid.confidence in 0f..1f)
+                        predictions[name] = valid
+                        Log.i("EVE_TEST", "FER_VARIANT name=$name label=\${valid.label} confidence=\${valid.confidence} latencyMs=$latencyMs")
+
+                        if (name == "base") {
+                            // Same input should produce stable output, and 48x48 inference should stay
+                            // short enough for a responsive on-device behavior loop.
+                            repeat(5) { index ->
+                                val repeatStart = System.nanoTime()
+                                val repeated = fer.predict(crop)
+                                val repeatMs = (System.nanoTime() - repeatStart) / 1_000_000L
+                                assertNotNull("Repeated TFLite inference #$index returned null.", repeated)
+                                val repeatResult = requireNotNull(repeated)
+                                assertEquals("Same face changed class without an input change.", valid.label, repeatResult.label)
+                                assertTrue(
+                                    "Same face changed confidence unexpectedly: $valid vs $repeatResult",
+                                    kotlin.math.abs(valid.confidence - repeatResult.confidence) < 0.001f
+                                )
+                                assertTrue("TFLite inference exceeded the 1s CI safety ceiling: $repeatMs ms", repeatMs < 1000L)
+                                baseTimingsMs += repeatMs
+                            }
+                        }
+                    } finally {
+                        crop.recycle()
+                    }
+                }
+
+                assertTrue("FER model did not return usable predictions for at least three image variants: $predictions", predictions.size >= 3)
+                assertEquals("Expected five timing samples from repeated base-face inference.", 5, baseTimingsMs.size)
+                val sortedTimings = baseTimingsMs.sorted()
+                val medianMs = sortedTimings[sortedTimings.size / 2]
+                val maxMs = sortedTimings.maxOrNull() ?: 0L
+                Log.i("EVE_TEST", "FER_ROBUSTNESS_PASS predictions=\$predictions repeatMedianMs=\$medianMs repeatMaxMs=\$maxMs")
+                System.out.println("FER_ROBUSTNESS_PASS predictions=\$predictions repeatMedianMs=\$medianMs repeatMaxMs=\$maxMs")
+            } finally {
+                fer.close()
+            }
+
+            Log.i("EVE_TEST", "FACE_ROBUSTNESS_PASS positives=$counts negativeFaces=\${negativeFaces.size}")
+            System.out.println("FACE_ROBUSTNESS_PASS positives=$counts negativeFaces=\${negativeFaces.size}")
         } finally {
             detector.close()
             if (mirrored !== base) mirrored.recycle()
