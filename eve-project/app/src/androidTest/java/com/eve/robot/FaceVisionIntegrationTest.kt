@@ -2,6 +2,12 @@ package com.eve.robot
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
+import android.graphics.Matrix
+import android.graphics.Paint
 import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -173,6 +179,97 @@ class FaceVisionIntegrationTest {
             detector.close()
             if (bitmap !== decodedBitmap) bitmap.recycle()
             decodedBitmap.recycle()
+        }
+    }
+
+    @Test
+    fun faceDetectorPassesPositiveNegativeAndLightingRobustnessControlsOffline() {
+        val context = InstrumentationRegistry.getInstrumentation().context
+        val decoded = requireNotNull(
+            context.assets.open("face_fixture.jpg").use { BitmapFactory.decodeStream(it) }
+        )
+        val longest = maxOf(decoded.width, decoded.height)
+        val scale = minOf(1f, 640f / longest.toFloat())
+        val base = if (scale < 1f) {
+            Bitmap.createScaledBitmap(
+                decoded,
+                (decoded.width * scale).toInt().coerceAtLeast(1),
+                (decoded.height * scale).toInt().coerceAtLeast(1),
+                true
+            )
+        } else decoded
+
+        val mirrored = mirrorHorizontally(base)
+        val brighter = changeBrightness(base, scale = 0.92f, offset = 10f)
+        val darker = changeBrightness(base, scale = 1.06f, offset = -10f)
+        val noFace = Bitmap.createBitmap(320, 240, Bitmap.Config.ARGB_8888)
+        Canvas(noFace).drawColor(Color.rgb(117, 117, 117))
+        val detector = FaceDetection.getClient(
+            FaceDetectorOptions.Builder()
+                .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_ACCURATE)
+                .setClassificationMode(FaceDetectorOptions.CLASSIFICATION_MODE_ALL)
+                .build()
+        )
+        try {
+            val variants = listOf(
+                "base" to base,
+                "mirror" to mirrored,
+                "brighter" to brighter,
+                "darker" to darker
+            )
+            val counts = linkedMapOf<String, Int>()
+            variants.forEach { (name, bitmap) ->
+                val faces = Tasks.await(
+                    detector.process(InputImage.fromBitmap(bitmap, 0)),
+                    30,
+                    TimeUnit.SECONDS
+                )
+                counts[name] = faces.size
+                Log.i("EVE_TEST", "FACE_VARIANT name=$name faces=${faces.size} size=${bitmap.width}x${bitmap.height}")
+            }
+            assertTrue("Known positive face image was not detected.", (counts["base"] ?: 0) > 0)
+            assertTrue("Horizontal mirror of the same face was not detected.", (counts["mirror"] ?: 0) > 0)
+            assertTrue(
+                "Face detector was not robust across positive-image variants: $counts",
+                counts.values.count { it > 0 } >= 3
+            )
+
+            val negativeFaces = Tasks.await(
+                detector.process(InputImage.fromBitmap(noFace, 0)),
+                30,
+                TimeUnit.SECONDS
+            )
+            Log.i("EVE_TEST", "FACE_NEGATIVE_CONTROL faces=${negativeFaces.size} background=uniform_gray")
+            assertTrue("Uniform non-face control generated a false positive: $negativeFaces", negativeFaces.isEmpty())
+            Log.i("EVE_TEST", "FACE_ROBUSTNESS_PASS positives=$counts negativeFaces=${negativeFaces.size}")
+        } finally {
+            detector.close()
+            if (mirrored !== base) mirrored.recycle()
+            if (brighter !== base) brighter.recycle()
+            if (darker !== base) darker.recycle()
+            noFace.recycle()
+            if (base !== decoded) base.recycle()
+            decoded.recycle()
+        }
+    }
+
+    private fun mirrorHorizontally(source: Bitmap): Bitmap {
+        val matrix = Matrix().apply { preScale(-1f, 1f) }
+        return Bitmap.createBitmap(source, 0, 0, source.width, source.height, matrix, true)
+    }
+
+    private fun changeBrightness(source: Bitmap, scale: Float, offset: Float): Bitmap {
+        val values = floatArrayOf(
+            scale, 0f, 0f, 0f, offset,
+            0f, scale, 0f, 0f, offset,
+            0f, 0f, scale, 0f, offset,
+            0f, 0f, 0f, 1f, 0f
+        )
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            colorFilter = ColorMatrixColorFilter(ColorMatrix(values))
+        }
+        return Bitmap.createBitmap(source.width, source.height, Bitmap.Config.ARGB_8888).also { result ->
+            Canvas(result).drawBitmap(source, 0f, 0f, paint)
         }
     }
 
