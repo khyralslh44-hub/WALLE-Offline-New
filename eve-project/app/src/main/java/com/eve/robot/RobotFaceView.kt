@@ -77,72 +77,34 @@ class RobotFaceView(context: Context) : View(context) {
     }
 
     fun setMood(next: EveMood, seed: Long = SystemClock.uptimeMillis()) {
-        mood = next
-        val b = when (next) {
-            EveMood.AWAKE -> floatArrayOf(1.00f, 0f, 0f, -0.025f, 0.95f, 1.00f, 0.02f, 1.00f, 1.00f, 1.00f)
-            EveMood.NEUTRAL -> floatArrayOf(0.82f, 0f, 0f, 0f, 0.72f, 0.94f, 0.00f, 1.00f, 0.94f, 1.00f)
-            EveMood.CURIOUS -> floatArrayOf(1.04f, -6f, 0.045f, -0.025f, 0.98f, 1.10f, 0.17f, 1.04f, 1.08f, 0.97f)
-            EveMood.HAPPY -> floatArrayOf(0.70f, -5f, 0.015f, -0.01f, 0.92f, 0.72f, 0.11f, 1.02f, 0.82f, 0.98f)
-            EveMood.SURPRISED -> floatArrayOf(1.15f, 0f, 0f, -0.045f, 1.00f, 1.16f, 0.015f, 1.08f, 1.15f, 1.08f)
-            EveMood.CONCERNED -> floatArrayOf(0.64f, 4f, -0.025f, 0.035f, 0.57f, 0.77f, -0.15f, 0.96f, 0.90f, 0.95f)
-            EveMood.FAMILIAR -> floatArrayOf(0.84f, -2f, 0.02f, 0.008f, 0.88f, 0.88f, 0.12f, 0.99f, 0.91f, 1.03f)
-            EveMood.SLEEPY -> floatArrayOf(0.25f, 0f, 0f, 0.055f, 0.42f, 0.53f, 0.00f, 1.02f, 0.80f, 1.00f)
-            EveMood.FOCUSED -> floatArrayOf(0.54f, 2f, 0.035f, 0f, 0.66f, 0.66f, -0.10f, 0.97f, 0.84f, 0.94f)
-        }
-        val r = Random(seed)
-        targetOpening = vary(b[0], 0.055f, 0.14f, 1.20f, r)
-        targetTilt = vary(b[1], 2.4f, -18f, 18f, r)
-        targetGazeX = vary(b[2], 0.025f, -0.12f, 0.12f, r)
-        targetGazeY = vary(b[3], 0.020f, -0.10f, 0.10f, r)
-        targetGlow = vary(b[4], 0.07f, 0.22f, 1.0f, r)
-        targetSquint = vary(b[5], 0.075f, 0.42f, 1.24f, r)
-        targetAsymmetry = vary(b[6], 0.055f, -0.30f, 0.30f, r)
-        targetEyeWidth = vary(b[7], 0.045f, 0.80f, 1.22f, r)
-        targetEyeHeight = vary(b[8], 0.055f, 0.62f, 1.24f, r)
-        targetSpacing = vary(b[9], 0.035f, 0.80f, 1.20f, r)
-        beginTransition()
-        blinkAt = SystemClock.uptimeMillis() + 1300L + r.nextLong(5200L)
-        invalidate()
+        applyProfile(
+            EyeExpressionGenerator.generate(EveDecision(next, "mood expression"), seed),
+            seed
+        )
     }
 
-    /**
-     * Compose each expression from continuous affect values as well as its mood.
-     * This deliberately generates a large space of parameterized expressions rather than
-     * cycling through a small set of fixed pictures.
-     */
+    /** Eye geometry is generated from the same affect snapshot used by the offline brain and voice. */
     fun setExpression(decision: EveDecision, seed: Long = SystemClock.uptimeMillis()) {
-        setMood(decision.mood, seed)
-        val r = Random(seed xor 0x4E56454L)
-        val emotion = decision.valence.coerceIn(-1f, 1f)
-        val alertness = decision.arousal.coerceIn(0f, 1f)
-        val curiosity = decision.curiosity.coerceIn(0f, 1f)
-        val familiarity = decision.familiarity.coerceIn(0f, 1f)
-        val tired = decision.fatigue.coerceIn(0f, 1f)
+        applyProfile(EyeExpressionGenerator.generate(decision, seed), seed)
+    }
 
-        // Affect continuously nudges every eye parameter. Independent values for left/right
-        // eyes plus gaze and lid openness create many natural variants without swapping images.
-        targetOpening = (targetOpening + (alertness - 0.42f) * 0.24f - tired * 0.17f
-            + (r.nextFloat() - 0.5f) * 0.14f).coerceIn(0.14f, 1.20f)
-        targetTilt = (targetTilt + emotion * 4.0f + (curiosity - 0.5f) * 8.0f
-            + (familiarity - 0.3f) * 3.2f + (r.nextFloat() - 0.5f) * 4.5f).coerceIn(-18f, 18f)
-        targetGazeX = (targetGazeX + (curiosity - 0.5f) * 0.105f
-            + (r.nextFloat() - 0.5f) * 0.055f).coerceIn(-0.16f, 0.16f)
-        targetGazeY = (targetGazeY + tired * 0.060f - alertness * 0.030f
-            + (r.nextFloat() - 0.5f) * 0.045f).coerceIn(-0.12f, 0.12f)
-        targetGlow = (targetGlow * (0.86f + emotion * 0.07f + alertness * 0.05f + familiarity * 0.04f))
-            .coerceIn(0.22f, 1f)
-        targetSquint = (targetSquint + emotion * 0.08f - tired * 0.26f
-            + (r.nextFloat() - 0.5f) * 0.13f).coerceIn(0.40f, 1.25f)
-        targetAsymmetry = (targetAsymmetry + (curiosity - 0.5f) * 0.26f
-            + (r.nextFloat() - 0.5f) * 0.26f).coerceIn(-0.38f, 0.38f)
-        targetEyeWidth = (targetEyeWidth + (alertness - 0.45f) * 0.075f
-            + (r.nextFloat() - 0.5f) * 0.07f).coerceIn(0.76f, 1.24f)
-        targetEyeHeight = (targetEyeHeight + emotion * 0.045f - tired * 0.09f
-            + (r.nextFloat() - 0.5f) * 0.07f).coerceIn(0.60f, 1.25f)
-        targetSpacing = (targetSpacing + (alertness - 0.4f) * 0.08f
-            + (r.nextFloat() - 0.5f) * 0.065f).coerceIn(0.78f, 1.22f)
+    private fun applyProfile(profile: EyeExpressionProfile, seed: Long) {
+        mood = profile.mood
+        // If another event arrives mid-transition, begin the new motion from the interpolated pose.
+        updateTransition(SystemClock.uptimeMillis())
+        targetOpening = profile.opening
+        targetTilt = profile.tilt
+        targetGazeX = profile.gazeX
+        targetGazeY = profile.gazeY
+        targetGlow = profile.glow
+        targetSquint = profile.squint
+        targetAsymmetry = profile.asymmetry
+        targetEyeWidth = profile.eyeWidth
+        targetEyeHeight = profile.eyeHeight
+        targetSpacing = profile.spacing
         beginTransition()
-        blinkAt = SystemClock.uptimeMillis() + 1200L + r.nextLong(5300L)
+        val random = Random(seed xor 0x4E56454L)
+        blinkAt = SystemClock.uptimeMillis() + 1200L + random.nextLong(5300L)
         invalidate()
     }
 
@@ -178,9 +140,6 @@ class RobotFaceView(context: Context) : View(context) {
         spacing = mix(fromSpacing, targetSpacing)
         if (raw >= 1f) transitionStartedAt = 0L
     }
-
-    private fun vary(v: Float, range: Float, low: Float, high: Float, r: Random) =
-        (v + (r.nextFloat() * 2f - 1f) * range).coerceIn(low, high)
 
     fun startAnimation() { animate = true; invalidate() }
     fun stopAnimation() { animate = false }
