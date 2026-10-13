@@ -26,24 +26,56 @@ class FaceVisionIntegrationTest {
     @Test
     fun bundledFaceDetectorFindsFaceAndFeedsAffectAndEyeExpression() {
         val testContext = InstrumentationRegistry.getInstrumentation().context
-        val bitmap = testContext.assets.open("face_smile.png").use { BitmapFactory.decodeStream(it) }
-        assertNotNull("Pinned face fixture could not be decoded", bitmap)
-        requireNotNull(bitmap)
-        assertTrue("Fixture is too small for meaningful face analysis", bitmap.width >= 320 && bitmap.height >= 240)
+        val decodedBitmap = requireNotNull(
+            testContext.assets.open("face_smile.png").use { BitmapFactory.decodeStream(it) }
+        ) { "Pinned face fixture could not be decoded" }
+        assertTrue(
+            "Fixture is too small for meaningful face analysis",
+            decodedBitmap.width >= 320 && decodedBitmap.height >= 240
+        )
+        // Some downloaded fixtures are multi-megapixel photos. A 640px maximum edge is enough
+        // to verify the face detector but avoids pathological CPU-only emulator runtimes.
+        val largestSide = maxOf(decodedBitmap.width, decodedBitmap.height)
+        val scale = minOf(1f, 640f / largestSide.toFloat())
+        val bitmap = if (scale < 1f) {
+            Bitmap.createScaledBitmap(
+                decodedBitmap,
+                (decodedBitmap.width * scale).toInt().coerceAtLeast(1),
+                (decodedBitmap.height * scale).toInt().coerceAtLeast(1),
+                true
+            )
+        } else {
+            decodedBitmap
+        }
 
         val options = FaceDetectorOptions.Builder()
-            .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_ACCURATE)
+            .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST)
             .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_NONE)
             .setClassificationMode(FaceDetectorOptions.CLASSIFICATION_MODE_ALL)
             .enableTracking()
             .build()
         val detector = FaceDetection.getClient(options)
         try {
-            val faces = Tasks.await(
-                detector.process(InputImage.fromBitmap(bitmap, 0)),
-                30,
-                TimeUnit.SECONDS
+            Log.i(
+                "EVE_TEST",
+                "FACE_MODEL_PROCESS_START original=${decodedBitmap.width}x${decodedBitmap.height} " +
+                    "input=${bitmap.width}x${bitmap.height} offline=true"
             )
+            val faceTask = detector.process(InputImage.fromBitmap(bitmap, 0))
+            faceTask
+                .addOnSuccessListener { found ->
+                    Log.i("EVE_TEST", "FACE_MODEL_TASK_SUCCESS count=${found.size}")
+                }
+                .addOnFailureListener { error ->
+                    Log.e("EVE_TEST", "FACE_MODEL_TASK_FAILURE", error)
+                }
+            val faces = try {
+                // Bundled ML Kit initialization on a cold, software-rendered emulator can be slow.
+                Tasks.await(faceTask, 90, TimeUnit.SECONDS)
+            } catch (error: Exception) {
+                Log.e("EVE_TEST", "FACE_MODEL_TASK_DID_NOT_COMPLETE", error)
+                throw error
+            }
             assertFalse("Bundled face model detected no face in the known face fixture", faces.isEmpty())
             val face = faces.maxByOrNull { it.boundingBox.width() * it.boundingBox.height() }
                 ?: throw AssertionError("Face list unexpectedly became empty")
@@ -139,7 +171,8 @@ class FaceVisionIntegrationTest {
             )
         } finally {
             detector.close()
-            bitmap.recycle()
+            if (bitmap !== decodedBitmap) bitmap.recycle()
+            decodedBitmap.recycle()
         }
     }
 
