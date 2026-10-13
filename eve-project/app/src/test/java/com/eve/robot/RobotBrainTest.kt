@@ -49,6 +49,15 @@ class RobotBrainTest {
         assertFalse(remembered.playSound)
     }
 
+    @Test fun localPositiveAffinityMakesRepeatedObjectFeelFamiliar() {
+        val noAffinity = RobotBrain().observe("dog", 0.90f, 2, learnedAffinity = 0f)
+        val learned = RobotBrain().observe("dog", 0.90f, 2, learnedAffinity = 0.65f)
+        assertTrue(learned.valence > noAffinity.valence)
+        assertEquals(EveMood.FAMILIAR, learned.mood)
+        assertTrue(learned.familiarity > noAffinity.familiarity)
+        assertFalse(learned.playSound)
+    }
+
     @Test fun casualTouchIsSilentButLongPressCanSpeak() {
         assertFalse(brain.touched(false).playSound)
         assertTrue(brain.touched(true).playSound)
