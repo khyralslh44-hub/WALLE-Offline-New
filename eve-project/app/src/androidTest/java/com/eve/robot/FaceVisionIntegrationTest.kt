@@ -48,6 +48,53 @@ class FaceVisionIntegrationTest {
                 ?: throw AssertionError("Face list unexpectedly became empty")
             assertTrue("Detected face bounding box is implausibly small", face.boundingBox.width() >= 40)
 
+            // Exercise the actual bundled TFLite facial-expression model on the detected face crop.
+            // This proves inference is wired into the emotion state and expression generator, not only
+            // that a Kotlin class with a model name exists.
+            val appContext = InstrumentationRegistry.getInstrumentation().targetContext
+            val fer = EveFacialEmotionClassifier(appContext)
+            try {
+                assertTrue(
+                    "The APK is missing eve_emotion_model.tflite or the model tensor contract is wrong.",
+                    fer.isReady
+                )
+                val bounds = face.boundingBox
+                val padX = (bounds.width() * 0.10f).toInt().coerceAtLeast(2)
+                val padY = (bounds.height() * 0.10f).toInt().coerceAtLeast(2)
+                val left = (bounds.left - padX).coerceIn(0, bitmap.width - 1)
+                val top = (bounds.top - padY).coerceIn(0, bitmap.height - 1)
+                val right = (bounds.right + padX).coerceIn(left + 1, bitmap.width)
+                val bottom = (bounds.bottom + padY).coerceIn(top + 1, bitmap.height)
+                val faceCrop = Bitmap.createBitmap(bitmap, left, top, right - left, bottom - top)
+                val rawPrediction = try {
+                    fer.predict(faceCrop)
+                } finally {
+                    faceCrop.recycle()
+                }
+                assertNotNull("TFLite FER model returned no prediction for the detected face.", rawPrediction)
+                requireNotNull(rawPrediction)
+                assertTrue("Unexpected FER output label: ${rawPrediction.label}", rawPrediction.label in EveFacialEmotionClassifier.LABELS)
+                assertTrue("FER confidence is not finite/in-range.", rawPrediction.confidence.isFinite() && rawPrediction.confidence in 0f..1f)
+
+                val emotionSmoother = EveEmotionSmoother(windowSize = 3, requiredVotes = 2)
+                assertEquals("A single prediction must not change emotion state.", null, emotionSmoother.add(rawPrediction))
+                val stableEmotion = emotionSmoother.add(rawPrediction)
+                    ?: throw AssertionError("Two matching FER predictions did not produce a stable emotion.")
+                val modelDecision = RobotBrain().observeFacialEmotion(stableEmotion.label, stableEmotion.confidence)
+                val modelExpression = EyeExpressionGenerator.generate(modelDecision, 0xF3A123L)
+                assertEquals("FER affect decision and generated face mood diverged.", modelDecision.mood, modelExpression.mood)
+                assertTrue(modelDecision.valence in -1f..1f)
+                assertTrue(modelDecision.arousal in 0f..1f)
+                assertTrue(modelDecision.curiosity in 0f..1f)
+                Log.i(
+                    "EVE_TEST",
+                    "FER_MODEL_PASS label=${stableEmotion.label} confidence=${stableEmotion.confidence} " +
+                        "mood=${modelDecision.mood} profile=$modelExpression"
+                )
+            } finally {
+                fer.close()
+            }
+
             val smile = face.smilingProbability
             val leftEye = face.leftEyeOpenProbability
             val rightEye = face.rightEyeOpenProbability
