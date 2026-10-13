@@ -1,54 +1,55 @@
-name: WALL-E Android Build
+name: EVE Android Build
 
 on:
   workflow_dispatch:
   push:
     paths:
-      - 'WALLE_Offline_Android_Fixed (2).zip'
-      - '.github/workflows/**'
+      - 'eve-project/**'
+      - '.github/workflows/android-build.yml'
+      - '.github/workflows/emulator-smoke-test.yml'
+      - '.github/scripts/emulator-smoke-test.sh'
+
+permissions:
+  contents: read
 
 jobs:
   build:
+    name: Build and unit-test the EVE app
     runs-on: ubuntu-latest
+    timeout-minutes: 35
     steps:
-      - uses: actions/checkout@v4
-      - name: Install tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y unzip curl openjdk-17-jdk
-      - name: Extract project
-        run: |
-          mkdir -p project
-          unzip -o 'WALLE_Offline_Android_Fixed (2).zip' -d project
-          echo '--- Align app JVM targets to Java 1.8 for this test build ---'
-          APP_GRADLE="$(find "$GITHUB_WORKSPACE/project" -path '*/app/build.gradle' -print -quit)"
-          test -n "$APP_GRADLE"
-          cat >> "$APP_GRADLE" <<'EOF'
+      - name: Check out source
+        uses: actions/checkout@v4
 
-          // Temporary CI compatibility override: keep Java and Kotlin targets aligned.
-          android {
-              compileOptions {
-                  sourceCompatibility = JavaVersion.VERSION_1_8
-                  targetCompatibility = JavaVersion.VERSION_1_8
-              }
-              kotlinOptions {
-                  jvmTarget = "1.8"
-              }
-          }
-          EOF
-          echo '--- Effective JVM target declarations ---'
-          grep -n 'jvmTarget\|VERSION_1_8\|sourceCompatibility\|targetCompatibility' "$APP_GRADLE" || true
-      - name: Build APK
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
         run: |
-          curl -fsSL https://services.gradle.org/distributions/gradle-8.7-bin.zip -o /tmp/gradle.zip
-          unzip -q /tmp/gradle.zip -d /tmp
-          SETTINGS="$(find "$GITHUB_WORKSPACE/project" -name settings.gradle -print -quit)"
-          test -n "$SETTINGS"
-          cd "$(dirname "$SETTINGS")"
-          /tmp/gradle-8.7/bin/gradle assembleDebug -Pkotlin.compiler.execution.strategy=in-process --stacktrace
-      - name: Save APK
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager --install "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Install Gradle 8.9
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3             "https://services.gradle.org/distributions/gradle-8.9-bin.zip"             --output "$RUNNER_TEMP/gradle-8.9-bin.zip"
+          unzip -q "$RUNNER_TEMP/gradle-8.9-bin.zip" -d "$RUNNER_TEMP"
+
+      - name: Run logic tests and build debug APK
+        run: |
+          "$RUNNER_TEMP/gradle-8.9/bin/gradle"             --no-daemon --stacktrace -p eve-project             testDebugUnitTest assembleDebug
+
+      - name: Upload installable APK
         uses: actions/upload-artifact@v4
         with:
           name: WALL-E-APK
-          path: project/**/build/outputs/apk/debug/*.apk
+          path: eve-project/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+          retention-days: 14
