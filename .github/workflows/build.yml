@@ -10,28 +10,44 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y unzip curl openjdk-17-jdk
+      - name: Install Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
 
       - name: Extract project
         run: |
+          set -euxo pipefail
           mkdir -p project
           unzip -o 'WALLE_Offline_Android_Fixed (2).zip' -d project
+          find project -type f \( -name 'settings.gradle' -o -name 'settings.gradle.kts' \) -print
 
-      - name: Align JVM targets to Java 17
+      - name: Align Java and Kotlin targets
         run: |
-          APP_GRADLE="$(find "$GITHUB_WORKSPACE/project" -path '*/app/build.gradle' -print -quit)"
-          if [ -z "$APP_GRADLE" ]; then
-            echo "app/build.gradle not found"
-            exit 1
-          fi
-          cat >> "$APP_GRADLE" <<'EOF'
-
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re, sys
+          files = list(Path("project").rglob("build.gradle")) + list(Path("project").rglob("build.gradle.kts"))
+          if not files:
+              sys.exit("ERROR: no Gradle build files found in extracted project")
+          for p in files:
+              s = p.read_text()
+              # Normalize common Java 8/Kotlin 1.8 targets.
+              s = re.sub(r'(jvmTarget\s*=\s*["\'])1\.8(["\'])', r'\g<1>17\2', s)
+              s = re.sub(r'(jvmTarget\s*=\s*["\'])8(["\'])', r'\g<1>17\2', s)
+              s = re.sub(r'(sourceCompatibility\s*=\s*["\'])1\.8(["\'])', r'\g<1>17\2', s)
+              s = re.sub(r'(targetCompatibility\s*=\s*["\'])1\.8(["\'])', r'\g<1>17\2', s)
+              s = re.sub(r'(sourceCompatibility\s*=\s*JavaVersion\.VERSION_)1_8', r'\g<1>17', s)
+              s = re.sub(r'(targetCompatibility\s*=\s*JavaVersion\.VERSION_)1_8', r'\g<1>17', s)
+              if p.name.startswith("build.gradle") and p.parent.name == "app":
+                  s += '''
+\n// CI safety net: compile Java and Kotlin to the same JVM target.
 android {
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
@@ -41,20 +57,39 @@ android {
         jvmTarget = "17"
     }
 }
-EOF
+'''
+              p.write_text(s)
+              print("Checked:", p)
+          PY
+
+      - name: Locate Gradle root
+        id: locate
+        run: |
+          set -euo pipefail
+          SETTINGS="$(find "$GITHUB_WORKSPACE/project" \( -name settings.gradle -o -name settings.gradle.kts \) -print -quit)"
+          if [ -z "$SETTINGS" ]; then
+            echo "ERROR: settings.gradle or settings.gradle.kts not found"
+            exit 1
+          fi
+          echo "root=$(dirname "$SETTINGS")" >> "$GITHUB_OUTPUT"
 
       - name: Build APK
+        working-directory: ${{ steps.locate.outputs.root }}
         run: |
-          curl -fsSL https://services.gradle.org/distributions/gradle-8.7-bin.zip -o /tmp/gradle.zip
-          unzip -q /tmp/gradle.zip -d /tmp
-          SETTINGS="$(find "$GITHUB_WORKSPACE/project" -name settings.gradle -print -quit)"
-          test -n "$SETTINGS"
-          cd "$(dirname "$SETTINGS")"
-          /tmp/gradle-8.7/bin/gradle assembleDebug -Pkotlin.compiler.execution.strategy=in-process --stacktrace
+          set -euxo pipefail
+          if [ -f ./gradlew ]; then
+            chmod +x ./gradlew
+            ./gradlew assembleDebug --stacktrace
+          else
+            curl -fsSL https://services.gradle.org/distributions/gradle-8.7-bin.zip -o /tmp/gradle.zip
+            unzip -q /tmp/gradle.zip -d /tmp
+            /tmp/gradle-8.7/bin/gradle assembleDebug --stacktrace
+          fi
 
-      - name: Save APK
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: WALL-E-APK
           path: project/**/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+          retention-days: 14
