@@ -300,7 +300,7 @@ class FaceVisionIntegrationTest {
                         assertTrue("Unknown model output for $name: $valid", valid.label in EveFacialEmotionClassifier.LABELS)
                         assertTrue("Invalid confidence on $name: $valid", valid.confidence.isFinite() && valid.confidence in 0f..1f)
                         predictions[name] = valid
-                        Log.i("EVE_TEST", "FER_VARIANT name=$name label=\${valid.label} confidence=\${valid.confidence} latencyMs=$latencyMs")
+                        Log.i("EVE_TEST", "FER_VARIANT name=$name label=${valid.label} confidence=${valid.confidence} latencyMs=$latencyMs")
 
                         if (name == "base") {
                             // Same input should produce stable output, and 48x48 inference should stay
@@ -330,14 +330,14 @@ class FaceVisionIntegrationTest {
                 val sortedTimings = baseTimingsMs.sorted()
                 val medianMs = sortedTimings[sortedTimings.size / 2]
                 val maxMs = sortedTimings.maxOrNull() ?: 0L
-                Log.i("EVE_TEST", "FER_ROBUSTNESS_PASS predictions=\$predictions repeatMedianMs=\$medianMs repeatMaxMs=\$maxMs")
-                System.out.println("FER_ROBUSTNESS_PASS predictions=\$predictions repeatMedianMs=\$medianMs repeatMaxMs=\$maxMs")
+                Log.i("EVE_TEST", "FER_ROBUSTNESS_PASS predictions=$predictions repeatMedianMs=$medianMs repeatMaxMs=$maxMs")
+                System.out.println("FER_ROBUSTNESS_PASS predictions=$predictions repeatMedianMs=$medianMs repeatMaxMs=$maxMs")
             } finally {
                 fer.close()
             }
 
-            Log.i("EVE_TEST", "FACE_ROBUSTNESS_PASS positives=$counts negativeFaces=\${negativeFaces.size}")
-            System.out.println("FACE_ROBUSTNESS_PASS positives=$counts negativeFaces=\${negativeFaces.size}")
+            Log.i("EVE_TEST", "FACE_ROBUSTNESS_PASS positives=$counts negativeFaces=${negativeFaces.size}")
+            System.out.println("FACE_ROBUSTNESS_PASS positives=$counts negativeFaces=${negativeFaces.size}")
         } finally {
             detector.close()
             if (mirrored !== base) mirrored.recycle()
