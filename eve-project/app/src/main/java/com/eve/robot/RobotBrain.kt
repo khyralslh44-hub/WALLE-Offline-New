@@ -34,6 +34,7 @@ class RobotBrain {
     private var familiarity = 0.05f
     private var fatigue = 0f
     private var lastHumanMood: EveMood? = null
+    private var lastModelEmotion: String? = null
 
     private enum class Kind { FOOD, ANIMAL, PERSON, PLANT, OTHER }
 
@@ -102,6 +103,65 @@ class RobotBrain {
         val meaningful = kind == Kind.FOOD || kind == Kind.ANIMAL || kind == Kind.PERSON
         val sound = meaningful && confidence >= 0.84f && sightings == 1
         return snapshot(mood, "observed $kind: $item", sound)
+    }
+
+    /**
+     * Converts a stable local TFLite expression prediction into the shared affect state.
+     * Labels are visual-expression estimates, not claims about a person's actual inner feelings.
+     */
+    @Synchronized
+    fun observeFacialEmotion(label: String, confidence: Float): EveDecision {
+        val emotion = label.trim().lowercase()
+        if (emotion !in EveFacialEmotionClassifier.LABELS ||
+            !confidence.isFinite() || confidence < 0.38f
+        ) {
+            return snapshot(EveMood.NEUTRAL, "uncertain facial-expression model output", false)
+        }
+        val certainty = confidence.coerceIn(0f, 1f)
+        val changed = emotion != lastModelEmotion
+        val mood = when (emotion) {
+            "happy" -> {
+                valence = (valence + 0.18f * certainty).coerceAtMost(0.95f)
+                arousal = (0.38f + 0.28f * certainty).coerceIn(0.3f, 0.72f)
+                curiosity = (curiosity * 0.8f + 0.09f).coerceIn(0f, 1f)
+                EveMood.HAPPY
+            }
+            "sad" -> {
+                valence = (valence - 0.15f * certainty).coerceAtLeast(-1f)
+                arousal = (arousal * 0.72f + 0.10f).coerceIn(0.12f, 0.8f)
+                curiosity = (curiosity * 0.85f + 0.05f).coerceIn(0f, 1f)
+                EveMood.CONCERNED
+            }
+            "angry" -> {
+                valence = (valence - 0.22f * certainty).coerceAtLeast(-1f)
+                arousal = (0.48f + 0.38f * certainty).coerceIn(0.3f, 0.9f)
+                curiosity = (curiosity * 0.72f + 0.10f).coerceIn(0f, 1f)
+                EveMood.CONCERNED
+            }
+            "fearful" -> {
+                valence = (valence - 0.16f * certainty).coerceAtLeast(-1f)
+                arousal = (0.55f + 0.34f * certainty).coerceIn(0.35f, 0.92f)
+                curiosity = (curiosity * 0.70f + 0.18f).coerceIn(0f, 1f)
+                EveMood.CONCERNED
+            }
+            "surprised" -> {
+                valence = (valence + 0.04f * certainty).coerceIn(-1f, 0.85f)
+                arousal = (0.50f + 0.40f * certainty).coerceIn(0.4f, 0.95f)
+                curiosity = (curiosity + 0.22f * certainty).coerceAtMost(1f)
+                EveMood.SURPRISED
+            }
+            else -> { // neutral
+                valence = (valence * 0.90f + 0.015f).coerceIn(-0.8f, 0.8f)
+                arousal = (arousal * 0.76f + 0.08f).coerceIn(0.12f, 0.75f)
+                curiosity = (curiosity * 0.92f + 0.035f).coerceIn(0f, 1f)
+                EveMood.NEUTRAL
+            }
+        }
+        lastModelEmotion = emotion
+        // Keep sound rare and gentle; a stable label transition alone never creates chatter.
+        val sound = emotion == "happy" && changed && certainty >= 0.94f
+        val reason = "facial-expression model predicts $emotion at ${(certainty * 100).toInt()}% confidence"
+        return snapshot(mood, reason, sound)
     }
 
     /**
