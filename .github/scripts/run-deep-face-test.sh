@@ -22,30 +22,12 @@ adb shell svc wifi disable || true
 adb shell svc data disable || true
 adb logcat -c
 
-# Run in one Bash process. The emulator action itself may run each script line in a
-# separate /bin/sh, so this helper preserves variables and error handling reliably.
-(timeout 900s "$GRADLE" --no-daemon --stacktrace -p "$GITHUB_WORKSPACE/eve-project" \
-  testDebugUnitTest connectedDebugAndroidTest assembleDebug > "$GRADLE_LOG" 2>&1) &
-GRADLE_PID=$!
-LAST_LINE=0
-while kill -0 "$GRADLE_PID" 2>/dev/null; do
-  CURRENT_LINE="$(wc -l < "$GRADLE_LOG" 2>/dev/null || echo 0)"
-  if [ "$CURRENT_LINE" -gt "$LAST_LINE" ]; then
-    sed -n "$((LAST_LINE + 1)),${CURRENT_LINE}p" "$GRADLE_LOG"
-    LAST_LINE="$CURRENT_LINE"
-  fi
-  sleep 10
-done
-
-if wait "$GRADLE_PID"; then
-  GRADLE_EXIT=0
-else
-  GRADLE_EXIT=$?
-fi
-CURRENT_LINE="$(wc -l < "$GRADLE_LOG" 2>/dev/null || echo 0)"
-if [ "$CURRENT_LINE" -gt "$LAST_LINE" ]; then
-  sed -n "$((LAST_LINE + 1)),${CURRENT_LINE}p" "$GRADLE_LOG"
-fi
+# Run Gradle directly and capture its exit code. Do not poll a background PID:
+# kill -0 can remain true for an unreaped zombie, leaving CI apparently stuck forever.
+GRADLE_EXIT=0
+timeout 900s "$GRADLE" --no-daemon --stacktrace -p "$GITHUB_WORKSPACE/eve-project" \
+  testDebugUnitTest connectedDebugAndroidTest assembleDebug > "$GRADLE_LOG" 2>&1 || GRADLE_EXIT=$?
+cat "$GRADLE_LOG"
 
 adb logcat -d -v threadtime > "$RESULT_DIR/logcat.txt" || true
 cp "$RUNNER_TEMP/face-fixture-sha256.txt" "$RESULT_DIR/face-fixture-sha256.txt" 2>/dev/null || true
