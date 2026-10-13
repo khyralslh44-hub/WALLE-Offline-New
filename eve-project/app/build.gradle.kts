@@ -11,8 +11,8 @@ android {
         applicationId = "com.eve.robot"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
-        versionName = "0.3.0"
+        versionCode = 4
+        versionName = "0.4.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -32,5 +32,6 @@ dependencies {
     implementation("androidx.camera:camera-camera2:1.4.2")
     implementation("androidx.camera:camera-lifecycle:1.4.2")
     implementation("com.google.mlkit:image-labeling:17.0.7")
+    implementation("com.google.mlkit:face-detection:16.1.7")
     testImplementation("junit:junit:4.13.2")
 }
