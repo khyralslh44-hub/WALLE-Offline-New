@@ -62,7 +62,7 @@ if [ -s "$RESULTS_DIR/window-initial.xml" ] && \
 import re, sys
 from pathlib import Path
 xml = Path(sys.argv[1]).read_text(errors="replace")
-m = re.search(r'<node[^>]*resource-id="android:id/ok"[^>]*bounds="\\[(\\d+),(\\d+)\\]\\[(\\d+),(\\d+)\\]"', xml)
+m = re.search(r'<node[^>]*resource-id="android:id/ok"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', xml)
 if not m:
     raise SystemExit("Could not parse immersive overlay's Got it button bounds")
 x1, y1, x2, y2 = map(int, m.groups())
