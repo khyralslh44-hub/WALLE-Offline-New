@@ -1,5 +1,9 @@
 name: WALL-E Emulator Smoke Test
 
+concurrency:
+  group: eve-emulator-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   workflow_run:
     workflows: ["EVE Android Build"]
