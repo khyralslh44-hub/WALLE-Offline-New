@@ -7,6 +7,7 @@ on:
       - 'eve-project/**'
       - '.github/workflows/android-build.yml'
       - '.github/workflows/emulator-smoke-test.yml'
+      - '.github/workflows/eve-deep-verification.yml'
       - '.github/scripts/emulator-smoke-test.sh'
 
 permissions:
@@ -56,6 +57,18 @@ jobs:
       - name: Run logic tests and build debug APK
         run: |
           "$RUNNER_TEMP/gradle-8.9/bin/gradle"             --no-daemon --stacktrace -p eve-project             testDebugUnitTest assembleDebug
+
+
+      - name: Upload unit-test XML and HTML reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EVE-Unit-Test-Reports
+          path: |
+            eve-project/app/build/reports/tests/testDebugUnitTest/**
+            eve-project/app/build/test-results/testDebugUnitTest/**
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Upload installable APK
         uses: actions/upload-artifact@v4
