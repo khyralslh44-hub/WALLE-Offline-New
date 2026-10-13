@@ -17,7 +17,11 @@ import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.content.ContextCompat
+import com.google.android.gms.tasks.Tasks
 import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.face.FaceDetection
+import com.google.mlkit.vision.face.FaceDetector
+import com.google.mlkit.vision.face.FaceDetectorOptions
 import com.google.mlkit.vision.label.ImageLabeling
 import com.google.mlkit.vision.label.defaults.ImageLabelerOptions
 import java.util.concurrent.ExecutorService
@@ -39,8 +43,19 @@ class MainActivity : ComponentActivity() {
     private val lastAnalysis = AtomicLong(0L)
     private val lastLabelAt = mutableMapOf<String, Long>()
     private val labeler by lazy { ImageLabeling.getClient(ImageLabelerOptions.DEFAULT_OPTIONS) }
+    private val faceDetector: FaceDetector by lazy {
+        val options = FaceDetectorOptions.Builder()
+            .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST)
+            .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_NONE)
+            .setClassificationMode(FaceDetectorOptions.CLASSIFICATION_MODE_ALL)
+            .enableTracking()
+            .build()
+        FaceDetection.getClient(options)
+    }
     private var cameraProvider: ProcessCameraProvider? = null
     private var cameraStarted = false
+    @Volatile private var lastFaceSeenAt = 0L
+    private var lastFaceReactionAt = 0L
     private var lastInteractionAt = SystemClock.elapsedRealtime()
     private var idleCount = 0
     private var touchDownAt = 0L
@@ -169,25 +184,73 @@ class MainActivity : ComponentActivity() {
             return
         }
         val input = InputImage.fromMediaImage(mediaImage, proxy.imageInfo.rotationDegrees)
-        labeler.process(input)
-            .addOnSuccessListener(ContextCompat.getMainExecutor(this)) { labels ->
+        // Run both bundled, on-device vision models on the same frame, then release ImageProxy.
+        val labelsTask = labeler.process(input)
+        val faceTask = faceDetector.process(input)
+        val mainExecutor = ContextCompat.getMainExecutor(this)
+
+        labelsTask
+            .addOnSuccessListener(mainExecutor) { labels ->
                 val best = labels.maxByOrNull { it.confidence } ?: return@addOnSuccessListener
                 if (best.confidence < 0.58f || best.text.isBlank()) return@addOnSuccessListener
                 val label = best.text.trim().lowercase()
                 val elapsed = SystemClock.elapsedRealtime()
                 if (elapsed - (lastLabelAt[label] ?: 0L) < 9000L) return@addOnSuccessListener
+                // Once a real face is present, don't let a generic texture label override its cues.
+                if (elapsed - lastFaceSeenAt < 8000L && !isMeaningfulLabel(label)) {
+                    Log.i("EVE", "VISION generic label suppressed during face interaction: $label")
+                    return@addOnSuccessListener
+                }
                 lastLabelAt[label] = elapsed
                 val sightings = memory.remember(label)
                 val decision = brain.observe(label, best.confidence, sightings)
-                // Observing a scene is not a user interaction; do not suppress autonomous idle behavior.
                 Log.i("EVE", "VISION label=$label confidence=${best.confidence} sightings=$sightings mood=${decision.mood}")
                 react(decision, decision.playSound)
             }
-            .addOnFailureListener(ContextCompat.getMainExecutor(this)) { error ->
+            .addOnFailureListener(mainExecutor) { error ->
                 Log.w("EVE", "Offline image labeling frame failed.", error)
             }
+
+        faceTask
+            .addOnSuccessListener(mainExecutor) { faces ->
+                Log.i("EVE", "FACE_SCAN count=${faces.size}")
+                val bestFace = faces.maxByOrNull {
+                    it.boundingBox.width().toLong() * it.boundingBox.height().toLong()
+                } ?: return@addOnSuccessListener
+                val elapsed = SystemClock.elapsedRealtime()
+                lastFaceSeenAt = elapsed
+                if (elapsed - lastFaceReactionAt < 6500L) return@addOnSuccessListener
+                lastFaceReactionAt = elapsed
+                val decision = brain.observeHumanFace(
+                    smilingProbability = bestFace.smilingProbability,
+                    leftEyeOpenProbability = bestFace.leftEyeOpenProbability,
+                    rightEyeOpenProbability = bestFace.rightEyeOpenProbability,
+                    headYawDegrees = bestFace.headEulerAngleY
+                )
+                Log.i(
+                    "EVE",
+                    "FACE_CUE mood=${decision.mood} smile=${bestFace.smilingProbability} " +
+                        "leftEye=${bestFace.leftEyeOpenProbability} rightEye=${bestFace.rightEyeOpenProbability} " +
+                        "yaw=${bestFace.headEulerAngleY}"
+                )
+                react(decision, decision.playSound)
+            }
+            .addOnFailureListener(mainExecutor) { error ->
+                Log.w("EVE", "Offline face analysis frame failed.", error)
+            }
+
+        Tasks.whenAllComplete(labelsTask, faceTask)
             .addOnCompleteListener { proxy.close() }
     }
+
+    private fun isMeaningfulLabel(label: String): Boolean =
+        listOf(
+            "food", "fruit", "banana", "apple", "pizza", "bread", "meal", "sandwich",
+            "vegetable", "cake", "orange", "animal", "cat", "dog", "bird", "pet",
+            "puppy", "kitten", "horse", "rabbit", "fish", "person", "people", "human",
+            "face", "man", "woman", "child", "boy", "girl", "plant", "flower", "tree",
+            "leaf", "grass", "garden"
+        ).any(label::contains)
 
     private fun react(decision: EveDecision, playSound: Boolean) {
         face.setExpression(decision, System.currentTimeMillis() xor Random.nextLong())
@@ -199,6 +262,7 @@ class MainActivity : ComponentActivity() {
         main.removeCallbacks(idleLoop)
         try { cameraProvider?.unbindAll() } catch (_: Exception) { }
         try { labeler.close() } catch (_: Exception) { }
+        try { faceDetector.close() } catch (_: Exception) { }
         cameraExecutor.shutdown()
         if (::voice.isInitialized) voice.close()
         super.onDestroy()
