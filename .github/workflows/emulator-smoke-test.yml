@@ -2,7 +2,7 @@ name: WALL-E Emulator Smoke Test
 
 on:
   workflow_run:
-    workflows: ["WALL-E Android Build"]
+    workflows: ["EVE Android Build"]
     types: [completed]
   workflow_dispatch:
 
