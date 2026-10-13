@@ -10,8 +10,8 @@ on:
       - '.github/scripts/emulator-smoke-test.sh'
 
 concurrency:
-  group: eve-deep-offline-verification-${{ github.ref }}-${{ github.sha }}
-  cancel-in-progress: false
+  group: eve-deep-offline-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
