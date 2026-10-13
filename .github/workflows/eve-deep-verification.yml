@@ -7,6 +7,11 @@ on:
       - 'eve-project/**'
       - '.github/workflows/eve-deep-verification.yml'
       - '.github/scripts/run-deep-face-test.sh'
+      - '.github/scripts/emulator-smoke-test.sh'
+
+concurrency:
+  group: eve-deep-offline-verification-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -72,6 +77,24 @@ jobs:
           fi
           file "$FIXTURE" || true
           sha256sum "$FIXTURE" | tee "$RUNNER_TEMP/face-fixture-sha256.txt"
+
+      - name: Verify pinned test inputs match the integration test
+        shell: bash
+        run: |
+          set -euo pipefail
+          FIXTURE="eve-project/app/src/androidTest/assets/face_fixture.jpg"
+          TEST_SOURCE="eve-project/app/src/androidTest/java/com/eve/robot/FaceVisionIntegrationTest.kt"
+          TEST_SCRIPT=".github/scripts/run-deep-face-test.sh"
+          test -s "$FIXTURE"
+          test -s "eve-project/app/src/main/assets/eve_emotion_model.tflite"
+          grep -Fq 'face_fixture.jpg' "$TEST_SOURCE"
+          grep -Fq 'face_fixture.jpg' "$TEST_SCRIPT"
+          grep -Fq 'face_fixture.jpg' ".github/workflows/eve-deep-verification.yml"
+          echo "PASS: fixture path is consistent across workflow, test runner, and instrumentation test."
+          echo "Fixture SHA256:"
+          sha256sum "$FIXTURE"
+          echo "FER model SHA256:"
+          sha256sum eve-project/app/src/main/assets/eve_emotion_model.tflite
 
       - name: Download and pin offline facial-expression model
         shell: bash
