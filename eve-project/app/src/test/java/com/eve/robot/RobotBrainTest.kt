@@ -45,6 +45,34 @@ class RobotBrainTest {
         assertFalse(brain.idle(45_000L, 8).playSound)
     }
 
+    @Test fun strongHumanSmileProducesHappyAffectAndOneCue() {
+        val first = brain.observeHumanFace(0.96f, 0.92f, 0.91f, 0f)
+        assertEquals(EveMood.HAPPY, first.mood)
+        assertTrue(first.valence > 0.2f)
+        assertTrue(first.playSound)
+        val repeated = brain.observeHumanFace(0.95f, 0.90f, 0.90f, 0f)
+        assertEquals(EveMood.HAPPY, repeated.mood)
+        assertFalse(repeated.playSound)
+    }
+
+    @Test fun partialFaceDoesNotInventAnEmotionOrPlaySound() {
+        val decision = brain.observeHumanFace(null, null, null, 0f)
+        assertEquals(EveMood.NEUTRAL, decision.mood)
+        assertFalse(decision.playSound)
+    }
+
+    @Test fun sideFacingFaceDoesNotTriggerVoice() {
+        val decision = brain.observeHumanFace(0.98f, 0.95f, 0.95f, 35f)
+        assertEquals(EveMood.CURIOUS, decision.mood)
+        assertFalse(decision.playSound)
+    }
+
+    @Test fun oneClosedEyeFrameIsNotCalledSadnessOrSleep() {
+        val decision = brain.observeHumanFace(0.10f, 0.08f, 0.12f, 0f)
+        assertEquals(EveMood.FOCUSED, decision.mood)
+        assertFalse(decision.playSound)
+    }
+
     @Test fun idleEventuallySleeps() {
         assertEquals(EveMood.SLEEPY, brain.idle(45_000L, 1).mood)
         assertTrue(brain.idle(8_000L, 2).mood in setOf(EveMood.NEUTRAL, EveMood.CURIOUS, EveMood.FAMILIAR))
