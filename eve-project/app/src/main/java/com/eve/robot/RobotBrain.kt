@@ -163,7 +163,7 @@ class RobotBrain {
         return snapshot(
             if (longPress) EveMood.HAPPY else EveMood.CURIOUS,
             if (longPress) "gentle long touch" else "gentle touch",
-            true
+            longPress
         )
     }
 
