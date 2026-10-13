@@ -148,6 +148,58 @@ class EmotionVisionStressTest {
         assertFalse(unknown.playSound)
     }
 
+    @Test fun allSixFerClassesChangeAffectAndGenerateSafeEyeProfiles() {
+        val cases = linkedMapOf(
+            "happy" to EveMood.HAPPY,
+            "sad" to EveMood.CONCERNED,
+            "angry" to EveMood.CONCERNED,
+            "neutral" to EveMood.NEUTRAL,
+            "surprised" to EveMood.SURPRISED,
+            "fearful" to EveMood.CONCERNED
+        )
+        val profiles = ArrayList<EyeExpressionProfile>()
+        cases.forEach { (label, expectedMood) ->
+            val decision = RobotBrain().observeFacialEmotion(label, 0.90f)
+            assertEquals("wrong affect mapping for FER class $label", expectedMood, decision.mood)
+            assertTrue("invalid valence for $label", decision.valence in -1f..1f)
+            assertTrue("invalid arousal for $label", decision.arousal in 0f..1f)
+            assertTrue("invalid curiosity for $label", decision.curiosity in 0f..1f)
+            assertFalse("moderate confidence must not chatter for $label", decision.playSound)
+            val profile = EyeExpressionGenerator.generate(decision, label.hashCode().toLong())
+            assertTrue(profile.opening in 0.14f..1.20f)
+            assertTrue(abs(profile.tilt) <= 22f)
+            assertTrue(profile.gazeX in -0.16f..0.16f)
+            assertTrue(profile.gazeY in -0.12f..0.12f)
+            assertTrue(profile.glow in 0.22f..1f)
+            assertTrue(profile.squint in 0.40f..1.25f)
+            profiles += profile
+        }
+        assertTrue("FER classes did not create varied procedural expressions", profiles.toSet().size >= 5)
+
+        val brain = RobotBrain()
+        val firstStrongHappy = brain.observeFacialEmotion("happy", 0.97f)
+        assertTrue("A very strong new happy cue should be eligible for one quiet sound", firstStrongHappy.playSound)
+        assertFalse("Repeated same happy prediction should not keep requesting sound", brain.observeFacialEmotion("happy", 0.98f).playSound)
+        assertFalse("Non-happy expression should not trigger happy voice cue", brain.observeFacialEmotion("sad", 0.99f).playSound)
+    }
+
+    @Test fun temporalEmotionSmootherRejectsOneFrameSpikeAndAcceptsTwoOfThree() {
+        val smoother = EveEmotionSmoother(windowSize = 3, requiredVotes = 2, minConfidence = 0.38f)
+        val happy = EveEmotionPrediction("happy", 0.84f)
+        val angry = EveEmotionPrediction("angry", 0.92f)
+        assertEquals(null, smoother.add(happy))
+        assertEquals(null, smoother.add(angry))
+        val stable = smoother.add(happy)
+        assertEquals("happy", stable?.label)
+        assertTrue(stable!!.confidence in 0f..1f)
+
+        smoother.reset()
+        assertEquals(null, smoother.add(happy))
+        assertEquals(null, smoother.add(EveEmotionPrediction("happy", 0.20f))) // low confidence clears the window
+        assertEquals(null, smoother.add(happy))
+        assertEquals("happy", smoother.add(happy)?.label)
+    }
+
     @Test fun genericClassifierLabelNeverBecomesFamiliarEvenAfterManySightings() {
         val brain = RobotBrain()
         repeat(100) {
