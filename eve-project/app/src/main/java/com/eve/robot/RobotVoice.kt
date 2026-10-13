@@ -33,36 +33,35 @@ class RobotVoice {
     private fun play(mood: EveMood) {
         if (closed) return
         val r = Random(System.nanoTime())
-        // A soft, lower-register electronic voice colour; avoid sharp high-pitched bird chirps.
-        val tones = when (mood) {
-            EveMood.HAPPY -> intArrayOf(350, 425)
-            EveMood.SURPRISED -> intArrayOf(295, 455)
-            EveMood.SLEEPY -> intArrayOf(260, 235)
-            EveMood.CONCERNED -> intArrayOf(285, 265)
-            EveMood.FAMILIAR -> intArrayOf(330, 385)
-            EveMood.FOCUSED -> intArrayOf(305, 350)
-            EveMood.AWAKE -> intArrayOf(320, 400)
-            else -> intArrayOf(300, 365)
+        // One continuous, softly gliding electronic tone per cue: no rapid multi-note chirps.
+        val (baseHz, glideHz, endingSlope) = when (mood) {
+            EveMood.HAPPY -> Triple(350.0, 72.0, 8.0)
+            EveMood.SURPRISED -> Triple(325.0, 105.0, -12.0)
+            EveMood.SLEEPY -> Triple(295.0, -24.0, -6.0)
+            EveMood.CONCERNED -> Triple(305.0, -28.0, -8.0)
+            EveMood.FAMILIAR -> Triple(330.0, 38.0, 5.0)
+            EveMood.FOCUSED -> Triple(310.0, 18.0, -4.0)
+            EveMood.AWAKE -> Triple(330.0, 55.0, 4.0)
+            else -> Triple(315.0, 28.0, 0.0)
         }
         val rate = 24000
-        val segment = rate / 6
-        val gap = rate / 30
-        val pcm = ShortArray(tones.size * segment + (tones.size - 1) * gap)
-        var offset = 0
-        tones.forEachIndexed { index, base ->
-            var phase = 0.0
-            val detune = r.nextInt(-7, 8)
-            for (i in 0 until segment) {
-                val p = i.toFloat() / segment
-                val hz = (base + detune + 34.0 * sin(p * PI)).toDouble()
-                phase += 2.0 * PI * hz / rate
-                val fadeIn = (i / (rate * 0.040f)).coerceIn(0f, 1f)
-                val fadeOut = ((segment - i) / (rate * 0.075f)).coerceIn(0f, 1f)
-                val harmonic = sin(phase) * 0.90 + sin(phase * 2.0) * 0.085 + sin(phase * 3.0) * 0.015
-                val sample = harmonic * minOf(fadeIn, fadeOut) * 0.105
-                pcm[offset++] = (sample * Short.MAX_VALUE).toInt().toShort()
-            }
-            if (index < tones.lastIndex) offset += gap
+        val sampleCount = rate * 9 / 20 // 450 ms; a smooth voice-like swell, not a bird-like sequence.
+        val pcm = ShortArray(sampleCount)
+        var phase = 0.0
+        val individualOffset = r.nextInt(-5, 6)
+        for (i in 0 until sampleCount) {
+            val p = i.toDouble() / (sampleCount - 1)
+            val hz = baseHz + individualOffset + glideHz * sin(p * PI) + endingSlope * p
+            phase += 2.0 * PI * hz / rate
+            val fadeIn = (i / (rate * 0.075f)).coerceIn(0f, 1f)
+            val fadeOut = ((sampleCount - i) / (rate * 0.11f)).coerceIn(0f, 1f)
+            val envelope = minOf(fadeIn, fadeOut)
+            val fundamental = sin(phase)
+            val harmonic = fundamental * 0.89 +
+                sin(phase * 2.0 + 0.18) * 0.085 +
+                sin(phase * 3.0) * 0.025
+            val subtleVibrato = 1.0 + 0.006 * sin(p * PI * 10.0)
+            pcm[i] = (harmonic * envelope * subtleVibrato * 0.085 * Short.MAX_VALUE).toInt().toShort()
         }
         var track: AudioTrack? = null
         try {
