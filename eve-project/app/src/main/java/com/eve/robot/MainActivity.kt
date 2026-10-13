@@ -2,6 +2,9 @@ package com.eve.robot
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.Matrix
+import android.graphics.Rect
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -15,6 +18,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
+import androidx.camera.core.toBitmap
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.content.ContextCompat
 import com.google.android.gms.tasks.Tasks
@@ -40,6 +44,10 @@ class MainActivity : ComponentActivity() {
     private lateinit var voice: RobotVoice
     private val main = Handler(Looper.getMainLooper())
     private val cameraExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+    private val emotionExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+    private val emotionClassifierDelegate = lazy { EveFacialEmotionClassifier(applicationContext) }
+    private val emotionClassifier by emotionClassifierDelegate
+    private val emotionSmoother = EveEmotionSmoother(windowSize = 3, requiredVotes = 2, minConfidence = 0.38f)
     private val lastAnalysis = AtomicLong(0L)
     private val faceCueSmoother = EveFaceCueSmoother(windowSize = 3, requiredVotes = 2)
     private val lastLabelAt = mutableMapOf<String, Long>()
@@ -151,6 +159,7 @@ class MainActivity : ComponentActivity() {
         main.removeCallbacks(idleLoop)
         faceOrNull()?.stopAnimation()
         faceCueSmoother.reset()
+        emotionSmoother.reset()
         cameraProvider?.unbindAll()
         cameraStarted = false
         super.onPause()
@@ -197,8 +206,30 @@ class MainActivity : ComponentActivity() {
             proxy.close()
             return
         }
+
+        // This bitmap is independent of ImageProxy memory. It lets the local FER classifier
+        // crop a detected face, while the ML Kit tasks continue using the original camera image.
+        val frameBitmap = if (emotionClassifier.isReady) {
+            try {
+                val raw = proxy.toBitmap()
+                val rotation = proxy.imageInfo.rotationDegrees % 360
+                if (rotation == 0) {
+                    raw
+                } else {
+                    val matrix = Matrix().apply { postRotate(rotation.toFloat()) }
+                    Bitmap.createBitmap(raw, 0, 0, raw.width, raw.height, matrix, true).also {
+                        if (it !== raw) raw.recycle()
+                    }
+                }
+            } catch (error: Exception) {
+                Log.w("EVE_FER", "Could not convert camera frame for the local emotion model.", error)
+                null
+            }
+        } else {
+            null
+        }
+
         val input = InputImage.fromMediaImage(mediaImage, proxy.imageInfo.rotationDegrees)
-        // Run both bundled, on-device vision models on the same frame, then release ImageProxy.
         val labelsTask = labeler.process(input)
         val faceTask = faceDetector.process(input)
         val mainExecutor = ContextCompat.getMainExecutor(this)
@@ -210,7 +241,6 @@ class MainActivity : ComponentActivity() {
                 val label = best.text.trim().lowercase()
                 val elapsed = SystemClock.elapsedRealtime()
                 if (elapsed - (lastLabelAt[label] ?: 0L) < 9000L) return@addOnSuccessListener
-                // Once a real face is present, don't let a generic texture label override its cues.
                 if (elapsed - lastFaceSeenAt < 8000L && !isMeaningfulLabel(label)) {
                     Log.i("EVE", "VISION generic label suppressed during face interaction: $label")
                     return@addOnSuccessListener
@@ -223,67 +253,147 @@ class MainActivity : ComponentActivity() {
                 }
                 val affinity = memory.learnedAffinity(label)
                 val decision = brain.observe(label, best.confidence, sightings, affinity)
-                Log.i("EVE", "VISION label=$label confidence=${best.confidence} sightings=$sightings affinity=$affinity mood=${decision.mood}")
-                // Generic classifier labels should never trigger a voice cue.
+                Log.i(
+                    "EVE",
+                    "VISION label=$label confidence=${best.confidence} sightings=$sightings " +
+                        "affinity=$affinity mood=${decision.mood}"
+                )
                 react(decision, decision.playSound && isMeaningfulLabel(label))
             }
             .addOnFailureListener(mainExecutor) { error ->
                 Log.w("EVE", "Offline image labeling frame failed.", error)
             }
 
+        // Crop faces on the camera executor, then run TensorFlow Lite on its own single thread.
+        // A 2-of-3 temporal vote prevents a single blink/blurred frame from changing the character.
         faceTask
-            .addOnSuccessListener(mainExecutor) { faces ->
+            .addOnSuccessListener(cameraExecutor) { faces ->
                 Log.i("EVE", "FACE_SCAN count=${faces.size}")
                 val bestFace = faces.maxByOrNull {
                     it.boundingBox.width().toLong() * it.boundingBox.height().toLong()
                 }
                 if (bestFace == null) {
                     faceCueSmoother.reset()
+                    emotionSmoother.reset()
                     return@addOnSuccessListener
                 }
+
                 val elapsed = SystemClock.elapsedRealtime()
                 lastFaceSeenAt = elapsed
+                val rawCue = EveFaceCue(
+                    smilingProbability = bestFace.smilingProbability,
+                    leftEyeOpenProbability = bestFace.leftEyeOpenProbability,
+                    rightEyeOpenProbability = bestFace.rightEyeOpenProbability,
+                    headYawDegrees = bestFace.headEulerAngleY
+                )
+                val stableCue = faceCueSmoother.add(rawCue)
 
-                // Smooth noisy frame cues before changing the emotional state or sound.
-                val stableCue = faceCueSmoother.add(
-                    EveFaceCue(
-                        smilingProbability = bestFace.smilingProbability,
-                        leftEyeOpenProbability = bestFace.leftEyeOpenProbability,
-                        rightEyeOpenProbability = bestFace.rightEyeOpenProbability,
-                        headYawDegrees = bestFace.headEulerAngleY
-                    )
-                ) ?: run {
-                    Log.d(
-                        "EVE",
-                        "FACE_CUE_PENDING smile=${bestFace.smilingProbability} " +
-                            "leftEye=${bestFace.leftEyeOpenProbability} rightEye=${bestFace.rightEyeOpenProbability} " +
-                            "yaw=${bestFace.headEulerAngleY}"
-                    )
+                // Turned faces are not passed into the FER model; wait for a stable head cue.
+                if (bestFace.headEulerAngleY.isFinite() && kotlin.math.abs(bestFace.headEulerAngleY) > 22f) {
+                    if (stableCue != null && kotlin.math.abs(stableCue.headYawDegrees) > 22f) {
+                        main.post {
+                            applyFaceCueFallback(stableCue, "turned face")
+                        }
+                    }
                     return@addOnSuccessListener
                 }
 
-                if (elapsed - lastFaceReactionAt < 6500L) return@addOnSuccessListener
-                lastFaceReactionAt = elapsed
-                val decision = brain.observeHumanFace(
-                    smilingProbability = stableCue.smilingProbability,
-                    leftEyeOpenProbability = stableCue.leftEyeOpenProbability,
-                    rightEyeOpenProbability = stableCue.rightEyeOpenProbability,
-                    headYawDegrees = stableCue.headYawDegrees
-                )
-                Log.i(
-                    "EVE",
-                    "FACE_CUE_STABLE mood=${decision.mood} smile=${stableCue.smilingProbability} " +
-                        "leftEye=${stableCue.leftEyeOpenProbability} rightEye=${stableCue.rightEyeOpenProbability} " +
-                        "yaw=${stableCue.headYawDegrees}"
-                )
-                react(decision, decision.playSound)
+                val crop = frameBitmap?.let { cropFaceBitmap(it, bestFace.boundingBox) }
+                if (crop != null && emotionClassifier.isReady) {
+                    try {
+                        emotionExecutor.execute {
+                            val prediction = try {
+                                emotionClassifier.predict(crop)
+                            } finally {
+                                crop.recycle()
+                            }
+                            if (prediction != null) {
+                                val stableEmotion = emotionSmoother.add(prediction)
+                                if (stableEmotion == null) {
+                                    Log.d(
+                                        "EVE_FER",
+                                        "EMOTION_PENDING label=${prediction.label} confidence=${prediction.confidence}"
+                                    )
+                                } else {
+                                    main.post {
+                                        if (isFinishing || isDestroyed) return@post
+                                        if (SystemClock.elapsedRealtime() - lastFaceReactionAt < 6500L) return@post
+                                        lastFaceReactionAt = SystemClock.elapsedRealtime()
+                                        val decision = brain.observeFacialEmotion(
+                                            stableEmotion.label,
+                                            stableEmotion.confidence
+                                        )
+                                        Log.i(
+                                            "EVE_FER",
+                                            "FACIAL_EMOTION_MODEL label=${stableEmotion.label} " +
+                                                "confidence=${stableEmotion.confidence} mood=${decision.mood}"
+                                        )
+                                        react(decision, decision.playSound)
+                                    }
+                                }
+                            } else if (stableCue != null) {
+                                // If inference itself failed, fall back to stable ML Kit face cues.
+                                main.post { applyFaceCueFallback(stableCue, "FER inference fallback") }
+                            }
+                        }
+                    } catch (error: Exception) {
+                        crop.recycle()
+                        Log.w("EVE_FER", "Emotion executor rejected a face crop.", error)
+                    }
+                } else if (stableCue != null) {
+                    // Graceful fallback for builds where the optional model asset is unavailable
+                    // or the crop could not be formed. Normal CI builds bundle the pinned model.
+                    main.post { applyFaceCueFallback(stableCue, "FER asset/crop unavailable") }
+                } else {
+                    Log.d("EVE", "FACE_CUE_PENDING: waiting for stable facial cues.")
+                }
             }
             .addOnFailureListener(mainExecutor) { error ->
                 Log.w("EVE", "Offline face analysis frame failed.", error)
             }
 
         Tasks.whenAllComplete(labelsTask, faceTask)
-            .addOnCompleteListener { proxy.close() }
+            .addOnCompleteListener(cameraExecutor) {
+                try { proxy.close() } catch (_: Exception) { }
+                try { frameBitmap?.recycle() } catch (_: Exception) { }
+            }
+    }
+
+    private fun cropFaceBitmap(frame: Bitmap, box: Rect): Bitmap? {
+        if (frame.isRecycled || frame.width < 24 || frame.height < 24) return null
+        val padX = (box.width() * 0.10f).toInt().coerceAtLeast(2)
+        val padY = (box.height() * 0.10f).toInt().coerceAtLeast(2)
+        val left = (box.left - padX).coerceIn(0, frame.width - 1)
+        val top = (box.top - padY).coerceIn(0, frame.height - 1)
+        val right = (box.right + padX).coerceIn(left + 1, frame.width)
+        val bottom = (box.bottom + padY).coerceIn(top + 1, frame.height)
+        val width = right - left
+        val height = bottom - top
+        if (width < 24 || height < 24) {
+            Log.d("EVE_FER", "Rejected tiny/out-of-frame face crop ${width}x${height}.")
+            return null
+        }
+        return try {
+            Bitmap.createBitmap(frame, left, top, width, height)
+        } catch (error: Exception) {
+            Log.w("EVE_FER", "Could not crop detected face bounds=$box frame=${frame.width}x${frame.height}.", error)
+            null
+        }
+    }
+
+    private fun applyFaceCueFallback(cue: EveFaceCue, reason: String) {
+        if (isFinishing || isDestroyed) return
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastFaceReactionAt < 6500L) return
+        lastFaceReactionAt = now
+        val decision = brain.observeHumanFace(
+            smilingProbability = cue.smilingProbability,
+            leftEyeOpenProbability = cue.leftEyeOpenProbability,
+            rightEyeOpenProbability = cue.rightEyeOpenProbability,
+            headYawDegrees = cue.headYawDegrees
+        )
+        Log.i("EVE", "FACE_CUE_FALLBACK reason=$reason mood=${decision.mood}")
+        react(decision, decision.playSound)
     }
 
     private fun isMeaningfulLabel(label: String): Boolean =
@@ -307,6 +417,12 @@ class MainActivity : ComponentActivity() {
         try { labeler.close() } catch (_: Exception) { }
         try { faceDetector.close() } catch (_: Exception) { }
         cameraExecutor.shutdown()
+        if (emotionClassifierDelegate.isInitialized()) {
+            try {
+                emotionExecutor.execute { emotionClassifier.close() }
+            } catch (_: Exception) { }
+        }
+        emotionExecutor.shutdown()
         if (::voice.isInitialized) voice.close()
         super.onDestroy()
     }
