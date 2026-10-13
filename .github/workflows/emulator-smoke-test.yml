@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   emulator-test:
-    if: \${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 35
     strategy:
@@ -34,14 +34,14 @@ jobs:
 
       - name: Find APK from the successful build
         env:
-          GH_TOKEN: \${{ github.token }}
-          SOURCE_RUN_ID_EVENT: \${{ github.event.workflow_run.id }}
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID_EVENT: ${{ github.event.workflow_run.id }}
         run: |
           set -euo pipefail
-          if [ -n "\${SOURCE_RUN_ID_EVENT}" ] && [ "\${SOURCE_RUN_ID_EVENT}" != "null" ]; then
+          if [ -n "${SOURCE_RUN_ID_EVENT}" ] && [ "${SOURCE_RUN_ID_EVENT}" != "null" ]; then
             RUN_ID="$SOURCE_RUN_ID_EVENT"
           else
-            RUN_ID="$(gh api "repos/\${GITHUB_REPOSITORY}/actions/workflows/android-build.yml/runs?branch=main&status=success&per_page=1" --jq '.workflow_runs[0].id')"
+            RUN_ID="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/android-build.yml/runs?branch=main&status=success&per_page=1" --jq '.workflow_runs[0].id')"
           fi
           if [ -z "$RUN_ID" ] || [ "$RUN_ID" = "null" ]; then
             echo "No successful android-build.yml run was found."
@@ -64,19 +64,19 @@ jobs:
       - name: Install and launch APK offline in Android emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: \${{ matrix.api-level }}
+          api-level: ${{ matrix.api-level }}
           target: google_apis
           arch: x86_64
           profile: pixel_7_pro
           script: |
             set -euo pipefail
-            RESULTS_DIR="$GITHUB_WORKSPACE/emulator-test-results/api-\${{ matrix.api-level }}"
+            RESULTS_DIR="$GITHUB_WORKSPACE/emulator-test-results/api-${{ matrix.api-level }}"
             mkdir -p "$RESULTS_DIR"
-            echo "API level: \${{ matrix.api-level }}" | tee "$RESULTS_DIR/result.txt"
+            echo "API level: ${{ matrix.api-level }}" | tee "$RESULTS_DIR/result.txt"
             echo "Build run ID: $SOURCE_RUN_ID" | tee -a "$RESULTS_DIR/result.txt"
 
             test -s "$APK_PATH"
-            SDK_ROOT="\${ANDROID_HOME:-\${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+            SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
             AAPT="$(find "$SDK_ROOT/build-tools" -type f -name aapt -print 2>/dev/null | sort -V | tail -n 1)"
             if [ -z "$AAPT" ] || [ ! -x "$AAPT" ]; then
               echo "Could not find aapt in $SDK_ROOT/build-tools"
@@ -150,7 +150,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: WALL-E-Emulator-Report-API-\${{ matrix.api-level }}
+          name: WALL-E-Emulator-Report-API-${{ matrix.api-level }}
           path: emulator-test-results/
           if-no-files-found: warn
           retention-days: 14
