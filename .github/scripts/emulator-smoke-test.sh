@@ -234,14 +234,14 @@ elif [ "$OVERLAY_RESULT" = "UNKNOWN" ]; then
   echo "WARN: UI hierarchy unavailable before touch; retaining screenshot/logcat for review." | tee -a "$RESULTS_DIR/result.txt"
 fi
 
-# Touch the center of the face and require a mood reaction plus an AudioTrack play call.
+# Hold the face deliberately to request one soft voice cue; an ordinary tap stays silent.
 SIZE="$(adb shell wm size | grep -Eo '[0-9]+x[0-9]+' | tail -n 1)"
 WIDTH="$(printf '%s' "$SIZE" | cut -d x -f 1)"
 HEIGHT="$(printf '%s' "$SIZE" | cut -d x -f 2)"
 X=$((WIDTH / 2))
 Y=$((HEIGHT / 2))
 echo "Touching face center ($X,$Y)." | tee -a "$RESULTS_DIR/result.txt"
-adb shell input tap "$X" "$Y"
+adb shell input swipe "$X" "$Y" "$X" "$Y" 900
 sleep 2
 PID_AFTER="$(adb shell pidof "$PACKAGE" 2>/dev/null | tr -d '\r' || true)"
 test -n "$PID_AFTER" || { echo "FAIL: EVE died after touch."; exit 1; }
@@ -286,7 +286,7 @@ if ! grep -F "FACE_SCAN count=" "$RESULTS_DIR/logcat.txt" >/dev/null; then
   exit 1
 fi
 echo "PASS: offline face detector processed camera frames." | tee -a "$RESULTS_DIR/result.txt"
-if ! grep -F "BEHAVIOR mood=CURIOUS reason=gentle touch" "$RESULTS_DIR/logcat.txt" >/dev/null; then
+if ! grep -F "BEHAVIOR mood=HAPPY reason=gentle long touch" "$RESULTS_DIR/logcat.txt" >/dev/null; then
   echo "FAIL: touch did not trigger a logged behavioral reaction."
   exit 1
 fi
@@ -294,12 +294,12 @@ if ! grep -F "AUTONOMOUS mood=" "$RESULTS_DIR/logcat.txt" >/dev/null; then
   echo "FAIL: no autonomous idle behavior was observed during the test."
   exit 1
 fi
-if ! grep -F "EVE_VOICE: PLAYBACK_STARTED mood=CURIOUS" "$RESULTS_DIR/logcat.txt" >/dev/null; then
+if ! grep -F "EVE_VOICE: PLAYBACK_STARTED mood=HAPPY" "$RESULTS_DIR/logcat.txt" >/dev/null; then
   echo "FAIL: AudioTrack did not confirm playback for the touch reaction."
   grep -F "EVE_VOICE:" "$RESULTS_DIR/logcat.txt" | tail -20 || true
   exit 1
 fi
-echo "PASS: a synthesized mood chirp was submitted to Android AudioTrack." | tee -a "$RESULTS_DIR/result.txt"
+echo "PASS: one soft synthesized mood tone was submitted to Android AudioTrack after deliberate touch." | tee -a "$RESULTS_DIR/result.txt"
 
 # Force-stop/relaunch and verify that the saved label count persists.
 adb shell am force-stop "$PACKAGE"
