@@ -89,6 +89,15 @@ jobs:
           fi
           ls -lh "$MODEL"
 
+      - name: Prebuild app, instrumentation APK, and CPU stress tests before emulator boot
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/gradle-8.9/bin/gradle" --no-daemon --stacktrace -p eve-project \
+            testDebugUnitTest assembleDebug assembleDebugAndroidTest
+          test -s eve-project/app/build/outputs/apk/debug/app-debug.apk
+          test -s eve-project/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+
       - name: Run unit, adversarial affect stress, and real face-model tests offline
         uses: reactivecircus/android-emulator-runner@v2
         with:
