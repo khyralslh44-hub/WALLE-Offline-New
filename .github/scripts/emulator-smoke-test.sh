@@ -281,7 +281,12 @@ if ! grep -F "Offline camera analysis started." "$RESULTS_DIR/logcat.txt" >/dev/
   echo "FAIL: offline CameraX analysis did not report a successful start."
   exit 1
 fi
-if ! grep -F "BEHAVIOR mood=CURIOUS reason=touch" "$RESULTS_DIR/logcat.txt" >/dev/null; then
+if ! grep -F "FACE_SCAN count=" "$RESULTS_DIR/logcat.txt" >/dev/null; then
+  echo "FAIL: bundled face detector did not process camera frames while offline."
+  exit 1
+fi
+echo "PASS: offline face detector processed camera frames." | tee -a "$RESULTS_DIR/result.txt"
+if ! grep -F "BEHAVIOR mood=CURIOUS reason=gentle touch" "$RESULTS_DIR/logcat.txt" >/dev/null; then
   echo "FAIL: touch did not trigger a logged behavioral reaction."
   exit 1
 fi
