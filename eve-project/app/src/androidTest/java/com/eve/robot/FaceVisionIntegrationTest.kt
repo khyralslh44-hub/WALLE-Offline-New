@@ -142,6 +142,11 @@ class FaceVisionIntegrationTest {
                         "smoothedLabel=${stableEmotion?.label ?: "none"} mode=$evidenceMode " +
                         "decisionLabel=${modelDecision.mood} profile=$modelExpression"
                 )
+                System.out.println(
+                    "FER_MODEL_PASS rawLabel=${rawPrediction.label} rawConfidence=${rawPrediction.confidence} " +
+                        "smoothedLabel=${stableEmotion?.label ?: "none"} mode=$evidenceMode " +
+                        "decisionLabel=${modelDecision.mood} profile=$modelExpression"
+                )
             } finally {
                 fer.close()
             }
@@ -183,6 +188,11 @@ class FaceVisionIntegrationTest {
 
             Log.i(
                 "EVE_TEST",
+                "FACE_FIXTURE_PASS faces=${faces.size} bounds=${face.boundingBox.width()}x${face.boundingBox.height()} " +
+                    "smile=$smile leftEye=$leftEye rightEye=$rightEye yaw=$yaw mood=${decision.mood} " +
+                    "playSound=${decision.playSound} expression=$profile"
+            )
+            System.out.println(
                 "FACE_FIXTURE_PASS faces=${faces.size} bounds=${face.boundingBox.width()}x${face.boundingBox.height()} " +
                     "smile=$smile leftEye=$leftEye rightEye=$rightEye yaw=$yaw mood=${decision.mood} " +
                     "playSound=${decision.playSound} expression=$profile"
@@ -254,6 +264,7 @@ class FaceVisionIntegrationTest {
             Log.i("EVE_TEST", "FACE_NEGATIVE_CONTROL faces=${negativeFaces.size} background=uniform_gray")
             assertTrue("Uniform non-face control generated a false positive: $negativeFaces", negativeFaces.isEmpty())
             Log.i("EVE_TEST", "FACE_ROBUSTNESS_PASS positives=$counts negativeFaces=${negativeFaces.size}")
+            System.out.println("FACE_ROBUSTNESS_PASS positives=$counts negativeFaces=${negativeFaces.size}")
         } finally {
             detector.close()
             if (mirrored !== base) mirrored.recycle()
@@ -311,6 +322,7 @@ class FaceVisionIntegrationTest {
             assertTrue(adapted.valence > base.valence)
             assertEquals(EveMood.FAMILIAR, adapted.mood)
             Log.i("EVE_TEST", "OFFLINE_AFFECT_LEARNING_PASS old=$before learned=$afterRestart")
+            System.out.println("OFFLINE_AFFECT_LEARNING_PASS old=$before learned=$afterRestart")
         } finally {
             preferences.edit().remove("affinity:dog").remove("feedback:dog").commit()
         }
