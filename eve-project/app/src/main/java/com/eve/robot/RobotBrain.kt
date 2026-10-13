@@ -133,17 +133,18 @@ class RobotBrain {
         val smile = smilingProbability?.takeIf { it.isFinite() }?.coerceIn(0f, 1f)
 
         val mood = when {
+            eyesOpen != null && eyesOpen < 0.22f -> {
+                // Closed eyes may be a blink even when the smile score is high.
+                // Do not infer happiness from contradictory single-frame cues.
+                arousal = (arousal * 0.72f + 0.28f * 0.24f).coerceIn(0.12f, 0.7f)
+                curiosity = (curiosity * 0.8f + 0.08f).coerceIn(0f, 1f)
+                EveMood.FOCUSED
+            }
             smile != null && smile >= 0.72f -> {
                 valence = (valence + 0.16f + smile * 0.12f).coerceAtMost(0.95f)
                 arousal = (0.42f + smile * 0.20f).coerceIn(0.3f, 0.68f)
                 curiosity = (curiosity * 0.72f + 0.28f * 0.45f).coerceIn(0f, 1f)
                 EveMood.HAPPY
-            }
-            eyesOpen != null && eyesOpen < 0.22f -> {
-                // A single closed-eye frame may be a blink; don't call it sadness or sleep.
-                arousal = (arousal * 0.72f + 0.28f * 0.24f).coerceIn(0.12f, 0.7f)
-                curiosity = (curiosity * 0.8f + 0.08f).coerceIn(0f, 1f)
-                EveMood.FOCUSED
             }
             eyesOpen != null && eyesOpen >= 0.62f -> {
                 valence = (valence * 0.92f + 0.02f).coerceIn(-0.5f, 0.8f)
