@@ -60,6 +60,8 @@ class MainActivity : ComponentActivity() {
     private var lastInteractionAt = SystemClock.elapsedRealtime()
     private var idleCount = 0
     private var touchDownAt = 0L
+    private var lastMeaningfulLabel: String? = null
+    private var lastMeaningfulLabelAt = 0L
 
     private val permissionRequest = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -110,6 +112,16 @@ class MainActivity : ComponentActivity() {
                 MotionEvent.ACTION_UP -> {
                     val longPress = SystemClock.uptimeMillis() - touchDownAt >= 550L
                     lastInteractionAt = SystemClock.elapsedRealtime()
+                    val recentLabel = lastMeaningfulLabel
+                    val age = lastInteractionAt - lastMeaningfulLabelAt
+                    if (longPress && recentLabel != null && age in 0L..20_000L) {
+                        val learned = memory.reinforce(recentLabel, reward = 1f)
+                        Log.i(
+                            "EVE",
+                            "LEARNING positive feedback label=$recentLabel affinity=$learned " +
+                                "feedbackCount=${memory.feedbackCount(recentLabel)}"
+                        )
+                    }
                     react(brain.touched(longPress), longPress)
                     true
                 }
@@ -205,8 +217,13 @@ class MainActivity : ComponentActivity() {
                 }
                 lastLabelAt[label] = elapsed
                 val sightings = memory.remember(label)
-                val decision = brain.observe(label, best.confidence, sightings)
-                Log.i("EVE", "VISION label=$label confidence=${best.confidence} sightings=$sightings mood=${decision.mood}")
+                if (best.confidence >= 0.80f && isMeaningfulLabel(label)) {
+                    lastMeaningfulLabel = label
+                    lastMeaningfulLabelAt = elapsed
+                }
+                val affinity = memory.learnedAffinity(label)
+                val decision = brain.observe(label, best.confidence, sightings, affinity)
+                Log.i("EVE", "VISION label=$label confidence=${best.confidence} sightings=$sightings affinity=$affinity mood=${decision.mood}")
                 // Generic classifier labels should never trigger a voice cue.
                 react(decision, decision.playSound && isMeaningfulLabel(label))
             }
