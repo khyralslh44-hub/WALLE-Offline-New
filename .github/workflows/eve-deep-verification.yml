@@ -86,8 +86,22 @@ jobs:
             adb logcat -c
             echo "Testing on Android API ${{ matrix.api-level }} with emulator Wi-Fi and mobile data disabled." > "$RESULT_DIR/environment.txt"
             GRADLE_EXIT=0
-            "$RUNNER_TEMP/gradle-8.9/bin/gradle" --no-daemon --stacktrace -p eve-project testDebugUnitTest connectedDebugAndroidTest assembleDebug > "$RESULT_DIR/gradle-test.log" 2>&1 || GRADLE_EXIT=$?
-            cat "$RESULT_DIR/gradle-test.log"
+            (timeout 900s "$RUNNER_TEMP/gradle-8.9/bin/gradle" --no-daemon --stacktrace -p eve-project testDebugUnitTest connectedDebugAndroidTest assembleDebug > "$RESULT_DIR/gradle-test.log" 2>&1) &
+            GRADLE_PID=$!
+            LAST_LINE=0
+            while kill -0 "$GRADLE_PID" 2>/dev/null; do
+              CURRENT_LINE="$(wc -l < "$RESULT_DIR/gradle-test.log" 2>/dev/null || echo 0)"
+              if [ "$CURRENT_LINE" -gt "$LAST_LINE" ]; then
+                sed -n "$((LAST_LINE + 1)),${CURRENT_LINE}p" "$RESULT_DIR/gradle-test.log"
+                LAST_LINE="$CURRENT_LINE"
+              fi
+              sleep 10
+            done
+            wait "$GRADLE_PID" || GRADLE_EXIT=$?
+            CURRENT_LINE="$(wc -l < "$RESULT_DIR/gradle-test.log" 2>/dev/null || echo 0)"
+            if [ "$CURRENT_LINE" -gt "$LAST_LINE" ]; then
+              sed -n "$((LAST_LINE + 1)),${CURRENT_LINE}p" "$RESULT_DIR/gradle-test.log"
+            fi
             adb logcat -d -v threadtime > "$RESULT_DIR/logcat.txt" || true
             cp "$RUNNER_TEMP/face-fixture-sha256.txt" "$RESULT_DIR/face-fixture-sha256.txt" 2>/dev/null || true
             grep -E "EVE_TEST|AndroidJUnitRunner|Tests run|OK \\(|FAILURES!!!|FATAL EXCEPTION|ANR in|BUILD SUCCESSFUL|BUILD FAILED" "$RESULT_DIR/logcat.txt" "$RESULT_DIR/gradle-test.log" > "$RESULT_DIR/test-signals.txt" || true
