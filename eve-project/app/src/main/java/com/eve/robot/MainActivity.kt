@@ -61,7 +61,7 @@ class MainActivity : ComponentActivity() {
             val inactive = SystemClock.elapsedRealtime() - lastInteractionAt
             if (inactive >= 5_000L) {
                 val decision = brain.idle(inactive, idleCount)
-                face.setMood(decision.mood, System.currentTimeMillis() xor Random.nextLong())
+                face.setExpression(decision, System.currentTimeMillis() xor Random.nextLong())
                 Log.i("EVE", "AUTONOMOUS mood=${decision.mood} reason=${decision.reason} inactiveMs=$inactive")
             }
             main.postDelayed(this, 5200L + Random.nextLong(2200L))
@@ -190,7 +190,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun react(decision: EveDecision, playSound: Boolean) {
-        face.setMood(decision.mood, System.currentTimeMillis() xor Random.nextLong())
+        face.setExpression(decision, System.currentTimeMillis() xor Random.nextLong())
         if (playSound) voice.speakMood(decision.mood)
         Log.i("EVE", "BEHAVIOR mood=${decision.mood} reason=${decision.reason}")
     }
