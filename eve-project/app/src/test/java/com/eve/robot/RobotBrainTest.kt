@@ -23,7 +23,26 @@ class RobotBrainTest {
     }
 
     @Test fun curiosityIsUsedForAnimals() {
-        assertEquals(EveMood.CURIOUS, brain.observe("dog", 0.88f, 1).mood)
+        val decision = brain.observe("dog", 0.88f, 1)
+        assertEquals(EveMood.CURIOUS, decision.mood)
+        assertTrue(decision.curiosity > 0.8f)
+        assertTrue(decision.playSound)
+    }
+
+    @Test fun genericPatternLabelsDoNotTriggerNoisySound() {
+        val decision = brain.observe("pattern", 0.92f, 1)
+        assertEquals(EveMood.FOCUSED, decision.mood)
+        assertFalse(decision.playSound)
+    }
+
+    @Test fun genericLabelsAreNotMistakenForLearnedFamiliarObjects() {
+        assertEquals(EveMood.FOCUSED, brain.observe("pattern", 0.92f, 3).mood)
+        assertFalse(brain.observe("pattern", 0.92f, 3).playSound)
+    }
+
+    @Test fun idleExpressionsNeverPlaySound() {
+        assertFalse(brain.idle(12_000L, 3).playSound)
+        assertFalse(brain.idle(45_000L, 8).playSound)
     }
 
     @Test fun idleEventuallySleeps() {
