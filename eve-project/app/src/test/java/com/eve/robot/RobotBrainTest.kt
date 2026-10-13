@@ -40,6 +40,15 @@ class RobotBrainTest {
         assertFalse(brain.observe("pattern", 0.92f, 3).playSound)
     }
 
+    @Test fun repeatedRealWorldExperienceChangesMoodToFamiliar() {
+        val first = brain.observe("dog", 0.90f, 1)
+        val remembered = brain.observe("dog", 0.90f, 3)
+        assertEquals(EveMood.CURIOUS, first.mood)
+        assertEquals(EveMood.FAMILIAR, remembered.mood)
+        assertTrue(remembered.familiarity > first.familiarity)
+        assertFalse(remembered.playSound)
+    }
+
     @Test fun casualTouchIsSilentButLongPressCanSpeak() {
         assertFalse(brain.touched(false).playSound)
         assertTrue(brain.touched(true).playSound)
