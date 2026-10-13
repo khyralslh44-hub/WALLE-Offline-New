@@ -18,6 +18,8 @@ jobs:
     timeout-minutes: 45
     strategy:
       fail-fast: false
+      # These CPU-only emulators are memory hungry; serialize them to avoid boot/test stalls.
+      max-parallel: 1
       matrix:
         api-level: [29, 35]
 
@@ -94,6 +96,12 @@ jobs:
           target: google_apis
           arch: x86_64
           profile: pixel_2
+          cores: 2
+          ram-size: 2048M
+          heap-size: 512M
+          emulator-boot-timeout: 900
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back emulated
+          disable-animations: true
           script: bash .github/scripts/run-deep-face-test.sh "${{ matrix.api-level }}"
 
       - name: Upload deep-test report, screenshots, and APK
