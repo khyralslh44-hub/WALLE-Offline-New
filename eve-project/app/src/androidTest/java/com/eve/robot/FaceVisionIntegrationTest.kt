@@ -18,7 +18,7 @@ import org.junit.runner.RunWith
 import java.util.concurrent.TimeUnit
 
 /**
- * Runs the actual bundled ML Kit model inside an Android emulator with emulator networking off.
+ * Runs the actual bundled ML Kit model on a pinned frontal portrait inside an Android emulator with networking disabled.
  * The fixture exists only in androidTest/assets and is not included in the production APK.
  */
 @RunWith(AndroidJUnit4::class)
@@ -27,7 +27,7 @@ class FaceVisionIntegrationTest {
     fun bundledFaceDetectorFindsFaceAndFeedsAffectAndEyeExpression() {
         val testContext = InstrumentationRegistry.getInstrumentation().context
         val decodedBitmap = requireNotNull(
-            testContext.assets.open("face_smile.png").use { BitmapFactory.decodeStream(it) }
+            testContext.assets.open("face_fixture.jpg").use { BitmapFactory.decodeStream(it) }
         ) { "Pinned face fixture could not be decoded" }
         assertTrue(
             "Fixture is too small for meaningful face analysis",
