@@ -63,11 +63,37 @@ if ! timeout 90s adb wait-for-device >> "$RESULT_DIR/environment.txt" 2>&1; then
   exit 70
 fi
 
+# Android can report sys.boot_completed=1 while system_server is restarting and
+# the package service is temporarily absent. Require both the binder service and
+# a real package-list response before treating the emulator as install-ready.
+package_manager_ready() {
+  timeout 10s adb shell service check package 2>/dev/null | grep -qi 'found' &&
+    timeout 10s adb shell pm list packages 2>/dev/null | grep -q '^package:'
+}
+
+wait_for_package_manager() {
+  local attempt
+  for attempt in $(seq 1 90); do
+    if package_manager_ready; then
+      echo "PASS: Android Package Manager service is responding." | tee -a "$RESULT_DIR/environment.txt"
+      return 0
+    fi
+    if [ "$attempt" -eq 1 ] || [ $((attempt % 10)) -eq 0 ]; then
+      echo "Waiting for Android Package Manager after boot/restart ($attempt/90)..." | tee -a "$RESULT_DIR/environment.txt"
+    fi
+    sleep 2
+  done
+  echo "FAIL: Android Package Manager service did not become available within 180 seconds." | tee -a "$RESULT_DIR/environment.txt"
+  timeout 15s adb shell service check package > "$RESULT_DIR/package-service-check.txt" 2>&1 || true
+  timeout 15s adb shell pm list packages > "$RESULT_DIR/package-list-check.txt" 2>&1 || true
+  return 1
+}
+
 # Wait for Android boot and Package Manager, not merely the ADB transport.
 BOOTED=false
 for attempt in $(seq 1 180); do
   BOOT_COMPLETE="$(timeout 8s adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
-  if [ "$BOOT_COMPLETE" = "1" ] && timeout 10s adb shell pm list packages >/dev/null 2>&1; then
+  if [ "$BOOT_COMPLETE" = "1" ] && package_manager_ready; then
     BOOTED=true
     break
   fi
@@ -146,21 +172,16 @@ install_apk() {
     timeout 15s adb logcat -d -v threadtime > "$RESULT_DIR/logcat-install-failure-$label-$attempt.txt" 2>&1 || true
     if [ "$attempt" -lt 3 ]; then
       timeout 90s adb wait-for-device >> "$RESULT_DIR/environment.txt" 2>&1 || true
-      sleep 5
-      boot_complete="$(timeout 8s adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
-      if [ "$boot_complete" != "1" ]; then
-        echo "WARN: Android became unready during install; waiting for boot." | tee -a "$RESULT_DIR/environment.txt"
-        ready=false
-        for boot_try in $(seq 1 120); do
-          boot_complete="$(timeout 8s adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
-          if [ "$boot_complete" = "1" ] && timeout 10s adb shell pm list packages >/dev/null 2>&1; then
-            ready=true
-            break
-          fi
-          sleep 1
-        done
-        if [ "$ready" != true ]; then
-          echo "FAIL: Android did not recover after install attempt." | tee -a "$RESULT_DIR/environment.txt"
+      sleep 3
+      # Always wait for the Package Manager, even when sys.boot_completed remains 1.
+      # A rebooting system_server can leave ADB connected but make every install fail.
+      if ! wait_for_package_manager; then
+        echo "WARN: package service still unavailable before retry $((attempt + 1))." | tee -a "$RESULT_DIR/environment.txt"
+        adb kill-server >/dev/null 2>&1 || true
+        adb start-server >/dev/null 2>&1 || true
+        timeout 45s adb wait-for-device >> "$RESULT_DIR/environment.txt" 2>&1 || true
+        if ! wait_for_package_manager; then
+          echo "FAIL: Package Manager did not recover after reconnecting ADB." | tee -a "$RESULT_DIR/environment.txt"
           return 1
         fi
       fi
