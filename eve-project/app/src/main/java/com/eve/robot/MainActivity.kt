@@ -21,7 +21,6 @@ import androidx.camera.core.ImageProxy
 import androidx.camera.core.toBitmap
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.content.ContextCompat
-import com.google.android.gms.tasks.Tasks
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.face.FaceDetection
 import com.google.mlkit.vision.face.FaceDetector
@@ -266,8 +265,21 @@ class MainActivity : ComponentActivity() {
 
         // Crop faces on the camera executor, then run TensorFlow Lite on its own single thread.
         // A 2-of-3 temporal vote prevents a single blink/blurred frame from changing the character.
+        val pendingFrameConsumers = AtomicLong(2L)
+        fun finishFrameConsumer() {
+            if (pendingFrameConsumers.decrementAndGet() == 0L) {
+                try { frameBitmap?.recycle() } catch (_: Exception) { }
+                try { proxy.close() } catch (_: Exception) { }
+            }
+        }
+
+        // Release the frame only after image labels are done and the face listener has finished
+        // cropping the image. Inference then owns its independent crop bitmap.
+        labelsTask.addOnCompleteListener(mainExecutor) { finishFrameConsumer() }
+
         faceTask
             .addOnSuccessListener(cameraExecutor) { faces ->
+                try {
                 Log.i("EVE", "FACE_SCAN count=${faces.size}")
                 val bestFace = faces.maxByOrNull {
                     it.boundingBox.width().toLong() * it.boundingBox.height().toLong()
@@ -347,15 +359,16 @@ class MainActivity : ComponentActivity() {
                 } else {
                     Log.d("EVE", "FACE_CUE_PENDING: waiting for stable facial cues.")
                 }
+                } finally {
+                    finishFrameConsumer()
+                }
             }
-            .addOnFailureListener(mainExecutor) { error ->
-                Log.w("EVE", "Offline face analysis frame failed.", error)
-            }
-
-        Tasks.whenAllComplete(labelsTask, faceTask)
-            .addOnCompleteListener(cameraExecutor) {
-                try { proxy.close() } catch (_: Exception) { }
-                try { frameBitmap?.recycle() } catch (_: Exception) { }
+            .addOnFailureListener(cameraExecutor) { error ->
+                try {
+                    Log.w("EVE", "Offline face analysis frame failed.", error)
+                } finally {
+                    finishFrameConsumer()
+                }
             }
     }
 
