@@ -217,7 +217,7 @@ if grep -E "INSTRUMENTATION_FAILED|FAILURES!!!|INSTRUMENTATION_STATUS_CODE: -2" 
   exit 11
 fi
 
-for marker in FACE_FIXTURE_PASS FER_MODEL_PASS OFFLINE_AFFECT_LEARNING_PASS; do
+for marker in FACE_ROBUSTNESS_PASS FACE_FIXTURE_PASS FER_MODEL_PASS OFFLINE_AFFECT_LEARNING_PASS; do
   if ! grep -F "$marker" "$RESULT_DIR/logcat.txt" >/dev/null 2>&1; then
     echo "FAIL: required instrumentation marker missing: $marker" | tee -a "$RESULT_DIR/environment.txt"
     echo "Inspect instrumentation-output.txt, logcat.txt, test-signals.txt and androidTests report." | tee -a "$RESULT_DIR/environment.txt"
