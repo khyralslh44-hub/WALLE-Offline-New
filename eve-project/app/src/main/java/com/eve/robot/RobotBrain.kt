@@ -1,47 +1,154 @@
 package com.eve.robot
 
 import android.content.Context
-import kotlin.math.min
+import kotlin.math.sin
 
 enum class EveMood {
     AWAKE, NEUTRAL, CURIOUS, HAPPY, SURPRISED, CONCERNED, FAMILIAR, SLEEPY, FOCUSED
 }
 
+/**
+ * A local affect snapshot shared by vision, touch, idle behavior, facial expression and sound.
+ * Values are continuous; moods are only readable summaries of the richer state.
+ */
 data class EveDecision(
     val mood: EveMood,
     val reason: String,
-    val playSound: Boolean = true
+    val playSound: Boolean = false,
+    val valence: Float = 0.12f,
+    val arousal: Float = 0.32f,
+    val curiosity: Float = 0.55f,
+    val familiarity: Float = 0.05f,
+    val fatigue: Float = 0f
 )
 
-/** Rule-based local behavior engine. This is adaptive behavior, not human-like consciousness. */
+/**
+ * Stateful local affect engine. It reacts to confidence, semantic category, repeated sightings,
+ * touch and inactivity. This is a lightweight emotional-behavior simulation, not consciousness.
+ */
 class RobotBrain {
+    private var valence = 0.12f       // negative = wary, positive = warm
+    private var arousal = 0.32f       // calm <-> alert
+    private var curiosity = 0.58f
+    private var familiarity = 0.05f
+    private var fatigue = 0f
+
+    private enum class Kind { FOOD, ANIMAL, PERSON, PLANT, OTHER }
+
+    @Synchronized
     fun observe(label: String, confidence: Float, sightings: Int): EveDecision {
         val item = label.trim().lowercase()
         if (item.isBlank() || confidence < 0.45f) {
-            return EveDecision(EveMood.CONCERNED, "uncertain visual label", false)
+            valence = (valence - 0.12f).coerceIn(-1f, 1f)
+            arousal = 0.22f
+            curiosity = (curiosity + 0.08f).coerceAtMost(1f)
+            return snapshot(EveMood.CONCERNED, "uncertain visual label", false)
         }
-        if (sightings >= 3) return EveDecision(EveMood.FAMILIAR, "familiar item: $item")
+
+        val kind = classify(item)
+        fatigue = (fatigue - 0.12f).coerceAtLeast(0f)
+        when (kind) {
+            Kind.FOOD -> {
+                valence = (valence + 0.24f).coerceAtMost(0.95f)
+                arousal = 0.56f
+                curiosity = 0.50f
+            }
+            Kind.ANIMAL -> {
+                valence = (valence + 0.18f).coerceAtMost(0.80f)
+                arousal = 0.63f
+                curiosity = 0.91f
+            }
+            Kind.PERSON -> {
+                valence = (valence + 0.10f).coerceAtMost(0.70f)
+                arousal = 0.46f
+                curiosity = 0.66f
+                familiarity = (familiarity + 0.04f).coerceAtMost(0.8f)
+            }
+            Kind.PLANT -> {
+                valence = (valence + 0.06f).coerceAtMost(0.65f)
+                arousal = 0.34f
+                curiosity = 0.76f
+            }
+            Kind.OTHER -> {
+                // A generic classifier label such as "pattern" is not treated as understanding.
+                arousal = 0.30f + confidence * 0.12f
+                curiosity = (0.44f + confidence * 0.30f).coerceIn(0f, 0.82f)
+                valence = (valence * 0.78f).coerceIn(-1f, 1f)
+            }
+        }
+
+        if (kind != Kind.OTHER && sightings >= 3) {
+            familiarity = (familiarity + 0.18f).coerceAtMost(1f)
+            valence = (valence + 0.06f).coerceAtMost(0.95f)
+            return snapshot(EveMood.FAMILIAR, "familiar $kind: $item", false)
+        }
+
+        val mood = when (kind) {
+            Kind.FOOD -> EveMood.HAPPY
+            Kind.ANIMAL -> EveMood.CURIOUS
+            Kind.PERSON -> EveMood.AWAKE
+            Kind.PLANT -> EveMood.CURIOUS
+            Kind.OTHER -> if (confidence >= 0.82f) EveMood.FOCUSED else EveMood.CURIOUS
+        }
+
+        // Only a first, high-confidence, meaningful observation may trigger sound.
+        // Generic texture/pattern labels never chirp; the voice renderer adds its own cooldown.
+        val meaningful = kind == Kind.FOOD || kind == Kind.ANIMAL || kind == Kind.PERSON
+        val sound = meaningful && confidence >= 0.84f && sightings == 1
+        return snapshot(mood, "observed $kind: $item", sound)
+    }
+
+    @Synchronized
+    fun touched(longPress: Boolean): EveDecision {
+        fatigue = (fatigue - 0.18f).coerceAtLeast(0f)
+        valence = (valence + if (longPress) 0.30f else 0.10f).coerceAtMost(1f)
+        arousal = if (longPress) 0.68f else 0.52f
+        curiosity = if (longPress) 0.66f else 0.78f
+        return snapshot(
+            if (longPress) EveMood.HAPPY else EveMood.CURIOUS,
+            if (longPress) "gentle long touch" else "gentle touch",
+            true
+        )
+    }
+
+    @Synchronized
+    fun idle(inactiveMs: Long, next: Int): EveDecision {
+        val idleMinutes = ((inactiveMs - 35_000L).coerceAtLeast(0L) / 180_000f)
+        fatigue = idleMinutes.coerceIn(0f, 1f)
+        // The emotional state settles slowly instead of repeating an identical canned reply.
+        valence = (valence * 0.985f + 0.002f).coerceIn(-0.5f, 0.75f)
+        arousal = (arousal * 0.84f + 0.16f * 0.27f).coerceIn(0.12f, 0.80f)
+        curiosity = (0.44f + 0.38f * ((sin(next * 0.71f) + 1f) / 2f)).coerceIn(0.25f, 0.90f)
+
         val mood = when {
-            listOf("food", "fruit", "banana", "apple", "pizza", "bread", "meal").any(item::contains) -> EveMood.HAPPY
-            listOf("animal", "cat", "dog", "bird", "pet", "puppy", "kitten").any(item::contains) -> EveMood.CURIOUS
-            listOf("person", "people", "human", "face").any(item::contains) -> EveMood.AWAKE
-            confidence >= 0.80f -> EveMood.SURPRISED
-            else -> EveMood.CURIOUS
+            inactiveMs >= 40_000L -> EveMood.SLEEPY
+            valence > 0.56f && next % 5 == 0 -> EveMood.HAPPY
+            curiosity > 0.69f && next % 3 != 0 -> EveMood.CURIOUS
+            familiarity > 0.50f && next % 4 == 0 -> EveMood.FAMILIAR
+            next % 7 == 0 -> EveMood.SURPRISED
+            else -> EveMood.NEUTRAL
         }
-        return EveDecision(mood, "new observation: $item", confidence >= 0.72f)
+        return snapshot(mood, "autonomous idle exploration", false)
     }
 
-    fun touched(longPress: Boolean): EveDecision =
-        if (longPress) EveDecision(EveMood.HAPPY, "long touch")
-        else EveDecision(EveMood.CURIOUS, "touch")
-
-    fun idle(inactiveMs: Long, next: Int): EveDecision = when {
-        inactiveMs >= 40_000L -> EveDecision(EveMood.SLEEPY, "resting", false)
-        inactiveMs < 5_000L -> EveDecision(EveMood.AWAKE, "recently active", false)
-        next % 4 == 0 -> EveDecision(EveMood.FAMILIAR, "quiet friendly look", false)
-        next % 3 == 0 -> EveDecision(EveMood.NEUTRAL, "quiet idle look", false)
-        else -> EveDecision(EveMood.CURIOUS, "curious idle look", false)
+    private fun classify(item: String): Kind = when {
+        listOf("food", "fruit", "banana", "apple", "pizza", "bread", "meal", "sandwich", "vegetable", "cake", "orange").any(item::contains) -> Kind.FOOD
+        listOf("animal", "cat", "dog", "bird", "pet", "puppy", "kitten", "horse", "rabbit", "fish").any(item::contains) -> Kind.ANIMAL
+        listOf("person", "people", "human", "face", "man", "woman", "child", "boy", "girl").any(item::contains) -> Kind.PERSON
+        listOf("plant", "flower", "tree", "leaf", "grass", "garden").any(item::contains) -> Kind.PLANT
+        else -> Kind.OTHER
     }
+
+    private fun snapshot(mood: EveMood, reason: String, sound: Boolean) = EveDecision(
+        mood = mood,
+        reason = reason,
+        playSound = sound,
+        valence = valence.coerceIn(-1f, 1f),
+        arousal = arousal.coerceIn(0f, 1f),
+        curiosity = curiosity.coerceIn(0f, 1f),
+        familiarity = familiarity.coerceIn(0f, 1f),
+        fatigue = fatigue.coerceIn(0f, 1f)
+    )
 }
 
 /** Persistent on-device counters. Only labels/counts/timestamps are saved, never camera frames. */
