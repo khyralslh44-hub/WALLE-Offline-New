@@ -170,10 +170,35 @@ test -n "$PID_AFTER" || { echo "FAIL: EVE died after touch."; exit 1; }
 adb exec-out screencap -p > "$RESULTS_DIR/eve-face-after-touch.png"
 
 adb logcat -d -v threadtime > "$RESULTS_DIR/logcat.txt"
-if grep -E 'FATAL EXCEPTION.*com\.eve\.robot|ANR in com\.eve\.robot' "$RESULTS_DIR/logcat.txt" >/dev/null; then
-  echo "FAIL: app-specific fatal exception or ANR observed."
-  exit 1
-fi
+python3 - "$RESULTS_DIR/logcat.txt" "$PACKAGE" <<'PY'
+import sys
+from pathlib import Path
+lines = Path(sys.argv[1]).read_text(errors="replace").splitlines()
+package = sys.argv[2]
+fatal = []
+anr = []
+for index, line in enumerate(lines):
+    context = "\n".join(lines[index:index + 45])
+    if "FATAL EXCEPTION" in line and (f"Process: {package}" in context or package in context):
+        fatal.append(context)
+    if f"ANR in {package}" in line or f"Application Not Responding: {package}" in line:
+        anr.append(context)
+if fatal or anr:
+    parts = []
+    if fatal:
+        parts.append("App fatal exception:\n" + "\n---\n".join(fatal[:2]))
+    if anr:
+        parts.append("App ANR:\n" + "\n---\n".join(anr[:2]))
+    print("FAIL: app-specific crash/ANR detected:\n" + "\n".join(parts))
+    raise SystemExit(1)
+system_anr = [line for line in lines if "ANR in " in line and package not in line]
+if system_anr:
+    Path(sys.argv[1]).with_name("system-anr-observations.txt").write_text(
+        "\n".join(system_anr) + "\n"
+    )
+    print("WARN: system ANR unrelated to EVE recorded separately.")
+print("PASS: no app-specific fatal exception or ANR found in logcat.")
+PY
 if ! grep -F "Offline camera analysis started." "$RESULTS_DIR/logcat.txt" >/dev/null; then
   echo "FAIL: offline CameraX analysis did not report a successful start."
   exit 1
