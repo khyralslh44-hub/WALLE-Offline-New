@@ -126,7 +126,7 @@ class EveFacialEmotionClassifier(context: Context) : Closeable {
 class EveEmotionSmoother(
     private val windowSize: Int = 3,
     private val requiredVotes: Int = 2,
-    private val minConfidence: Float = 0.38f
+    private val minConfidence: Float = 0.62f
 ) {
     private val window = ArrayList<EveEmotionPrediction>()
 

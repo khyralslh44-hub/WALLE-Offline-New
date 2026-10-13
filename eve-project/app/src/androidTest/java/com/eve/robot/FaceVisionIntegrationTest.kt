@@ -115,20 +115,32 @@ class FaceVisionIntegrationTest {
                 assertTrue("Unexpected FER output label: ${rawPrediction.label}", rawPrediction.label in EveFacialEmotionClassifier.LABELS)
                 assertTrue("FER confidence is not finite/in-range.", rawPrediction.confidence.isFinite() && rawPrediction.confidence in 0f..1f)
 
-                val emotionSmoother = EveEmotionSmoother(windowSize = 3, requiredVotes = 2)
+                val emotionSmoother = EveEmotionSmoother(
+                    windowSize = 3,
+                    requiredVotes = 2,
+                    minConfidence = 0.62f
+                )
                 assertEquals("A single prediction must not change emotion state.", null, emotionSmoother.add(rawPrediction))
                 val stableEmotion = emotionSmoother.add(rawPrediction)
-                    ?: throw AssertionError("Two matching FER predictions did not produce a stable emotion.")
-                val modelDecision = RobotBrain().observeFacialEmotion(stableEmotion.label, stableEmotion.confidence)
+                // Real inference may be uncertain. It must be reported, not promoted to a confident
+                // human emotion. This fixture previously returned angry at about 57% confidence.
+                val candidate = stableEmotion ?: rawPrediction
+                val modelDecision = RobotBrain().observeFacialEmotion(candidate.label, candidate.confidence)
+                if (modelDecision.reason.startsWith("uncertain facial-expression model output")) {
+                    assertEquals("Low-confidence prediction must stay emotionally neutral.", EveMood.NEUTRAL, modelDecision.mood)
+                    assertFalse("Uncertain FER result must never speak.", modelDecision.playSound)
+                }
                 val modelExpression = EyeExpressionGenerator.generate(modelDecision, 0xF3A123L)
                 assertEquals("FER affect decision and generated face mood diverged.", modelDecision.mood, modelExpression.mood)
                 assertTrue(modelDecision.valence in -1f..1f)
                 assertTrue(modelDecision.arousal in 0f..1f)
                 assertTrue(modelDecision.curiosity in 0f..1f)
+                val evidenceMode = if (stableEmotion == null) "low-confidence-rejected" else "stable-two-frame-vote"
                 Log.i(
                     "EVE_TEST",
-                    "FER_MODEL_PASS label=${stableEmotion.label} confidence=${stableEmotion.confidence} " +
-                        "mood=${modelDecision.mood} profile=$modelExpression"
+                    "FER_MODEL_PASS rawLabel=${rawPrediction.label} rawConfidence=${rawPrediction.confidence} " +
+                        "smoothedLabel=${stableEmotion?.label ?: "none"} mode=$evidenceMode " +
+                        "decisionLabel=${modelDecision.mood} profile=$modelExpression"
                 )
             } finally {
                 fer.close()

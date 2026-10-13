@@ -45,6 +45,20 @@ class EveFacialEmotionClassifierTest {
         assertEquals(EveMood.CONCERNED, brain.observeFacialEmotion("fearful", 0.87f).mood)
     }
 
+    @Test fun borderlineAngerPredictionIsNotPromotedToAnEmotion() {
+        // Actual API-35 test photo scored as angry at 0.5707551 confidence.
+        val decision = RobotBrain().observeFacialEmotion("angry", 0.5707551f)
+        assertEquals(EveMood.NEUTRAL, decision.mood)
+        assertFalse(decision.playSound)
+        assertTrue(decision.reason.contains("minimum threshold"))
+    }
+
+    @Test fun negativeEmotionRequiresHigherConfidenceThanHappyCue() {
+        assertEquals(EveMood.NEUTRAL, RobotBrain().observeFacialEmotion("angry", 0.71f).mood)
+        assertEquals(EveMood.CONCERNED, RobotBrain().observeFacialEmotion("angry", 0.72f).mood)
+        assertEquals(EveMood.HAPPY, RobotBrain().observeFacialEmotion("happy", 0.65f).mood)
+    }
+
     @Test fun uncertaintyNeverRequestsSound() {
         val brain = RobotBrain()
         assertFalse(brain.observeFacialEmotion("happy", 0.25f).playSound)

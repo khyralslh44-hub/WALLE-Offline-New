@@ -46,7 +46,7 @@ class MainActivity : ComponentActivity() {
     private val emotionExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private val emotionClassifierDelegate = lazy { EveFacialEmotionClassifier(applicationContext) }
     private val emotionClassifier by emotionClassifierDelegate
-    private val emotionSmoother = EveEmotionSmoother(windowSize = 3, requiredVotes = 2, minConfidence = 0.38f)
+    private val emotionSmoother = EveEmotionSmoother(windowSize = 3, requiredVotes = 2, minConfidence = 0.62f)
     private val lastAnalysis = AtomicLong(0L)
     private val faceCueSmoother = EveFaceCueSmoother(windowSize = 3, requiredVotes = 2)
     private val lastLabelAt = mutableMapOf<String, Long>()
@@ -315,23 +315,49 @@ class MainActivity : ComponentActivity() {
                                 if (stableEmotion == null) {
                                     Log.d(
                                         "EVE_FER",
-                                        "EMOTION_PENDING label=${prediction.label} confidence=${prediction.confidence}"
+                                        "EMOTION_PENDING label=${prediction.label} confidence=${prediction.confidence}; " +
+                                            "waiting for a reliable 2-of-3 vote"
                                     )
+                                    // A weak FER result should not invent an emotion. If basic face cues
+                                    // are stable, let them drive a quiet fallback expression instead.
+                                    if (stableCue != null) {
+                                        main.post {
+                                            applyFaceCueFallback(stableCue, "low-confidence FER prediction")
+                                        }
+                                    }
                                 } else {
                                     main.post {
                                         if (isFinishing || isDestroyed) return@post
                                         if (SystemClock.elapsedRealtime() - lastFaceReactionAt < 6500L) return@post
-                                        lastFaceReactionAt = SystemClock.elapsedRealtime()
                                         val decision = brain.observeFacialEmotion(
                                             stableEmotion.label,
                                             stableEmotion.confidence
                                         )
-                                        Log.i(
-                                            "EVE_FER",
-                                            "FACIAL_EMOTION_MODEL label=${stableEmotion.label} " +
-                                                "confidence=${stableEmotion.confidence} mood=${decision.mood}"
-                                        )
-                                        react(decision, decision.playSound)
+                                        if (decision.reason.startsWith("uncertain facial-expression model output") &&
+                                            stableCue != null
+                                        ) {
+                                            lastFaceReactionAt = SystemClock.elapsedRealtime()
+                                            val cueDecision = brain.observeHumanFace(
+                                                stableCue.smilingProbability,
+                                                stableCue.leftEyeOpenProbability,
+                                                stableCue.rightEyeOpenProbability,
+                                                stableCue.headYawDegrees
+                                            )
+                                            Log.i(
+                                                "EVE_FER",
+                                                "FER_UNCERTAIN_FALLBACK label=${stableEmotion.label} " +
+                                                    "confidence=${stableEmotion.confidence} cueMood=${cueDecision.mood}"
+                                            )
+                                            react(cueDecision, cueDecision.playSound)
+                                        } else {
+                                            lastFaceReactionAt = SystemClock.elapsedRealtime()
+                                            Log.i(
+                                                "EVE_FER",
+                                                "FACIAL_EMOTION_MODEL label=${stableEmotion.label} " +
+                                                    "confidence=${stableEmotion.confidence} mood=${decision.mood}"
+                                            )
+                                            react(decision, decision.playSound)
+                                        }
                                     }
                                 }
                             } else if (stableCue != null) {

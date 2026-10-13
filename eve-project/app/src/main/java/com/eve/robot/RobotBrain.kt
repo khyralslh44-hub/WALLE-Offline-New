@@ -112,10 +112,21 @@ class RobotBrain {
     @Synchronized
     fun observeFacialEmotion(label: String, confidence: Float): EveDecision {
         val emotion = label.trim().lowercase()
+        val minimumConfidence = when (emotion) {
+            "happy" -> 0.65f
+            "sad", "angry", "fearful" -> 0.72f
+            "surprised" -> 0.68f
+            "neutral" -> 0.52f
+            else -> 1f
+        }
         if (emotion !in EveFacialEmotionClassifier.LABELS ||
-            !confidence.isFinite() || confidence < 0.38f
+            !confidence.isFinite() || confidence < minimumConfidence
         ) {
-            return snapshot(EveMood.NEUTRAL, "uncertain facial-expression model output", false)
+            return snapshot(
+                EveMood.NEUTRAL,
+                "uncertain facial-expression model output: label=$emotion confidence=$confidence minimum threshold=$minimumConfidence",
+                false
+            )
         }
         val certainty = confidence.coerceIn(0f, 1f)
         val changed = emotion != lastModelEmotion
