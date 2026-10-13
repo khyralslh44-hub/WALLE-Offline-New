@@ -69,7 +69,7 @@ jobs:
           api-level: ${{ matrix.api-level }}
           target: google_apis
           arch: x86_64
-          profile: pixel_7_pro
+          profile: pixel_2
           script: bash "$GITHUB_WORKSPACE/.github/scripts/emulator-smoke-test.sh"
         env:
           TEST_API_LEVEL: ${{ matrix.api-level }}
