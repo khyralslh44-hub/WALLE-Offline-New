@@ -128,7 +128,10 @@ jobs:
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: ${{ matrix.api-level }}
-          target: google_apis
+          # Use the lightweight AOSP system image. This test uses bundled ML Kit/TFLite
+          # models and does not require Google Play Services; avoiding GMS background tasks
+          # prevents unrelated emulator ANRs while networking is disabled.
+          target: default
           arch: x86_64
           profile: pixel_2
           cores: 4
