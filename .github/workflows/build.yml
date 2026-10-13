@@ -7,6 +7,9 @@ on:
       - 'WALLE_Offline_Android_Fixed (2).zip'
       - '.github/workflows/**'
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -19,62 +22,78 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+          cache: gradle
 
-      - name: Extract project
+      - name: Check and extract project
         run: |
-          set -euxo pipefail
+          set -euo pipefail
+          ZIP='WALLE_Offline_Android_Fixed (2).zip'
+          test -f "$ZIP" || { echo "ERROR: Project ZIP not found: $ZIP"; exit 1; }
           mkdir -p project
-          unzip -o 'WALLE_Offline_Android_Fixed (2).zip' -d project
-          find project -type f \( -name 'settings.gradle' -o -name 'settings.gradle.kts' \) -print
+          unzip -o "$ZIP" -d project
+          SETTINGS="$(find project \( -name settings.gradle -o -name settings.gradle.kts \) -print -quit)"
+          test -n "$SETTINGS" || { echo "ERROR: settings.gradle(.kts) not found in ZIP"; exit 1; }
+          echo "GRADLE_ROOT=$(dirname "$SETTINGS")" >> "$GITHUB_ENV"
 
-      - name: Align Java and Kotlin targets
+      - name: Align Java and Kotlin JVM targets
         run: |
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
           import re, sys
-          files = list(Path("project").rglob("build.gradle")) + list(Path("project").rglob("build.gradle.kts"))
-          if not files:
-              sys.exit("ERROR: no Gradle build files found in extracted project")
-          for p in files:
-              s = p.read_text()
-              # Normalize common Java 8/Kotlin 1.8 targets.
-              s = re.sub(r'(jvmTarget\s*=\s*["\'])1\.8(["\'])', r'\g<1>17\2', s)
-              s = re.sub(r'(jvmTarget\s*=\s*["\'])8(["\'])', r'\g<1>17\2', s)
-              s = re.sub(r'(sourceCompatibility\s*=\s*["\'])1\.8(["\'])', r'\g<1>17\2', s)
-              s = re.sub(r'(targetCompatibility\s*=\s*["\'])1\.8(["\'])', r'\g<1>17\2', s)
-              s = re.sub(r'(sourceCompatibility\s*=\s*JavaVersion\.VERSION_)1_8', r'\g<1>17', s)
-              s = re.sub(r'(targetCompatibility\s*=\s*JavaVersion\.VERSION_)1_8', r'\g<1>17', s)
-              if p.name.startswith("build.gradle") and p.parent.name == "app":
-                  s += '''
-\n// CI safety net: compile Java and Kotlin to the same JVM target.
-android {
-    compileOptions {
-        sourceCompatibility JavaVersion.VERSION_17
-        targetCompatibility JavaVersion.VERSION_17
-    }
-    kotlinOptions {
-        jvmTarget = "17"
-    }
-}
-'''
-              p.write_text(s)
-              print("Checked:", p)
+
+          root = Path("project")
+          candidates = [p for p in (root.rglob("app/build.gradle"), root.rglob("app/build.gradle.kts"))]
+          app_files = []
+          for group in candidates:
+              app_files.extend(group)
+          if not app_files:
+              sys.exit("ERROR: app/build.gradle or app/build.gradle.kts not found")
+          p = app_files[0]
+          s = p.read_text()
+
+          # Normalize common Java 8/Kotlin 1.8 target declarations without relying on shell quoting.
+          s = re.sub(r'(jvmTarget\s*=\s*["\'])(?:1\.8|8)(["\'])', r'\g<1>17\2', s)
+          s = re.sub(r'JavaVersion\.VERSION_1_8', 'JavaVersion.VERSION_17', s)
+          s = re.sub(r'(sourceCompatibility\s*=\s*["\'])(?:1\.8|8)(["\'])', r'\g<1>17\2', s)
+          s = re.sub(r'(targetCompatibility\s*=\s*["\'])(?:1\.8|8)(["\'])', r'\g<1>17\2', s)
+
+          if p.suffix == ".kts":
+              s += """
+
+          // CI safeguard: align Java and Kotlin bytecode targets on JVM 17.
+          android {
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+          }
+          tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+              kotlinOptions {
+                  jvmTarget = "17"
+              }
+          }
+          """
+          else:
+              s += """
+
+          // CI safeguard: align Java and Kotlin bytecode targets on JVM 17.
+          android {
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+              kotlinOptions {
+                  jvmTarget = "17"
+              }
+          }
+          """
+          p.write_text(s)
+          print(f"Aligned JVM targets in {p}")
           PY
 
-      - name: Locate Gradle root
-        id: locate
-        run: |
-          set -euo pipefail
-          SETTINGS="$(find "$GITHUB_WORKSPACE/project" \( -name settings.gradle -o -name settings.gradle.kts \) -print -quit)"
-          if [ -z "$SETTINGS" ]; then
-            echo "ERROR: settings.gradle or settings.gradle.kts not found"
-            exit 1
-          fi
-          echo "root=$(dirname "$SETTINGS")" >> "$GITHUB_OUTPUT"
-
       - name: Build APK
-        working-directory: ${{ steps.locate.outputs.root }}
+        working-directory: ${{ env.GRADLE_ROOT }}
         run: |
           set -euxo pipefail
           if [ -f ./gradlew ]; then
