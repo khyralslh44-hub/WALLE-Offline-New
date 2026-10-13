@@ -41,6 +41,7 @@ class MainActivity : ComponentActivity() {
     private val main = Handler(Looper.getMainLooper())
     private val cameraExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private val lastAnalysis = AtomicLong(0L)
+    private val faceCueSmoother = EveFaceCueSmoother(windowSize = 3, requiredVotes = 2)
     private val lastLabelAt = mutableMapOf<String, Long>()
     private val labeler by lazy { ImageLabeling.getClient(ImageLabelerOptions.DEFAULT_OPTIONS) }
     private val faceDetector: FaceDetector by lazy {
@@ -137,6 +138,7 @@ class MainActivity : ComponentActivity() {
     override fun onPause() {
         main.removeCallbacks(idleLoop)
         faceOrNull()?.stopAnimation()
+        faceCueSmoother.reset()
         cameraProvider?.unbindAll()
         cameraStarted = false
         super.onPause()
@@ -217,22 +219,45 @@ class MainActivity : ComponentActivity() {
                 Log.i("EVE", "FACE_SCAN count=${faces.size}")
                 val bestFace = faces.maxByOrNull {
                     it.boundingBox.width().toLong() * it.boundingBox.height().toLong()
-                } ?: return@addOnSuccessListener
+                }
+                if (bestFace == null) {
+                    faceCueSmoother.reset()
+                    return@addOnSuccessListener
+                }
                 val elapsed = SystemClock.elapsedRealtime()
                 lastFaceSeenAt = elapsed
+
+                // Smooth noisy frame cues before changing the emotional state or sound.
+                val stableCue = faceCueSmoother.add(
+                    EveFaceCue(
+                        smilingProbability = bestFace.smilingProbability,
+                        leftEyeOpenProbability = bestFace.leftEyeOpenProbability,
+                        rightEyeOpenProbability = bestFace.rightEyeOpenProbability,
+                        headYawDegrees = bestFace.headEulerAngleY
+                    )
+                ) ?: run {
+                    Log.d(
+                        "EVE",
+                        "FACE_CUE_PENDING smile=${bestFace.smilingProbability} " +
+                            "leftEye=${bestFace.leftEyeOpenProbability} rightEye=${bestFace.rightEyeOpenProbability} " +
+                            "yaw=${bestFace.headEulerAngleY}"
+                    )
+                    return@addOnSuccessListener
+                }
+
                 if (elapsed - lastFaceReactionAt < 6500L) return@addOnSuccessListener
                 lastFaceReactionAt = elapsed
                 val decision = brain.observeHumanFace(
-                    smilingProbability = bestFace.smilingProbability,
-                    leftEyeOpenProbability = bestFace.leftEyeOpenProbability,
-                    rightEyeOpenProbability = bestFace.rightEyeOpenProbability,
-                    headYawDegrees = bestFace.headEulerAngleY
+                    smilingProbability = stableCue.smilingProbability,
+                    leftEyeOpenProbability = stableCue.leftEyeOpenProbability,
+                    rightEyeOpenProbability = stableCue.rightEyeOpenProbability,
+                    headYawDegrees = stableCue.headYawDegrees
                 )
                 Log.i(
                     "EVE",
-                    "FACE_CUE mood=${decision.mood} smile=${bestFace.smilingProbability} " +
-                        "leftEye=${bestFace.leftEyeOpenProbability} rightEye=${bestFace.rightEyeOpenProbability} " +
-                        "yaw=${bestFace.headEulerAngleY}"
+                    "FACE_CUE_STABLE mood=${decision.mood} smile=${stableCue.smilingProbability} " +
+                        "leftEye=${stableCue.leftEyeOpenProbability} rightEye=${stableCue.rightEyeOpenProbability} " +
+                        "yaw=${stableCue.headYawDegrees}"
                 )
                 react(decision, decision.playSound)
             }
