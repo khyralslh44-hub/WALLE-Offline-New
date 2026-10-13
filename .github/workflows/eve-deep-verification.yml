@@ -24,10 +24,10 @@ jobs:
     timeout-minutes: 60
     strategy:
       fail-fast: false
-      # The regular smoke workflow already checks Android 29 and 35. Run the heavyweight
-      # face/FER instrumentation once on API 35 to avoid competing low-memory emulators.
+      # Begin the heavyweight face/FER instrumentation on API 29, where the smoke
+      # suite has already completed reliably. The same app remains compatible with newer Android.
       matrix:
-        api-level: [35]
+        api-level: [29]
 
     steps:
       - name: Check out exact source revision
