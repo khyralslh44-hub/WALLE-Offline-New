@@ -56,7 +56,17 @@ class FaceVisionIntegrationTest {
             assertNotNull("Face classification did not return right-eye probability", rightEye)
 
             val yaw = face.headEulerAngleY
-            val decision = RobotBrain().observeHumanFace(smile, leftEye, rightEye, yaw)
+            val smoother = EveFaceCueSmoother(windowSize = 3, requiredVotes = 2)
+            val rawCue = EveFaceCue(smile, leftEye, rightEye, yaw)
+            assertEquals("A single noisy camera frame must not trigger an expression", null, smoother.add(rawCue))
+            val stableCue = smoother.add(rawCue)
+                ?: throw AssertionError("Two matching face frames did not produce a stable cue")
+            val decision = RobotBrain().observeHumanFace(
+                stableCue.smilingProbability,
+                stableCue.leftEyeOpenProbability,
+                stableCue.rightEyeOpenProbability,
+                stableCue.headYawDegrees
+            )
             val profile = EyeExpressionGenerator.generate(decision, 0xE7E123L)
 
             assertEquals("Expression engine must receive the same mood as the affect decision", decision.mood, profile.mood)
