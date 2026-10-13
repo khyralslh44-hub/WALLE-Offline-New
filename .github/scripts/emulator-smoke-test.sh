@@ -38,6 +38,36 @@ adb shell svc data disable || true
 adb logcat -c
 adb install -r "$APK_PATH" 2>&1 | tee "$RESULTS_DIR/install.txt"
 grep -F "Success" "$RESULTS_DIR/install.txt"
+
+# Run face detection and FER inference on the same offline emulator instance as this smoke test.
+if [ "$TEST_API_LEVEL" = "35" ]; then
+  if [ -z "${TEST_APK_PATH:-}" ] || [ ! -s "$TEST_APK_PATH" ]; then
+    echo "FAIL: API 35 instrumentation APK is missing."
+    exit 1
+  fi
+  adb install -r "$TEST_APK_PATH" 2>&1 | tee "$RESULTS_DIR/install-instrumentation.txt"
+  grep -F "Success" "$RESULTS_DIR/install-instrumentation.txt"
+  adb logcat -c
+  INSTRUMENTATION_EXIT=0
+  timeout 420s adb shell am instrument -w -r com.eve.robot.test/androidx.test.runner.AndroidJUnitRunner \
+    > "$RESULTS_DIR/deep-instrumentation-output.txt" 2>&1 || INSTRUMENTATION_EXIT=$?
+  cat "$RESULTS_DIR/deep-instrumentation-output.txt"
+  adb logcat -d -v threadtime > "$RESULTS_DIR/deep-instrumentation-logcat.txt" 2>&1 || true
+  if [ "$INSTRUMENTATION_EXIT" -ne 0 ] || grep -E 'INSTRUMENTATION_FAILED|FAILURES!!!|INSTRUMENTATION_STATUS_CODE: -2' "$RESULTS_DIR/deep-instrumentation-output.txt" >/dev/null; then
+    echo "FAIL: offline face/FER instrumentation did not pass (exit=$INSTRUMENTATION_EXIT)."
+    exit 1
+  fi
+  for marker in FACE_FIXTURE_PASS FER_MODEL_PASS OFFLINE_AFFECT_LEARNING_PASS; do
+    if ! grep -F "$marker" "$RESULTS_DIR/deep-instrumentation-logcat.txt" >/dev/null; then
+      echo "FAIL: deep instrumentation marker missing: $marker"
+      exit 1
+    fi
+    echo "PASS: deep instrumentation marker $marker" | tee -a "$RESULTS_DIR/result.txt"
+  done
+  echo "PASS: real face detector, offline FER model, affect engine and expression generator ran on API 35 with network disabled." | tee -a "$RESULTS_DIR/result.txt"
+  adb logcat -c
+fi
+
 adb shell pm grant "$PACKAGE" android.permission.CAMERA
 adb shell am start -W -n "$COMPONENT" 2>&1 | tee "$RESULTS_DIR/launch.txt"
 grep -F "Status: ok" "$RESULTS_DIR/launch.txt"
