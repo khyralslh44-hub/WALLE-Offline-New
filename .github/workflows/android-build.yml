@@ -54,6 +54,24 @@ jobs:
           curl --fail --location --retry 3             "https://services.gradle.org/distributions/gradle-8.9-bin.zip"             --output "$RUNNER_TEMP/gradle-8.9-bin.zip"
           unzip -q "$RUNNER_TEMP/gradle-8.9-bin.zip" -d "$RUNNER_TEMP"
 
+      - name: Download and pin offline facial-expression model
+        shell: bash
+        run: |
+          set -euo pipefail
+          MODEL="eve-project/app/src/main/assets/eve_emotion_model.tflite"
+          mkdir -p "$(dirname "$MODEL")"
+          curl --fail --location --retry 3 \
+            "https://raw.githubusercontent.com/EnricoZanetti/moodstream/af59e5cdbd45936051a27e694b160996526f11bb/models/emotion_model.tflite" \
+            --output "$MODEL"
+          EXPECTED="508da02d7ebad42e160ad4df0e946e2a16bf4c66"
+          ACTUAL="$(git hash-object "$MODEL")"
+          echo "FER model Git blob hash: $ACTUAL"
+          if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "FAIL: emotion model hash changed; refusing an unreviewed model."
+            exit 1
+          fi
+          ls -lh "$MODEL"
+
       - name: Run logic tests and build debug APK
         run: |
           "$RUNNER_TEMP/gradle-8.9/bin/gradle"             --no-daemon --stacktrace -p eve-project             testDebugUnitTest assembleDebug
