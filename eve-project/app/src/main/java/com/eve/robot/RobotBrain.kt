@@ -1,6 +1,7 @@
 package com.eve.robot
 
 import android.content.Context
+import kotlin.math.abs
 import kotlin.math.sin
 
 enum class EveMood {
@@ -32,6 +33,7 @@ class RobotBrain {
     private var curiosity = 0.58f
     private var familiarity = 0.05f
     private var fatigue = 0f
+    private var lastHumanMood: EveMood? = null
 
     private enum class Kind { FOOD, ANIMAL, PERSON, PLANT, OTHER }
 
@@ -96,6 +98,60 @@ class RobotBrain {
         val meaningful = kind == Kind.FOOD || kind == Kind.ANIMAL || kind == Kind.PERSON
         val sound = meaningful && confidence >= 0.84f && sightings == 1
         return snapshot(mood, "observed $kind: $item", sound)
+    }
+
+    /**
+     * Uses only on-device face cues exposed by ML Kit. A smile/eye probability is a visual cue,
+     * not proof of a person's full emotional state. Side-facing/uncertain faces remain uncertain.
+     */
+    @Synchronized
+    fun observeHumanFace(
+        smilingProbability: Float?,
+        leftEyeOpenProbability: Float?,
+        rightEyeOpenProbability: Float?,
+        headYawDegrees: Float
+    ): EveDecision {
+        if (abs(headYawDegrees) > 22f) {
+            curiosity = (curiosity + 0.10f).coerceAtMost(1f)
+            val decision = snapshot(EveMood.CURIOUS, "face turned partly away", false)
+            lastHumanMood = EveMood.CURIOUS
+            return decision
+        }
+
+        val eyes = listOfNotNull(leftEyeOpenProbability, rightEyeOpenProbability)
+        val eyesOpen = if (eyes.isEmpty()) null else eyes.average().toFloat()
+        val smile = smilingProbability?.coerceIn(0f, 1f)
+
+        val mood = when {
+            smile != null && smile >= 0.72f -> {
+                valence = (valence + 0.16f + smile * 0.12f).coerceAtMost(0.95f)
+                arousal = (0.42f + smile * 0.20f).coerceIn(0.3f, 0.68f)
+                curiosity = (curiosity * 0.72f + 0.28f * 0.45f).coerceIn(0f, 1f)
+                EveMood.HAPPY
+            }
+            eyesOpen != null && eyesOpen < 0.22f -> {
+                // A single closed-eye frame may be a blink; don't call it sadness or sleep.
+                arousal = (arousal * 0.72f + 0.28f * 0.24f).coerceIn(0.12f, 0.7f)
+                curiosity = (curiosity * 0.8f + 0.08f).coerceIn(0f, 1f)
+                EveMood.FOCUSED
+            }
+            eyesOpen != null && eyesOpen >= 0.62f -> {
+                valence = (valence * 0.92f + 0.02f).coerceIn(-0.5f, 0.8f)
+                arousal = (arousal * 0.65f + 0.35f * 0.40f).coerceIn(0.15f, 0.8f)
+                curiosity = (curiosity * 0.85f + 0.15f * 0.60f).coerceIn(0f, 1f)
+                EveMood.AWAKE
+            }
+            else -> {
+                // Face was detected, but its expression is ambiguous.
+                curiosity = (curiosity * 0.8f + 0.1f).coerceIn(0f, 1f)
+                EveMood.NEUTRAL
+            }
+        }
+
+        val changed = mood != lastHumanMood
+        lastHumanMood = mood
+        val sound = mood == EveMood.HAPPY && changed && smile != null && smile >= 0.90f
+        return snapshot(mood, "on-device face cue: $mood", sound)
     }
 
     @Synchronized
