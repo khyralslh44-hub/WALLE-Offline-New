@@ -1,0 +1,156 @@
+name: WALL-E Emulator Smoke Test
+
+on:
+  workflow_run:
+    workflows: ["WALL-E Android Build"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  emulator-test:
+    if: \${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        api-level: [29, 35]
+
+    steps:
+      - name: Enable KVM
+        run: |
+          if [ -e /dev/kvm ]; then
+            echo 'KVM device is available.'
+            echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+            sudo udevadm control --reload-rules
+            sudo udevadm trigger --name-match=kvm
+          else
+            echo 'KVM is unavailable; emulator may be slower.'
+          fi
+
+      - name: Find APK from the successful build
+        env:
+          GH_TOKEN: \${{ github.token }}
+          SOURCE_RUN_ID_EVENT: \${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          if [ -n "\${SOURCE_RUN_ID_EVENT}" ] && [ "\${SOURCE_RUN_ID_EVENT}" != "null" ]; then
+            RUN_ID="$SOURCE_RUN_ID_EVENT"
+          else
+            RUN_ID="$(gh api "repos/\${GITHUB_REPOSITORY}/actions/workflows/android-build.yml/runs?branch=main&status=success&per_page=1" --jq '.workflow_runs[0].id')"
+          fi
+          if [ -z "$RUN_ID" ] || [ "$RUN_ID" = "null" ]; then
+            echo "No successful android-build.yml run was found."
+            exit 1
+          fi
+          mkdir -p artifacts emulator-test-results
+          echo "Downloading WALL-E-APK from run $RUN_ID"
+          gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --name WALL-E-APK --dir artifacts
+          APK_PATH="$(find "$GITHUB_WORKSPACE/artifacts" -type f -name '*.apk' -print -quit)"
+          if [ -z "$APK_PATH" ] || [ ! -s "$APK_PATH" ]; then
+            echo "No APK found inside the downloaded artifact."
+            find artifacts -maxdepth 8 -type f -print
+            exit 1
+          fi
+          echo "APK_PATH=$APK_PATH" >> "$GITHUB_ENV"
+          echo "SOURCE_RUN_ID=$RUN_ID" >> "$GITHUB_ENV"
+          echo "APK located: $APK_PATH"
+          sha256sum "$APK_PATH" | tee emulator-test-results/apk-sha256.txt
+
+      - name: Install and launch APK offline in Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: \${{ matrix.api-level }}
+          target: google_apis
+          arch: x86_64
+          profile: pixel_7_pro
+          script: |
+            set -euo pipefail
+            RESULTS_DIR="$GITHUB_WORKSPACE/emulator-test-results/api-\${{ matrix.api-level }}"
+            mkdir -p "$RESULTS_DIR"
+            echo "API level: \${{ matrix.api-level }}" | tee "$RESULTS_DIR/result.txt"
+            echo "Build run ID: $SOURCE_RUN_ID" | tee -a "$RESULTS_DIR/result.txt"
+
+            test -s "$APK_PATH"
+            SDK_ROOT="\${ANDROID_HOME:-\${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+            AAPT="$(find "$SDK_ROOT/build-tools" -type f -name aapt -print 2>/dev/null | sort -V | tail -n 1)"
+            if [ -z "$AAPT" ] || [ ! -x "$AAPT" ]; then
+              echo "Could not find aapt in $SDK_ROOT/build-tools"
+              exit 1
+            fi
+            PACKAGE="$("$AAPT" dump badging "$APK_PATH" | awk -F"'" '/^package: name=/{print $2; exit}')"
+            if [ -z "$PACKAGE" ]; then
+              echo "Could not read application ID from APK."
+              exit 1
+            fi
+            echo "Application ID: $PACKAGE" | tee -a "$RESULTS_DIR/result.txt"
+
+            adb wait-for-device
+            adb shell svc wifi disable || true
+            adb shell svc data disable || true
+            adb shell settings get global airplane_mode_on > "$RESULTS_DIR/airplane-mode-setting.txt" || true
+            adb logcat -c
+            adb install -r "$APK_PATH" 2>&1 | tee "$RESULTS_DIR/install.txt"
+            grep -F "Success" "$RESULTS_DIR/install.txt"
+
+            adb shell monkey -p "$PACKAGE" -c android.intent.category.LAUNCHER 1 2>&1 | tee "$RESULTS_DIR/launch.txt"
+            sleep 12
+            PID="$(adb shell pidof "$PACKAGE" 2>/dev/null | tr -d '\r' || true)"
+            if [ -z "$PID" ]; then
+              adb logcat -d -v threadtime > "$RESULTS_DIR/logcat-after-start-failure.txt"
+              adb shell dumpsys activity activities > "$RESULTS_DIR/activities-after-start-failure.txt" || true
+              echo "FAIL: application process was not alive 12 seconds after launch."
+              exit 1
+            fi
+            echo "PASS: process stayed alive after offline cold launch (PID $PID)." | tee -a "$RESULTS_DIR/result.txt"
+
+            adb shell dumpsys activity activities > "$RESULTS_DIR/activities.txt"
+            if ! grep -F "$PACKAGE/" "$RESULTS_DIR/activities.txt" > "$RESULTS_DIR/foreground-activity.txt"; then
+              echo "FAIL: app activity was not found in ActivityManager output."
+              exit 1
+            fi
+            adb shell uiautomator dump /sdcard/walle-ui.xml > "$RESULTS_DIR/uiautomator.txt" 2>&1 || true
+            adb pull /sdcard/walle-ui.xml "$RESULTS_DIR/window.xml" >/dev/null 2>&1 || true
+            adb exec-out screencap -p > "$RESULTS_DIR/emulator-screen.png"
+            test -s "$RESULTS_DIR/emulator-screen.png"
+
+            adb shell input keyevent KEYCODE_HOME
+            sleep 2
+            adb shell monkey -p "$PACKAGE" -c android.intent.category.LAUNCHER 1 2>&1 | tee "$RESULTS_DIR/relaunch.txt"
+            sleep 4
+            PID2="$(adb shell pidof "$PACKAGE" 2>/dev/null | tr -d '\r' || true)"
+            if [ -z "$PID2" ]; then
+              adb logcat -d -v threadtime > "$RESULTS_DIR/logcat-after-resume-failure.txt"
+              echo "FAIL: app process was not alive after background/resume."
+              exit 1
+            fi
+            echo "PASS: app could be relaunched from background." | tee -a "$RESULTS_DIR/result.txt"
+            adb logcat -d -v threadtime > "$RESULTS_DIR/logcat.txt"
+
+            python3 - "$RESULTS_DIR/logcat.txt" "$PACKAGE" <<'PY'
+            import sys
+            from pathlib import Path
+            log = Path(sys.argv[1]).read_text(errors="replace").splitlines()
+            package = sys.argv[2]
+            for i, line in enumerate(log):
+                if "FATAL EXCEPTION" in line:
+                    block = "\n".join(log[i:i+35])
+                    if package in block:
+                        print("FAIL: fatal exception for app detected:\n" + block)
+                        raise SystemExit(1)
+            print("PASS: no app-specific FATAL EXCEPTION found in logcat.")
+            PY
+            echo "PASS: emulator smoke test completed." | tee -a "$RESULTS_DIR/result.txt"
+
+      - name: Upload emulator logs and screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: WALL-E-Emulator-Report-API-\${{ matrix.api-level }}
+          path: emulator-test-results/
+          if-no-files-found: warn
+          retention-days: 14
