@@ -72,8 +72,22 @@ class EmotionVisionStressTest {
             }
         }
         val nonFinite = RobotBrain().observe("dog", Float.NaN, 1)
+        assertEquals(EveMood.CONCERNED, nonFinite.mood)
+        assertFalse(nonFinite.playSound)
+        val infinite = RobotBrain().observe("dog", Float.POSITIVE_INFINITY, 1)
+        assertEquals(EveMood.CONCERNED, infinite.mood)
+        assertFalse(infinite.playSound)
         // NaN bypasses a simple less-than check; the result should never be allowed to speak.
         assertFalse(nonFinite.playSound)
+    }
+
+    @Test fun nonFiniteFaceProbabilitiesAndHeadPoseCannotCreateConfidentEmotion() {
+        val badSmile = RobotBrain().observeHumanFace(Float.POSITIVE_INFINITY, 0.9f, 0.9f, 0f)
+        assertEquals(EveMood.AWAKE, badSmile.mood)
+        assertFalse(badSmile.playSound)
+        val badYaw = RobotBrain().observeHumanFace(0.99f, 0.99f, 0.99f, Float.NaN)
+        assertEquals(EveMood.NEUTRAL, badYaw.mood)
+        assertFalse(badYaw.playSound)
     }
 
     @Test fun generatedProfilesStayWithinSafeGeometryForManyInputs() {
