@@ -18,6 +18,9 @@ permissions:
 
 jobs:
   instrumented-face-test:
+    # Automatic deep instrumentation runs in the stable smoke workflow's emulator session.
+    # Keep this heavier, separate matrix for deliberate manual diagnostics only.
+    if: ${{ github.event_name == 'workflow_dispatch' }}
     name: Real face-model test (API ${{ matrix.api-level }})
     runs-on: ubuntu-latest
     timeout-minutes: 45
