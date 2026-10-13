@@ -51,6 +51,12 @@ if ! grep -F "FACE_FIXTURE_PASS" "$RESULT_DIR/logcat.txt" "$GRADLE_LOG" >/dev/nu
   exit 1
 fi
 
+if ! grep -F "FER_MODEL_PASS" "$RESULT_DIR/logcat.txt" "$GRADLE_LOG" >/dev/null 2>&1; then
+  echo "FAIL: the bundled TensorFlow Lite facial-emotion model did not report FER_MODEL_PASS." | tee -a "$RESULT_DIR/environment.txt"
+  echo "The integration test must load the model, predict an emotion from a detected face crop, and feed it into the emotional brain and eye generator." | tee -a "$RESULT_DIR/environment.txt"
+  exit 1
+fi
+
 if ! grep -F "OFFLINE_AFFECT_LEARNING_PASS" "$RESULT_DIR/logcat.txt" "$GRADLE_LOG" >/dev/null 2>&1; then
   echo "FAIL: offline preference-learning persistence was not confirmed by instrumentation." | tee -a "$RESULT_DIR/environment.txt"
   exit 1
@@ -61,4 +67,4 @@ if [ ! -f "$GITHUB_WORKSPACE/eve-project/app/build/outputs/apk/debug/app-debug.a
   exit 1
 fi
 sha256sum "$GITHUB_WORKSPACE/eve-project/app/build/outputs/apk/debug/app-debug.apk" | tee "$RESULT_DIR/apk-sha256.txt"
-echo "PASS: bundled face model, stable face cues, affect decision, generated eye profile, offline preference memory, unit tests, and APK build all completed offline." | tee -a "$RESULT_DIR/environment.txt"
+echo "PASS: ML Kit face detector, bundled TFLite facial-emotion model, affect decision, generated eye profile, offline preference memory, unit tests, and APK build all completed offline." | tee -a "$RESULT_DIR/environment.txt"
