@@ -21,6 +21,8 @@ jobs:
         api-level: [29, 35]
 
     steps:
+      - uses: actions/checkout@v4
+
       - name: Enable KVM
         run: |
           if [ -e /dev/kvm ]; then
@@ -68,7 +70,9 @@ jobs:
           target: google_apis
           arch: x86_64
           profile: pixel_7_pro
-          script: |
+          script: bash "$GITHUB_WORKSPACE/.github/scripts/emulator-smoke-test.sh"
+        env:
+          TEST_API_LEVEL: ${{ matrix.api-level }}
             set -eu
             RESULTS_DIR="$GITHUB_WORKSPACE/emulator-test-results/api-${{ matrix.api-level }}"
             mkdir -p "$RESULTS_DIR"
