@@ -82,8 +82,10 @@ class EveFaceCueSmoother(
             (cue.leftEyeOpenProbability + cue.rightEyeOpenProbability) / 2f
         } else null
         val smile = cue.smilingProbability
-        if (smile != null && smile >= 0.72f) return FaceCueClass.HAPPY
+        // Closed eyes take precedence over a high smile score: a grin-shaped blink
+        // must not be interpreted as a stable happy expression.
         if (eyes != null && eyes < 0.22f) return FaceCueClass.BLINK
+        if (smile != null && smile >= 0.72f) return FaceCueClass.HAPPY
         if (eyes != null && eyes >= 0.62f) return FaceCueClass.EYES_OPEN
         if (smile == null && eyes == null) return FaceCueClass.UNKNOWN
         return FaceCueClass.AMBIGUOUS
