@@ -10,20 +10,18 @@ on:
       - '.github/scripts/emulator-smoke-test.sh'
 
 concurrency:
-  group: eve-deep-offline-verification-${{ github.ref }}
-  cancel-in-progress: true
+  group: eve-deep-offline-verification-${{ github.ref }}-${{ github.sha }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
 
 jobs:
   instrumented-face-test:
-    # Automatic deep instrumentation runs in the stable smoke workflow's emulator session.
-    # Keep this heavier, separate matrix for deliberate manual diagnostics only.
-    if: ${{ github.event_name == 'workflow_dispatch' }}
+    # Run the deep local face/FER verification on pushes as well as manual dispatch.
     name: Real face-model test (API ${{ matrix.api-level }})
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       # The regular smoke workflow already checks Android 29 and 35. Run the heavyweight
@@ -133,9 +131,9 @@ jobs:
           target: google_apis
           arch: x86_64
           profile: pixel_2
-          cores: 2
-          ram-size: 2048M
-          heap-size: 512M
+          cores: 4
+          ram-size: 4096M
+          heap-size: 1024M
           emulator-boot-timeout: 900
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back emulated
           disable-animations: true
