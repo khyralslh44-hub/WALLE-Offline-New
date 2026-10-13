@@ -8,6 +8,7 @@ import android.util.Log
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.PI
+import kotlin.math.pow
 import kotlin.math.exp
 import kotlin.math.sin
 
@@ -146,7 +147,7 @@ class RobotVoice {
 
     private fun Double.powSoft(exponent: Double): Double {
         // integer-loop version avoids bringing extra math libraries into this tiny offline synthesizer
-        return kotlin.math.pow(this, exponent)
+        return this.pow(exponent)
     }
 
     fun close() {
