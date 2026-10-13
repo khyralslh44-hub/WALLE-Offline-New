@@ -40,6 +40,11 @@ class RobotBrainTest {
         assertFalse(brain.observe("pattern", 0.92f, 3).playSound)
     }
 
+    @Test fun casualTouchIsSilentButLongPressCanSpeak() {
+        assertFalse(brain.touched(false).playSound)
+        assertTrue(brain.touched(true).playSound)
+    }
+
     @Test fun idleExpressionsNeverPlaySound() {
         assertFalse(brain.idle(12_000L, 3).playSound)
         assertFalse(brain.idle(45_000L, 8).playSound)
