@@ -33,9 +33,17 @@ jobs:
           set -euo pipefail
           SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
           SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager -print 2>/dev/null | sort -V | tail -n 1)"
-          test -n "$SDKMANAGER" || { echo "ERROR: sdkmanager not found under $SDK_ROOT"; exit 1; }
-          yes | "$SDKMANAGER" --licenses >/dev/null || true
-          "$SDKMANAGER" --install "platforms;android-35" "build-tools;35.0.0"
+          if [ -z "$SDKMANAGER" ]; then
+            echo "ERROR: sdkmanager was not found under $SDK_ROOT/cmdline-tools"
+            find "$SDK_ROOT" -maxdepth 5 -type f -name sdkmanager -print || true
+            exit 1
+          fi
+          echo "Using sdkmanager: $SDKMANAGER"
+          yes | "$SDKMANAGER" --sdk_root="$SDK_ROOT" --licenses >/dev/null 2>&1 || true
+          "$SDKMANAGER" --sdk_root="$SDK_ROOT" --install \
+            "platforms;android-35" \
+            "build-tools;35.0.0" \
+            "platform-tools"
           echo "$SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
 
       - name: Install Gradle 8.9
