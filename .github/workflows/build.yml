@@ -1,76 +1,16 @@
-name: WALL-E Android Build
+name: Legacy WALL-E Build (disabled)
 
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - 'WALLE_Offline_Android_Fixed (2).zip'
-      - '.github/workflows/**'
 
 permissions:
   contents: read
 
 jobs:
-  build:
+  retired:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Java 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Install tools
+      - name: Explain replacement build
         run: |
-          sudo apt-get update
-          sudo apt-get install -y unzip curl openjdk-17-jdk
-
-      - name: Extract project and align JVM targets
-        run: |
-          set -euo pipefail
-          ZIP='WALLE_Offline_Android_Fixed (2).zip'
-          test -f "$ZIP" || { echo "ERROR: Project ZIP not found: $ZIP"; exit 1; }
-          mkdir -p project
-          unzip -o "$ZIP" -d project
-
-          APP_GRADLE="$(find "$GITHUB_WORKSPACE/project" -path '*/app/build.gradle' -print -quit)"
-          test -n "$APP_GRADLE" || { echo "ERROR: app/build.gradle not found inside the project ZIP"; exit 1; }
-
-          # The known-good Android build uses JVM 1.8 for both Java and Kotlin.
-          cat >> "$APP_GRADLE" <<'EOF'
-
-          // CI override: Java and Kotlin must use the same JVM bytecode target.
-          android {
-              compileOptions {
-                  sourceCompatibility = JavaVersion.VERSION_1_8
-                  targetCompatibility = JavaVersion.VERSION_1_8
-              }
-              kotlinOptions {
-                  jvmTarget = "1.8"
-              }
-          }
-          EOF
-
-          echo "--- Effective JVM target declarations ---"
-          grep -n 'jvmTarget\|VERSION_1_8\|sourceCompatibility\|targetCompatibility' "$APP_GRADLE" || true
-
-      - name: Build APK
-        run: |
-          set -euo pipefail
-          curl -fsSL https://services.gradle.org/distributions/gradle-8.7-bin.zip -o /tmp/gradle.zip
-          unzip -q /tmp/gradle.zip -d /tmp
-          SETTINGS="$(find "$GITHUB_WORKSPACE/project" \( -name settings.gradle -o -name settings.gradle.kts \) -print -quit)"
-          test -n "$SETTINGS" || { echo "ERROR: settings.gradle(.kts) not found"; exit 1; }
-          cd "$(dirname "$SETTINGS")"
-          /tmp/gradle-8.7/bin/gradle assembleDebug -Pkotlin.compiler.execution.strategy=in-process --stacktrace
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: WALL-E-APK
-          path: project/**/build/outputs/apk/debug/*.apk
-          if-no-files-found: error
-          retention-days: 14
+          echo "The previous ZIP-based WALL-E project is retired."
+          echo "Use the EVE Android Build workflow, which builds the source in eve-project/."
