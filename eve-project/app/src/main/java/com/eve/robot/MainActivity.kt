@@ -29,6 +29,7 @@ import com.google.mlkit.vision.label.ImageLabeling
 import com.google.mlkit.vision.label.defaults.ImageLabelerOptions
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.random.Random
 
@@ -48,6 +49,8 @@ class MainActivity : ComponentActivity() {
     private val emotionClassifier by emotionClassifierDelegate
     private val emotionSmoother = EveEmotionSmoother(windowSize = 3, requiredVotes = 2, minConfidence = 0.62f)
     private val lastAnalysis = AtomicLong(0L)
+    // Allow at most one FER inference in flight; never build a queue of stale camera frames.
+    private val ferInferenceRunning = AtomicBoolean(false)
     private val faceCueSmoother = EveFaceCueSmoother(windowSize = 3, requiredVotes = 2)
     private val lastLabelAt = mutableMapOf<String, Long>()
     private val labeler by lazy { ImageLabeling.getClient(ImageLabelerOptions.DEFAULT_OPTIONS) }
@@ -208,7 +211,7 @@ class MainActivity : ComponentActivity() {
 
         // This bitmap is independent of ImageProxy memory. It lets the local FER classifier
         // crop a detected face, while the ML Kit tasks continue using the original camera image.
-        val frameBitmap = if (emotionClassifier.isReady) {
+        val frameBitmap = if (emotionClassifier.isReady && !ferInferenceRunning.get()) {
             try {
                 imageProxyToUprightBitmap(proxy)
             } catch (error: Exception) {
@@ -303,64 +306,80 @@ class MainActivity : ComponentActivity() {
 
                 val crop = frameBitmap?.let { cropFaceBitmap(it, bestFace.boundingBox) }
                 if (crop != null && emotionClassifier.isReady) {
-                    try {
-                        emotionExecutor.execute {
-                            val prediction = try {
-                                emotionClassifier.predict(crop)
-                            } finally {
-                                crop.recycle()
-                            }
-                            if (prediction != null) {
-                                val stableEmotion = emotionSmoother.add(prediction)
-                                if (stableEmotion == null) {
-                                    Log.d(
-                                        "EVE_FER",
-                                        "EMOTION_PENDING label=${prediction.label} confidence=${prediction.confidence}; " +
-                                            "waiting for a reliable 2-of-3 vote"
-                                    )
-                                    // A weak FER result should not invent an emotion. If basic face cues
-                                    // are stable, let them drive a quiet fallback expression instead.
-                                    if (stableCue != null) {
-                                        main.post {
-                                            applyFaceCueFallback(stableCue, "low-confidence FER prediction")
-                                        }
-                                    }
-                                } else {
-                                    main.post {
-                                        if (isFinishing || isDestroyed) return@post
-                                        if (SystemClock.elapsedRealtime() - lastFaceReactionAt < 6500L) return@post
-                                        val decision = brain.observeFacialEmotion(
-                                            stableEmotion.label,
-                                            stableEmotion.confidence
-                                        )
-                                        if (decision.reason.startsWith("uncertain facial-expression model output") &&
-                                            stableCue != null
-                                        ) {
-                                            lastFaceReactionAt = SystemClock.elapsedRealtime()
-                                            val cueDecision = brain.observeHumanFace(
-                                                stableCue.smilingProbability,
-                                                stableCue.leftEyeOpenProbability,
-                                                stableCue.rightEyeOpenProbability,
-                                                stableCue.headYawDegrees
-                                            )
-                                            Log.i(
+                    if (!ferInferenceRunning.compareAndSet(false, true)) {
+                        // Skip frames when the model is busy; low-priority old frames are not queued.
+                        crop.recycle()
+                        Log.d("EVE_FER", "FER_FRAME_SKIPPED reason=inference_busy")
+                    } else {
+                        try {
+                            emotionExecutor.execute {
+                                try {
+                                    val prediction = emotionClassifier.predict(crop)
+                                    if (prediction != null) {
+                                        val stableEmotion = emotionSmoother.add(prediction)
+                                        if (stableEmotion == null) {
+                                            Log.d(
                                                 "EVE_FER",
-                                                "FER_UNCERTAIN_FALLBACK label=${stableEmotion.label} " +
-                                                    "confidence=${stableEmotion.confidence} cueMood=${cueDecision.mood}"
+                                                "EMOTION_PENDING label=${prediction.label} confidence=${prediction.confidence}; " +
+                                                    "waiting for a reliable 2-of-3 vote"
                                             )
-                                            react(cueDecision, cueDecision.playSound)
+                                            if (stableCue != null) {
+                                                main.post {
+                                                    applyFaceCueFallback(stableCue, "low-confidence FER prediction")
+                                                }
+                                            }
                                         } else {
-                                            lastFaceReactionAt = SystemClock.elapsedRealtime()
-                                            Log.i(
-                                                "EVE_FER",
-                                                "FACIAL_EMOTION_MODEL label=${stableEmotion.label} " +
-                                                    "confidence=${stableEmotion.confidence} mood=${decision.mood}"
-                                            )
-                                            react(decision, decision.playSound)
+                                            main.post {
+                                                if (isFinishing || isDestroyed) return@post
+                                                if (SystemClock.elapsedRealtime() - lastFaceReactionAt < 6500L) return@post
+                                                val decision = brain.observeFacialEmotion(
+                                                    stableEmotion.label,
+                                                    stableEmotion.confidence
+                                                )
+                                                if (decision.reason.startsWith("uncertain facial-expression model output") &&
+                                                    stableCue != null
+                                                ) {
+                                                    lastFaceReactionAt = SystemClock.elapsedRealtime()
+                                                    val cueDecision = brain.observeHumanFace(
+                                                        stableCue.smilingProbability,
+                                                        stableCue.leftEyeOpenProbability,
+                                                        stableCue.rightEyeOpenProbability,
+                                                        stableCue.headYawDegrees
+                                                    )
+                                                    Log.i(
+                                                        "EVE_FER",
+                                                        "FER_UNCERTAIN_FALLBACK label=${stableEmotion.label} " +
+                                                            "confidence=${stableEmotion.confidence} cueMood=${cueDecision.mood}"
+                                                    )
+                                                    react(cueDecision, cueDecision.playSound)
+                                                } else {
+                                                    lastFaceReactionAt = SystemClock.elapsedRealtime()
+                                                    Log.i(
+                                                        "EVE_FER",
+                                                        "FACIAL_EMOTION_MODEL label=${stableEmotion.label} " +
+                                                            "confidence=${stableEmotion.confidence} mood=${decision.mood}"
+                                                    )
+                                                    react(decision, decision.playSound)
+                                                }
+                                            }
                                         }
+                                    } else if (stableCue != null) {
+                                        main.post { applyFaceCueFallback(stableCue, "FER inference fallback") }
                                     }
+                                } catch (error: Exception) {
+                                    Log.e("EVE_FER", "FER inference task failed.", error)
+                                } finally {
+                                    try { crop.recycle() } catch (_: Exception) { }
+                                    ferInferenceRunning.set(false)
                                 }
-                            } else if (stableCue != null) {
+                            }
+                        } catch (error: Exception) {
+                            try { crop.recycle() } catch (_: Exception) { }
+                            ferInferenceRunning.set(false)
+                            Log.w("EVE_FER", "Emotion executor rejected a face crop.", error)
+                        }
+                    }
+                } else if (stableCue != null) {
                                 // If inference itself failed, fall back to stable ML Kit face cues.
                                 main.post { applyFaceCueFallback(stableCue, "FER inference fallback") }
                             }
