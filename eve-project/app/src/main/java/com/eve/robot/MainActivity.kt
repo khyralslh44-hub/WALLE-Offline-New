@@ -65,6 +65,11 @@ class MainActivity : ComponentActivity() {
     }
     private var cameraProvider: ProcessCameraProvider? = null
     private var cameraStarted = false
+    private enum class CameraLens { BACK, FRONT }
+    private var activeCameraLens = CameraLens.BACK
+    private var lastTapUptime = 0L
+    private var lastTapX = 0f
+    private var lastTapY = 0f
     @Volatile private var lastFaceSeenAt = 0L
     private var lastFaceReactionAt = 0L
     private var lastInteractionAt = SystemClock.elapsedRealtime()
@@ -120,20 +125,41 @@ class MainActivity : ComponentActivity() {
                     true
                 }
                 MotionEvent.ACTION_UP -> {
-                    val longPress = SystemClock.uptimeMillis() - touchDownAt >= 550L
+                    val releasedAt = SystemClock.uptimeMillis()
+                    val longPress = releasedAt - touchDownAt >= 550L
+                    val tapDistance = kotlin.math.hypot(
+                        (event.x - lastTapX).toDouble(),
+                        (event.y - lastTapY).toDouble()
+                    )
+                    val doubleTap = !longPress &&
+                        lastTapUptime != 0L &&
+                        releasedAt - lastTapUptime in 0L..550L &&
+                        tapDistance <= 72f * resources.displayMetrics.density
+
                     lastInteractionAt = SystemClock.elapsedRealtime()
-                    val recentLabel = lastMeaningfulLabel
-                    val age = lastInteractionAt - lastMeaningfulLabelAt
-                    if (longPress && recentLabel != null && age in 0L..20_000L) {
-                        val learned = memory.reinforce(recentLabel, reward = 1f)
-                        Log.i(
-                            "EVE",
-                            "LEARNING positive feedback label=$recentLabel affinity=$learned " +
-                                "feedbackCount=${memory.feedbackCount(recentLabel)}"
-                        )
+                    if (doubleTap) {
+                        // Keeps the face button-free: double-tap anywhere on the eyes to switch lens.
+                        lastTapUptime = 0L
+                        Log.i("EVE", "CAMERA_SWITCH_GESTURE source=double_tap")
+                        switchCamera()
+                        true
+                    } else {
+                        lastTapUptime = if (longPress) 0L else releasedAt
+                        lastTapX = event.x
+                        lastTapY = event.y
+                        val recentLabel = lastMeaningfulLabel
+                        val age = lastInteractionAt - lastMeaningfulLabelAt
+                        if (longPress && recentLabel != null && age in 0L..20_000L) {
+                            val learned = memory.reinforce(recentLabel, reward = 1f)
+                            Log.i(
+                                "EVE",
+                                "LEARNING positive feedback label=$recentLabel affinity=$learned " +
+                                    "feedbackCount=${memory.feedbackCount(recentLabel)}"
+                            )
+                        }
+                        react(brain.touched(longPress), longPress)
+                        true
                     }
-                    react(brain.touched(longPress), longPress)
-                    true
                 }
                 MotionEvent.ACTION_CANCEL -> true
                 else -> true
@@ -172,6 +198,68 @@ class MainActivity : ComponentActivity() {
     private fun hasCameraPermission(): Boolean =
         ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
 
+    private fun selectorFor(lens: CameraLens): CameraSelector =
+        if (lens == CameraLens.FRONT) CameraSelector.DEFAULT_FRONT_CAMERA
+        else CameraSelector.DEFAULT_BACK_CAMERA
+
+    private fun bindCameraLens(provider: ProcessCameraProvider, lens: CameraLens) {
+        val selector = selectorFor(lens)
+        check(provider.hasCamera(selector)) { "The ${lens.name.lowercase()} camera is not available on this device." }
+
+        val analysis = ImageAnalysis.Builder()
+            .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+            .setTargetResolution(Size(320, 240))
+            .build()
+        analysis.setAnalyzer(cameraExecutor, ::analyzeFrame)
+
+        provider.unbindAll()
+        provider.bindToLifecycle(this, selector, analysis)
+        activeCameraLens = lens
+        cameraStarted = true
+        faceCueSmoother.reset()
+        emotionSmoother.reset()
+        lastFaceSeenAt = 0L
+        Log.i("EVE", "CAMERA_LENS active=${lens.name} analysis=offline")
+    }
+
+    private fun switchCamera() {
+        if (!hasCameraPermission()) {
+            Log.w("EVE", "CAMERA_SWITCH_BLOCKED reason=permission_denied")
+            permissionRequest.launch(Manifest.permission.CAMERA)
+            return
+        }
+
+        val previous = activeCameraLens
+        val requested = if (previous == CameraLens.BACK) CameraLens.FRONT else CameraLens.BACK
+        val provider = cameraProvider
+        if (provider == null) {
+            // If the provider is still initializing, remember the requested lens; startCamera
+            // will bind that lens when CameraX becomes ready.
+            activeCameraLens = requested
+            Log.i("EVE", "CAMERA_SWITCH_PENDING target=${requested.name}")
+            if (!cameraStarted) startCamera()
+            return
+        }
+
+        try {
+            bindCameraLens(provider, requested)
+            lastInteractionAt = SystemClock.elapsedRealtime()
+            face.setMood(EveMood.CURIOUS)
+            Log.i("EVE", "CAMERA_SWITCH_SUCCESS from=${previous.name} to=${requested.name}")
+        } catch (error: Exception) {
+            cameraStarted = false
+            Log.e("EVE", "CAMERA_SWITCH_FAILED target=${requested.name}", error)
+            // Restore the prior lens when possible so a failed switch does not leave vision off.
+            try {
+                bindCameraLens(provider, previous)
+                Log.i("EVE", "CAMERA_SWITCH_RECOVERED lens=${previous.name}")
+            } catch (restoreError: Exception) {
+                cameraStarted = false
+                Log.e("EVE", "CAMERA_SWITCH_RECOVERY_FAILED", restoreError)
+            }
+        }
+    }
+
     private fun startCamera() {
         if (!hasCameraPermission() || cameraStarted || isFinishing) return
         cameraStarted = true
@@ -180,14 +268,8 @@ class MainActivity : ComponentActivity() {
             try {
                 val provider = providerFuture.get()
                 cameraProvider = provider
-                val analysis = ImageAnalysis.Builder()
-                    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                    .setTargetResolution(Size(320, 240))
-                    .build()
-                analysis.setAnalyzer(cameraExecutor, ::analyzeFrame)
-                provider.unbindAll()
-                provider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, analysis)
-                Log.i("EVE", "Offline camera analysis started.")
+                bindCameraLens(provider, activeCameraLens)
+                Log.i("EVE", "Offline camera analysis started lens=${activeCameraLens.name}.")
             } catch (e: Exception) {
                 cameraStarted = false
                 face.setMood(EveMood.CONCERNED)
