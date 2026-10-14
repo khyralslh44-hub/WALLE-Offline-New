@@ -7,6 +7,17 @@ android {
     namespace = "com.eve.robot"
     compileSdk = 35
 
+    // Include legacy JAR (v1) signing as well as modern APK signing so OEM installers
+    // have the broadest possible compatibility. Keep the debug build signed with the
+    // standard debug keystore used by this workflow.
+    signingConfigs {
+        getByName("debug") {
+            enableV1Signing = true
+            enableV2Signing = true
+            enableV3Signing = true
+        }
+    }
+
     defaultConfig {
         applicationId = "com.eve.robot"
         minSdk = 26
