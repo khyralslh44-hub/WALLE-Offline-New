@@ -9,7 +9,6 @@ import org.tensorflow.lite.Interpreter
 import java.io.Closeable
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
-import kotlin.math.max
 
 /**
  * Offline FER2013 facial-expression classifier backed by a bundled TensorFlow Lite CNN.
@@ -39,7 +38,9 @@ class EveFacialEmotionClassifier(context: Context) : Closeable {
         val buffer = ByteBuffer.allocateDirect(bytes.size).order(ByteOrder.nativeOrder())
         buffer.put(bytes)
         buffer.rewind()
-        val options = Interpreter.Options().setNumThreads(2)
+        val options = Interpreter.Options()
+            .setNumThreads(2)
+            .setUseXNNPACK(true)
         Interpreter(buffer, options).also { candidate ->
             val input = candidate.getInputTensor(0)
             require(input.shape().contentEquals(intArrayOf(1, INPUT_SIZE, INPUT_SIZE, 1))) {
@@ -77,11 +78,10 @@ class EveFacialEmotionClassifier(context: Context) : Closeable {
                 Bitmap.createScaledBitmap(faceCrop, INPUT_SIZE, INPUT_SIZE, true)
             }
             try {
-                val input = Array(1) {
-                    Array(INPUT_SIZE) {
-                        Array(INPUT_SIZE) { FloatArray(1) }
-                    }
-                }
+                // Direct native-order buffers avoid allocating over 2,300 nested Kotlin arrays
+                // for each video frame. XNNPACK is enabled above for optimized CPU convolution.
+                val input = ByteBuffer.allocateDirect(INPUT_SIZE * INPUT_SIZE * 4)
+                    .order(ByteOrder.nativeOrder())
                 for (y in 0 until INPUT_SIZE) {
                     for (x in 0 until INPUT_SIZE) {
                         val pixel = resized.getPixel(x, y)
@@ -90,12 +90,15 @@ class EveFacialEmotionClassifier(context: Context) : Closeable {
                                 0.587f * Color.green(pixel) +
                                 0.114f * Color.blue(pixel)
                             ) / 255f
-                        input[0][y][x][0] = gray
+                        input.putFloat(gray)
                     }
                 }
-                val output = Array(1) { FloatArray(LABELS.size) }
+                input.rewind()
+                val output = ByteBuffer.allocateDirect(LABELS.size * 4)
+                    .order(ByteOrder.nativeOrder())
                 model.run(input, output)
-                val scores = output[0]
+                output.rewind()
+                val scores = FloatArray(LABELS.size) { output.float }
                 if (scores.any { !it.isFinite() }) return null
                 val bestIndex = scores.indices.maxByOrNull { scores[it] } ?: return null
                 EveEmotionPrediction(
