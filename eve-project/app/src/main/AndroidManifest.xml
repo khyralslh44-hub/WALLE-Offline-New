@@ -4,6 +4,8 @@
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <application
         android:allowBackup="false"
+        android:icon="@drawable/ic_eve_launcher"
+        android:roundIcon="@drawable/ic_eve_launcher"
         android:label="EVE Robot"
         android:supportsRtl="true"
         android:theme="@style/EveTheme">
