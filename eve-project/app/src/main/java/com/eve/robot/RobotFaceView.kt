@@ -170,9 +170,12 @@ class RobotFaceView(context: Context) : View(context) {
         val idleGaze = if (animate) sin(now / 1610.0).toFloat() * 0.012f else 0f
         val idleGazeY = if (animate) sin(now / 2340.0).toFloat() * 0.007f else 0f
         val breath = if (animate) 0.965f + 0.035f * sin(now / 980.0).toFloat() else 1f
-        val w = min(width * 0.35f, height * 0.27f) * eyeWidth
-        val h = min(height * 0.34f, w * 1.43f) * eyeHeight
-        val gap = min(width * 0.18f, w * 0.58f) * spacing
+        // EVE's eyes are wide almond shapes with a visible bridge of dark space between them.
+        // Keep the geometry relative to the view's actual dp size so glow strokes do not merge
+        // the two eyes on tall phone screens or when the device uses display scaling.
+        val w = min(width * 0.36f, height * 0.24f) * eyeWidth
+        val h = min(height * 0.25f, w * 0.78f) * eyeHeight
+        val gap = min(width * 0.24f, w * 0.88f) * spacing
         val cy = height * 0.50f
         drawEye(canvas, width * 0.5f - gap + (gazeX + idleGaze + glanceX) * width,
             cy + (gazeY + idleGazeY + glanceY * 0.42f) * height, w * (1f + asymmetry * 0.24f), h,
