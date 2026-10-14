@@ -270,6 +270,42 @@ WIDTH="$(printf '%s' "$SIZE" | cut -d x -f 1)"
 HEIGHT="$(printf '%s' "$SIZE" | cut -d x -f 2)"
 X=$((WIDTH / 2))
 Y=$((HEIGHT / 2))
+# Verify both physical CameraX selectors and the button-free double-tap gesture.
+adb logcat -d -v threadtime > "$RESULTS_DIR/logcat-before-camera-switch.txt"
+if ! grep -F "CAMERA_LENS active=BACK" "$RESULTS_DIR/logcat-before-camera-switch.txt" >/dev/null; then
+  echo "FAIL: rear camera was not confirmed as the initial active lens."
+  exit 1
+fi
+echo "Testing double-tap switch BACK -> FRONT." | tee -a "$RESULTS_DIR/result.txt"
+adb shell "input tap $X $Y; sleep 0.12; input tap $X $Y"
+sleep 3
+adb logcat -d -v threadtime > "$RESULTS_DIR/logcat-after-front-switch.txt"
+if ! grep -F "CAMERA_SWITCH_SUCCESS from=BACK to=FRONT" "$RESULTS_DIR/logcat-after-front-switch.txt" >/dev/null; then
+  echo "FAIL: double-tap did not successfully switch from rear to front camera."
+  grep -E "CAMERA_SWITCH|CAMERA_LENS|Camera could not start" "$RESULTS_DIR/logcat-after-front-switch.txt" | tail -30 || true
+  exit 1
+fi
+if ! grep -F "CAMERA_LENS active=FRONT analysis=offline" "$RESULTS_DIR/logcat-after-front-switch.txt" >/dev/null; then
+  echo "FAIL: front lens was not bound to the offline image analyzer."
+  exit 1
+fi
+echo "PASS: front camera is active with offline image analysis." | tee -a "$RESULTS_DIR/result.txt"
+
+echo "Testing double-tap switch FRONT -> BACK." | tee -a "$RESULTS_DIR/result.txt"
+adb shell "input tap $X $Y; sleep 0.12; input tap $X $Y"
+sleep 3
+adb logcat -d -v threadtime > "$RESULTS_DIR/logcat-after-back-switch.txt"
+if ! grep -F "CAMERA_SWITCH_SUCCESS from=FRONT to=BACK" "$RESULTS_DIR/logcat-after-back-switch.txt" >/dev/null; then
+  echo "FAIL: double-tap did not successfully switch from front to rear camera."
+  grep -E "CAMERA_SWITCH|CAMERA_LENS|Camera could not start" "$RESULTS_DIR/logcat-after-back-switch.txt" | tail -30 || true
+  exit 1
+fi
+if ! grep -F "CAMERA_LENS active=BACK analysis=offline" "$RESULTS_DIR/logcat-after-back-switch.txt" >/dev/null; then
+  echo "FAIL: rear lens was not restored to the offline image analyzer."
+  exit 1
+fi
+echo "PASS: rear camera is active again with offline image analysis." | tee -a "$RESULTS_DIR/result.txt"
+
 echo "Touching face center ($X,$Y)." | tee -a "$RESULTS_DIR/result.txt"
 adb shell input swipe "$X" "$Y" "$X" "$Y" 900
 sleep 2
