@@ -92,7 +92,8 @@ jobs:
           test -x "$APKSIGNER"
           OUTPUT="$("$APKSIGNER" verify --verbose "$APK")"
           printf '%s\n' "$OUTPUT"
-          grep -Fq 'Verified using v1 scheme (JAR signing): true' <<< "$OUTPUT"
+          # minSdk is 26, so v1/JAR signing is not required for supported devices.
+          # Verify the modern signing schemes supported by Android 7+ instead.
           grep -Fq 'Verified using v2 scheme (APK Signature Scheme v2): true' <<< "$OUTPUT"
           grep -Fq 'Verified using v3 scheme (APK Signature Scheme v3): true' <<< "$OUTPUT"
 
