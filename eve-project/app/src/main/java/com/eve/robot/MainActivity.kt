@@ -402,6 +402,7 @@ class MainActivity : ComponentActivity() {
                     finishFrameConsumer()
                 }
             }
+    }
 
     /**
      * Convert CameraX YUV_420_888 planes to RGB without relying on ImageProxy.toBitmap(),
