@@ -82,7 +82,7 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) startCamera() else {
-            face.setMood(EveMood.CONCERNED)
+            react(brain.cameraUnavailable("permission declined"), playSound = false)
             Log.i("EVE", "Camera permission declined; face remains active.")
         }
     }
@@ -166,7 +166,7 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        face.setMood(EveMood.AWAKE)
+        react(brain.awakenExperience(), playSound = false)
         face.startAnimation()
         main.postDelayed(idleLoop, 5200L)
         if (hasCameraPermission()) startCamera()
@@ -244,7 +244,7 @@ class MainActivity : ComponentActivity() {
         try {
             bindCameraLens(provider, requested)
             lastInteractionAt = SystemClock.elapsedRealtime()
-            face.setMood(EveMood.CURIOUS)
+            react(brain.cameraSwitched(requested.name), playSound = false)
             Log.i("EVE", "CAMERA_SWITCH_SUCCESS from=${previous.name} to=${requested.name}")
         } catch (error: Exception) {
             cameraStarted = false
@@ -272,7 +272,7 @@ class MainActivity : ComponentActivity() {
                 Log.i("EVE", "Offline camera analysis started lens=${activeCameraLens.name}.")
             } catch (e: Exception) {
                 cameraStarted = false
-                face.setMood(EveMood.CONCERNED)
+                react(brain.cameraUnavailable("camera could not start"), playSound = false)
                 Log.e("EVE", "Camera could not start.", e)
             }
         }, ContextCompat.getMainExecutor(this))
