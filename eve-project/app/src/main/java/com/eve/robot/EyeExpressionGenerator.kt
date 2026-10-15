@@ -31,6 +31,10 @@ object EyeExpressionGenerator {
             EveMood.FAMILIAR -> floatArrayOf(0.84f, -2f, 0.02f, 0.008f, 0.88f, 0.88f, 0.12f, 0.99f, 0.91f, 1.03f)
             EveMood.SLEEPY -> floatArrayOf(0.25f, 0f, 0f, 0.055f, 0.42f, 0.53f, 0.00f, 1.02f, 0.80f, 1.00f)
             EveMood.FOCUSED -> floatArrayOf(0.54f, 2f, 0.035f, 0f, 0.66f, 0.66f, -0.10f, 0.97f, 0.84f, 0.94f)
+            // Playfulness uses a bright, slightly asymmetric look; irritation narrows the eyes.
+            EveMood.PLAYFUL -> floatArrayOf(0.98f, -8f, 0.050f, -0.035f, 1.00f, 1.12f, 0.24f, 1.05f, 1.04f, 1.00f)
+            EveMood.IRRITATED -> floatArrayOf(0.51f, 12f, -0.025f, 0.026f, 0.68f, 0.58f, -0.20f, 0.95f, 0.82f, 0.96f)
+            EveMood.ANGRY -> floatArrayOf(0.43f, 16f, -0.035f, 0.040f, 0.74f, 0.50f, -0.24f, 0.92f, 0.78f, 0.94f)
         }
 
         val valence = decision.valence.coerceIn(-1f, 1f)
