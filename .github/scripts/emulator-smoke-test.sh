@@ -343,7 +343,7 @@ if system_anr:
     print("WARN: system ANR unrelated to EVE recorded separately.")
 print("PASS: no app-specific fatal exception or ANR found in logcat.")
 PY
-if ! grep -F "Offline camera analysis started." "$RESULTS_DIR/logcat.txt" >/dev/null; then
+if ! grep -F "Offline camera analysis started" "$RESULTS_DIR/logcat.txt" >/dev/null; then
   echo "FAIL: offline CameraX analysis did not report a successful start."
   exit 1
 fi
