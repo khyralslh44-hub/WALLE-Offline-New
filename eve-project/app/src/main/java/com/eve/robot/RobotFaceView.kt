@@ -302,7 +302,10 @@ class RobotFaceView(context: Context) : View(context) {
         val eyeRect = RectF(cx - hw, centerY - glyphHh, cx + hw, centerY + glyphHh)
         val roundRadius = min(hw, glyphHh).coerceAtLeast(1f)
         fun rounded(radius: Float) {
-            val r = radius.coerceIn(1f, min(hw, glyphHh))
+            // Thin blink/happy glyphs can be under 2px tall on scaled emulator canvases.
+            // Keep the clamp range valid even when the eye half-height is below 1px.
+            val maxRadius = min(hw, glyphHh).coerceAtLeast(0.5f)
+            val r = radius.coerceIn(0.25f, maxRadius)
             shape.addRoundRect(
                 eyeRect,
                 floatArrayOf(r, r, r, r, r, r, r, r),
