@@ -12,11 +12,9 @@ import android.view.View
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
-import kotlin.random.Random
 
 /** Draws two expressive green eyes only: no pupil, mouth, text, or control buttons. */
 class RobotFaceView(context: Context) : View(context) {
-    private val rng = Random(System.currentTimeMillis())
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
     private val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
@@ -61,14 +59,15 @@ class RobotFaceView(context: Context) : View(context) {
     private var fromSpacing = spacing
     private var transitionStartedAt = 0L
     private val transitionDurationMs = 360L
-    private var blinkAt = SystemClock.uptimeMillis() + 2000L
+    private var blinkAt = SystemClock.uptimeMillis() + 2200L
     private var blinkStarted = 0L
     private var animate = false
     private var glanceX = 0f
     private var glanceY = 0f
     private var targetGlanceX = 0f
     private var targetGlanceY = 0f
-    private var nextGlanceAt = SystemClock.uptimeMillis() + 2400L
+    private var nextGlanceAt = SystemClock.uptimeMillis() + 3000L
+    private var scanStep = 0
 
     init {
         isClickable = true
@@ -103,8 +102,8 @@ class RobotFaceView(context: Context) : View(context) {
         targetEyeHeight = profile.eyeHeight
         targetSpacing = profile.spacing
         beginTransition()
-        val random = Random(seed xor 0x4E56454L)
-        blinkAt = SystemClock.uptimeMillis() + 1200L + random.nextLong(5300L)
+        // The pose comes from the brain; blinking follows a calm, predictable natural rhythm.
+        blinkAt = SystemClock.uptimeMillis() + 2200L
         invalidate()
     }
 
@@ -151,7 +150,7 @@ class RobotFaceView(context: Context) : View(context) {
         updateTransition(now)
         if (animate && now >= blinkAt) {
             blinkStarted = now
-            blinkAt = now + 2600L + rng.nextLong(4200L)
+            blinkAt = now + 4600L
         }
         val blink = if (blinkStarted > 0L && now - blinkStarted < 180L) {
             val p = (now - blinkStarted).toFloat() / 180f
@@ -159,10 +158,15 @@ class RobotFaceView(context: Context) : View(context) {
         } else 1f
         if (blinkStarted > 0L && now - blinkStarted >= 180L) blinkStarted = 0L
         if (animate && now >= nextGlanceAt) {
-            // Unscripted short glances make the face feel observant rather than a static icon.
-            targetGlanceX = rng.nextFloat() * 0.085f - 0.0425f
-            targetGlanceY = rng.nextFloat() * 0.038f - 0.019f
-            nextGlanceAt = now + 1900L + rng.nextLong(3900L)
+            // A deliberate scan pattern: left, center-up, right, center. No random mood/action picks.
+            when (scanStep % 4) {
+                0 -> { targetGlanceX = -0.034f; targetGlanceY = 0.004f }
+                1 -> { targetGlanceX = 0f; targetGlanceY = -0.014f }
+                2 -> { targetGlanceX = 0.034f; targetGlanceY = 0.004f }
+                else -> { targetGlanceX = 0f; targetGlanceY = 0f }
+            }
+            scanStep++
+            nextGlanceAt = now + 3600L
         }
         val glanceEase = if (animate) 0.075f else 1f
         glanceX += (targetGlanceX - glanceX) * glanceEase
