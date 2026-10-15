@@ -155,15 +155,28 @@ class RobotFaceView(context: Context) : View(context) {
         } else 1f
         if (blinkStarted > 0L && now - blinkStarted >= 180L) blinkStarted = 0L
         if (animate && now >= nextGlanceAt) {
-            // A deliberate scan pattern: left, center-up, right, center. No random mood/action picks.
-            when (scanStep % 4) {
-                0 -> { targetGlanceX = -0.034f; targetGlanceY = 0.004f }
-                1 -> { targetGlanceX = 0f; targetGlanceY = -0.014f }
-                2 -> { targetGlanceX = 0.034f; targetGlanceY = 0.004f }
-                else -> { targetGlanceX = 0f; targetGlanceY = 0f }
+            // EVE's gaze is purposeful: playful moods scan a little faster; irritated moods look away.
+            when {
+                mood == EveMood.IRRITATED || mood == EveMood.ANGRY -> when (scanStep % 4) {
+                    0 -> { targetGlanceX = 0.052f; targetGlanceY = 0.008f }
+                    1 -> { targetGlanceX = 0.028f; targetGlanceY = 0.018f }
+                    2 -> { targetGlanceX = -0.020f; targetGlanceY = 0.006f }
+                    else -> { targetGlanceX = 0.018f; targetGlanceY = 0.012f }
+                }
+                else -> when (scanStep % 4) {
+                    0 -> { targetGlanceX = -0.034f; targetGlanceY = 0.004f }
+                    1 -> { targetGlanceX = 0f; targetGlanceY = -0.014f }
+                    2 -> { targetGlanceX = 0.034f; targetGlanceY = 0.004f }
+                    else -> { targetGlanceX = 0f; targetGlanceY = 0f }
+                }
             }
             scanStep++
-            nextGlanceAt = now + 3600L
+            nextGlanceAt = now + when (mood) {
+                EveMood.PLAYFUL -> 2700L
+                EveMood.IRRITATED -> 4600L
+                EveMood.ANGRY -> 5600L
+                else -> 3600L
+            }
         }
         val glanceEase = if (animate) 0.075f else 1f
         glanceX += (targetGlanceX - glanceX) * glanceEase
@@ -218,8 +231,10 @@ class RobotFaceView(context: Context) : View(context) {
         c.drawPath(shape, edge)
         fill.style = Paint.Style.FILL
         val eyeColors = when (mood) {
-            EveMood.SLEEPY, EveMood.CONCERNED -> intArrayOf(Color.rgb(150, 235, 178), Color.rgb(30, 218, 103), Color.rgb(0, 104, 48))
-            EveMood.HAPPY, EveMood.SURPRISED -> intArrayOf(Color.rgb(222, 255, 232), Color.rgb(70, 255, 144), Color.rgb(0, 162, 70))
+            EveMood.SLEEPY, EveMood.CONCERNED, EveMood.IRRITATED, EveMood.ANGRY ->
+                intArrayOf(Color.rgb(150, 235, 178), Color.rgb(30, 218, 103), Color.rgb(0, 104, 48))
+            EveMood.HAPPY, EveMood.SURPRISED, EveMood.PLAYFUL ->
+                intArrayOf(Color.rgb(222, 255, 232), Color.rgb(70, 255, 144), Color.rgb(0, 162, 70))
             else -> intArrayOf(Color.rgb(190, 255, 215), Color.rgb(44, 245, 119), Color.rgb(0, 137, 61))
         }
         fill.shader = LinearGradient(cx - hw * 0.2f, cy - hh, cx + hw * 0.12f, cy + hh,
