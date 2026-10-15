@@ -31,7 +31,6 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
-import kotlin.random.Random
 
 /**
  * EVE face experience: camera labeling and behavior operate locally while the activity is open.
@@ -94,10 +93,10 @@ class MainActivity : ComponentActivity() {
             val inactive = SystemClock.elapsedRealtime() - lastInteractionAt
             if (inactive >= 5_000L) {
                 val decision = brain.idle(inactive, idleCount)
-                face.setExpression(decision, System.currentTimeMillis() xor Random.nextLong())
+                face.setExpression(decision, System.currentTimeMillis())
                 Log.i("EVE", "AUTONOMOUS mood=${decision.mood} reason=${decision.reason} inactiveMs=$inactive")
             }
-            main.postDelayed(this, 5200L + Random.nextLong(2200L))
+            main.postDelayed(this, 6000L)
         }
     }
 
