@@ -4,6 +4,10 @@ package com.eve.robot
  * Generates deterministic EVE eye poses from one affect snapshot.
  * The same decision always yields the same pose; variation comes from context, not dice rolls.
  */
+enum class EyeSilhouette {
+    ALMOND, SMILE, ROUND_SURPRISE, DROOPY, FOCUSED, WORRIED, SHARP, PLAYFUL, SOFT
+}
+
 data class EyeExpressionProfile(
     val mood: EveMood,
     val opening: Float,
@@ -16,7 +20,21 @@ data class EyeExpressionProfile(
     val eyeWidth: Float,
     val eyeHeight: Float,
     val spacing: Float
-)
+) {
+    /** A distinct contour as well as a different opening/tilt; makes expressions readable at a glance. */
+    val silhouette: EyeSilhouette
+        get() = when (mood) {
+            EveMood.HAPPY -> EyeSilhouette.SMILE
+            EveMood.SURPRISED -> EyeSilhouette.ROUND_SURPRISE
+            EveMood.SLEEPY -> EyeSilhouette.DROOPY
+            EveMood.FOCUSED -> EyeSilhouette.FOCUSED
+            EveMood.CONCERNED -> EyeSilhouette.WORRIED
+            EveMood.IRRITATED, EveMood.ANGRY -> EyeSilhouette.SHARP
+            EveMood.CURIOUS, EveMood.PLAYFUL -> EyeSilhouette.PLAYFUL
+            EveMood.FAMILIAR, EveMood.AWAKE -> EyeSilhouette.SOFT
+            EveMood.NEUTRAL -> EyeSilhouette.ALMOND
+        }
+}
 
 object EyeExpressionGenerator {
     @Suppress("UNUSED_PARAMETER")
