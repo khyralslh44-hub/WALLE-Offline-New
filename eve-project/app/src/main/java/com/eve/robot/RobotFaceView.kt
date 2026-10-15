@@ -13,6 +13,14 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
 
+private data class EyeContour(
+    val upperPeak: Float,
+    val upperShoulder: Float,
+    val lowerPeak: Float,
+    val lowerShoulder: Float,
+    val cornerLift: Float
+)
+
 /** Draws two expressive green eyes only: no pupil, mouth, text, or control buttons. */
 class RobotFaceView(context: Context) : View(context) {
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -24,7 +32,9 @@ class RobotFaceView(context: Context) : View(context) {
     private val glint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(210, 255, 225) }
     private val shape = Path()
     private var mood = EveMood.AWAKE
-    private var silhouette = EyeSilhouette.ALMOND
+    private var contour = contourFor(EyeSilhouette.ALMOND)
+    private var targetContour = contour
+    private var fromContour = contour
     private var opening = 0.98f
     private var tilt = 0f
     private var gazeX = 0f
@@ -88,7 +98,7 @@ class RobotFaceView(context: Context) : View(context) {
 
     private fun applyProfile(profile: EyeExpressionProfile) {
         mood = profile.mood
-        silhouette = profile.silhouette
+        targetContour = contourFor(profile.silhouette)
         // If another event arrives mid-transition, begin the new motion from the interpolated pose.
         updateTransition(SystemClock.uptimeMillis())
         targetOpening = profile.opening
@@ -107,6 +117,7 @@ class RobotFaceView(context: Context) : View(context) {
     }
 
     private fun beginTransition() {
+        fromContour = contour
         fromOpening = opening
         fromTilt = tilt
         fromGazeX = gazeX
@@ -126,6 +137,13 @@ class RobotFaceView(context: Context) : View(context) {
         // Smoothstep avoids robotic snapping at the beginning/end of an expression.
         val p = raw * raw * (3f - 2f * raw)
         fun mix(from: Float, to: Float) = from + (to - from) * p
+        contour = EyeContour(
+            upperPeak = mix(fromContour.upperPeak, targetContour.upperPeak),
+            upperShoulder = mix(fromContour.upperShoulder, targetContour.upperShoulder),
+            lowerPeak = mix(fromContour.lowerPeak, targetContour.lowerPeak),
+            lowerShoulder = mix(fromContour.lowerShoulder, targetContour.lowerShoulder),
+            cornerLift = mix(fromContour.cornerLift, targetContour.cornerLift)
+        )
         opening = mix(fromOpening, targetOpening)
         tilt = mix(fromTilt, targetTilt)
         gazeX = mix(fromGazeX, targetGazeX)
@@ -211,64 +229,24 @@ class RobotFaceView(context: Context) : View(context) {
         val cy = height * 0.50f
         drawEye(canvas, width * 0.5f - gap + (gazeX + idleGaze + glanceX) * width,
             cy + (gazeY + idleGazeY + glanceY * 0.42f) * height, w * (1f + asymmetry * 0.24f), h,
-            opening * blink * breath * (1f + asymmetry * 0.30f), tilt, glow, squint, silhouette, -1)
+            opening * blink * breath * (1f + asymmetry * 0.30f), tilt, glow, squint, contour, -1)
         drawEye(canvas, width * 0.5f + gap + (gazeX + idleGaze + glanceX + asymmetry * 0.025f) * width,
             cy + (gazeY + idleGazeY + glanceY * 0.42f - asymmetry * 0.035f) * height, w * (1f - asymmetry * 0.24f), h,
-            opening * blink * breath * (1f - asymmetry * 0.30f), -tilt, glow, squint, silhouette, 1)
+            opening * blink * breath * (1f - asymmetry * 0.30f), -tilt, glow, squint, contour, 1)
         if (animate) postInvalidateDelayed(32L)
     }
 
-    private fun drawEye(c: Canvas, cx: Float, cy: Float, w: Float, h: Float, openness: Float, angle: Float, intensity: Float, squinting: Float, silhouette: EyeSilhouette, side: Int) {
+    private fun drawEye(c: Canvas, cx: Float, cy: Float, w: Float, h: Float, openness: Float, angle: Float, intensity: Float, squinting: Float, contour: EyeContour, side: Int) {
         val hw = w * 0.5f
         val hh = h * 0.5f * openness.coerceIn(0.06f, 1.18f)
         val curve = squinting.coerceIn(0.45f, 1.22f)
-        // Procedural contour library: each affect uses its own eyelid silhouette, not just
-        // a resized copy. This ports the lightweight polygon/curve idea to Canvas for Android.
-        val upperPeak = when (silhouette) {
-            EyeSilhouette.SMILE -> 0.66f
-            EyeSilhouette.ROUND_SURPRISE -> 1.12f
-            EyeSilhouette.DROOPY -> 0.60f
-            EyeSilhouette.FOCUSED -> 0.72f
-            EyeSilhouette.WORRIED -> 0.83f
-            EyeSilhouette.SHARP -> 0.70f
-            EyeSilhouette.PLAYFUL -> 0.94f
-            EyeSilhouette.SOFT -> 0.96f
-            EyeSilhouette.ALMOND -> 0.90f
-        } * curve
-        val upperShoulder = when (silhouette) {
-            EyeSilhouette.SMILE -> 0.43f
-            EyeSilhouette.ROUND_SURPRISE -> 0.52f
-            EyeSilhouette.DROOPY -> 0.38f
-            EyeSilhouette.FOCUSED -> 0.34f
-            EyeSilhouette.WORRIED -> 0.47f
-            EyeSilhouette.SHARP -> 0.29f
-            EyeSilhouette.PLAYFUL -> 0.49f
-            EyeSilhouette.SOFT -> 0.47f
-            EyeSilhouette.ALMOND -> 0.46f
-        } * curve
-        val lowerPeak = when (silhouette) {
-            EyeSilhouette.SMILE -> 0.42f
-            EyeSilhouette.ROUND_SURPRISE -> 1.06f
-            EyeSilhouette.DROOPY -> 0.76f
-            EyeSilhouette.FOCUSED -> 0.56f
-            EyeSilhouette.WORRIED -> 0.76f
-            EyeSilhouette.SHARP -> 0.48f
-            EyeSilhouette.PLAYFUL -> 0.72f
-            EyeSilhouette.SOFT -> 0.84f
-            EyeSilhouette.ALMOND -> 0.80f
-        }
-        val lowerShoulder = when (silhouette) {
-            EyeSilhouette.SMILE -> 0.30f
-            EyeSilhouette.ROUND_SURPRISE -> 0.61f
-            EyeSilhouette.DROOPY -> 0.56f
-            EyeSilhouette.FOCUSED -> 0.37f
-            EyeSilhouette.WORRIED -> 0.61f
-            EyeSilhouette.SHARP -> 0.35f
-            EyeSilhouette.PLAYFUL -> 0.53f
-            EyeSilhouette.SOFT -> 0.56f
-            EyeSilhouette.ALMOND -> 0.54f
-        }
-        val cornerLift = if (silhouette == EyeSilhouette.SHARP) -hh * 0.11f * side else 0f
+        // Contour vertices are interpolated with the other facial parameters to prevent snapping.
+        val curve = squinting.coerceIn(0.45f, 1.22f)
+        val upperPeak = contour.upperPeak * curve
+        val upperShoulder = contour.upperShoulder * curve
+        val lowerPeak = contour.lowerPeak
+        val lowerShoulder = contour.lowerShoulder
+        val cornerLift = contour.cornerLift * side * hh
         shape.reset()
         shape.moveTo(cx - hw, cy + cornerLift)
         shape.cubicTo(
@@ -329,5 +307,17 @@ class RobotFaceView(context: Context) : View(context) {
         glint.alpha = 110
         c.drawCircle(cx + hw * 0.20f, cy - hh * 0.44f, max(1.5f, w * 0.009f), glint)
         c.restore()
+    }
+
+    private fun contourFor(silhouette: EyeSilhouette): EyeContour = when (silhouette) {
+        EyeSilhouette.SMILE -> EyeContour(0.66f, 0.43f, 0.42f, 0.30f, 0f)
+        EyeSilhouette.ROUND_SURPRISE -> EyeContour(1.12f, 0.52f, 1.06f, 0.61f, 0f)
+        EyeSilhouette.DROOPY -> EyeContour(0.60f, 0.38f, 0.76f, 0.56f, 0f)
+        EyeSilhouette.FOCUSED -> EyeContour(0.72f, 0.34f, 0.56f, 0.37f, 0f)
+        EyeSilhouette.WORRIED -> EyeContour(0.83f, 0.47f, 0.76f, 0.61f, 0f)
+        EyeSilhouette.SHARP -> EyeContour(0.70f, 0.29f, 0.48f, 0.35f, -0.11f)
+        EyeSilhouette.PLAYFUL -> EyeContour(0.94f, 0.49f, 0.72f, 0.53f, 0f)
+        EyeSilhouette.SOFT -> EyeContour(0.96f, 0.47f, 0.84f, 0.56f, 0f)
+        EyeSilhouette.ALMOND -> EyeContour(0.90f, 0.46f, 0.80f, 0.54f, 0f)
     }
 }
