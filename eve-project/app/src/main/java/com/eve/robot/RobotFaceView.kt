@@ -34,6 +34,9 @@ class RobotFaceView(context: Context) : View(context) {
     private val shape = Path()
     private var mood = EveMood.AWAKE
     private var silhouette = EyeSilhouette.ALMOND
+    private var previousSilhouette = silhouette
+    private var silhouetteTransitionStartedAt = 0L
+    private val silhouetteTransitionDurationMs = 260L
     private var contour = contourFor(EyeSilhouette.ALMOND)
     private var targetContour = contour
     private var fromContour = contour
@@ -99,10 +102,13 @@ class RobotFaceView(context: Context) : View(context) {
     }
 
     private fun applyProfile(profile: EyeExpressionProfile) {
-        mood = profile.mood
+        val now = SystemClock.uptimeMillis()
+        // If another event arrives mid-transition, first finish parameter interpolation at the current time.
+        updateTransition(now)
+        previousSilhouette = silhouette
         silhouette = profile.silhouette
-        // If another event arrives mid-transition, first finish the interpolation toward the old target.
-        updateTransition(SystemClock.uptimeMillis())
+        silhouetteTransitionStartedAt = now
+        mood = profile.mood
         targetContour = contourFor(profile.silhouette)
         targetOpening = profile.opening
         targetTilt = profile.tilt
@@ -230,16 +236,27 @@ class RobotFaceView(context: Context) : View(context) {
         val h = min(height * 0.25f, w * 0.78f) * eyeHeight
         val gap = min(width * 0.24f, w * 0.88f) * spacing
         val cy = height * 0.50f
-        drawEye(canvas, width * 0.5f - gap + (gazeX + idleGaze + glanceX) * width,
-            cy + (gazeY + idleGazeY + glanceY * 0.42f) * height, w * (1f + asymmetry * 0.24f), h,
-            opening * blink * breath * (1f + asymmetry * 0.30f), tilt, glow, squint, contour, -1)
-        drawEye(canvas, width * 0.5f + gap + (gazeX + idleGaze + glanceX + asymmetry * 0.025f) * width,
-            cy + (gazeY + idleGazeY + glanceY * 0.42f - asymmetry * 0.035f) * height, w * (1f - asymmetry * 0.24f), h,
-            opening * blink * breath * (1f - asymmetry * 0.30f), -tilt, glow, squint, contour, 1)
+        val silhouetteRaw = if (silhouetteTransitionStartedAt == 0L) 1f else
+            ((now - silhouetteTransitionStartedAt).toFloat() / silhouetteTransitionDurationMs).coerceIn(0f, 1f)
+        val silhouetteBlend = silhouetteRaw * silhouetteRaw * (3f - 2f * silhouetteRaw)
+        if (silhouetteRaw >= 1f) silhouetteTransitionStartedAt = 0L
+
+        fun drawExpressionLayer(style: EyeSilhouette, alpha: Float) {
+            if (alpha <= 0.005f) return
+            drawEye(canvas, width * 0.5f - gap + (gazeX + idleGaze + glanceX) * width,
+                cy + (gazeY + idleGazeY + glanceY * 0.42f) * height, w * (1f + asymmetry * 0.24f), h,
+                opening * blink * breath * (1f + asymmetry * 0.30f), tilt, glow, squint, contour, -1, style, alpha)
+            drawEye(canvas, width * 0.5f + gap + (gazeX + idleGaze + glanceX + asymmetry * 0.025f) * width,
+                cy + (gazeY + idleGazeY + glanceY * 0.42f - asymmetry * 0.035f) * height, w * (1f - asymmetry * 0.24f), h,
+                opening * blink * breath * (1f - asymmetry * 0.30f), -tilt, glow, squint, contour, 1, style, alpha)
+        }
+
+        if (silhouetteBlend < 1f) drawExpressionLayer(previousSilhouette, 1f - silhouetteBlend)
+        drawExpressionLayer(silhouette, silhouetteBlend)
         if (animate) postInvalidateDelayed(32L)
     }
 
-    private fun drawEye(c: Canvas, cx: Float, cy: Float, w: Float, h: Float, openness: Float, angle: Float, intensity: Float, squinting: Float, contour: EyeContour, side: Int) {
+    private fun drawEye(c: Canvas, cx: Float, cy: Float, w: Float, h: Float, openness: Float, angle: Float, intensity: Float, squinting: Float, contour: EyeContour, side: Int, eyeSilhouette: EyeSilhouette, opacity: Float) {
         val hw = w * 0.5f
         val hh = h * 0.5f * openness.coerceIn(0.06f, 1.18f)
         val curve = squinting.coerceIn(0.45f, 1.22f)
@@ -250,96 +267,163 @@ class RobotFaceView(context: Context) : View(context) {
         val lowerShoulder = contour.lowerShoulder
         val cornerLift = contour.cornerLift * side * hh
         shape.reset()
-        val eyeRect = RectF(cx - hw, cy - hh, cx + hw, cy + hh)
+        val centerY = cy + when (eyeSilhouette) {
+            EyeSilhouette.BLINK_HIGH -> -hh * 0.34f
+            EyeSilhouette.BLINK_LOW, EyeSilhouette.SAD_DOWN -> hh * 0.28f
+            EyeSilhouette.BORED, EyeSilhouette.UNIMPRESSED -> hh * 0.10f
+            else -> 0f
+        }
+        val eyeRect = RectF(cx - hw, centerY - hh, cx + hw, centerY + hh)
         val roundRadius = min(hw, hh).coerceAtLeast(1f)
-        when (silhouette) {
-            // Neutral/awake: luminous rounded-square pixels like a small robot display.
-            EyeSilhouette.ALMOND -> {
-                val radius = roundRadius * 0.50f
-                shape.addRoundRect(
-                    eyeRect,
-                    floatArrayOf(radius, radius, radius, radius, radius, radius, radius, radius),
-                    Path.Direction.CW
-                )
+        fun rounded(radius: Float) {
+            val r = radius.coerceIn(1f, min(hw, hh))
+            shape.addRoundRect(
+                eyeRect,
+                floatArrayOf(r, r, r, r, r, r, r, r),
+                Path.Direction.CW
+            )
+        }
+        when (eyeSilhouette) {
+            EyeSilhouette.ALMOND -> rounded(min(hw * 0.68f, hh * 0.94f))
+            EyeSilhouette.NEUTRAL -> rounded(min(hw * 0.42f, hh * 0.55f))
+            EyeSilhouette.SOFT -> rounded(min(hw * 0.92f, hh * 0.98f))
+            EyeSilhouette.ROUND_SURPRISE -> rounded(min(hw * 0.58f, hh * 0.72f))
+            EyeSilhouette.SCARED -> rounded(min(hw * 0.48f, hh * 1.0f))
+            EyeSilhouette.AWE -> rounded(min(hw * 0.82f, hh * 0.98f))
+
+            // Thin LED slits placed high or low in the eye socket.
+            EyeSilhouette.BLINK_HIGH -> rounded(max(1.3f, hh * 0.16f))
+            EyeSilhouette.BLINK_LOW -> rounded(max(1.3f, hh * 0.14f))
+            EyeSilhouette.BORED -> rounded(max(1.3f, hh * 0.22f))
+            EyeSilhouette.UNIMPRESSED -> {
+                shape.moveTo(cx - hw, centerY - hh * 0.04f)
+                shape.lineTo(cx + hw, centerY - hh * 0.04f)
+                shape.lineTo(cx + hw * 0.94f, centerY + hh * 0.50f)
+                shape.quadTo(cx, centerY + hh * 0.78f, cx - hw * 0.94f, centerY + hh * 0.50f)
+                shape.close()
             }
-            EyeSilhouette.SOFT -> {
-                // Familiar/warm expression: gentler, pill-like corners than the neutral pixels.
-                val radius = min(hw * 0.92f, hh * 0.98f)
-                shape.addRoundRect(
-                    eyeRect,
-                    floatArrayOf(radius, radius, radius, radius, radius, radius, radius, radius),
-                    Path.Direction.CW
-                )
+            EyeSilhouette.SQUINT -> {
+                shape.moveTo(cx - hw, centerY - hh * 0.12f)
+                shape.quadTo(cx, centerY - hh * 0.42f, cx + hw, centerY - hh * 0.12f)
+                shape.lineTo(cx + hw * 0.88f, centerY + hh * 0.20f)
+                shape.quadTo(cx, centerY + hh * 0.38f, cx - hw * 0.88f, centerY + hh * 0.20f)
+                shape.close()
             }
-            // Surprise: tall, soft-edged display blocks.
-            EyeSilhouette.ROUND_SURPRISE -> {
-                val radius = min(hw * 0.58f, roundRadius * 0.72f)
-                shape.addRoundRect(
-                    eyeRect,
-                    floatArrayOf(radius, radius, radius, radius, radius, radius, radius, radius),
-                    Path.Direction.CW
-                )
-            }
-            // Happy: an upward-curved, closed-eye crescent instead of merely changing color.
+
+            // Smile and glee are curved lids, not just reduced rectangular eyes.
             EyeSilhouette.SMILE -> {
-                shape.moveTo(cx - hw, cy + hh * 0.08f)
-                shape.cubicTo(cx - hw * 0.64f, cy - hh * 1.02f,
-                    cx + hw * 0.48f, cy - hh * 1.02f, cx + hw, cy + hh * 0.08f)
-                shape.cubicTo(cx + hw * 0.52f, cy - hh * 0.22f,
-                    cx - hw * 0.52f, cy - hh * 0.22f, cx - hw, cy + hh * 0.08f)
+                shape.moveTo(cx - hw, centerY + hh * 0.08f)
+                shape.cubicTo(cx - hw * 0.64f, centerY - hh * 1.02f,
+                    cx + hw * 0.48f, centerY - hh * 1.02f, cx + hw, centerY + hh * 0.08f)
+                shape.cubicTo(cx + hw * 0.52f, centerY - hh * 0.22f,
+                    cx - hw * 0.52f, centerY - hh * 0.22f, cx - hw, centerY + hh * 0.08f)
                 shape.close()
             }
-            // Sleepy: a low, heavy lid shape with round corners.
+            EyeSilhouette.GLEE -> {
+                shape.moveTo(cx - hw, centerY + hh * 0.14f)
+                shape.cubicTo(cx - hw * 0.42f, centerY - hh * 0.68f,
+                    cx + hw * 0.44f, centerY - hh * 0.68f, cx + hw, centerY + hh * 0.14f)
+                shape.cubicTo(cx + hw * 0.50f, centerY - hh * 0.03f,
+                    cx - hw * 0.48f, centerY - hh * 0.03f, cx - hw, centerY + hh * 0.14f)
+                shape.close()
+            }
+
+            // Droopy/sad/worried eyes use a weighted lid and downward gaze.
             EyeSilhouette.DROOPY -> {
-                shape.moveTo(cx - hw, cy - hh * 0.02f)
-                shape.cubicTo(cx - hw * 0.50f, cy - hh * 0.24f,
-                    cx + hw * 0.38f, cy - hh * 0.10f, cx + hw, cy - hh * 0.30f)
-                shape.lineTo(cx + hw, cy + hh * 0.42f)
-                shape.quadTo(cx + hw * 0.92f, cy + hh, cx + hw * 0.50f, cy + hh)
-                shape.lineTo(cx - hw * 0.52f, cy + hh)
-                shape.quadTo(cx - hw, cy + hh * 0.96f, cx - hw, cy + hh * 0.48f)
+                shape.moveTo(cx - hw, centerY - hh * 0.02f)
+                shape.cubicTo(cx - hw * 0.50f, centerY - hh * 0.24f,
+                    cx + hw * 0.38f, centerY - hh * 0.10f, cx + hw, centerY - hh * 0.30f)
+                shape.lineTo(cx + hw, centerY + hh * 0.42f)
+                shape.quadTo(cx + hw * 0.92f, centerY + hh, cx + hw * 0.50f, centerY + hh)
+                shape.lineTo(cx - hw * 0.52f, centerY + hh)
+                shape.quadTo(cx - hw, centerY + hh * 0.96f, cx - hw, centerY + hh * 0.48f)
                 shape.close()
             }
-            // Focused: clipped corners and a flatter upper lid.
-            EyeSilhouette.FOCUSED -> {
-                shape.moveTo(cx - hw, cy - hh * 0.28f)
-                shape.lineTo(cx - hw * 0.64f, cy - hh * 0.78f)
-                shape.quadTo(cx, cy - hh * 0.94f, cx + hw * 0.60f, cy - hh * 0.70f)
-                shape.lineTo(cx + hw, cy - hh * 0.14f)
-                shape.lineTo(cx + hw * 0.86f, cy + hh * 0.72f)
-                shape.quadTo(cx, cy + hh, cx - hw * 0.78f, cy + hh * 0.66f)
+            EyeSilhouette.SAD_DOWN -> {
+                shape.moveTo(cx - hw, centerY - hh * 0.36f)
+                shape.cubicTo(cx - hw * 0.38f, centerY - hh * 0.56f,
+                    cx + hw * 0.36f, centerY - hh * 0.08f, cx + hw, centerY - hh * 0.56f)
+                shape.lineTo(cx + hw, centerY + hh * 0.24f)
+                shape.quadTo(cx, centerY + hh * 0.86f, cx - hw, centerY + hh * 0.30f)
                 shape.close()
             }
-            // Worried: one higher inner corner and a softer, uneven lower lid.
+            EyeSilhouette.SAD_UP -> {
+                shape.moveTo(cx - hw, centerY - hh * 0.42f)
+                shape.cubicTo(cx - hw * 0.48f, centerY - hh * 0.92f,
+                    cx + hw * 0.30f, centerY - hh * 0.52f, cx + hw, centerY - hh * 0.20f)
+                shape.lineTo(cx + hw * 0.92f, centerY + hh * 0.42f)
+                shape.quadTo(cx, centerY + hh * 0.72f, cx - hw * 0.86f, centerY + hh * 0.40f)
+                shape.close()
+            }
             EyeSilhouette.WORRIED -> {
-                shape.moveTo(cx - hw, cy - hh * 0.34f)
-                shape.cubicTo(cx - hw * 0.45f, cy - hh * 0.98f,
-                    cx + hw * 0.28f, cy - hh * 0.52f, cx + hw, cy - hh * 0.74f)
-                shape.lineTo(cx + hw, cy + hh * 0.48f)
-                shape.cubicTo(cx + hw * 0.38f, cy + hh * 0.94f,
-                    cx - hw * 0.48f, cy + hh * 0.86f, cx - hw, cy + hh * 0.42f)
+                shape.moveTo(cx - hw, centerY - hh * 0.34f)
+                shape.cubicTo(cx - hw * 0.45f, centerY - hh * 0.98f,
+                    cx + hw * 0.28f, centerY - hh * 0.52f, cx + hw, centerY - hh * 0.74f)
+                shape.lineTo(cx + hw, centerY + hh * 0.48f)
+                shape.cubicTo(cx + hw * 0.38f, centerY + hh * 0.94f,
+                    cx - hw * 0.48f, centerY + hh * 0.86f, cx - hw, centerY + hh * 0.42f)
                 shape.close()
             }
-            // Irritated/angry: the top line slopes down toward the inner corner.
+            EyeSilhouette.FOCUSED -> {
+                shape.moveTo(cx - hw, centerY - hh * 0.28f)
+                shape.lineTo(cx - hw * 0.64f, centerY - hh * 0.78f)
+                shape.quadTo(cx, centerY - hh * 0.94f, cx + hw * 0.60f, centerY - hh * 0.70f)
+                shape.lineTo(cx + hw, centerY - hh * 0.14f)
+                shape.lineTo(cx + hw * 0.86f, centerY + hh * 0.72f)
+                shape.quadTo(cx, centerY + hh, cx - hw * 0.78f, centerY + hh * 0.66f)
+                shape.close()
+            }
+            EyeSilhouette.ANNOYED -> {
+                shape.moveTo(cx - hw, centerY - hh * 0.68f)
+                shape.lineTo(cx + hw, centerY - hh * 0.20f)
+                shape.lineTo(cx + hw * 0.90f, centerY + hh * 0.48f)
+                shape.quadTo(cx, centerY + hh * 0.72f, cx - hw * 0.92f, centerY + hh * 0.40f)
+                shape.close()
+            }
             EyeSilhouette.SHARP -> {
-                shape.moveTo(cx + side * hw, cy - hh * 0.84f)
-                shape.lineTo(cx - side * hw, cy - hh * 0.26f)
-                shape.cubicTo(cx - side * hw * 0.98f, cy + hh * 0.08f,
-                    cx - side * hw * 0.73f, cy + hh * 0.84f, cx, cy + hh * 0.90f)
-                shape.cubicTo(cx + side * hw * 0.72f, cy + hh * 0.86f,
-                    cx + side * hw, cy + hh * 0.34f, cx + side * hw, cy - hh * 0.84f)
+                shape.moveTo(cx + side * hw, centerY - hh * 0.84f)
+                shape.lineTo(cx - side * hw, centerY - hh * 0.26f)
+                shape.cubicTo(cx - side * hw * 0.98f, centerY + hh * 0.08f,
+                    cx - side * hw * 0.73f, centerY + hh * 0.84f, cx, centerY + hh * 0.90f)
+                shape.cubicTo(cx + side * hw * 0.72f, centerY + hh * 0.86f,
+                    cx + side * hw, centerY + hh * 0.34f, cx + side * hw, centerY - hh * 0.84f)
                 shape.close()
             }
-            // Playful/curious: a slightly lopsided soft rectangle for a curious side-eye.
+            EyeSilhouette.FURIOUS -> {
+                shape.moveTo(cx + side * hw, centerY - hh * 0.98f)
+                shape.lineTo(cx - side * hw, centerY - hh * 0.05f)
+                shape.lineTo(cx - side * hw * 0.72f, centerY + hh * 0.34f)
+                shape.quadTo(cx, centerY + hh * 0.76f, cx + side * hw, centerY + hh * 0.60f)
+                shape.close()
+            }
+            EyeSilhouette.SKEPTIC -> {
+                val tilt = side * hh * 0.28f
+                shape.moveTo(cx - hw, centerY - hh * 0.48f - tilt)
+                shape.cubicTo(cx - hw * 0.30f, centerY - hh * 0.88f,
+                    cx + hw * 0.42f, centerY - hh * 0.20f + tilt, cx + hw, centerY - hh * 0.40f + tilt)
+                shape.lineTo(cx + hw * 0.94f, centerY + hh * 0.38f)
+                shape.quadTo(cx, centerY + hh * 0.78f, cx - hw, centerY + hh * 0.30f)
+                shape.close()
+            }
+            EyeSilhouette.SUSPICIOUS -> {
+                shape.moveTo(cx - hw, centerY - hh * 0.60f)
+                shape.lineTo(cx + hw, centerY - hh * 0.08f)
+                shape.lineTo(cx + hw * 0.88f, centerY + hh * 0.34f)
+                shape.quadTo(cx, centerY + hh * 0.52f, cx - hw, centerY + hh * 0.28f)
+                shape.close()
+            }
             EyeSilhouette.PLAYFUL -> {
                 val lean = side * hh * 0.14f
-                shape.moveTo(cx - hw, cy - hh * 0.66f - lean)
-                shape.quadTo(cx, cy - hh * 0.96f, cx + hw, cy - hh * 0.54f + lean)
-                shape.lineTo(cx + hw * 0.94f, cy + hh * 0.62f + lean)
-                shape.quadTo(cx, cy + hh * 0.96f, cx - hw, cy + hh * 0.52f - lean)
+                shape.moveTo(cx - hw, centerY - hh * 0.66f - lean)
+                shape.quadTo(cx, centerY - hh * 0.96f, cx + hw, centerY - hh * 0.54f + lean)
+                shape.lineTo(cx + hw * 0.94f, centerY + hh * 0.62f + lean)
+                shape.quadTo(cx, centerY + hh * 0.96f, cx - hw, centerY + hh * 0.52f - lean)
                 shape.close()
             }
         }
+        if (opacity <= 0.005f) return
+        val layerBounds = RectF(cx - hw * 1.8f, cy - hh * 1.8f, cx + hw * 1.8f, cy + hh * 1.8f)
+        val layerSave = c.saveLayerAlpha(layerBounds, (opacity.coerceIn(0f, 1f) * 255f).toInt())
         c.save()
         c.rotate(angle, cx, cy)
         edge.shader = null
@@ -377,17 +461,20 @@ class RobotFaceView(context: Context) : View(context) {
         glint.alpha = 110
         c.drawCircle(cx + hw * 0.20f, cy - hh * 0.44f, max(1.5f, w * 0.009f), glint)
         c.restore()
+        c.restoreToCount(layerSave)
     }
 
     private fun contourFor(silhouette: EyeSilhouette): EyeContour = when (silhouette) {
-        EyeSilhouette.SMILE -> EyeContour(0.66f, 0.43f, 0.42f, 0.30f, 0f)
-        EyeSilhouette.ROUND_SURPRISE -> EyeContour(1.12f, 0.52f, 1.06f, 0.61f, 0f)
-        EyeSilhouette.DROOPY -> EyeContour(0.60f, 0.38f, 0.76f, 0.56f, 0f)
-        EyeSilhouette.FOCUSED -> EyeContour(0.72f, 0.34f, 0.56f, 0.37f, 0f)
+        EyeSilhouette.SMILE, EyeSilhouette.GLEE -> EyeContour(0.66f, 0.43f, 0.42f, 0.30f, 0f)
+        EyeSilhouette.ROUND_SURPRISE, EyeSilhouette.SCARED, EyeSilhouette.AWE -> EyeContour(1.12f, 0.52f, 1.06f, 0.61f, 0f)
+        EyeSilhouette.DROOPY, EyeSilhouette.SAD_DOWN, EyeSilhouette.SAD_UP, EyeSilhouette.BLINK_LOW -> EyeContour(0.60f, 0.38f, 0.76f, 0.56f, 0f)
+        EyeSilhouette.FOCUSED, EyeSilhouette.SQUINT -> EyeContour(0.72f, 0.34f, 0.56f, 0.37f, 0f)
         EyeSilhouette.WORRIED -> EyeContour(0.83f, 0.47f, 0.76f, 0.61f, 0f)
-        EyeSilhouette.SHARP -> EyeContour(0.70f, 0.29f, 0.48f, 0.35f, -0.11f)
-        EyeSilhouette.PLAYFUL -> EyeContour(0.94f, 0.49f, 0.72f, 0.53f, 0f)
+        EyeSilhouette.SHARP, EyeSilhouette.FURIOUS, EyeSilhouette.ANNOYED -> EyeContour(0.70f, 0.29f, 0.48f, 0.35f, -0.11f)
+        EyeSilhouette.PLAYFUL, EyeSilhouette.SKEPTIC, EyeSilhouette.SUSPICIOUS -> EyeContour(0.94f, 0.49f, 0.72f, 0.53f, 0f)
         EyeSilhouette.SOFT -> EyeContour(0.96f, 0.47f, 0.84f, 0.56f, 0f)
         EyeSilhouette.ALMOND -> EyeContour(0.90f, 0.46f, 0.80f, 0.54f, 0f)
+        EyeSilhouette.NEUTRAL, EyeSilhouette.BLINK_HIGH, EyeSilhouette.BORED,
+        EyeSilhouette.UNIMPRESSED -> EyeContour(0.90f, 0.46f, 0.80f, 0.54f, 0f)
     }
 }
