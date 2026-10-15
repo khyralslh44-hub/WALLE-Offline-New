@@ -194,7 +194,7 @@ class MainActivity : ComponentActivity() {
                                     "feedbackCount=${memory.feedbackCount(recentLabel)}"
                             )
                         }
-                        react(brain.touched(longPress), longPress)
+                        react(brain.touched(longPress, lastInteractionAt), longPress)
                         true
                     }
                 }
