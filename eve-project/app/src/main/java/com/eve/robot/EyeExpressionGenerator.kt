@@ -4,8 +4,12 @@ package com.eve.robot
  * Generates deterministic EVE eye poses from one affect snapshot.
  * The same decision always yields the same pose; variation comes from context, not dice rolls.
  */
+/** Distinct LED-eye glyphs modeled after the Cozmo/Vector-style expression sheet. */
 enum class EyeSilhouette {
-    ALMOND, SMILE, ROUND_SURPRISE, DROOPY, FOCUSED, WORRIED, SHARP, PLAYFUL, SOFT
+    ALMOND, NEUTRAL, BLINK_HIGH, SMILE, GLEE, BLINK_LOW,
+    SAD_DOWN, SAD_UP, WORRIED, FOCUSED, ANNOYED, ROUND_SURPRISE,
+    SKEPTIC, BORED, UNIMPRESSED, DROOPY, SUSPICIOUS, SQUINT,
+    SHARP, FURIOUS, SCARED, AWE, PLAYFUL, SOFT
 }
 
 data class EyeExpressionProfile(
@@ -19,21 +23,23 @@ data class EyeExpressionProfile(
     val asymmetry: Float,
     val eyeWidth: Float,
     val eyeHeight: Float,
-    val spacing: Float
-) {
-    /** A distinct contour as well as a different opening/tilt; makes expressions readable at a glance. */
-    val silhouette: EyeSilhouette
-        get() = when (mood) {
-            EveMood.HAPPY -> EyeSilhouette.SMILE
-            EveMood.SURPRISED -> EyeSilhouette.ROUND_SURPRISE
-            EveMood.SLEEPY -> EyeSilhouette.DROOPY
-            EveMood.FOCUSED -> EyeSilhouette.FOCUSED
-            EveMood.CONCERNED -> EyeSilhouette.WORRIED
-            EveMood.IRRITATED, EveMood.ANGRY -> EyeSilhouette.SHARP
-            EveMood.CURIOUS, EveMood.PLAYFUL -> EyeSilhouette.PLAYFUL
-            EveMood.FAMILIAR, EveMood.AWAKE -> EyeSilhouette.SOFT
-            EveMood.NEUTRAL -> EyeSilhouette.ALMOND
-        }
+    val spacing: Float,
+    val silhouette: EyeSilhouette = defaultSilhouette(mood)
+)
+
+private fun defaultSilhouette(mood: EveMood): EyeSilhouette = when (mood) {
+    EveMood.AWAKE -> EyeSilhouette.NEUTRAL
+    EveMood.NEUTRAL -> EyeSilhouette.ALMOND
+    EveMood.CURIOUS -> EyeSilhouette.PLAYFUL
+    EveMood.HAPPY -> EyeSilhouette.SMILE
+    EveMood.SURPRISED -> EyeSilhouette.ROUND_SURPRISE
+    EveMood.CONCERNED -> EyeSilhouette.WORRIED
+    EveMood.FAMILIAR -> EyeSilhouette.SOFT
+    EveMood.SLEEPY -> EyeSilhouette.DROOPY
+    EveMood.FOCUSED -> EyeSilhouette.FOCUSED
+    EveMood.PLAYFUL -> EyeSilhouette.SKEPTIC
+    EveMood.IRRITATED -> EyeSilhouette.ANNOYED
+    EveMood.ANGRY -> EyeSilhouette.SHARP
 }
 
 object EyeExpressionGenerator {
@@ -139,6 +145,48 @@ object EyeExpressionGenerator {
             else -> gazeY
         }.coerceIn(-0.12f, 0.12f)
 
+        val reason = decision.reason.lowercase()
+        val clearSilhouette = when {
+            "fear" in reason -> EyeSilhouette.SCARED
+            "sad" in reason -> if (clearGazeY > 0.04f) EyeSilhouette.SAD_DOWN else EyeSilhouette.SAD_UP
+            "angry" in reason -> if (arousal >= 0.72f || decision.frustration >= 0.70f) EyeSilhouette.FURIOUS else EyeSilhouette.SHARP
+            "surpris" in reason -> if (valence >= 0.35f) EyeSilhouette.AWE else EyeSilhouette.ROUND_SURPRISE
+            "happy" in reason -> if (valence >= 0.62f) EyeSilhouette.GLEE else EyeSilhouette.SMILE
+            "bored" in reason -> EyeSilhouette.BORED
+            "skeptic" in reason -> EyeSilhouette.SKEPTIC
+            "suspicious" in reason -> EyeSilhouette.SUSPICIOUS
+            "unimpressed" in reason -> EyeSilhouette.UNIMPRESSED
+            "blink high" in reason -> EyeSilhouette.BLINK_HIGH
+            "blink low" in reason -> EyeSilhouette.BLINK_LOW
+            else -> when (decision.mood) {
+                EveMood.AWAKE -> EyeSilhouette.NEUTRAL
+                EveMood.NEUTRAL -> if (fatigue >= 0.76f) EyeSilhouette.BLINK_LOW else EyeSilhouette.ALMOND
+                EveMood.CURIOUS -> when {
+                    curiosity >= 0.84f && arousal >= 0.70f -> EyeSilhouette.AWE
+                    curiosity >= 0.82f && valence < -0.10f -> EyeSilhouette.SUSPICIOUS
+                    else -> EyeSilhouette.PLAYFUL
+                }
+                EveMood.HAPPY -> if (valence >= 0.72f) EyeSilhouette.GLEE else EyeSilhouette.SMILE
+                EveMood.SURPRISED -> if (valence >= 0.45f) EyeSilhouette.AWE else EyeSilhouette.ROUND_SURPRISE
+                EveMood.CONCERNED -> when {
+                    valence < -0.45f && clearGazeY > 0.02f -> EyeSilhouette.SAD_DOWN
+                    valence < -0.45f -> EyeSilhouette.SAD_UP
+                    arousal < 0.28f -> EyeSilhouette.UNIMPRESSED
+                    else -> EyeSilhouette.WORRIED
+                }
+                EveMood.FAMILIAR -> if (valence >= 0.60f) EyeSilhouette.GLEE else EyeSilhouette.SOFT
+                EveMood.SLEEPY -> if (fatigue >= 0.72f) EyeSilhouette.BLINK_LOW else EyeSilhouette.DROOPY
+                EveMood.FOCUSED -> if (arousal < 0.30f) EyeSilhouette.SQUINT else EyeSilhouette.FOCUSED
+                EveMood.PLAYFUL -> if (valence < 0f) EyeSilhouette.SKEPTIC else EyeSilhouette.PLAYFUL
+                EveMood.IRRITATED -> when {
+                    decision.frustration >= 0.55f -> EyeSilhouette.UNIMPRESSED
+                    arousal < 0.30f -> EyeSilhouette.BORED
+                    else -> EyeSilhouette.ANNOYED
+                }
+                EveMood.ANGRY -> if (arousal >= 0.72f || decision.frustration >= 0.70f) EyeSilhouette.FURIOUS else EyeSilhouette.SHARP
+            }
+        }
+
         return EyeExpressionProfile(
             mood = decision.mood,
             opening = clearOpening,
@@ -150,7 +198,8 @@ object EyeExpressionGenerator {
             asymmetry = asymmetry,
             eyeWidth = eyeWidth,
             eyeHeight = eyeHeight,
-            spacing = spacing
+            spacing = spacing,
+            silhouette = clearSilhouette
         )
     }
 }
