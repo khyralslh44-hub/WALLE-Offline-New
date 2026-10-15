@@ -57,14 +57,30 @@ if [ "$TEST_API_LEVEL" = "35" ]; then
     echo "FAIL: offline face/FER instrumentation did not pass (exit=$INSTRUMENTATION_EXIT)."
     exit 1
   fi
-  for marker in FACE_FIXTURE_PASS FER_MODEL_PASS OFFLINE_AFFECT_LEARNING_PASS; do
+  for marker in FACE_FIXTURE_PASS FER_MODEL_PASS OFFLINE_AFFECT_LEARNING_PASS EYE_GALLERY_PASS; do
     if ! grep -F "$marker" "$RESULTS_DIR/deep-instrumentation-logcat.txt" >/dev/null; then
       echo "FAIL: deep instrumentation marker missing: $marker"
       exit 1
     fi
     echo "PASS: deep instrumentation marker $marker" | tee -a "$RESULTS_DIR/result.txt"
   done
-  echo "PASS: real face detector, offline FER model, affect engine and expression generator ran on API 35 with network disabled." | tee -a "$RESULTS_DIR/result.txt"
+  if ! timeout 15s adb exec-out run-as "$PACKAGE" cat files/eye-expression-sheet.png > "$RESULTS_DIR/eye-expression-sheet.png" 2> "$RESULTS_DIR/eye-expression-sheet-pull.txt"; then
+    echo "FAIL: could not extract the rendered expression gallery from the app's private files."
+    cat "$RESULTS_DIR/eye-expression-sheet-pull.txt" || true
+    exit 1
+  fi
+  python3 - "$RESULTS_DIR/eye-expression-sheet.png" <<'PY'
+import struct, sys
+from pathlib import Path
+data = Path(sys.argv[1]).read_bytes()
+if len(data) < 24 or data[:8] != bytes([137, 80, 78, 71, 13, 10, 26, 10]):
+    raise SystemExit("FAIL: expression gallery is not a valid PNG.")
+w, h = struct.unpack(">II", data[16:24])
+if w < 800 or h < 800:
+    raise SystemExit(f"FAIL: expression gallery has unexpected dimensions {w}x{h}.")
+print(f"PASS: extracted visual expression gallery at {w}x{h}.")
+PY
+  echo "PASS: real face detector, offline FER model, affect engine and 24 rendered eye glyphs ran on API 35 with network disabled." | tee -a "$RESULTS_DIR/result.txt"
   adb logcat -c
 fi
 
