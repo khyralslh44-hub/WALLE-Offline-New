@@ -22,7 +22,7 @@ private data class EyeContour(
     val cornerLift: Float
 )
 
-/** Draws two expressive green eyes only: no pupil, mouth, text, or control buttons. */
+/** Draws two expressive cyan robot eyes only: no pupils, mouth, text, or visible control buttons. */
 class RobotFaceView(context: Context) : View(context) {
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
     private val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -85,7 +85,7 @@ class RobotFaceView(context: Context) : View(context) {
 
     init {
         isClickable = true
-        contentDescription = "EVE_GREEN_EYES_FACE"
+        contentDescription = "EVE_CYAN_EXPRESSION_FACE"
         setBackgroundColor(Color.rgb(2, 7, 10))
     }
 
@@ -223,7 +223,7 @@ class RobotFaceView(context: Context) : View(context) {
         val idleGaze = if (animate) sin(now / 1610.0).toFloat() * 0.012f else 0f
         val idleGazeY = if (animate) sin(now / 2340.0).toFloat() * 0.007f else 0f
         val breath = if (animate) 0.965f + 0.035f * sin(now / 980.0).toFloat() else 1f
-        // EVE's eyes are wide almond shapes with a visible bridge of dark space between them.
+        // Keep a dark bridge between the independent display-eye glyphs; each mood selects its own contour.
         // Keep the geometry relative to the view's actual dp size so glow strokes do not merge
         // the two eyes on tall phone screens or when the device uses display scaling.
         val w = min(width * 0.36f, height * 0.24f) * eyeWidth
