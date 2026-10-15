@@ -235,7 +235,8 @@ class RobotFaceView(context: Context) : View(context) {
         // Cozmo-style LED glyphs are wider than tall, with a clear gap between the pair.
         // The reference glyphs are compact, almost-square rounded LED pixels, not broad glossy pills.
         val w = min(width * 0.19f, height * 0.15f) * eyeWidth
-        val h = min(height * 0.105f, w * 0.80f) * eyeHeight
+        // Neutral Cozmo eyes are wider than tall; surprise/fear styles expand vertically in drawEye().
+        val h = min(height * 0.105f, w * 0.52f) * eyeHeight
         val gap = min(width * 0.20f, w * 0.67f) * spacing
         val cy = height * 0.50f
         val silhouetteRaw = if (silhouetteTransitionStartedAt == 0L) 1f else
@@ -269,10 +270,18 @@ class RobotFaceView(context: Context) : View(context) {
         val lowerShoulder = contour.lowerShoulder
         val cornerLift = contour.cornerLift * side * hh
         shape.reset()
+        // Shape-specific vertical proportions are essential: surprise/scared eyes become taller,
+        // neutral remains a rounded horizontal pixel, while squints and lids get thinner.
         val eyeScale = when (eyeSilhouette) {
-            EyeSilhouette.ROUND_SURPRISE, EyeSilhouette.AWE -> 1.24f
-            EyeSilhouette.SCARED -> 1.32f
-            EyeSilhouette.SAD_DOWN, EyeSilhouette.SAD_UP, EyeSilhouette.DROOPY -> 1.08f
+            EyeSilhouette.ROUND_SURPRISE -> 1.72f
+            EyeSilhouette.SCARED -> 1.88f
+            EyeSilhouette.AWE -> 1.55f
+            EyeSilhouette.SAD_DOWN, EyeSilhouette.SAD_UP, EyeSilhouette.DROOPY -> 1.24f
+            EyeSilhouette.WORRIED -> 1.22f
+            EyeSilhouette.FOCUSED -> 0.94f
+            EyeSilhouette.ANNOYED, EyeSilhouette.SHARP, EyeSilhouette.FURIOUS -> 0.98f
+            EyeSilhouette.PLAYFUL, EyeSilhouette.SKEPTIC, EyeSilhouette.SUSPICIOUS -> 0.96f
+            EyeSilhouette.SQUINT, EyeSilhouette.BORED, EyeSilhouette.UNIMPRESSED -> 0.72f
             else -> 1f
         }
         val glyphHh = hh * when (eyeSilhouette) {
@@ -280,8 +289,8 @@ class RobotFaceView(context: Context) : View(context) {
             EyeSilhouette.BLINK_LOW -> 0.13f
             EyeSilhouette.BORED -> 0.20f
             EyeSilhouette.UNIMPRESSED -> 0.28f
-            EyeSilhouette.SMILE -> 0.24f
-            EyeSilhouette.GLEE -> 0.17f
+            EyeSilhouette.SMILE -> 0.50f
+            EyeSilhouette.GLEE -> 0.34f
             else -> eyeScale
         }
         val centerY = cy + when (eyeSilhouette) {
