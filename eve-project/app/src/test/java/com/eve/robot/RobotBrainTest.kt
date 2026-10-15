@@ -123,4 +123,13 @@ class RobotBrainTest {
         assertEquals(EveMood.SLEEPY, brain.idle(45_000L, 1).mood)
         assertTrue(brain.idle(8_000L, 2).mood in setOf(EveMood.NEUTRAL, EveMood.CURIOUS, EveMood.FAMILIAR))
     }
+
+    @Test fun autonomousIdleKeepsExploringAfterLongQuietPeriods() {
+        val moods = (1..16).map { cycle ->
+            RobotBrain().idle(60_000L, cycle).mood
+        }.toSet()
+        assertTrue("Quiet behavior should not get stuck in one mood: $moods", moods.size >= 4)
+        assertTrue(moods.contains(EveMood.SLEEPY))
+        assertTrue(moods.contains(EveMood.CURIOUS) || moods.contains(EveMood.SURPRISED))
+    }
 }
