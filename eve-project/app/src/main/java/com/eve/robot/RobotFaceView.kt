@@ -24,6 +24,7 @@ class RobotFaceView(context: Context) : View(context) {
     private val glint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(210, 255, 225) }
     private val shape = Path()
     private var mood = EveMood.AWAKE
+    private var silhouette = EyeSilhouette.ALMOND
     private var opening = 0.98f
     private var tilt = 0f
     private var gazeX = 0f
@@ -87,6 +88,7 @@ class RobotFaceView(context: Context) : View(context) {
 
     private fun applyProfile(profile: EyeExpressionProfile) {
         mood = profile.mood
+        silhouette = profile.silhouette
         // If another event arrives mid-transition, begin the new motion from the interpolated pose.
         updateTransition(SystemClock.uptimeMillis())
         targetOpening = profile.opening
@@ -209,25 +211,86 @@ class RobotFaceView(context: Context) : View(context) {
         val cy = height * 0.50f
         drawEye(canvas, width * 0.5f - gap + (gazeX + idleGaze + glanceX) * width,
             cy + (gazeY + idleGazeY + glanceY * 0.42f) * height, w * (1f + asymmetry * 0.24f), h,
-            opening * blink * breath * (1f + asymmetry * 0.30f), tilt, glow, squint)
+            opening * blink * breath * (1f + asymmetry * 0.30f), tilt, glow, squint, silhouette, -1)
         drawEye(canvas, width * 0.5f + gap + (gazeX + idleGaze + glanceX + asymmetry * 0.025f) * width,
             cy + (gazeY + idleGazeY + glanceY * 0.42f - asymmetry * 0.035f) * height, w * (1f - asymmetry * 0.24f), h,
-            opening * blink * breath * (1f - asymmetry * 0.30f), -tilt, glow, squint)
+            opening * blink * breath * (1f - asymmetry * 0.30f), -tilt, glow, squint, silhouette, 1)
         if (animate) postInvalidateDelayed(32L)
     }
 
-    private fun drawEye(c: Canvas, cx: Float, cy: Float, w: Float, h: Float, openness: Float, angle: Float, intensity: Float, squinting: Float) {
+    private fun drawEye(c: Canvas, cx: Float, cy: Float, w: Float, h: Float, openness: Float, angle: Float, intensity: Float, squinting: Float, silhouette: EyeSilhouette, side: Int) {
         val hw = w * 0.5f
         val hh = h * 0.5f * openness.coerceIn(0.06f, 1.18f)
         val curve = squinting.coerceIn(0.45f, 1.22f)
+        // Procedural contour library: each affect uses its own eyelid silhouette, not just
+        // a resized copy. This ports the lightweight polygon/curve idea to Canvas for Android.
+        val upperPeak = when (silhouette) {
+            EyeSilhouette.SMILE -> 0.66f
+            EyeSilhouette.ROUND_SURPRISE -> 1.12f
+            EyeSilhouette.DROOPY -> 0.60f
+            EyeSilhouette.FOCUSED -> 0.72f
+            EyeSilhouette.WORRIED -> 0.83f
+            EyeSilhouette.SHARP -> 0.70f
+            EyeSilhouette.PLAYFUL -> 0.94f
+            EyeSilhouette.SOFT -> 0.96f
+            EyeSilhouette.ALMOND -> 0.90f
+        } * curve
+        val upperShoulder = when (silhouette) {
+            EyeSilhouette.SMILE -> 0.43f
+            EyeSilhouette.ROUND_SURPRISE -> 0.52f
+            EyeSilhouette.DROOPY -> 0.38f
+            EyeSilhouette.FOCUSED -> 0.34f
+            EyeSilhouette.WORRIED -> 0.47f
+            EyeSilhouette.SHARP -> 0.29f
+            EyeSilhouette.PLAYFUL -> 0.49f
+            EyeSilhouette.SOFT -> 0.47f
+            EyeSilhouette.ALMOND -> 0.46f
+        } * curve
+        val lowerPeak = when (silhouette) {
+            EyeSilhouette.SMILE -> 0.42f
+            EyeSilhouette.ROUND_SURPRISE -> 1.06f
+            EyeSilhouette.DROOPY -> 0.76f
+            EyeSilhouette.FOCUSED -> 0.56f
+            EyeSilhouette.WORRIED -> 0.76f
+            EyeSilhouette.SHARP -> 0.48f
+            EyeSilhouette.PLAYFUL -> 0.72f
+            EyeSilhouette.SOFT -> 0.84f
+            EyeSilhouette.ALMOND -> 0.80f
+        }
+        val lowerShoulder = when (silhouette) {
+            EyeSilhouette.SMILE -> 0.30f
+            EyeSilhouette.ROUND_SURPRISE -> 0.61f
+            EyeSilhouette.DROOPY -> 0.56f
+            EyeSilhouette.FOCUSED -> 0.37f
+            EyeSilhouette.WORRIED -> 0.61f
+            EyeSilhouette.SHARP -> 0.35f
+            EyeSilhouette.PLAYFUL -> 0.53f
+            EyeSilhouette.SOFT -> 0.56f
+            EyeSilhouette.ALMOND -> 0.54f
+        }
+        val cornerLift = if (silhouette == EyeSilhouette.SHARP) -hh * 0.11f * side else 0f
         shape.reset()
-        // Soft, large EVE-inspired oval almond. The silhouette and lid aperture are varied
-        // continuously by the emotional state, while the requested green eye color stays fixed.
-        shape.moveTo(cx - hw, cy)
-        shape.cubicTo(cx - hw * 0.96f, cy - hh * 0.48f * curve, cx - hw * 0.54f, cy - hh * 0.98f * curve, cx, cy - hh * curve)
-        shape.cubicTo(cx + hw * 0.58f, cy - hh * 0.98f * curve, cx + hw * 0.98f, cy - hh * 0.46f * curve, cx + hw, cy)
-        shape.cubicTo(cx + hw * 0.98f, cy + hh * 0.58f, cx + hw * 0.54f, cy + hh * 0.98f, cx, cy + hh * 0.96f)
-        shape.cubicTo(cx - hw * 0.58f, cy + hh * 0.98f, cx - hw * 0.98f, cy + hh * 0.54f, cx - hw, cy)
+        shape.moveTo(cx - hw, cy + cornerLift)
+        shape.cubicTo(
+            cx - hw * 0.96f, cy - hh * upperShoulder,
+            cx - hw * 0.52f, cy - hh * upperPeak,
+            cx, cy - hh * upperPeak
+        )
+        shape.cubicTo(
+            cx + hw * 0.58f, cy - hh * upperPeak,
+            cx + hw * 0.97f, cy - hh * upperShoulder,
+            cx + hw, cy - cornerLift
+        )
+        shape.cubicTo(
+            cx + hw * 0.97f, cy + hh * lowerShoulder,
+            cx + hw * 0.52f, cy + hh * lowerPeak,
+            cx, cy + hh * lowerPeak
+        )
+        shape.cubicTo(
+            cx - hw * 0.56f, cy + hh * lowerPeak,
+            cx - hw * 0.97f, cy + hh * lowerShoulder,
+            cx - hw, cy + cornerLift
+        )
         shape.close()
         c.save()
         c.rotate(angle, cx, cy)
