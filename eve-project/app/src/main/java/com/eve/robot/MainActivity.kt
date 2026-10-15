@@ -75,6 +75,14 @@ class MainActivity : ComponentActivity() {
     private var lastTapUptime = 0L
     private var lastTapX = 0f
     private var lastTapY = 0f
+    // Independent fallback detector: some Android 10 immersive-window combinations do not
+    // deliver the second tap to the custom-drawn face view's OnTouchListener.
+    private var dispatchLastTapUptime = 0L
+    private var dispatchLastTapX = 0f
+    private var dispatchLastTapY = 0f
+    private var dispatchDownRawX = 0f
+    private var dispatchDownRawY = 0f
+    private var cameraSwitchGestureSerial = 0
     @Volatile private var lastFaceSeenAt = 0L
     private var lastFaceReactionAt = 0L
     private var lastInteractionAt = SystemClock.elapsedRealtime()
@@ -82,6 +90,62 @@ class MainActivity : ComponentActivity() {
     private var touchDownAt = 0L
     private var lastMeaningfulLabel: String? = null
     private var lastMeaningfulLabelAt = 0L
+
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        val action = event.actionMasked
+        val x = event.rawX
+        val y = event.rawY
+        val maxTravel = 72f * resources.displayMetrics.density
+
+        if (action == MotionEvent.ACTION_DOWN) {
+            dispatchDownRawX = x
+            dispatchDownRawY = y
+        }
+
+        val duration = event.eventTime - event.downTime
+        val travel = kotlin.math.hypot(
+            (x - dispatchDownRawX).toDouble(),
+            (y - dispatchDownRawY).toDouble()
+        )
+        val shortTap = action == MotionEvent.ACTION_UP &&
+            duration in 0L..550L &&
+            travel <= maxTravel
+        val tapDistance = kotlin.math.hypot(
+            (x - dispatchLastTapX).toDouble(),
+            (y - dispatchLastTapY).toDouble()
+        )
+        val fallbackDoubleTap = shortTap &&
+            dispatchLastTapUptime != 0L &&
+            event.eventTime - dispatchLastTapUptime in 0L..900L &&
+            tapDistance <= maxTravel
+        val gestureSerialBeforeDispatch = cameraSwitchGestureSerial
+        val handled = super.dispatchTouchEvent(event)
+
+        if (action == MotionEvent.ACTION_UP) {
+            if (fallbackDoubleTap) {
+                // Prefer the face listener when it saw the gesture. Only take over when that
+                // listener did not switch cameras, preventing duplicate switches on newer APIs.
+                if (cameraSwitchGestureSerial == gestureSerialBeforeDispatch) {
+                    dispatchLastTapUptime = 0L
+                    cameraSwitchGestureSerial++
+                    Log.i("EVE", "CAMERA_SWITCH_GESTURE source=activity_dispatch_fallback")
+                    switchCamera()
+                } else {
+                    dispatchLastTapUptime = 0L
+                }
+            } else if (shortTap) {
+                dispatchLastTapUptime = event.eventTime
+                dispatchLastTapX = x
+                dispatchLastTapY = y
+            } else {
+                dispatchLastTapUptime = 0L
+            }
+        } else if (action == MotionEvent.ACTION_CANCEL) {
+            dispatchLastTapUptime = 0L
+        }
+
+        return handled || fallbackDoubleTap
+    }
 
     private val permissionRequest = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -177,6 +241,7 @@ class MainActivity : ComponentActivity() {
                     if (doubleTap) {
                         // Keeps the face button-free: double-tap anywhere on the eyes to switch lens.
                         lastTapUptime = 0L
+                        cameraSwitchGestureSerial++
                         Log.i("EVE", "CAMERA_SWITCH_GESTURE source=double_tap")
                         switchCamera()
                         true
