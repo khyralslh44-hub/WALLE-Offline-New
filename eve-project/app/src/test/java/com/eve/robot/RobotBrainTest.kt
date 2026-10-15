@@ -124,12 +124,27 @@ class RobotBrainTest {
         assertTrue(brain.idle(8_000L, 2).mood in setOf(EveMood.NEUTRAL, EveMood.CURIOUS, EveMood.FAMILIAR))
     }
 
-    @Test fun autonomousIdleKeepsExploringAfterLongQuietPeriods() {
-        val moods = (1..16).map { cycle ->
-            RobotBrain().idle(60_000L, cycle).mood
-        }.toSet()
-        assertTrue("Quiet behavior should not get stuck in one mood: $moods", moods.size >= 4)
-        assertTrue(moods.contains(EveMood.SLEEPY))
-        assertTrue(moods.contains(EveMood.CURIOUS) || moods.contains(EveMood.SURPRISED))
+    @Test fun autonomousIdleFollowsContextualStagesRatherThanRandomMoodPicks() {
+        val localBrain = RobotBrain()
+        val stages = listOf(8_000L, 18_000L, 35_000L, 65_000L, 100_000L)
+            .mapIndexed { index, quietFor -> localBrain.idle(quietFor, index).mood }
+        assertEquals(
+            listOf(EveMood.NEUTRAL, EveMood.CURIOUS, EveMood.FOCUSED, EveMood.SLEEPY, EveMood.CURIOUS),
+            stages
+        )
+        assertEquals(RobotBrain().idle(18_000L, 1).mood, RobotBrain().idle(18_000L, 99).mood)
+    }
+
+    @Test fun sameAffectSnapshotAlwaysProducesTheSameEyePose() {
+        val decision = RobotBrain().observe("cat", 0.92f, 1)
+        val first = EyeExpressionGenerator.generate(decision, seed = 17L)
+        val second = EyeExpressionGenerator.generate(decision, seed = 999L)
+        assertEquals(first, second)
+    }
+
+    @Test fun familiarityInfluencesIdleResponseInsteadOfAForcedMood() {
+        val localBrain = RobotBrain()
+        localBrain.observe("dog", 0.90f, 3)
+        assertEquals(EveMood.FAMILIAR, localBrain.idle(18_000L, 2).mood)
     }
 }
