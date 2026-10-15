@@ -170,7 +170,7 @@ class MainActivity : ComponentActivity() {
                     )
                     val doubleTap = !longPress &&
                         lastTapUptime != 0L &&
-                        releasedAt - lastTapUptime in 0L..550L &&
+                        releasedAt - lastTapUptime in 0L..800L &&
                         tapDistance <= 72f * resources.displayMetrics.density
 
                     lastInteractionAt = SystemClock.elapsedRealtime()
