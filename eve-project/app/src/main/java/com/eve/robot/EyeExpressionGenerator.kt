@@ -78,7 +78,7 @@ object EyeExpressionGenerator {
         val spacing = (base[9] + (arousal - 0.4f) * 0.08f).coerceIn(0.78f, 1.22f)
 
         // Keep the emotional silhouette readable even when valence/arousal change.
-        // Eye geometry is the primary visual cue; green remains the only eye color.
+        // Eye geometry is the primary visual cue; cyan/teal remains the consistent display palette.
         val clearOpening = when (decision.mood) {
             EveMood.SURPRISED -> maxOf(opening, 1.12f)
             EveMood.CURIOUS -> maxOf(opening, 0.98f)
