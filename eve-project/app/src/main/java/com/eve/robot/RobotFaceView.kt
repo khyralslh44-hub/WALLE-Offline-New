@@ -233,9 +233,10 @@ class RobotFaceView(context: Context) : View(context) {
         // Keep the geometry relative to the view's actual dp size so glow strokes do not merge
         // the two eyes on tall phone screens or when the device uses display scaling.
         // Cozmo-style LED glyphs are wider than tall, with a clear gap between the pair.
-        val w = min(width * 0.245f, height * 0.17f) * eyeWidth
-        val h = min(height * 0.14f, w * 0.66f) * eyeHeight
-        val gap = min(width * 0.21f, w * 0.55f) * spacing
+        // The reference glyphs are compact, almost-square rounded LED pixels, not broad glossy pills.
+        val w = min(width * 0.19f, height * 0.15f) * eyeWidth
+        val h = min(height * 0.105f, w * 0.80f) * eyeHeight
+        val gap = min(width * 0.20f, w * 0.67f) * spacing
         val cy = height * 0.50f
         val silhouetteRaw = if (silhouetteTransitionStartedAt == 0L) 1f else
             ((now - silhouetteTransitionStartedAt).toFloat() / silhouetteTransitionDurationMs).coerceIn(0f, 1f)
@@ -428,36 +429,25 @@ class RobotFaceView(context: Context) : View(context) {
         val layerSave = c.saveLayerAlpha(layerBounds, (opacity.coerceIn(0f, 1f) * 255f).toInt())
         c.save()
         c.rotate(angle, cx, cy)
+
+        // Cozmo/Vector-style face reference: flat cyan LED glyphs, nearly black screen,
+        // no white glints, no shiny gradient, and only a faint halo around the pixels.
         edge.shader = null
-        // Layered restrained glow gives the eyes depth without a black pupil or harsh neon rim.
-        edge.strokeWidth = max(1f, w * 0.065f)
-        edge.color = Color.argb((9f * intensity).toInt().coerceIn(0, 12), 0, 195, 220)
+        edge.strokeWidth = max(1f, w * 0.025f)
+        edge.color = Color.argb((18f * intensity).toInt().coerceIn(0, 24), 0, 225, 236)
         c.drawPath(shape, edge)
-        edge.strokeWidth = max(1f, w * 0.035f)
-        edge.color = Color.argb((14f * intensity).toInt().coerceIn(0, 18), 0, 205, 225)
-        c.drawPath(shape, edge)
-        edge.strokeWidth = max(1f, w * 0.018f)
-        edge.color = Color.argb((21f * intensity).toInt().coerceIn(0, 25), 0, 215, 230)
-        c.drawPath(shape, edge)
-        edge.strokeWidth = max(1f, w * 0.008f)
-        edge.color = Color.argb((58f * intensity).toInt().coerceIn(0, 70), 70, 242, 248)
-        c.drawPath(shape, edge)
+
         fill.style = Paint.Style.FILL
-        val eyeColors = when (mood) {
-            EveMood.SLEEPY, EveMood.CONCERNED, EveMood.IRRITATED, EveMood.ANGRY ->
-                intArrayOf(Color.rgb(130, 250, 249), Color.rgb(0, 207, 222), Color.rgb(0, 90, 116))
-            EveMood.HAPPY, EveMood.SURPRISED, EveMood.PLAYFUL ->
-                intArrayOf(Color.rgb(205, 255, 255), Color.rgb(32, 244, 255), Color.rgb(0, 137, 166))
-            else -> intArrayOf(Color.rgb(180, 255, 255), Color.rgb(0, 231, 242), Color.rgb(0, 118, 145))
-        }
-        fill.shader = LinearGradient(cx - hw * 0.2f, cy - hh, cx + hw * 0.12f, cy + hh,
-            eyeColors, null, Shader.TileMode.CLAMP)
-        c.drawPath(shape, fill)
         fill.shader = null
-        edge.strokeWidth = max(1.5f, w * 0.009f)
-        edge.color = Color.argb((130f * intensity).toInt().coerceIn(0, 150), 130, 255, 255)
-        c.drawPath(shape, edge)
-        // The reference uses solid turquoise LED glyphs without white pupil/highlight dots.
+        fill.alpha = 255
+        fill.color = when (mood) {
+            EveMood.SLEEPY, EveMood.CONCERNED, EveMood.IRRITATED, EveMood.ANGRY ->
+                Color.rgb(13, 201, 215)
+            EveMood.HAPPY, EveMood.SURPRISED, EveMood.PLAYFUL ->
+                Color.rgb(27, 231, 238)
+            else -> Color.rgb(20, 218, 228)
+        }
+        c.drawPath(shape, fill)
         c.restore()
         c.restoreToCount(layerSave)
     }
