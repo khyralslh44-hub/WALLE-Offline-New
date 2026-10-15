@@ -63,6 +63,9 @@ class RobotVoice {
             EveMood.AWAKE -> VoiceProfile(202.0, 15.0, -3.0, 680.0, 1160.0, 850)
             EveMood.CURIOUS -> VoiceProfile(210.0, 17.0, -7.0, 700.0, 1210.0, 850)
             EveMood.NEUTRAL -> VoiceProfile(192.0, 9.0, -4.0, 640.0, 1080.0, 820)
+            EveMood.PLAYFUL -> VoiceProfile(220.0, 28.0, -2.0, 720.0, 1240.0, 760)
+            EveMood.IRRITATED -> VoiceProfile(184.0, 3.0, -18.0, 600.0, 1010.0, 650)
+            EveMood.ANGRY -> VoiceProfile(174.0, 2.0, -24.0, 565.0, 940.0, 560)
         }
 
         val rate = 24_000
