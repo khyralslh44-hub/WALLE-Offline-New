@@ -2,7 +2,6 @@ package com.eve.robot
 
 import android.content.Context
 import kotlin.math.abs
-import kotlin.math.sin
 
 enum class EveMood {
     AWAKE, NEUTRAL, CURIOUS, HAPPY, SURPRISED, CONCERNED, FAMILIAR, SLEEPY, FOCUSED
@@ -277,6 +276,7 @@ class RobotBrain {
     }
 
     @Synchronized
+    @Suppress("UNUSED_PARAMETER")
     fun idle(inactiveMs: Long, next: Int): EveDecision {
         // Idle actions follow elapsed time and the current affect state, never a random mood picker.
         val quietFor = inactiveMs.coerceAtLeast(0L)
