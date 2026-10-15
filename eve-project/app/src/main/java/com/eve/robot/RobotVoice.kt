@@ -28,9 +28,10 @@ class RobotVoice {
         val now = SystemClock.elapsedRealtime()
         val previousMood = lastMood
         val elapsed = now - lastPlayed.get()
-        // Character cues are rare by design: no sound loop and no repeated mood chatter.
+        // Keep sound cues coupled to meaningful brain decisions without making EVE silent
+        // for long periods: short global cooldown, longer cooldown only for the same mood.
         if (!force && previousMood != null &&
-            (elapsed < 35_000L || (previousMood == mood && elapsed < 120_000L))
+            (elapsed < 4_500L || (previousMood == mood && elapsed < 16_000L))
         ) return
         lastPlayed.set(now)
         lastMood = mood
@@ -47,25 +48,28 @@ class RobotVoice {
         val pitchFall: Double,
         val formant1: Double,
         val formant2: Double,
-        val durationMs: Int
+        val durationMs: Int,
+        val vibratoHz: Double = 3.2,
+        val vibratoDepth: Double = 2.0,
+        val pulseHz: Double = 1.2
     )
 
     private fun play(mood: EveMood) {
         if (closed) return
         // A low, stable, vowel-shaped electronic voice rather than fast, high-pitched bird chirps.
         val profile = when (mood) {
-            EveMood.HAPPY -> VoiceProfile(205.0, 18.0, -5.0, 690.0, 1180.0, 900)
-            EveMood.SURPRISED -> VoiceProfile(218.0, 26.0, -12.0, 720.0, 1280.0, 760)
-            EveMood.SLEEPY -> VoiceProfile(178.0, 7.0, -15.0, 580.0, 990.0, 1050)
-            EveMood.CONCERNED -> VoiceProfile(188.0, 5.0, -14.0, 610.0, 1030.0, 950)
-            EveMood.FAMILIAR -> VoiceProfile(198.0, 13.0, -3.0, 670.0, 1120.0, 920)
-            EveMood.FOCUSED -> VoiceProfile(190.0, 8.0, -4.0, 620.0, 1090.0, 820)
-            EveMood.AWAKE -> VoiceProfile(202.0, 15.0, -3.0, 680.0, 1160.0, 850)
-            EveMood.CURIOUS -> VoiceProfile(210.0, 17.0, -7.0, 700.0, 1210.0, 850)
-            EveMood.NEUTRAL -> VoiceProfile(192.0, 9.0, -4.0, 640.0, 1080.0, 820)
-            EveMood.PLAYFUL -> VoiceProfile(220.0, 28.0, -2.0, 720.0, 1240.0, 760)
-            EveMood.IRRITATED -> VoiceProfile(184.0, 3.0, -18.0, 600.0, 1010.0, 650)
-            EveMood.ANGRY -> VoiceProfile(174.0, 2.0, -24.0, 565.0, 940.0, 560)
+            EveMood.HAPPY -> VoiceProfile(205.0, 18.0, -5.0, 690.0, 1180.0, 900, 4.0, 3.2, 1.8)
+            EveMood.SURPRISED -> VoiceProfile(218.0, 26.0, -12.0, 720.0, 1280.0, 760, 5.2, 5.2, 2.6)
+            EveMood.SLEEPY -> VoiceProfile(178.0, 7.0, -15.0, 580.0, 990.0, 1050, 1.8, 1.2, 0.6)
+            EveMood.CONCERNED -> VoiceProfile(188.0, 5.0, -14.0, 610.0, 1030.0, 950, 2.6, 2.0, 0.9)
+            EveMood.FAMILIAR -> VoiceProfile(198.0, 13.0, -3.0, 670.0, 1120.0, 920, 3.7, 2.6, 1.4)
+            EveMood.FOCUSED -> VoiceProfile(190.0, 8.0, -4.0, 620.0, 1090.0, 820, 2.4, 1.0, 0.5)
+            EveMood.AWAKE -> VoiceProfile(202.0, 15.0, -3.0, 680.0, 1160.0, 850, 4.5, 2.2, 1.0)
+            EveMood.CURIOUS -> VoiceProfile(210.0, 17.0, -7.0, 700.0, 1210.0, 850, 5.0, 3.8, 2.1)
+            EveMood.NEUTRAL -> VoiceProfile(192.0, 9.0, -4.0, 640.0, 1080.0, 820, 2.8, 1.0, 0.7)
+            EveMood.PLAYFUL -> VoiceProfile(220.0, 28.0, -2.0, 720.0, 1240.0, 760, 6.0, 5.8, 3.0)
+            EveMood.IRRITATED -> VoiceProfile(184.0, 3.0, -18.0, 600.0, 1010.0, 650, 3.2, 2.4, 1.1)
+            EveMood.ANGRY -> VoiceProfile(174.0, 2.0, -24.0, 565.0, 940.0, 560, 2.0, 1.5, 0.45)
         }
 
         val rate = 24_000
@@ -80,12 +84,16 @@ class RobotVoice {
             // Slow, smooth pitch contour; no random note hopping or sharp whistles.
             val pitch = profile.pitch +
                 profile.pitchLift * sin(PI * p) +
-                profile.pitchFall * p
+                profile.pitchFall * p +
+                profile.vibratoDepth * sin(2.0 * PI * profile.vibratoHz * p)
             phase += 2.0 * PI * pitch / rate
 
             val attack = (p / 0.12).coerceIn(0.0, 1.0)
             val release = ((1.0 - p) / 0.24).coerceIn(0.0, 1.0)
-            val envelope = attack * release
+            // Gentle amplitude pulses make each mood cue feel like a small robot vocalization
+            // rather than the same flat beep, while keeping the signal soft.
+            val pulse = 0.76 + 0.24 * (0.5 + 0.5 * sin(2.0 * PI * profile.pulseHz * p))
+            val envelope = attack * release * pulse
             var sample = 0.0
             var weightSum = 0.0
 
