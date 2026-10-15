@@ -352,7 +352,7 @@ if ! grep -F "FACE_SCAN count=" "$RESULTS_DIR/logcat.txt" >/dev/null; then
   exit 1
 fi
 echo "PASS: offline face detector processed camera frames." | tee -a "$RESULTS_DIR/result.txt"
-if ! grep -F "BEHAVIOR mood=HAPPY reason=gentle long touch" "$RESULTS_DIR/logcat.txt" >/dev/null; then
+if ! grep -F "BEHAVIOR mood=HAPPY reason=comforting long touch; frustration eased" "$RESULTS_DIR/logcat.txt" >/dev/null; then
   echo "FAIL: touch did not trigger a logged behavioral reaction."
   exit 1
 fi
