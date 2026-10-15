@@ -232,9 +232,10 @@ class RobotFaceView(context: Context) : View(context) {
         // Keep a dark bridge between the independent display-eye glyphs; each mood selects its own contour.
         // Keep the geometry relative to the view's actual dp size so glow strokes do not merge
         // the two eyes on tall phone screens or when the device uses display scaling.
-        val w = min(width * 0.36f, height * 0.24f) * eyeWidth
-        val h = min(height * 0.25f, w * 0.78f) * eyeHeight
-        val gap = min(width * 0.24f, w * 0.88f) * spacing
+        // Cozmo-style LED glyphs are wider than tall, with a clear gap between the pair.
+        val w = min(width * 0.33f, height * 0.22f) * eyeWidth
+        val h = min(height * 0.16f, w * 0.50f) * eyeHeight
+        val gap = min(width * 0.22f, w * 0.66f) * spacing
         val cy = height * 0.50f
         val silhouetteRaw = if (silhouetteTransitionStartedAt == 0L) 1f else
             ((now - silhouetteTransitionStartedAt).toFloat() / silhouetteTransitionDurationMs).coerceIn(0f, 1f)
@@ -267,16 +268,29 @@ class RobotFaceView(context: Context) : View(context) {
         val lowerShoulder = contour.lowerShoulder
         val cornerLift = contour.cornerLift * side * hh
         shape.reset()
+        val eyeScale = when (eyeSilhouette) {
+            EyeSilhouette.ROUND_SURPRISE, EyeSilhouette.AWE -> 1.24f
+            EyeSilhouette.SCARED -> 1.32f
+            EyeSilhouette.SAD_DOWN, EyeSilhouette.SAD_UP, EyeSilhouette.DROOPY -> 1.08f
+            else -> 1f
+        }
+        val glyphHh = hh * when (eyeSilhouette) {
+            EyeSilhouette.BLINK_HIGH -> 0.15f
+            EyeSilhouette.BLINK_LOW -> 0.13f
+            EyeSilhouette.BORED -> 0.20f
+            EyeSilhouette.UNIMPRESSED -> 0.28f
+            else -> eyeScale
+        }
         val centerY = cy + when (eyeSilhouette) {
-            EyeSilhouette.BLINK_HIGH -> -hh * 0.34f
-            EyeSilhouette.BLINK_LOW, EyeSilhouette.SAD_DOWN -> hh * 0.28f
-            EyeSilhouette.BORED, EyeSilhouette.UNIMPRESSED -> hh * 0.10f
+            EyeSilhouette.BLINK_HIGH -> -hh * 0.50f
+            EyeSilhouette.BLINK_LOW, EyeSilhouette.SAD_DOWN -> hh * 0.30f
+            EyeSilhouette.BORED, EyeSilhouette.UNIMPRESSED -> hh * 0.12f
             else -> 0f
         }
-        val eyeRect = RectF(cx - hw, centerY - hh, cx + hw, centerY + hh)
-        val roundRadius = min(hw, hh).coerceAtLeast(1f)
+        val eyeRect = RectF(cx - hw, centerY - glyphHh, cx + hw, centerY + glyphHh)
+        val roundRadius = min(hw, glyphHh).coerceAtLeast(1f)
         fun rounded(radius: Float) {
-            val r = radius.coerceIn(1f, min(hw, hh))
+            val r = radius.coerceIn(1f, min(hw, glyphHh))
             shape.addRoundRect(
                 eyeRect,
                 floatArrayOf(r, r, r, r, r, r, r, r),
@@ -284,17 +298,17 @@ class RobotFaceView(context: Context) : View(context) {
             )
         }
         when (eyeSilhouette) {
-            EyeSilhouette.ALMOND -> rounded(min(hw * 0.68f, hh * 0.94f))
-            EyeSilhouette.NEUTRAL -> rounded(min(hw * 0.42f, hh * 0.55f))
-            EyeSilhouette.SOFT -> rounded(min(hw * 0.92f, hh * 0.98f))
-            EyeSilhouette.ROUND_SURPRISE -> rounded(min(hw * 0.58f, hh * 0.72f))
-            EyeSilhouette.SCARED -> rounded(min(hw * 0.48f, hh * 1.0f))
-            EyeSilhouette.AWE -> rounded(min(hw * 0.82f, hh * 0.98f))
+            EyeSilhouette.ALMOND -> rounded(min(hw * 0.34f, glyphHh * 0.50f))
+            EyeSilhouette.NEUTRAL -> rounded(min(hw * 0.20f, glyphHh * 0.24f))
+            EyeSilhouette.SOFT -> rounded(min(hw * 0.84f, glyphHh * 0.82f))
+            EyeSilhouette.ROUND_SURPRISE -> rounded(min(hw * 0.26f, glyphHh * 0.34f))
+            EyeSilhouette.SCARED -> rounded(min(hw * 0.38f, glyphHh * 0.45f))
+            EyeSilhouette.AWE -> rounded(min(hw * 0.68f, glyphHh * 0.80f))
 
             // Thin LED slits placed high or low in the eye socket.
-            EyeSilhouette.BLINK_HIGH -> rounded(max(1.3f, hh * 0.16f))
-            EyeSilhouette.BLINK_LOW -> rounded(max(1.3f, hh * 0.14f))
-            EyeSilhouette.BORED -> rounded(max(1.3f, hh * 0.22f))
+            EyeSilhouette.BLINK_HIGH -> rounded(max(1.3f, glyphHh * 0.40f))
+            EyeSilhouette.BLINK_LOW -> rounded(max(1.3f, glyphHh * 0.42f))
+            EyeSilhouette.BORED -> rounded(max(1.3f, glyphHh * 0.50f))
             EyeSilhouette.UNIMPRESSED -> {
                 shape.moveTo(cx - hw, centerY - hh * 0.04f)
                 shape.lineTo(cx + hw, centerY - hh * 0.04f)
@@ -413,11 +427,14 @@ class RobotFaceView(context: Context) : View(context) {
                 shape.close()
             }
             EyeSilhouette.PLAYFUL -> {
-                val lean = side * hh * 0.14f
-                shape.moveTo(cx - hw, centerY - hh * 0.66f - lean)
-                shape.quadTo(cx, centerY - hh * 0.96f, cx + hw, centerY - hh * 0.54f + lean)
-                shape.lineTo(cx + hw * 0.94f, centerY + hh * 0.62f + lean)
-                shape.quadTo(cx, centerY + hh * 0.96f, cx - hw, centerY + hh * 0.52f - lean)
+                // Curious/playful keeps the readable rounded-pixel language, with a slight lid asymmetry.
+                val lean = side * hh * 0.07f
+                shape.moveTo(cx - hw, centerY - glyphHh * 0.78f - lean)
+                shape.quadTo(cx, centerY - glyphHh * 1.02f,
+                    cx + hw, centerY - glyphHh * 0.72f + lean)
+                shape.lineTo(cx + hw, centerY + glyphHh * 0.70f + lean)
+                shape.quadTo(cx, centerY + glyphHh * 0.94f,
+                    cx - hw, centerY + glyphHh * 0.66f - lean)
                 shape.close()
             }
         }
@@ -428,16 +445,16 @@ class RobotFaceView(context: Context) : View(context) {
         c.rotate(angle, cx, cy)
         edge.shader = null
         // Layered restrained glow gives the eyes depth without a black pupil or harsh neon rim.
-        edge.strokeWidth = max(2f, w * 0.20f)
+        edge.strokeWidth = max(2f, w * 0.105f)
         edge.color = Color.argb((25f * intensity).toInt().coerceIn(0, 36), 0, 224, 255)
         c.drawPath(shape, edge)
-        edge.strokeWidth = max(2f, w * 0.095f)
+        edge.strokeWidth = max(2f, w * 0.060f)
         edge.color = Color.argb((42f * intensity).toInt().coerceIn(0, 55), 0, 220, 255)
         c.drawPath(shape, edge)
-        edge.strokeWidth = max(2f, w * 0.065f)
+        edge.strokeWidth = max(2f, w * 0.032f)
         edge.color = Color.argb((48f * intensity).toInt().coerceIn(0, 62), 0, 224, 255)
         c.drawPath(shape, edge)
-        edge.strokeWidth = max(1.5f, w * 0.025f)
+        edge.strokeWidth = max(1.5f, w * 0.014f)
         edge.color = Color.argb((88f * intensity).toInt().coerceIn(0, 110), 40, 255, 255)
         c.drawPath(shape, edge)
         fill.style = Paint.Style.FILL
@@ -455,11 +472,7 @@ class RobotFaceView(context: Context) : View(context) {
         edge.strokeWidth = max(1.5f, w * 0.009f)
         edge.color = Color.argb((130f * intensity).toInt().coerceIn(0, 150), 130, 255, 255)
         c.drawPath(shape, edge)
-        // Reflections only; this intentionally never draws a black pupil.
-        glint.alpha = 220
-        c.drawCircle(cx - hw * 0.27f, cy - hh * 0.30f, max(2.5f, w * 0.022f), glint)
-        glint.alpha = 110
-        c.drawCircle(cx + hw * 0.20f, cy - hh * 0.44f, max(1.5f, w * 0.009f), glint)
+        // The reference uses solid turquoise LED glyphs without white pupil/highlight dots.
         c.restore()
         c.restoreToCount(layerSave)
     }
