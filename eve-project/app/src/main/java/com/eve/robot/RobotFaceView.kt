@@ -61,6 +61,7 @@ class RobotFaceView(context: Context) : View(context) {
     private val transitionDurationMs = 360L
     private var blinkAt = SystemClock.uptimeMillis() + 2200L
     private var blinkStarted = 0L
+    private var blinkDurationMs = 180L
     private var animate = false
     private var glanceX = 0f
     private var glanceY = 0f
@@ -99,8 +100,7 @@ class RobotFaceView(context: Context) : View(context) {
         targetEyeHeight = profile.eyeHeight
         targetSpacing = profile.spacing
         beginTransition()
-        // The pose comes from the brain; blinking follows a calm, predictable natural rhythm.
-        blinkAt = SystemClock.uptimeMillis() + 2200L
+        // Keep an independent blink clock: frequent camera reactions must not postpone blinking.
         invalidate()
     }
 
@@ -147,13 +147,29 @@ class RobotFaceView(context: Context) : View(context) {
         updateTransition(now)
         if (animate && now >= blinkAt) {
             blinkStarted = now
-            blinkAt = now + 4600L
+            blinkDurationMs = when (mood) {
+                // Drowsy eyes close more slowly; bright moods use a crisp, lively blink.
+                EveMood.SLEEPY -> 285L
+                EveMood.HAPPY, EveMood.PLAYFUL, EveMood.FAMILIAR -> 155L
+                EveMood.SURPRISED -> 195L
+                else -> 180L
+            }
+            blinkAt = now + when (mood) {
+                EveMood.SLEEPY -> 2600L
+                EveMood.HAPPY, EveMood.PLAYFUL -> 3000L
+                EveMood.FAMILIAR -> 3900L
+                EveMood.SURPRISED -> 5200L
+                EveMood.IRRITATED, EveMood.ANGRY -> 5000L
+                else -> 4100L
+            }
         }
-        val blink = if (blinkStarted > 0L && now - blinkStarted < 180L) {
-            val p = (now - blinkStarted).toFloat() / 180f
+        val blinkAge = now - blinkStarted
+        val blink = if (blinkStarted > 0L && blinkAge < blinkDurationMs) {
+            val p = blinkAge.toFloat() / blinkDurationMs
+            // Smooth close-and-open motion prevents a mechanical snap.
             if (p < 0.5f) 1f - p * 1.8f else 0.1f + (p - 0.5f) * 1.8f
         } else 1f
-        if (blinkStarted > 0L && now - blinkStarted >= 180L) blinkStarted = 0L
+        if (blinkStarted > 0L && blinkAge >= blinkDurationMs) blinkStarted = 0L
         if (animate && now >= nextGlanceAt) {
             // EVE's gaze is purposeful: playful moods scan a little faster; irritated moods look away.
             when {
