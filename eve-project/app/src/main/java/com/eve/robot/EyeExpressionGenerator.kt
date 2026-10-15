@@ -148,7 +148,9 @@ object EyeExpressionGenerator {
         val reason = decision.reason.lowercase()
         val clearSilhouette = when {
             "fear" in reason -> EyeSilhouette.SCARED
-            "sad" in reason -> if (clearGazeY > 0.04f) EyeSilhouette.SAD_DOWN else EyeSilhouette.SAD_UP
+            "sad down" in reason -> EyeSilhouette.SAD_DOWN
+            "sad up" in reason -> EyeSilhouette.SAD_UP
+            "sad" in reason -> if (clearGazeY >= 0.03f || valence < -0.55f) EyeSilhouette.SAD_DOWN else EyeSilhouette.SAD_UP
             "angry" in reason -> if (arousal >= 0.72f || decision.frustration >= 0.70f) EyeSilhouette.FURIOUS else EyeSilhouette.SHARP
             "surpris" in reason -> if (valence >= 0.35f) EyeSilhouette.AWE else EyeSilhouette.ROUND_SURPRISE
             "happy" in reason -> if (valence >= 0.62f) EyeSilhouette.GLEE else EyeSilhouette.SMILE

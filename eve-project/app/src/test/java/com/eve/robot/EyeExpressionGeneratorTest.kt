@@ -68,4 +68,57 @@ class EyeExpressionGeneratorTest {
         val count = EveMood.values().map(::silhouette).toSet().size
         assertTrue("Expected visibly distinct eye contours across the mood set", count >= 9)
     }
+    private fun glyph(
+        mood: EveMood,
+        reason: String = "test",
+        valence: Float = 0.12f,
+        arousal: Float = 0.32f,
+        fatigue: Float = 0f,
+        frustration: Float = 0f
+    ): EyeSilhouette = EyeExpressionGenerator.generate(
+        EveDecision(
+            mood = mood,
+            reason = reason,
+            valence = valence,
+            arousal = arousal,
+            fatigue = fatigue,
+            frustration = frustration
+        ),
+        seed = 7L
+    ).silhouette
+
+    @Test fun everyReferenceInspiredGlyphCanBeSelectedByTheExpressionGenerator() {
+        val actual = setOf(
+            glyph(EveMood.NEUTRAL),                                   // neutral rounded pixel
+            glyph(EveMood.AWAKE),                                     // awake/neutral pose
+            glyph(EveMood.NEUTRAL, "blink high"),                    // upper blink
+            glyph(EveMood.HAPPY, "happy", valence = 0.25f),          // happy
+            glyph(EveMood.HAPPY, "happy", valence = 0.85f),          // glee
+            glyph(EveMood.NEUTRAL, "blink low"),                     // lower blink
+            glyph(EveMood.CONCERNED, "sad down"),                    // sad looking down
+            glyph(EveMood.CONCERNED, "sad up"),                      // sad looking up
+            glyph(EveMood.CONCERNED, arousal = 0.65f),               // worried
+            glyph(EveMood.FOCUSED, arousal = 0.65f),                 // focused
+            glyph(EveMood.IRRITATED, arousal = 0.65f),               // annoyed
+            glyph(EveMood.SURPRISED, "surprised", valence = 0.12f),  // surprised
+            glyph(EveMood.PLAYFUL, "skeptic"),                       // skeptic
+            glyph(EveMood.IRRITATED, "bored"),                       // bored
+            glyph(EveMood.CONCERNED, "unimpressed"),                 // unimpressed
+            glyph(EveMood.SLEEPY, fatigue = 0.3f),                   // sleepy lids
+            glyph(EveMood.CURIOUS, "suspicious"),                     // suspicious
+            glyph(EveMood.FOCUSED, arousal = 0.10f),                 // squint
+            glyph(EveMood.ANGRY, "angry", arousal = 0.50f),          // angry
+            glyph(EveMood.ANGRY, "angry", arousal = 0.85f, frustration = 0.85f), // furious
+            glyph(EveMood.CONCERNED, "fearful"),                     // scared
+            glyph(EveMood.SURPRISED, "surprised", valence = 0.85f),  // awe
+            glyph(EveMood.PLAYFUL, valence = 0.7f),                  // playful
+            glyph(EveMood.FAMILIAR, valence = 0.25f)                // warm/soft
+        )
+        assertEquals(
+            "Every one of the reference-inspired glyphs should be reachable",
+            EyeSilhouette.values().toSet(),
+            actual
+        )
+    }
+
 }
