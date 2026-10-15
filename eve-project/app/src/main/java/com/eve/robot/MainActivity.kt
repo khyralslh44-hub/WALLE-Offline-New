@@ -586,7 +586,11 @@ class MainActivity : ComponentActivity() {
         ).any(label::contains)
 
     private fun react(decision: EveDecision, playSound: Boolean) {
-        face.setExpression(decision, System.currentTimeMillis() xor Random.nextLong())
+        // Perception/touch/camera events restart the idle clock; idle decisions do not restart themselves.
+        if (!decision.reason.startsWith("contextual idle:")) {
+            lastInteractionAt = SystemClock.elapsedRealtime()
+        }
+        face.setExpression(decision, System.currentTimeMillis())
         if (playSound) voice.speakMood(decision.mood)
         Log.i("EVE", "BEHAVIOR mood=${decision.mood} reason=${decision.reason}")
     }
