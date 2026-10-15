@@ -241,7 +241,6 @@ class RobotFaceView(context: Context) : View(context) {
         val hh = h * 0.5f * openness.coerceIn(0.06f, 1.18f)
         val curve = squinting.coerceIn(0.45f, 1.22f)
         // Contour vertices are interpolated with the other facial parameters to prevent snapping.
-        val curve = squinting.coerceIn(0.45f, 1.22f)
         val upperPeak = contour.upperPeak * curve
         val upperShoulder = contour.upperShoulder * curve
         val lowerPeak = contour.lowerPeak
