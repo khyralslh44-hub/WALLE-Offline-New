@@ -4,8 +4,19 @@ import android.content.Context
 import kotlin.math.abs
 
 enum class EveMood {
-    AWAKE, NEUTRAL, CURIOUS, HAPPY, SURPRISED, CONCERNED, FAMILIAR, SLEEPY, FOCUSED
+    AWAKE, NEUTRAL, CURIOUS, HAPPY, SURPRISED, CONCERNED, FAMILIAR, SLEEPY, FOCUSED,
+    PLAYFUL, IRRITATED, ANGRY
 }
+
+/**
+ * Stable personality traits tune EVE's behavior. They are deliberately bounded and deterministic.
+ */
+data class EvePersonality(
+    val curiosityBias: Float = 0.72f,
+    val warmth: Float = 0.76f,
+    val playfulness: Float = 0.62f,
+    val patience: Float = 0.68f
+)
 
 /**
  * A local affect snapshot shared by vision, touch, idle behavior, facial expression and sound.
@@ -19,19 +30,24 @@ data class EveDecision(
     val arousal: Float = 0.32f,
     val curiosity: Float = 0.55f,
     val familiarity: Float = 0.05f,
-    val fatigue: Float = 0f
+    val fatigue: Float = 0f,
+    val frustration: Float = 0f,
+    val playfulness: Float = 0.58f
 )
 
 /**
  * Stateful local affect engine. It reacts to confidence, semantic category, repeated sightings,
  * touch and inactivity. This is a lightweight emotional-behavior simulation, not consciousness.
  */
-class RobotBrain {
+class RobotBrain(private val personality: EvePersonality = EvePersonality()) {
     private var valence = 0.12f       // negative = wary, positive = warm
     private var arousal = 0.32f       // calm <-> alert
     private var curiosity = 0.58f
     private var familiarity = 0.05f
     private var fatigue = 0f
+    private var frustration = 0f
+    private var lastTouchAtMs = 0L
+    private var rapidTouchCount = 0
     private var lastHumanMood: EveMood? = null
     private var lastModelEmotion: String? = null
 
@@ -40,9 +56,9 @@ class RobotBrain {
     /** Entry point for startup so initial behavior also comes from the central affect state. */
     @Synchronized
     fun awakenExperience(): EveDecision {
-        valence = (valence + 0.03f).coerceAtMost(0.45f)
+        valence = (valence + 0.04f * personality.warmth.coerceIn(0f, 1f)).coerceAtMost(0.45f)
         arousal = 0.48f
-        curiosity = 0.60f
+        curiosity = (0.42f + personality.curiosityBias.coerceIn(0f, 1f) * 0.25f).coerceIn(0f, 1f)
         fatigue = 0f
         return snapshot(EveMood.AWAKE, "experience started", false)
     }
@@ -76,20 +92,21 @@ class RobotBrain {
 
         val kind = classify(item)
         val affinity = learnedAffinity.takeIf { it.isFinite() }?.coerceIn(-1f, 1f) ?: 0f
+        if (kind != Kind.OTHER) frustration = (frustration - 0.035f).coerceAtLeast(0f)
         fatigue = (fatigue - 0.12f).coerceAtLeast(0f)
         when (kind) {
             Kind.FOOD -> {
-                valence = (valence + 0.24f + affinity * 0.18f).coerceIn(-1f, 0.95f)
+                valence = (valence + 0.16f + personality.warmth.coerceIn(0f, 1f) * 0.10f + affinity * 0.18f).coerceIn(-1f, 0.95f)
                 arousal = 0.56f
                 curiosity = 0.50f
             }
             Kind.ANIMAL -> {
-                valence = (valence + 0.18f + affinity * 0.18f).coerceIn(-1f, 0.80f)
+                valence = (valence + 0.12f + personality.warmth.coerceIn(0f, 1f) * 0.08f + affinity * 0.18f).coerceIn(-1f, 0.80f)
                 arousal = 0.63f
-                curiosity = 0.91f
+                curiosity = (0.56f + personality.curiosityBias.coerceIn(0f, 1f) * 0.44f).coerceIn(0f, 1f)
             }
             Kind.PERSON -> {
-                valence = (valence + 0.10f + affinity * 0.15f).coerceIn(-1f, 0.70f)
+                valence = (valence + 0.06f + personality.warmth.coerceIn(0f, 1f) * 0.06f + affinity * 0.15f).coerceIn(-1f, 0.70f)
                 arousal = 0.46f
                 curiosity = 0.66f
                 familiarity = (familiarity + 0.04f).coerceAtMost(0.8f)
@@ -263,16 +280,60 @@ class RobotBrain {
     }
 
     @Synchronized
-    fun touched(longPress: Boolean): EveDecision {
+    fun touched(longPress: Boolean, eventTimeMs: Long? = null): EveDecision {
         fatigue = (fatigue - 0.18f).coerceAtLeast(0f)
-        valence = (valence + if (longPress) 0.30f else 0.10f).coerceAtMost(1f)
-        arousal = if (longPress) 0.68f else 0.52f
-        curiosity = if (longPress) 0.66f else 0.78f
-        return snapshot(
-            if (longPress) EveMood.HAPPY else EveMood.CURIOUS,
-            if (longPress) "gentle long touch" else "gentle touch",
-            longPress
-        )
+
+        if (longPress) {
+            // A deliberate, gentle hold is treated as reassurance, not another poke.
+            frustration = (frustration * 0.28f).coerceAtLeast(0f)
+            rapidTouchCount = 0
+            lastTouchAtMs = 0L
+            valence = (valence + 0.30f * personality.warmth.coerceIn(0f, 1f)).coerceAtMost(1f)
+            arousal = 0.68f
+            curiosity = 0.66f
+            return snapshot(EveMood.HAPPY, "comforting long touch; frustration eased", true)
+        }
+
+        val previousFrustration = frustration
+        if (eventTimeMs != null && eventTimeMs > 0L) {
+            rapidTouchCount = if (
+                lastTouchAtMs > 0L &&
+                eventTimeMs >= lastTouchAtMs &&
+                eventTimeMs - lastTouchAtMs <= 2_400L
+            ) {
+                (rapidTouchCount + 1).coerceAtMost(8)
+            } else {
+                1
+            }
+            lastTouchAtMs = eventTimeMs
+            val patienceAdjustment = (0.68f - personality.patience.coerceIn(0f, 1f)) * 0.25f
+            frustration = when {
+                rapidTouchCount >= 5 -> maxOf(frustration, 0.88f + patienceAdjustment)
+                rapidTouchCount >= 3 -> maxOf(frustration, 0.54f + patienceAdjustment)
+                else -> frustration
+            }.coerceIn(0f, 1f)
+        }
+
+        valence = (valence + 0.03f + personality.warmth.coerceIn(0f, 1f) * 0.07f).coerceAtMost(1f)
+        arousal = 0.52f
+        curiosity = (0.42f + personality.curiosityBias.coerceIn(0f, 1f) * 0.42f).coerceIn(0f, 1f)
+
+        val mood = when {
+            eventTimeMs != null && rapidTouchCount >= 5 -> EveMood.ANGRY
+            eventTimeMs != null && rapidTouchCount >= 3 -> EveMood.IRRITATED
+            else -> EveMood.CURIOUS
+        }
+        val crossedEmotionThreshold = when (mood) {
+            EveMood.IRRITATED -> previousFrustration < 0.42f
+            EveMood.ANGRY -> previousFrustration < 0.80f
+            else -> false
+        }
+        val reason = when (mood) {
+            EveMood.ANGRY -> "too many rapid touches; needs a little space"
+            EveMood.IRRITATED -> "repeated rapid touches; mild irritation"
+            else -> "gentle touch"
+        }
+        return snapshot(mood, reason, crossedEmotionThreshold)
     }
 
     @Synchronized
@@ -281,12 +342,18 @@ class RobotBrain {
         // Idle actions follow elapsed time and the current affect state, never a random mood picker.
         val quietFor = inactiveMs.coerceAtLeast(0L)
         fatigue = ((quietFor - 45_000L).coerceAtLeast(0L) / 240_000f).coerceIn(0f, 1f)
+        if (quietFor >= 5_000L) {
+            frustration = (frustration - if (quietFor >= 45_000L) 0.16f else 0.11f).coerceAtLeast(0f)
+        }
         valence = (valence * 0.985f + 0.002f).coerceIn(-0.5f, 0.75f)
         arousal = (arousal * 0.84f + 0.16f * 0.27f).coerceIn(0.12f, 0.80f)
-        curiosity = (curiosity * 0.94f + if (quietFor < 45_000L) 0.035f else 0.012f)
+        curiosity = (curiosity * 0.94f +
+            if (quietFor < 45_000L) 0.035f * personality.curiosityBias.coerceIn(0f, 1f) else 0.012f)
             .coerceIn(0.25f, 0.90f)
 
         val mood = when {
+            frustration >= 0.80f && quietFor < 12_000L -> EveMood.ANGRY
+            frustration >= 0.42f && quietFor < 24_000L -> EveMood.IRRITATED
             valence < -0.38f && quietFor < 90_000L -> EveMood.CONCERNED
             quietFor < 10_000L -> EveMood.NEUTRAL
             quietFor < 25_000L -> when {
@@ -297,6 +364,8 @@ class RobotBrain {
             quietFor < 45_000L -> when {
                 valence > 0.60f -> EveMood.HAPPY
                 familiarity > 0.70f -> EveMood.FAMILIAR
+                personality.playfulness.coerceIn(0f, 1f) >= 0.58f &&
+                    curiosity >= 0.50f && frustration < 0.30f -> EveMood.PLAYFUL
                 else -> EveMood.FOCUSED
             }
             quietFor < 90_000L -> EveMood.SLEEPY
@@ -326,7 +395,9 @@ class RobotBrain {
         arousal = arousal.coerceIn(0f, 1f),
         curiosity = curiosity.coerceIn(0f, 1f),
         familiarity = familiarity.coerceIn(0f, 1f),
-        fatigue = fatigue.coerceIn(0f, 1f)
+        fatigue = fatigue.coerceIn(0f, 1f),
+        frustration = frustration.coerceIn(0f, 1f),
+        playfulness = personality.playfulness.coerceIn(0f, 1f)
     )
 }
 
