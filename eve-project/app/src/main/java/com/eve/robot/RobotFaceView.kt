@@ -279,6 +279,8 @@ class RobotFaceView(context: Context) : View(context) {
             EyeSilhouette.BLINK_LOW -> 0.13f
             EyeSilhouette.BORED -> 0.20f
             EyeSilhouette.UNIMPRESSED -> 0.28f
+            EyeSilhouette.SMILE -> 0.24f
+            EyeSilhouette.GLEE -> 0.17f
             else -> eyeScale
         }
         val centerY = cy + when (eyeSilhouette) {
@@ -324,22 +326,11 @@ class RobotFaceView(context: Context) : View(context) {
                 shape.close()
             }
 
-            // Smile and glee are curved lids, not just reduced rectangular eyes.
-            EyeSilhouette.SMILE -> {
-                shape.moveTo(cx - hw, centerY + hh * 0.08f)
-                shape.cubicTo(cx - hw * 0.64f, centerY - hh * 1.02f,
-                    cx + hw * 0.48f, centerY - hh * 1.02f, cx + hw, centerY + hh * 0.08f)
-                shape.cubicTo(cx + hw * 0.52f, centerY - hh * 0.22f,
-                    cx - hw * 0.52f, centerY - hh * 0.22f, cx - hw, centerY + hh * 0.08f)
-                shape.close()
-            }
+            // Cozmo-like happy/glee poses are thin horizontal LED slits, not curved crescents.
+            EyeSilhouette.SMILE -> rounded(min(hw * 0.16f, glyphHh * 0.45f))
             EyeSilhouette.GLEE -> {
-                shape.moveTo(cx - hw, centerY + hh * 0.14f)
-                shape.cubicTo(cx - hw * 0.42f, centerY - hh * 0.68f,
-                    cx + hw * 0.44f, centerY - hh * 0.68f, cx + hw, centerY + hh * 0.14f)
-                shape.cubicTo(cx + hw * 0.50f, centerY - hh * 0.03f,
-                    cx - hw * 0.48f, centerY - hh * 0.03f, cx - hw, centerY + hh * 0.14f)
-                shape.close()
+                // Glee is a brighter, slightly tighter slit.
+                rounded(min(hw * 0.12f, glyphHh * 0.36f))
             }
 
             // Droopy/sad/worried eyes use a weighted lid and downward gaze.
