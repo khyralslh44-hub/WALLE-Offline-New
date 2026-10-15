@@ -52,4 +52,20 @@ class EyeExpressionGeneratorTest {
         )
         assertTrue(EyeExpressionGenerator.generate(calm, 42L) != EyeExpressionGenerator.generate(curious, 42L))
     }
+
+    @Test fun vectorInspiredMoodContoursAreDistinctAndStable() {
+        fun silhouette(mood: EveMood) = EyeExpressionGenerator.generate(
+            EveDecision(mood = mood, reason = "contour mapping test"),
+            seed = 11L
+        ).silhouette
+
+        assertEquals(EyeSilhouette.SMILE, silhouette(EveMood.HAPPY))
+        assertEquals(EyeSilhouette.ROUND_SURPRISE, silhouette(EveMood.SURPRISED))
+        assertEquals(EyeSilhouette.DROOPY, silhouette(EveMood.SLEEPY))
+        assertEquals(EyeSilhouette.WORRIED, silhouette(EveMood.CONCERNED))
+        assertEquals(EyeSilhouette.SHARP, silhouette(EveMood.ANGRY))
+        assertEquals(EyeSilhouette.PLAYFUL, silhouette(EveMood.CURIOUS))
+        val count = EveMood.values().map(::silhouette).toSet().size
+        assertTrue("Expected visibly distinct eye contours across the mood set", count >= 9)
+    }
 }
