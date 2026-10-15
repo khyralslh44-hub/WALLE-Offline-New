@@ -98,9 +98,9 @@ class RobotFaceView(context: Context) : View(context) {
 
     private fun applyProfile(profile: EyeExpressionProfile) {
         mood = profile.mood
-        targetContour = contourFor(profile.silhouette)
-        // If another event arrives mid-transition, begin the new motion from the interpolated pose.
+        // If another event arrives mid-transition, first finish the interpolation toward the old target.
         updateTransition(SystemClock.uptimeMillis())
+        targetContour = contourFor(profile.silhouette)
         targetOpening = profile.opening
         targetTilt = profile.tilt
         targetGazeX = profile.gazeX
