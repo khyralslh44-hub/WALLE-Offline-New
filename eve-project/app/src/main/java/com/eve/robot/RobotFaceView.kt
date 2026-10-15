@@ -254,15 +254,20 @@ class RobotFaceView(context: Context) : View(context) {
         val roundRadius = min(hw, hh).coerceAtLeast(1f)
         when (silhouette) {
             // Neutral/awake: luminous rounded-square pixels like a small robot display.
-            EyeSilhouette.ALMOND, EyeSilhouette.SOFT -> {
+            EyeSilhouette.ALMOND -> {
+                val radius = roundRadius * 0.50f
                 shape.addRoundRect(
                     eyeRect,
-                    floatArrayOf(
-                        roundRadius * 0.50f, roundRadius * 0.50f,
-                        roundRadius * 0.50f, roundRadius * 0.50f,
-                        roundRadius * 0.50f, roundRadius * 0.50f,
-                        roundRadius * 0.50f, roundRadius * 0.50f
-                    ),
+                    floatArrayOf(radius, radius, radius, radius, radius, radius, radius, radius),
+                    Path.Direction.CW
+                )
+            }
+            EyeSilhouette.SOFT -> {
+                // Familiar/warm expression: gentler, pill-like corners than the neutral pixels.
+                val radius = min(hw * 0.92f, hh * 0.98f)
+                shape.addRoundRect(
+                    eyeRect,
+                    floatArrayOf(radius, radius, radius, radius, radius, radius, radius, radius),
                     Path.Direction.CW
                 )
             }
