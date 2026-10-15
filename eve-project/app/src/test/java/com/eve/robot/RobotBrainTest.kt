@@ -120,8 +120,8 @@ class RobotBrainTest {
     }
 
     @Test fun idleEventuallySleeps() {
-        assertEquals(EveMood.SLEEPY, brain.idle(45_000L, 1).mood)
-        assertTrue(brain.idle(8_000L, 2).mood in setOf(EveMood.NEUTRAL, EveMood.CURIOUS, EveMood.FAMILIAR))
+        assertEquals(EveMood.SLEEPY, RobotBrain().idle(45_000L, 1).mood)
+        assertEquals(EveMood.NEUTRAL, RobotBrain().idle(8_000L, 2).mood)
     }
 
     @Test fun autonomousIdleFollowsContextualStagesRatherThanRandomMoodPicks() {
