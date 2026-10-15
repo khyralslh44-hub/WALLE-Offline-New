@@ -116,7 +116,7 @@ class MainActivity : ComponentActivity() {
         )
         val fallbackDoubleTap = shortTap &&
             dispatchLastTapUptime != 0L &&
-            event.eventTime - dispatchLastTapUptime in 0L..900L &&
+            event.eventTime - dispatchLastTapUptime in 0L..1500L &&
             tapDistance <= maxTravel
         val gestureSerialBeforeDispatch = cameraSwitchGestureSerial
         val handled = super.dispatchTouchEvent(event)
@@ -234,7 +234,7 @@ class MainActivity : ComponentActivity() {
                     )
                     val doubleTap = !longPress &&
                         lastTapUptime != 0L &&
-                        releasedAt - lastTapUptime in 0L..800L &&
+                        releasedAt - lastTapUptime in 0L..1500L &&
                         tapDistance <= 72f * resources.displayMetrics.density
 
                     lastInteractionAt = SystemClock.elapsedRealtime()
