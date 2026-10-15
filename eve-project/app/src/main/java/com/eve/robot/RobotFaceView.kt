@@ -233,9 +233,9 @@ class RobotFaceView(context: Context) : View(context) {
         // Keep the geometry relative to the view's actual dp size so glow strokes do not merge
         // the two eyes on tall phone screens or when the device uses display scaling.
         // Cozmo-style LED glyphs are wider than tall, with a clear gap between the pair.
-        val w = min(width * 0.33f, height * 0.22f) * eyeWidth
-        val h = min(height * 0.16f, w * 0.50f) * eyeHeight
-        val gap = min(width * 0.22f, w * 0.66f) * spacing
+        val w = min(width * 0.245f, height * 0.17f) * eyeWidth
+        val h = min(height * 0.14f, w * 0.66f) * eyeHeight
+        val gap = min(width * 0.21f, w * 0.55f) * spacing
         val cy = height * 0.50f
         val silhouetteRaw = if (silhouetteTransitionStartedAt == 0L) 1f else
             ((now - silhouetteTransitionStartedAt).toFloat() / silhouetteTransitionDurationMs).coerceIn(0f, 1f)
@@ -246,10 +246,10 @@ class RobotFaceView(context: Context) : View(context) {
             if (alpha <= 0.005f) return
             drawEye(canvas, width * 0.5f - gap + (gazeX + idleGaze + glanceX) * width,
                 cy + (gazeY + idleGazeY + glanceY * 0.42f) * height, w * (1f + asymmetry * 0.24f), h,
-                opening * blink * breath * (1f + asymmetry * 0.30f), tilt, glow, squint, contour, -1, style, alpha)
+                opening * blink * breath * (1f + asymmetry * 0.30f), tilt * 0.18f, glow, squint, contour, -1, style, alpha)
             drawEye(canvas, width * 0.5f + gap + (gazeX + idleGaze + glanceX + asymmetry * 0.025f) * width,
                 cy + (gazeY + idleGazeY + glanceY * 0.42f - asymmetry * 0.035f) * height, w * (1f - asymmetry * 0.24f), h,
-                opening * blink * breath * (1f - asymmetry * 0.30f), -tilt, glow, squint, contour, 1, style, alpha)
+                opening * blink * breath * (1f - asymmetry * 0.30f), -tilt * 0.18f, glow, squint, contour, 1, style, alpha)
         }
 
         if (silhouetteBlend < 1f) drawExpressionLayer(previousSilhouette, 1f - silhouetteBlend)
@@ -427,15 +427,9 @@ class RobotFaceView(context: Context) : View(context) {
                 shape.close()
             }
             EyeSilhouette.PLAYFUL -> {
-                // Curious/playful keeps the readable rounded-pixel language, with a slight lid asymmetry.
-                val lean = side * hh * 0.07f
-                shape.moveTo(cx - hw, centerY - glyphHh * 0.78f - lean)
-                shape.quadTo(cx, centerY - glyphHh * 1.02f,
-                    cx + hw, centerY - glyphHh * 0.72f + lean)
-                shape.lineTo(cx + hw, centerY + glyphHh * 0.70f + lean)
-                shape.quadTo(cx, centerY + glyphHh * 0.94f,
-                    cx - hw, centerY + glyphHh * 0.66f - lean)
-                shape.close()
+                // Preserve Cozmo-like rounded LED pixels; curiosity is shown with gaze/asymmetry,
+                // not by skewing each whole eye into a parallelogram.
+                rounded(min(hw * 0.28f, glyphHh * 0.34f))
             }
         }
         if (opacity <= 0.005f) return
@@ -445,17 +439,17 @@ class RobotFaceView(context: Context) : View(context) {
         c.rotate(angle, cx, cy)
         edge.shader = null
         // Layered restrained glow gives the eyes depth without a black pupil or harsh neon rim.
-        edge.strokeWidth = max(2f, w * 0.105f)
-        edge.color = Color.argb((25f * intensity).toInt().coerceIn(0, 36), 0, 224, 255)
+        edge.strokeWidth = max(1f, w * 0.065f)
+        edge.color = Color.argb((9f * intensity).toInt().coerceIn(0, 12), 0, 195, 220)
         c.drawPath(shape, edge)
-        edge.strokeWidth = max(2f, w * 0.060f)
-        edge.color = Color.argb((42f * intensity).toInt().coerceIn(0, 55), 0, 220, 255)
+        edge.strokeWidth = max(1f, w * 0.035f)
+        edge.color = Color.argb((14f * intensity).toInt().coerceIn(0, 18), 0, 205, 225)
         c.drawPath(shape, edge)
-        edge.strokeWidth = max(2f, w * 0.032f)
-        edge.color = Color.argb((48f * intensity).toInt().coerceIn(0, 62), 0, 224, 255)
+        edge.strokeWidth = max(1f, w * 0.018f)
+        edge.color = Color.argb((21f * intensity).toInt().coerceIn(0, 25), 0, 215, 230)
         c.drawPath(shape, edge)
-        edge.strokeWidth = max(1.5f, w * 0.014f)
-        edge.color = Color.argb((88f * intensity).toInt().coerceIn(0, 110), 40, 255, 255)
+        edge.strokeWidth = max(1f, w * 0.008f)
+        edge.color = Color.argb((58f * intensity).toInt().coerceIn(0, 70), 70, 242, 248)
         c.drawPath(shape, edge)
         fill.style = Paint.Style.FILL
         val eyeColors = when (mood) {
