@@ -189,12 +189,50 @@ object EyeExpressionGenerator {
             }
         }
 
+        // Open or compress each glyph as its own expression preset. Several previous
+        // moods were capped at 0.34–0.58 before shape selection, which reduced worry/anger/sleepy
+        // to hairlines. Cozmo-style expressions use different lid geometry and different apertures.
+        val expressionOpening = when (clearSilhouette) {
+            EyeSilhouette.ALMOND -> clearOpening
+            EyeSilhouette.NEUTRAL -> maxOf(clearOpening, 0.90f)
+            EyeSilhouette.BLINK_HIGH, EyeSilhouette.BLINK_LOW -> clearOpening
+            EyeSilhouette.SMILE -> maxOf(clearOpening, 0.70f)
+            EyeSilhouette.GLEE -> maxOf(clearOpening, 0.70f)
+            EyeSilhouette.SAD_DOWN, EyeSilhouette.SAD_UP -> maxOf(clearOpening, 0.78f)
+            EyeSilhouette.WORRIED -> maxOf(clearOpening, 0.88f)
+            EyeSilhouette.FOCUSED -> maxOf(clearOpening, 0.72f)
+            EyeSilhouette.ANNOYED -> maxOf(clearOpening, 0.62f)
+            EyeSilhouette.ROUND_SURPRISE -> maxOf(clearOpening, 1.12f)
+            EyeSilhouette.SKEPTIC -> maxOf(clearOpening, 0.80f)
+            EyeSilhouette.BORED -> maxOf(clearOpening, 0.48f)
+            EyeSilhouette.UNIMPRESSED -> maxOf(clearOpening, 0.72f)
+            EyeSilhouette.DROOPY -> maxOf(clearOpening, 0.46f)
+            EyeSilhouette.SUSPICIOUS -> maxOf(clearOpening, 0.72f)
+            EyeSilhouette.SQUINT -> maxOf(clearOpening, 0.62f)
+            EyeSilhouette.SHARP -> maxOf(clearOpening, 0.60f)
+            EyeSilhouette.FURIOUS -> maxOf(clearOpening, 0.68f)
+            EyeSilhouette.SCARED -> maxOf(clearOpening, 0.98f)
+            EyeSilhouette.AWE -> maxOf(clearOpening, 1.12f)
+            EyeSilhouette.PLAYFUL -> maxOf(clearOpening, 0.85f)
+            EyeSilhouette.SOFT -> maxOf(clearOpening, 0.82f)
+        }.coerceIn(0.14f, 1.20f)
+
+        // Gaze direction is also part of the pose. The sad-up/down variants previously
+        // selected different contours while keeping the same downward gaze.
+        val expressionGazeY = when (clearSilhouette) {
+            EyeSilhouette.SAD_DOWN, EyeSilhouette.DROOPY -> maxOf(clearGazeY, 0.055f)
+            EyeSilhouette.SAD_UP -> minOf(clearGazeY, -0.045f)
+            EyeSilhouette.BLINK_HIGH -> minOf(clearGazeY, -0.040f)
+            EyeSilhouette.BLINK_LOW -> maxOf(clearGazeY, 0.040f)
+            else -> clearGazeY
+        }.coerceIn(-0.12f, 0.12f)
+
         return EyeExpressionProfile(
             mood = decision.mood,
-            opening = clearOpening,
+            opening = expressionOpening,
             tilt = clearTilt,
             gazeX = clearGazeX,
-            gazeY = clearGazeY,
+            gazeY = expressionGazeY,
             glow = glow,
             squint = clearSquint,
             asymmetry = asymmetry,

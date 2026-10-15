@@ -287,10 +287,10 @@ class RobotFaceView(context: Context) : View(context) {
         val glyphHh = hh * when (eyeSilhouette) {
             EyeSilhouette.BLINK_HIGH -> 0.15f
             EyeSilhouette.BLINK_LOW -> 0.13f
-            EyeSilhouette.BORED -> 0.20f
+            EyeSilhouette.BORED -> 0.32f
             EyeSilhouette.UNIMPRESSED -> 0.28f
-            EyeSilhouette.SMILE -> 0.50f
-            EyeSilhouette.GLEE -> 0.34f
+            EyeSilhouette.SMILE -> 0.72f
+            EyeSilhouette.GLEE -> 0.42f
             else -> eyeScale
         }
         val centerY = cy + when (eyeSilhouette) {

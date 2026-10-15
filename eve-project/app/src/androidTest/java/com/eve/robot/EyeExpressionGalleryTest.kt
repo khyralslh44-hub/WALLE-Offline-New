@@ -128,16 +128,46 @@ class EyeExpressionGalleryTest {
             // Hash actual drawn pixels, including shape, placement, eye opening, and color.
             var hash = -3750763034362895579L
             var litPixels = 0
+            var minX = frame.width
+            var minY = frame.height
+            var maxX = -1
+            var maxY = -1
             for (y in 0 until frame.height) {
                 for (x in 0 until frame.width) {
                     val pixel = frame.getPixel(x, y)
                     if (Color.red(pixel) > 20 || Color.green(pixel) > 35 || Color.blue(pixel) > 45) {
                         litPixels++
+                        minX = minOf(minX, x)
+                        minY = minOf(minY, y)
+                        maxX = maxOf(maxX, x)
+                        maxY = maxOf(maxY, y)
                     }
                     hash = (hash xor pixel.toLong()) * 1099511628211L
                 }
             }
             assertTrue("${item.label} produced no visible cyan pixels.", litPixels > 8)
+            val renderedWidth = maxX - minX + 1
+            val renderedHeight = maxY - minY + 1
+            val minimumHeight = when (item.expected) {
+                EyeSilhouette.BLINK_HIGH, EyeSilhouette.BLINK_LOW -> 1
+                EyeSilhouette.BORED -> 2
+                EyeSilhouette.SMILE -> 6
+                EyeSilhouette.GLEE -> 4
+                EyeSilhouette.UNIMPRESSED, EyeSilhouette.DROOPY, EyeSilhouette.SQUINT -> 4
+                EyeSilhouette.ANNOYED -> 7
+                EyeSilhouette.SAD_DOWN, EyeSilhouette.SAD_UP -> 8
+                EyeSilhouette.WORRIED, EyeSilhouette.FOCUSED -> 11
+                EyeSilhouette.SUSPICIOUS, EyeSilhouette.SHARP -> 8
+                EyeSilhouette.FURIOUS -> 10
+                EyeSilhouette.SKEPTIC, EyeSilhouette.PLAYFUL -> 12
+                EyeSilhouette.NEUTRAL, EyeSilhouette.ALMOND, EyeSilhouette.SOFT -> 12
+                EyeSilhouette.ROUND_SURPRISE, EyeSilhouette.AWE -> 28
+                EyeSilhouette.SCARED -> 25
+            }
+            assertTrue(
+                "${item.label} raster is too thin: ${renderedWidth}x${renderedHeight}, minHeight=$minimumHeight",
+                renderedHeight >= minimumHeight
+            )
             signatures.add(hash)
             frame.recycle()
 
