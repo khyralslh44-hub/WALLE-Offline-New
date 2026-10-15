@@ -144,7 +144,7 @@ class RobotBrainTest {
 
     @Test fun familiarityInfluencesIdleResponseInsteadOfAForcedMood() {
         val localBrain = RobotBrain()
-        localBrain.observe("dog", 0.90f, 3)
+        repeat(4) { localBrain.observe("dog", 0.90f, 3) }
         assertEquals(EveMood.FAMILIAR, localBrain.idle(18_000L, 2).mood)
     }
 }
