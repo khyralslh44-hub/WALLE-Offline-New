@@ -129,10 +129,68 @@ class RobotBrainTest {
         val stages = listOf(8_000L, 18_000L, 35_000L, 65_000L, 100_000L)
             .mapIndexed { index, quietFor -> localBrain.idle(quietFor, index).mood }
         assertEquals(
-            listOf(EveMood.NEUTRAL, EveMood.CURIOUS, EveMood.FOCUSED, EveMood.SLEEPY, EveMood.CURIOUS),
+            listOf(EveMood.NEUTRAL, EveMood.CURIOUS, EveMood.PLAYFUL, EveMood.SLEEPY, EveMood.CURIOUS),
             stages
         )
         assertEquals(RobotBrain().idle(18_000L, 1).mood, RobotBrain().idle(18_000L, 99).mood)
+    }
+
+    @Test fun repeatedRapidTouchesEscalateOnlyToBoundedIrritationAndAnger() {
+        val localBrain = RobotBrain()
+        val moments = listOf(1_000L, 1_800L, 2_600L, 3_400L, 4_200L)
+        val decisions = moments.map { localBrain.touched(longPress = false, eventTimeMs = it) }
+
+        assertEquals(EveMood.CURIOUS, decisions[0].mood)
+        assertEquals(EveMood.CURIOUS, decisions[1].mood)
+        assertEquals(EveMood.IRRITATED, decisions[2].mood)
+        assertEquals(EveMood.IRRITATED, decisions[3].mood)
+        assertEquals(EveMood.ANGRY, decisions[4].mood)
+        assertTrue(decisions[2].frustration >= 0.42f)
+        assertTrue(decisions[4].frustration >= 0.80f)
+        assertTrue(decisions[2].playSound)
+        assertFalse(decisions[3].playSound)
+        assertTrue(decisions[4].playSound)
+    }
+
+    @Test fun gentleLongTouchReducesFrustrationAndReturnsToWarmMood() {
+        val localBrain = RobotBrain()
+        listOf(1_000L, 1_800L, 2_600L, 3_400L, 4_200L)
+            .forEach { localBrain.touched(longPress = false, eventTimeMs = it) }
+        val angry = localBrain.touched(longPress = false, eventTimeMs = 4_900L)
+        val reassured = localBrain.touched(longPress = true, eventTimeMs = 6_000L)
+
+        assertEquals(EveMood.ANGRY, angry.mood)
+        assertEquals(EveMood.HAPPY, reassured.mood)
+        assertTrue(reassured.frustration < angry.frustration)
+        assertTrue(reassured.playSound)
+    }
+
+    @Test fun frustrationCoolsDownAfterQuietTime() {
+        val localBrain = RobotBrain()
+        listOf(1_000L, 1_800L, 2_600L, 3_400L, 4_200L)
+            .forEach { localBrain.touched(longPress = false, eventTimeMs = it) }
+        val angry = localBrain.touched(longPress = false, eventTimeMs = 4_900L)
+        val cooling = localBrain.idle(6_000L, 1)
+        val calmer = localBrain.idle(30_000L, 2)
+
+        assertEquals(EveMood.ANGRY, angry.mood)
+        assertTrue(cooling.frustration < angry.frustration)
+        assertEquals(EveMood.IRRITATED, cooling.mood)
+        assertTrue(calmer.frustration < cooling.frustration)
+    }
+
+    @Test fun aHumanAngryExpressionDoesNotMakeEVEAngryAtTheHuman() {
+        val decision = RobotBrain().observeFacialEmotion("angry", 0.96f)
+        assertEquals(EveMood.CONCERNED, decision.mood)
+        assertFalse(decision.playSound)
+    }
+
+    @Test fun stablePersonalityTraitsShapeIdleBehaviorWithoutRandomSelection() {
+        val playful = RobotBrain(EvePersonality(playfulness = 0.95f)).idle(35_000L, 4)
+        val reserved = RobotBrain(EvePersonality(playfulness = 0.10f)).idle(35_000L, 4)
+        assertEquals(EveMood.PLAYFUL, playful.mood)
+        assertEquals(EveMood.FOCUSED, reserved.mood)
+        assertEquals(playful.mood, RobotBrain(EvePersonality(playfulness = 0.95f)).idle(35_000L, 88).mood)
     }
 
     @Test fun sameAffectSnapshotAlwaysProducesTheSameEyePose() {
