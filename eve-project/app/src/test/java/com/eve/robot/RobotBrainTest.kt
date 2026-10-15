@@ -12,6 +12,22 @@ class RobotBrainTest {
         assertEquals(EveMood.FAMILIAR, brain.observe("plant", 0.91f, 3).mood)
     }
 
+    @Test fun startupAndCameraEventsAreDecidedByTheCentralBrain() {
+        val localBrain = RobotBrain()
+        val awake = localBrain.awakenExperience()
+        assertEquals(EveMood.AWAKE, awake.mood)
+        assertEquals("experience started", awake.reason)
+
+        val switched = localBrain.cameraSwitched("FRONT")
+        assertEquals(EveMood.CURIOUS, switched.mood)
+        assertTrue(switched.curiosity > awake.curiosity)
+
+        val unavailable = localBrain.cameraUnavailable("permission denied")
+        assertEquals(EveMood.CONCERNED, unavailable.mood)
+        assertTrue(unavailable.reason.contains("permission denied"))
+        assertFalse(unavailable.playSound)
+    }
+
     @Test fun lowConfidenceDoesNotClaimCertainty() {
         val decision = brain.observe("unknown", 0.2f, 0)
         assertEquals(EveMood.CONCERNED, decision.mood)
