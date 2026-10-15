@@ -278,25 +278,36 @@ class RobotBrain {
 
     @Synchronized
     fun idle(inactiveMs: Long, next: Int): EveDecision {
-        val idleMinutes = ((inactiveMs - 35_000L).coerceAtLeast(0L) / 180_000f)
-        fatigue = idleMinutes.coerceIn(0f, 1f)
-        // The shared affect state settles with time, but curiosity may rise again after a quiet pause.
+        // Idle actions follow elapsed time and the current affect state, never a random mood picker.
+        val quietFor = inactiveMs.coerceAtLeast(0L)
+        fatigue = ((quietFor - 45_000L).coerceAtLeast(0L) / 240_000f).coerceIn(0f, 1f)
         valence = (valence * 0.985f + 0.002f).coerceIn(-0.5f, 0.75f)
         arousal = (arousal * 0.84f + 0.16f * 0.27f).coerceIn(0.12f, 0.80f)
-        curiosity = (0.44f + 0.38f * ((sin(next * 0.71f) + 1f) / 2f)).coerceIn(0.25f, 0.90f)
+        curiosity = (curiosity * 0.94f + if (quietFor < 45_000L) 0.035f else 0.012f)
+            .coerceIn(0.25f, 0.90f)
 
-        val phase = ((next % 8) + 8) % 8
         val mood = when {
-            // Sleepiness is a phase, not a permanent state: the face returns to exploring on later cycles.
-            inactiveMs >= 40_000L && (phase == 1 || phase == 5) -> EveMood.SLEEPY
-            phase == 3 && curiosity > 0.48f -> EveMood.SURPRISED
-            phase == 4 -> EveMood.FOCUSED
-            phase == 6 && valence > 0.08f -> EveMood.HAPPY
-            familiarity > 0.50f && phase == 7 -> EveMood.FAMILIAR
-            curiosity > 0.66f -> EveMood.CURIOUS
+            valence < -0.38f && quietFor < 90_000L -> EveMood.CONCERNED
+            quietFor < 10_000L -> EveMood.NEUTRAL
+            quietFor < 25_000L -> when {
+                familiarity > 0.58f -> EveMood.FAMILIAR
+                curiosity >= 0.45f -> EveMood.CURIOUS
+                else -> EveMood.NEUTRAL
+            }
+            quietFor < 45_000L -> when {
+                valence > 0.60f -> EveMood.HAPPY
+                familiarity > 0.70f -> EveMood.FAMILIAR
+                else -> EveMood.FOCUSED
+            }
+            quietFor < 90_000L -> EveMood.SLEEPY
+            // After resting, EVE gently reorients to her surroundings instead of staying asleep forever.
+            quietFor < 120_000L -> EveMood.CURIOUS
+            quietFor < 180_000L -> if (familiarity > 0.62f) EveMood.FAMILIAR else EveMood.NEUTRAL
+            fatigue > 0.65f -> EveMood.SLEEPY
+            curiosity >= 0.60f -> EveMood.CURIOUS
             else -> EveMood.NEUTRAL
         }
-        return snapshot(mood, "autonomous idle exploration phase=$phase", false)
+        return snapshot(mood, "contextual idle: quietForMs=$quietFor", false)
     }
 
     private fun classify(item: String): Kind = when {
