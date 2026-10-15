@@ -6,14 +6,19 @@ import android.graphics.Bitmap
 import android.graphics.ImageFormat
 import android.graphics.Matrix
 import android.graphics.Rect
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
 import android.util.Size
+import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
+import android.widget.FrameLayout
+import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
@@ -41,6 +46,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var brain: RobotBrain
     private lateinit var memory: EveMemory
     private lateinit var voice: RobotVoice
+    private lateinit var cameraStatus: TextView
     private val main = Handler(Looper.getMainLooper())
     private val cameraExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private val emotionExecutor: ExecutorService = Executors.newSingleThreadExecutor()
@@ -81,6 +87,7 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) startCamera() else {
+            showCameraStatus("الكاميرا متوقفة: لم يُمنح إذن الكاميرا", active = false)
             react(brain.cameraUnavailable("permission declined"), playSound = false)
             Log.i("EVE", "Camera permission declined; face remains active.")
         }
@@ -112,7 +119,38 @@ class MainActivity : ComponentActivity() {
             )
         face = RobotFaceView(this)
         face.id = View.generateViewId()
-        setContentView(face)
+        cameraStatus = TextView(this).apply {
+            text = "جارٍ تجهيز الكاميرا..."
+            textSize = 13f
+            setTextColor(android.graphics.Color.WHITE)
+            gravity = Gravity.CENTER
+            setPadding(dp(14), dp(8), dp(14), dp(8))
+            background = GradientDrawable().apply {
+                setColor(0xCC07151C.toInt())
+                cornerRadius = dp(22).toFloat()
+                setStroke(dp(1), 0x6637F5A1)
+            }
+            isClickable = false
+            isFocusable = false
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+        }
+        val root = FrameLayout(this).apply {
+            setBackgroundColor(android.graphics.Color.rgb(2, 7, 10))
+            addView(face, FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            ))
+            addView(cameraStatus, FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            ).apply {
+                topMargin = dp(16)
+                marginStart = dp(12)
+                marginEnd = dp(12)
+            })
+        }
+        setContentView(root)
         brain = RobotBrain()
         memory = EveMemory(applicationContext)
         voice = RobotVoice()
@@ -189,10 +227,25 @@ class MainActivity : ComponentActivity() {
         emotionSmoother.reset()
         cameraProvider?.unbindAll()
         cameraStarted = false
+        if (::cameraStatus.isInitialized) showCameraStatus("الكاميرا متوقفة مؤقتًا خارج التطبيق", active = false)
         super.onPause()
     }
 
     private fun faceOrNull(): RobotFaceView? = if (::face.isInitialized) face else null
+
+    private fun dp(value: Int): Int =
+        (value * resources.displayMetrics.density + 0.5f).toInt()
+
+    private fun showCameraStatus(message: String, active: Boolean) {
+        if (!::cameraStatus.isInitialized) return
+        cameraStatus.text = if (active) "●  $message  •  انقر مرتين للتبديل" else "●  $message"
+        cameraStatus.setTextColor(if (active) 0xFF8FFFC0.toInt() else 0xFFFFD180.toInt())
+        cameraStatus.background = GradientDrawable().apply {
+            setColor(0xCC07151C.toInt())
+            cornerRadius = dp(22).toFloat()
+            setStroke(dp(1), if (active) 0x8837F5A1.toInt() else 0x887D8B92.toInt())
+        }
+    }
 
     private fun hasCameraPermission(): Boolean =
         ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
@@ -218,6 +271,10 @@ class MainActivity : ComponentActivity() {
         faceCueSmoother.reset()
         emotionSmoother.reset()
         lastFaceSeenAt = 0L
+        showCameraStatus(
+            if (lens == CameraLens.FRONT) "الكاميرا الأمامية تعمل" else "الكاميرا الخلفية تعمل",
+            active = true
+        )
         Log.i("EVE", "CAMERA_LENS active=${lens.name} analysis=offline")
     }
 
@@ -230,6 +287,10 @@ class MainActivity : ComponentActivity() {
 
         val previous = activeCameraLens
         val requested = if (previous == CameraLens.BACK) CameraLens.FRONT else CameraLens.BACK
+        showCameraStatus(
+            if (requested == CameraLens.FRONT) "جارٍ التبديل إلى الكاميرا الأمامية..." else "جارٍ التبديل إلى الكاميرا الخلفية...",
+            active = false
+        )
         val provider = cameraProvider
         if (provider == null) {
             // If the provider is still initializing, remember the requested lens; startCamera
@@ -254,13 +315,21 @@ class MainActivity : ComponentActivity() {
                 Log.i("EVE", "CAMERA_SWITCH_RECOVERED lens=${previous.name}")
             } catch (restoreError: Exception) {
                 cameraStarted = false
+                showCameraStatus("تعذر تشغيل الكاميرتين؛ تحقق من الإذن", active = false)
                 Log.e("EVE", "CAMERA_SWITCH_RECOVERY_FAILED", restoreError)
             }
         }
     }
 
     private fun startCamera() {
-        if (!hasCameraPermission() || cameraStarted || isFinishing) return
+        if (!hasCameraPermission() || cameraStarted || isFinishing) {
+            if (!hasCameraPermission()) showCameraStatus("الكاميرا متوقفة: الإذن غير ممنوح", active = false)
+            return
+        }
+        showCameraStatus(
+            if (activeCameraLens == CameraLens.FRONT) "جارٍ تشغيل الكاميرا الأمامية..." else "جارٍ تشغيل الكاميرا الخلفية...",
+            active = false
+        )
         cameraStarted = true
         val providerFuture = ProcessCameraProvider.getInstance(this)
         providerFuture.addListener({
@@ -271,6 +340,7 @@ class MainActivity : ComponentActivity() {
                 Log.i("EVE", "Offline camera analysis started lens=${activeCameraLens.name}.")
             } catch (e: Exception) {
                 cameraStarted = false
+                showCameraStatus("تعذر تشغيل الكاميرا؛ تحقق من الإذن أو جرّب التبديل", active = false)
                 react(brain.cameraUnavailable("camera could not start"), playSound = false)
                 Log.e("EVE", "Camera could not start.", e)
             }
