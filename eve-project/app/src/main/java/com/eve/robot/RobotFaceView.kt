@@ -76,18 +76,15 @@ class RobotFaceView(context: Context) : View(context) {
     }
 
     fun setMood(next: EveMood, seed: Long = SystemClock.uptimeMillis()) {
-        applyProfile(
-            EyeExpressionGenerator.generate(EveDecision(next, "mood expression"), seed),
-            seed
-        )
+        applyProfile(EyeExpressionGenerator.generate(EveDecision(next, "mood expression"), seed))
     }
 
     /** Eye geometry is generated from the same affect snapshot used by the offline brain and voice. */
     fun setExpression(decision: EveDecision, seed: Long = SystemClock.uptimeMillis()) {
-        applyProfile(EyeExpressionGenerator.generate(decision, seed), seed)
+        applyProfile(EyeExpressionGenerator.generate(decision, seed))
     }
 
-    private fun applyProfile(profile: EyeExpressionProfile, seed: Long) {
+    private fun applyProfile(profile: EyeExpressionProfile) {
         mood = profile.mood
         // If another event arrives mid-transition, begin the new motion from the interpolated pose.
         updateTransition(SystemClock.uptimeMillis())
