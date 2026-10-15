@@ -6,6 +6,7 @@ import android.graphics.Color
 import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.RectF
 import android.graphics.Shader
 import android.os.SystemClock
 import android.view.View
@@ -29,9 +30,10 @@ class RobotFaceView(context: Context) : View(context) {
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
     }
-    private val glint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(210, 255, 225) }
+    private val glint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(210, 255, 255) }
     private val shape = Path()
     private var mood = EveMood.AWAKE
+    private var silhouette = EyeSilhouette.ALMOND
     private var contour = contourFor(EyeSilhouette.ALMOND)
     private var targetContour = contour
     private var fromContour = contour
@@ -98,6 +100,7 @@ class RobotFaceView(context: Context) : View(context) {
 
     private fun applyProfile(profile: EyeExpressionProfile) {
         mood = profile.mood
+        silhouette = profile.silhouette
         // If another event arrives mid-transition, first finish the interpolation toward the old target.
         updateTransition(SystemClock.uptimeMillis())
         targetContour = contourFor(profile.silhouette)
@@ -247,58 +250,121 @@ class RobotFaceView(context: Context) : View(context) {
         val lowerShoulder = contour.lowerShoulder
         val cornerLift = contour.cornerLift * side * hh
         shape.reset()
-        shape.moveTo(cx - hw, cy + cornerLift)
-        shape.cubicTo(
-            cx - hw * 0.96f, cy - hh * upperShoulder,
-            cx - hw * 0.52f, cy - hh * upperPeak,
-            cx, cy - hh * upperPeak
-        )
-        shape.cubicTo(
-            cx + hw * 0.58f, cy - hh * upperPeak,
-            cx + hw * 0.97f, cy - hh * upperShoulder,
-            cx + hw, cy - cornerLift
-        )
-        shape.cubicTo(
-            cx + hw * 0.97f, cy + hh * lowerShoulder,
-            cx + hw * 0.52f, cy + hh * lowerPeak,
-            cx, cy + hh * lowerPeak
-        )
-        shape.cubicTo(
-            cx - hw * 0.56f, cy + hh * lowerPeak,
-            cx - hw * 0.97f, cy + hh * lowerShoulder,
-            cx - hw, cy + cornerLift
-        )
-        shape.close()
+        val eyeRect = RectF(cx - hw, cy - hh, cx + hw, cy + hh)
+        val roundRadius = min(hw, hh).coerceAtLeast(1f)
+        when (silhouette) {
+            // Neutral/awake: luminous rounded-square pixels like a small robot display.
+            EyeSilhouette.ALMOND, EyeSilhouette.SOFT -> {
+                shape.addRoundRect(
+                    eyeRect,
+                    floatArrayOf(
+                        roundRadius * 0.50f, roundRadius * 0.50f,
+                        roundRadius * 0.50f, roundRadius * 0.50f,
+                        roundRadius * 0.50f, roundRadius * 0.50f,
+                        roundRadius * 0.50f, roundRadius * 0.50f
+                    ),
+                    Path.Direction.CW
+                )
+            }
+            // Surprise: tall, soft-edged display blocks.
+            EyeSilhouette.ROUND_SURPRISE -> {
+                val radius = min(hw * 0.58f, roundRadius * 0.72f)
+                shape.addRoundRect(
+                    eyeRect,
+                    floatArrayOf(radius, radius, radius, radius, radius, radius, radius, radius),
+                    Path.Direction.CW
+                )
+            }
+            // Happy: an upward-curved, closed-eye crescent instead of merely changing color.
+            EyeSilhouette.SMILE -> {
+                shape.moveTo(cx - hw, cy + hh * 0.08f)
+                shape.cubicTo(cx - hw * 0.64f, cy - hh * 1.02f,
+                    cx + hw * 0.48f, cy - hh * 1.02f, cx + hw, cy + hh * 0.08f)
+                shape.cubicTo(cx + hw * 0.52f, cy - hh * 0.22f,
+                    cx - hw * 0.52f, cy - hh * 0.22f, cx - hw, cy + hh * 0.08f)
+                shape.close()
+            }
+            // Sleepy: a low, heavy lid shape with round corners.
+            EyeSilhouette.DROOPY -> {
+                shape.moveTo(cx - hw, cy - hh * 0.02f)
+                shape.cubicTo(cx - hw * 0.50f, cy - hh * 0.24f,
+                    cx + hw * 0.38f, cy - hh * 0.10f, cx + hw, cy - hh * 0.30f)
+                shape.lineTo(cx + hw, cy + hh * 0.42f)
+                shape.quadTo(cx + hw * 0.92f, cy + hh, cx + hw * 0.50f, cy + hh)
+                shape.lineTo(cx - hw * 0.52f, cy + hh)
+                shape.quadTo(cx - hw, cy + hh * 0.96f, cx - hw, cy + hh * 0.48f)
+                shape.close()
+            }
+            // Focused: clipped corners and a flatter upper lid.
+            EyeSilhouette.FOCUSED -> {
+                shape.moveTo(cx - hw, cy - hh * 0.28f)
+                shape.lineTo(cx - hw * 0.64f, cy - hh * 0.78f)
+                shape.quadTo(cx, cy - hh * 0.94f, cx + hw * 0.60f, cy - hh * 0.70f)
+                shape.lineTo(cx + hw, cy - hh * 0.14f)
+                shape.lineTo(cx + hw * 0.86f, cy + hh * 0.72f)
+                shape.quadTo(cx, cy + hh, cx - hw * 0.78f, cy + hh * 0.66f)
+                shape.close()
+            }
+            // Worried: one higher inner corner and a softer, uneven lower lid.
+            EyeSilhouette.WORRIED -> {
+                shape.moveTo(cx - hw, cy - hh * 0.34f)
+                shape.cubicTo(cx - hw * 0.45f, cy - hh * 0.98f,
+                    cx + hw * 0.28f, cy - hh * 0.52f, cx + hw, cy - hh * 0.74f)
+                shape.lineTo(cx + hw, cy + hh * 0.48f)
+                shape.cubicTo(cx + hw * 0.38f, cy + hh * 0.94f,
+                    cx - hw * 0.48f, cy + hh * 0.86f, cx - hw, cy + hh * 0.42f)
+                shape.close()
+            }
+            // Irritated/angry: the top line slopes down toward the inner corner.
+            EyeSilhouette.SHARP -> {
+                shape.moveTo(cx + side * hw, cy - hh * 0.84f)
+                shape.lineTo(cx - side * hw, cy - hh * 0.26f)
+                shape.cubicTo(cx - side * hw * 0.98f, cy + hh * 0.08f,
+                    cx - side * hw * 0.73f, cy + hh * 0.84f, cx, cy + hh * 0.90f)
+                shape.cubicTo(cx + side * hw * 0.72f, cy + hh * 0.86f,
+                    cx + side * hw, cy + hh * 0.34f, cx + side * hw, cy - hh * 0.84f)
+                shape.close()
+            }
+            // Playful/curious: a slightly lopsided soft rectangle for a curious side-eye.
+            EyeSilhouette.PLAYFUL -> {
+                val lean = side * hh * 0.14f
+                shape.moveTo(cx - hw, cy - hh * 0.66f - lean)
+                shape.quadTo(cx, cy - hh * 0.96f, cx + hw, cy - hh * 0.54f + lean)
+                shape.lineTo(cx + hw * 0.94f, cy + hh * 0.62f + lean)
+                shape.quadTo(cx, cy + hh * 0.96f, cx - hw, cy + hh * 0.52f - lean)
+                shape.close()
+            }
+        }
         c.save()
         c.rotate(angle, cx, cy)
         edge.shader = null
         // Layered restrained glow gives the eyes depth without a black pupil or harsh neon rim.
         edge.strokeWidth = max(2f, w * 0.20f)
-        edge.color = Color.argb((25f * intensity).toInt().coerceIn(0, 36), 25, 255, 105)
+        edge.color = Color.argb((25f * intensity).toInt().coerceIn(0, 36), 0, 224, 255)
         c.drawPath(shape, edge)
         edge.strokeWidth = max(2f, w * 0.095f)
-        edge.color = Color.argb((42f * intensity).toInt().coerceIn(0, 55), 35, 255, 115)
+        edge.color = Color.argb((42f * intensity).toInt().coerceIn(0, 55), 0, 220, 255)
         c.drawPath(shape, edge)
         edge.strokeWidth = max(2f, w * 0.065f)
-        edge.color = Color.argb((48f * intensity).toInt().coerceIn(0, 62), 25, 255, 105)
+        edge.color = Color.argb((48f * intensity).toInt().coerceIn(0, 62), 0, 224, 255)
         c.drawPath(shape, edge)
         edge.strokeWidth = max(1.5f, w * 0.025f)
-        edge.color = Color.argb((88f * intensity).toInt().coerceIn(0, 110), 60, 255, 130)
+        edge.color = Color.argb((88f * intensity).toInt().coerceIn(0, 110), 40, 255, 255)
         c.drawPath(shape, edge)
         fill.style = Paint.Style.FILL
         val eyeColors = when (mood) {
             EveMood.SLEEPY, EveMood.CONCERNED, EveMood.IRRITATED, EveMood.ANGRY ->
-                intArrayOf(Color.rgb(150, 235, 178), Color.rgb(30, 218, 103), Color.rgb(0, 104, 48))
+                intArrayOf(Color.rgb(130, 250, 249), Color.rgb(0, 207, 222), Color.rgb(0, 90, 116))
             EveMood.HAPPY, EveMood.SURPRISED, EveMood.PLAYFUL ->
-                intArrayOf(Color.rgb(222, 255, 232), Color.rgb(70, 255, 144), Color.rgb(0, 162, 70))
-            else -> intArrayOf(Color.rgb(190, 255, 215), Color.rgb(44, 245, 119), Color.rgb(0, 137, 61))
+                intArrayOf(Color.rgb(205, 255, 255), Color.rgb(32, 244, 255), Color.rgb(0, 137, 166))
+            else -> intArrayOf(Color.rgb(180, 255, 255), Color.rgb(0, 231, 242), Color.rgb(0, 118, 145))
         }
         fill.shader = LinearGradient(cx - hw * 0.2f, cy - hh, cx + hw * 0.12f, cy + hh,
             eyeColors, null, Shader.TileMode.CLAMP)
         c.drawPath(shape, fill)
         fill.shader = null
         edge.strokeWidth = max(1.5f, w * 0.009f)
-        edge.color = Color.argb((130f * intensity).toInt().coerceIn(0, 150), 190, 255, 210)
+        edge.color = Color.argb((130f * intensity).toInt().coerceIn(0, 150), 130, 255, 255)
         c.drawPath(shape, edge)
         // Reflections only; this intentionally never draws a black pupil.
         glint.alpha = 220
