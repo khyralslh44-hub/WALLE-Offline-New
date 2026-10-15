@@ -280,20 +280,23 @@ class RobotBrain {
     fun idle(inactiveMs: Long, next: Int): EveDecision {
         val idleMinutes = ((inactiveMs - 35_000L).coerceAtLeast(0L) / 180_000f)
         fatigue = idleMinutes.coerceIn(0f, 1f)
-        // The emotional state settles slowly instead of repeating an identical canned reply.
+        // The shared affect state settles with time, but curiosity may rise again after a quiet pause.
         valence = (valence * 0.985f + 0.002f).coerceIn(-0.5f, 0.75f)
         arousal = (arousal * 0.84f + 0.16f * 0.27f).coerceIn(0.12f, 0.80f)
         curiosity = (0.44f + 0.38f * ((sin(next * 0.71f) + 1f) / 2f)).coerceIn(0.25f, 0.90f)
 
+        val phase = ((next % 8) + 8) % 8
         val mood = when {
-            inactiveMs >= 40_000L -> EveMood.SLEEPY
-            valence > 0.56f && next % 5 == 0 -> EveMood.HAPPY
-            curiosity > 0.69f && next % 3 != 0 -> EveMood.CURIOUS
-            familiarity > 0.50f && next % 4 == 0 -> EveMood.FAMILIAR
-            next % 7 == 0 -> EveMood.SURPRISED
+            // Sleepiness is a phase, not a permanent state: the face returns to exploring on later cycles.
+            inactiveMs >= 40_000L && (phase == 1 || phase == 5) -> EveMood.SLEEPY
+            phase == 3 && curiosity > 0.48f -> EveMood.SURPRISED
+            phase == 4 -> EveMood.FOCUSED
+            phase == 6 && valence > 0.08f -> EveMood.HAPPY
+            familiarity > 0.50f && phase == 7 -> EveMood.FAMILIAR
+            curiosity > 0.66f -> EveMood.CURIOUS
             else -> EveMood.NEUTRAL
         }
-        return snapshot(mood, "autonomous idle exploration", false)
+        return snapshot(mood, "autonomous idle exploration phase=$phase", false)
     }
 
     private fun classify(item: String): Kind = when {
