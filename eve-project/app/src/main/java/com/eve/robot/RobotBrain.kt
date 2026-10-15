@@ -38,6 +38,33 @@ class RobotBrain {
 
     private enum class Kind { FOOD, ANIMAL, PERSON, PLANT, OTHER }
 
+    /** Entry point for startup so initial behavior also comes from the central affect state. */
+    @Synchronized
+    fun awakenExperience(): EveDecision {
+        valence = (valence + 0.03f).coerceAtMost(0.45f)
+        arousal = 0.48f
+        curiosity = 0.60f
+        fatigue = 0f
+        return snapshot(EveMood.AWAKE, "experience started", false)
+    }
+
+    /** Camera/permission failures are behavior events, not direct UI-only mood overrides. */
+    @Synchronized
+    fun cameraUnavailable(reason: String): EveDecision {
+        arousal = 0.22f
+        curiosity = (curiosity + 0.08f).coerceAtMost(1f)
+        return snapshot(EveMood.CONCERNED, "camera unavailable: ${reason.take(80)}", false)
+    }
+
+    /** Switching lenses becomes a sensed event that updates the shared affect snapshot. */
+    @Synchronized
+    fun cameraSwitched(lens: String): EveDecision {
+        arousal = 0.58f
+        curiosity = (curiosity + 0.12f).coerceAtMost(1f)
+        val safeLens = lens.trim().lowercase().take(16).ifBlank { "camera" }
+        return snapshot(EveMood.CURIOUS, "camera switched to $safeLens", false)
+    }
+
     @Synchronized
     fun observe(label: String, confidence: Float, sightings: Int, learnedAffinity: Float = 0f): EveDecision {
         val item = label.trim().lowercase()
