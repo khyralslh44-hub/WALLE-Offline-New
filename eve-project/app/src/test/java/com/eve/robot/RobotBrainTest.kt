@@ -193,6 +193,30 @@ class RobotBrainTest {
         assertEquals(playful.mood, RobotBrain(EvePersonality(playfulness = 0.95f)).idle(35_000L, 88).mood)
     }
 
+    @Test fun theMainEyeMoodsHaveClearlyDifferentSilhouettes() {
+        fun pose(mood: EveMood) = EyeExpressionGenerator.generate(
+            EveDecision(mood = mood, reason = "expression clarity check"),
+            seed = 7L
+        )
+
+        val neutral = pose(EveMood.NEUTRAL)
+        val surprised = pose(EveMood.SURPRISED)
+        val happy = pose(EveMood.HAPPY)
+        val irritated = pose(EveMood.IRRITATED)
+        val angry = pose(EveMood.ANGRY)
+        val sleepy = pose(EveMood.SLEEPY)
+        val playful = pose(EveMood.PLAYFUL)
+
+        assertTrue("Surprise should open the eyes wider than neutral", surprised.opening > neutral.opening)
+        assertTrue("Happiness should use a softer, narrower smile-eye pose", happy.opening < neutral.opening)
+        assertTrue("Irritation should narrow the eyes", irritated.opening < neutral.opening)
+        assertTrue("Anger should be more narrowed than irritation", angry.opening < irritated.opening)
+        assertTrue("Anger should use a sharper tilt than irritation", angry.tilt > irritated.tilt)
+        assertTrue("Anger should squint more strongly than irritation", angry.squint < irritated.squint)
+        assertTrue("Sleepiness should be the most closed expression", sleepy.opening < angry.opening)
+        assertTrue("Playfulness should include a noticeable side glance", playful.gazeX >= 0.045f)
+    }
+
     @Test fun sameAffectSnapshotAlwaysProducesTheSameEyePose() {
         val decision = RobotBrain().observe("cat", 0.92f, 1)
         val first = EyeExpressionGenerator.generate(decision, seed = 17L)
