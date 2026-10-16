@@ -330,136 +330,113 @@ class RobotFaceView(context: Context) : View(context) {
                 Path.Direction.CW
             )
         }
+        // Reference-faithful LED glyph set: every pose is built from compact cyan pixels.
+        // Expression is created by changing lids, height, width, gaze and corner shape—not by
+        // drawing a different cartoon face.
         when (eyeSilhouette) {
-            EyeSilhouette.ALMOND -> rounded(min(hw * 0.48f, glyphHh * 0.48f))
-            EyeSilhouette.NEUTRAL -> rounded(min(hw * 0.52f, glyphHh * 0.44f))
-            EyeSilhouette.SOFT -> rounded(min(hw * 0.68f, glyphHh * 0.72f))
-            EyeSilhouette.ROUND_SURPRISE -> rounded(min(hw * 0.42f, glyphHh * 0.36f))
-            EyeSilhouette.SCARED -> rounded(min(hw * 0.48f, glyphHh * 0.36f))
-            EyeSilhouette.AWE -> rounded(min(hw * 0.70f, glyphHh * 0.74f))
+            EyeSilhouette.NEUTRAL, EyeSilhouette.ALMOND, EyeSilhouette.SOFT ->
+                rounded(min(hw * 0.34f, glyphHh * 0.38f))
 
-            // Thin LED slits placed high or low in the eye socket.
-            EyeSilhouette.BLINK_HIGH -> rounded(max(1.3f, glyphHh * 0.40f))
-            EyeSilhouette.BLINK_LOW -> rounded(max(1.3f, glyphHh * 0.42f))
-            EyeSilhouette.BORED -> rounded(max(1.3f, glyphHh * 0.50f))
-            EyeSilhouette.UNIMPRESSED -> {
-                shape.moveTo(cx - hw, centerY - hh * 0.04f)
-                shape.lineTo(cx + hw, centerY - hh * 0.04f)
-                shape.lineTo(cx + hw * 0.94f, centerY + hh * 0.50f)
-                shape.quadTo(cx, centerY + hh * 0.78f, cx - hw * 0.94f, centerY + hh * 0.50f)
-                shape.close()
-            }
+            EyeSilhouette.ROUND_SURPRISE, EyeSilhouette.SCARED, EyeSilhouette.AWE ->
+                rounded(min(hw * 0.40f, glyphHh * 0.34f))
+
+            EyeSilhouette.BLINK_HIGH, EyeSilhouette.BLINK_LOW,
+            EyeSilhouette.SMILE, EyeSilhouette.GLEE,
+            EyeSilhouette.BORED, EyeSilhouette.UNIMPRESSED,
             EyeSilhouette.SQUINT -> {
-                val squintRect = RectF(cx - hw, centerY - glyphHh * 0.45f,
-                    cx + hw, centerY + glyphHh * 0.45f)
-                shape.addRoundRect(squintRect,
-                    floatArrayOf(glyphHh * 0.18f, glyphHh * 0.18f, glyphHh * 0.18f, glyphHh * 0.18f,
-                        glyphHh * 0.18f, glyphHh * 0.18f, glyphHh * 0.18f, glyphHh * 0.18f),
-                    Path.Direction.CW)
+                val slit = when (eyeSilhouette) {
+                    EyeSilhouette.BLINK_HIGH -> 0.22f
+                    EyeSilhouette.BLINK_LOW -> 0.20f
+                    EyeSilhouette.SMILE -> 0.30f
+                    EyeSilhouette.GLEE -> 0.25f
+                    EyeSilhouette.BORED -> 0.38f
+                    EyeSilhouette.UNIMPRESSED -> 0.30f
+                    else -> 0.34f
+                }
+                val r = RectF(cx - hw, centerY - glyphHh * slit, cx + hw, centerY + glyphHh * slit)
+                shape.addRoundRect(r, glyphHh * slit, glyphHh * slit, Path.Direction.CW)
             }
 
-            // Cozmo-like happy/glee poses are thin horizontal LED slits, not curved crescents.
-            EyeSilhouette.SMILE -> rounded(min(hw * 0.16f, glyphHh * 0.45f))
-            EyeSilhouette.GLEE -> {
-                // Glee is a brighter, slightly tighter slit.
-                rounded(min(hw * 0.12f, glyphHh * 0.36f))
-            }
-
-            // Droopy/sad/worried eyes use a weighted lid and downward gaze.
-            EyeSilhouette.DROOPY -> {
-                shape.moveTo(cx - hw, centerY - hh * 0.02f)
-                shape.cubicTo(cx - hw * 0.50f, centerY - hh * 0.24f,
-                    cx + hw * 0.38f, centerY - hh * 0.10f, cx + hw, centerY - hh * 0.30f)
-                shape.lineTo(cx + hw, centerY + hh * 0.42f)
-                shape.quadTo(cx + hw * 0.92f, centerY + hh, cx + hw * 0.50f, centerY + hh)
-                shape.lineTo(cx - hw * 0.52f, centerY + hh)
-                shape.quadTo(cx - hw, centerY + hh * 0.96f, cx - hw, centerY + hh * 0.48f)
-                shape.close()
-            }
             EyeSilhouette.SAD_DOWN -> {
-                shape.moveTo(cx - hw, centerY - hh * 0.36f)
-                shape.cubicTo(cx - hw * 0.38f, centerY - hh * 0.56f,
-                    cx + hw * 0.36f, centerY - hh * 0.08f, cx + hw, centerY - hh * 0.56f)
-                shape.lineTo(cx + hw, centerY + hh * 0.24f)
-                shape.quadTo(cx, centerY + hh * 0.86f, cx - hw, centerY + hh * 0.30f)
+                // Down-looking sadness: upper lid is lowered toward the inner/upper edge.
+                shape.moveTo(cx - hw, centerY - hh * 0.10f)
+                shape.quadTo(cx, centerY + hh * 0.20f, cx + hw, centerY + hh * 0.02f)
+                shape.lineTo(cx + hw, centerY + hh * 0.54f)
+                shape.quadTo(cx, centerY + hh * 0.72f, cx - hw, centerY + hh * 0.50f)
                 shape.close()
             }
+
             EyeSilhouette.SAD_UP -> {
-                shape.moveTo(cx - hw, centerY - hh * 0.42f)
-                shape.cubicTo(cx - hw * 0.48f, centerY - hh * 0.92f,
-                    cx + hw * 0.30f, centerY - hh * 0.52f, cx + hw, centerY - hh * 0.20f)
-                shape.lineTo(cx + hw * 0.92f, centerY + hh * 0.42f)
-                shape.quadTo(cx, centerY + hh * 0.72f, cx - hw * 0.86f, centerY + hh * 0.40f)
+                // Up-looking sadness: the top edge rises toward the outside, like the reference sheet.
+                shape.moveTo(cx - hw, centerY - hh * 0.52f)
+                shape.quadTo(cx, centerY - hh * 0.72f, cx + hw, centerY - hh * 0.20f)
+                shape.lineTo(cx + hw, centerY + hh * 0.44f)
+                shape.quadTo(cx, centerY + hh * 0.64f, cx - hw, centerY + hh * 0.42f)
                 shape.close()
             }
+
             EyeSilhouette.WORRIED -> {
-                shape.moveTo(cx - hw, centerY - hh * 0.34f)
-                shape.cubicTo(cx - hw * 0.45f, centerY - hh * 0.98f,
-                    cx + hw * 0.28f, centerY - hh * 0.52f, cx + hw, centerY - hh * 0.74f)
-                shape.lineTo(cx + hw, centerY + hh * 0.48f)
-                shape.cubicTo(cx + hw * 0.38f, centerY + hh * 0.94f,
-                    cx - hw * 0.48f, centerY + hh * 0.86f, cx - hw, centerY + hh * 0.42f)
+                // Worried: tall rounded block with a raised inner lid.
+                val r = RectF(cx - hw, centerY - glyphHh * 0.78f, cx + hw, centerY + glyphHh * 0.78f)
+                shape.addRoundRect(r, glyphHh * 0.25f, glyphHh * 0.25f, Path.Direction.CW)
+                shape.moveTo(cx - hw, centerY - glyphHh * 0.48f)
+                shape.quadTo(cx, centerY - glyphHh * 0.82f, cx + hw, centerY - glyphHh * 0.58f)
+                shape.lineTo(cx + hw, centerY - glyphHh * 0.36f)
+                shape.quadTo(cx, centerY - glyphHh * 0.55f, cx - hw, centerY - glyphHh * 0.25f)
                 shape.close()
             }
+
             EyeSilhouette.FOCUSED -> {
-                // Determined eyes stay pixel-like; a subtle slant is created by lid position,
-                // while the LED body retains the reference's rounded rectangular silhouette.
-                val focusedRect = RectF(cx - hw, centerY - glyphHh * 0.76f,
-                    cx + hw, centerY + glyphHh * 0.76f)
-                shape.addRoundRect(focusedRect,
-                    floatArrayOf(glyphHh * 0.28f, glyphHh * 0.28f, glyphHh * 0.18f, glyphHh * 0.18f,
-                        glyphHh * 0.18f, glyphHh * 0.18f, glyphHh * 0.28f, glyphHh * 0.28f),
-                    Path.Direction.CW)
+                // Determined/focused: one clean compact pixel with a slightly heavier lower lid.
+                val r = RectF(cx - hw, centerY - glyphHh * 0.68f, cx + hw, centerY + glyphHh * 0.68f)
+                shape.addRoundRect(r, glyphHh * 0.20f, glyphHh * 0.20f, Path.Direction.CW)
             }
+
             EyeSilhouette.ANNOYED -> {
-                // Annoyance is a low, slightly slanted LED slit rather than a sharp polygon.
-                val annoyedRect = RectF(cx - hw, centerY - glyphHh * 0.42f,
-                    cx + hw, centerY + glyphHh * 0.42f)
-                shape.addRoundRect(annoyedRect,
-                    floatArrayOf(glyphHh * 0.16f, glyphHh * 0.16f, glyphHh * 0.12f, glyphHh * 0.12f,
-                        glyphHh * 0.20f, glyphHh * 0.20f, glyphHh * 0.14f, glyphHh * 0.14f),
-                    Path.Direction.CW)
+                // Annoyed: narrowed horizontal block; no cartoon mouth or extra marks.
+                val r = RectF(cx - hw, centerY - glyphHh * 0.30f, cx + hw, centerY + glyphHh * 0.30f)
+                shape.addRoundRect(r, glyphHh * 0.18f, glyphHh * 0.18f, Path.Direction.CW)
             }
+
+            EyeSilhouette.SKEPTIC, EyeSilhouette.SUSPICIOUS -> {
+                // One lid is lower than the other. The two eyes remain individually readable.
+                val extra = if ((side < 0) == (eyeSilhouette == EyeSilhouette.SKEPTIC)) 0.22f else 0f
+                val top = -glyphHh * (0.56f - extra)
+                val bottom = glyphHh * 0.48f
+                val r = RectF(cx - hw, centerY + top, cx + hw, centerY + bottom)
+                shape.addRoundRect(r, glyphHh * 0.18f, glyphHh * 0.18f, Path.Direction.CW)
+            }
+
+            EyeSilhouette.DROOPY -> {
+                val r = RectF(cx - hw, centerY - glyphHh * 0.32f, cx + hw, centerY + glyphHh * 0.48f)
+                shape.addRoundRect(r, glyphHh * 0.22f, glyphHh * 0.22f, Path.Direction.CW)
+            }
+
             EyeSilhouette.SHARP -> {
-                shape.moveTo(cx + side * hw, centerY - hh * 0.84f)
-                shape.lineTo(cx - side * hw, centerY - hh * 0.26f)
-                shape.cubicTo(cx - side * hw * 0.98f, centerY + hh * 0.08f,
-                    cx - side * hw * 0.73f, centerY + hh * 0.84f, cx, centerY + hh * 0.90f)
-                shape.cubicTo(cx + side * hw * 0.72f, centerY + hh * 0.86f,
-                    cx + side * hw, centerY + hh * 0.34f, cx + side * hw, centerY - hh * 0.84f)
+                // Angry: the inner upper corner is lowered while the LED body stays compact.
+                val inner = cx - side * hw
+                val outer = cx + side * hw
+                shape.moveTo(outer, centerY - glyphHh * 0.62f)
+                shape.lineTo(inner, centerY - glyphHh * 0.18f)
+                shape.lineTo(inner, centerY + glyphHh * 0.44f)
+                shape.quadTo(cx, centerY + glyphHh * 0.62f, outer, centerY + glyphHh * 0.40f)
                 shape.close()
             }
+
             EyeSilhouette.FURIOUS -> {
-                // Furious keeps a broad LED block with a lowered inner corner.
-                val furiousRect = RectF(cx - hw, centerY - glyphHh * 0.58f,
-                    cx + hw, centerY + glyphHh * 0.58f)
-                shape.addRoundRect(furiousRect,
-                    floatArrayOf(glyphHh * 0.08f, glyphHh * 0.08f, glyphHh * 0.30f, glyphHh * 0.30f,
-                        glyphHh * 0.12f, glyphHh * 0.12f, glyphHh * 0.26f, glyphHh * 0.26f),
-                    Path.Direction.CW)
+                // Furious: broader, low-set block with a strong inward brow.
+                val inner = cx - side * hw
+                val outer = cx + side * hw
+                shape.moveTo(outer, centerY - glyphHh * 0.54f)
+                shape.lineTo(inner, centerY + glyphHh * 0.02f)
+                shape.lineTo(inner, centerY + glyphHh * 0.50f)
+                shape.lineTo(outer, centerY + glyphHh * 0.38f)
+                shape.close()
             }
-            EyeSilhouette.SKEPTIC -> {
-                // Skepticism is a one-sided lowered lid; avoid the reference-breaking wavy outline.
-                val skepticH = glyphHh * if (side < 0) 0.64f else 0.92f
-                val skepticRect = RectF(cx - hw, centerY - skepticH * 0.5f,
-                    cx + hw, centerY + skepticH * 0.5f)
-                shape.addRoundRect(skepticRect,
-                    floatArrayOf(skepticH * 0.24f, skepticH * 0.24f, skepticH * 0.18f, skepticH * 0.18f,
-                        skepticH * 0.18f, skepticH * 0.18f, skepticH * 0.24f, skepticH * 0.24f),
-                    Path.Direction.CW)
-            }
-            EyeSilhouette.SUSPICIOUS -> {
-                val suspiciousRect = RectF(cx - hw, centerY - glyphHh * 0.44f,
-                    cx + hw, centerY + glyphHh * 0.44f)
-                shape.addRoundRect(suspiciousRect,
-                    floatArrayOf(glyphHh * 0.08f, glyphHh * 0.08f, glyphHh * 0.22f, glyphHh * 0.22f,
-                        glyphHh * 0.14f, glyphHh * 0.14f, glyphHh * 0.22f, glyphHh * 0.22f),
-                    Path.Direction.CW)
-            }
+
             EyeSilhouette.PLAYFUL -> {
-                // Preserve Cozmo-like rounded LED pixels; curiosity is shown with gaze/asymmetry,
-                // not by skewing each whole eye into a parallelogram.
-                rounded(min(hw * 0.28f, glyphHh * 0.34f))
+                // Playful/curious: keep the rounded LED pixel and let gaze/asymmetry carry the emotion.
+                rounded(min(hw * 0.30f, glyphHh * 0.34f))
             }
         }
         if (opacity <= 0.005f) return
