@@ -310,6 +310,12 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onStart() {
+        super.onStart()
+        // Returning to EVE cancels the pending background reminder.
+        EveNotificationScheduler.onForeground(this)
+    }
+
     override fun onResume() {
         super.onResume()
         if (::face.isInitialized) {
@@ -318,6 +324,12 @@ class MainActivity : ComponentActivity() {
             main.postDelayed(idleLoop, 5200L)
         }
         if (::face.isInitialized && hasCameraPermission() && !cameraStarted) startCamera()
+    }
+
+    override fun onStop() {
+        // Schedule a contextual local message only after the activity actually leaves the screen.
+        EveNotificationScheduler.onBackground(this)
+        super.onStop()
     }
 
     override fun onPause() {
@@ -502,6 +514,13 @@ class MainActivity : ComponentActivity() {
                 if (best.confidence >= 0.80f && isMeaningfulLabel(label)) {
                     lastMeaningfulLabel = label
                     lastMeaningfulLabelAt = elapsed
+                    // Persist only the latest high-confidence label and a count; never camera frames.
+                    getSharedPreferences("eve_relationship", MODE_PRIVATE).edit()
+                        .putString("lastObservationLabel", label)
+                        .putFloat("lastObservationConfidence", best.confidence)
+                        .putInt("lastObservationCount", sightings)
+                        .putLong("lastObservationAt", System.currentTimeMillis())
+                        .apply()
                 }
                 val affinity = memory.learnedAffinity(label)
                 val decision = brain.observe(label, best.confidence, sightings, affinity)
@@ -767,6 +786,12 @@ class MainActivity : ComponentActivity() {
         if (!decision.reason.startsWith("contextual idle:")) {
             lastInteractionAt = SystemClock.elapsedRealtime()
         }
+        // Persist a compact affect snapshot so generated reminders use EVE's recent state.
+        getSharedPreferences("eve_relationship", MODE_PRIVATE).edit()
+            .putString("lastMood", decision.mood.name)
+            .putString("lastMoodReason", decision.reason.take(160))
+            .putLong("lastMoodAt", System.currentTimeMillis())
+            .apply()
         face.setExpression(decision, System.currentTimeMillis())
         if (playSound) voice.speakMood(decision.mood)
         Log.i("EVE", "BEHAVIOR mood=${decision.mood} reason=${decision.reason}")
