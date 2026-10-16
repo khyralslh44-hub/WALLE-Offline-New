@@ -78,13 +78,6 @@ class RobotFaceView(context: Context) : View(context) {
     private var blinkStarted = 0L
     private var blinkDurationMs = 180L
     private var animate = false
-    private var glanceX = 0f
-    private var glanceY = 0f
-    private var targetGlanceX = 0f
-    private var targetGlanceY = 0f
-    private var nextGlanceAt = SystemClock.uptimeMillis() + 3000L
-    private var scanStep = 0
-
     init {
         isClickable = true
         contentDescription = "EVE_CYAN_EXPRESSION_FACE"
@@ -201,9 +194,6 @@ class RobotFaceView(context: Context) : View(context) {
         // Do not invent a new emotion/gaze every few seconds. Cozmo-style micro-animation
         // is driven by explicit interaction decisions; idle mode only blinks. This prevents
         // the face from changing when the camera has seen nothing new.
-        val glanceEase = if (animate) 0.075f else 1f
-        glanceX += (targetGlanceX - glanceX) * glanceEase
-        glanceY += (targetGlanceY - glanceY) * glanceEase
         val idleGaze = 0f
         val idleGazeY = 0f
         val breath = 1f
@@ -223,11 +213,11 @@ class RobotFaceView(context: Context) : View(context) {
 
         fun drawExpressionLayer(style: EyeSilhouette, alpha: Float) {
             if (alpha <= 0.005f) return
-            drawEye(canvas, width * 0.5f - gap + (gazeX + idleGaze + glanceX) * width,
-                cy + (gazeY + idleGazeY + glanceY * 0.42f) * height, w * (1f + asymmetry * 0.24f), h,
+            drawEye(canvas, width * 0.5f - gap + (gazeX + idleGaze) * width,
+                cy + (gazeY + idleGazeY + 0f) * height, w * (1f + asymmetry * 0.24f), h,
                 opening * blink * breath * (1f + asymmetry * 0.30f), tilt * 0.18f, glow, squint, contour, -1, style, alpha)
-            drawEye(canvas, width * 0.5f + gap + (gazeX + idleGaze + glanceX + asymmetry * 0.025f) * width,
-                cy + (gazeY + idleGazeY + glanceY * 0.42f - asymmetry * 0.035f) * height, w * (1f - asymmetry * 0.24f), h,
+            drawEye(canvas, width * 0.5f + gap + (gazeX + idleGaze + asymmetry * 0.025f) * width,
+                cy + (gazeY + idleGazeY + 0f - asymmetry * 0.035f) * height, w * (1f - asymmetry * 0.24f), h,
                 opening * blink * breath * (1f - asymmetry * 0.30f), -tilt * 0.18f, glow, squint, contour, 1, style, alpha)
         }
 
