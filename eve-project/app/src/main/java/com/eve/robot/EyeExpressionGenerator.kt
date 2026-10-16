@@ -95,8 +95,8 @@ object EyeExpressionGenerator {
             EveMood.FAMILIAR -> opening.coerceIn(0.74f, 0.92f)
             EveMood.CONCERNED -> minOf(opening, 0.58f)
             EveMood.FOCUSED -> minOf(opening, 0.48f)
-            EveMood.IRRITATED -> minOf(opening, 0.43f)
-            EveMood.ANGRY -> minOf(opening, 0.34f)
+            EveMood.IRRITATED -> minOf(opening, 0.50f)
+            EveMood.ANGRY -> minOf(opening, 0.43f)
             EveMood.SLEEPY -> minOf(opening, 0.19f)
         }.coerceIn(0.14f, 1.20f)
 
