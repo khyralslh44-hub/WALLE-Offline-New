@@ -314,7 +314,7 @@ class RobotFaceView(context: Context) : View(context) {
         }
         when (eyeSilhouette) {
             EyeSilhouette.ALMOND -> rounded(min(hw * 0.34f, glyphHh * 0.50f))
-            EyeSilhouette.NEUTRAL -> rounded(min(hw * 0.20f, glyphHh * 0.24f))
+            EyeSilhouette.NEUTRAL -> rounded(min(hw * 0.22f, glyphHh * 0.26f))
             EyeSilhouette.SOFT -> rounded(min(hw * 0.84f, glyphHh * 0.82f))
             EyeSilhouette.ROUND_SURPRISE -> rounded(min(hw * 0.26f, glyphHh * 0.34f))
             EyeSilhouette.SCARED -> rounded(min(hw * 0.38f, glyphHh * 0.45f))
@@ -332,11 +332,12 @@ class RobotFaceView(context: Context) : View(context) {
                 shape.close()
             }
             EyeSilhouette.SQUINT -> {
-                shape.moveTo(cx - hw, centerY - hh * 0.12f)
-                shape.quadTo(cx, centerY - hh * 0.42f, cx + hw, centerY - hh * 0.12f)
-                shape.lineTo(cx + hw * 0.88f, centerY + hh * 0.20f)
-                shape.quadTo(cx, centerY + hh * 0.38f, cx - hw * 0.88f, centerY + hh * 0.20f)
-                shape.close()
+                val squintRect = RectF(cx - hw, centerY - glyphHh * 0.45f,
+                    cx + hw, centerY + glyphHh * 0.45f)
+                shape.addRoundRect(squintRect,
+                    floatArrayOf(glyphHh * 0.18f, glyphHh * 0.18f, glyphHh * 0.18f, glyphHh * 0.18f,
+                        glyphHh * 0.18f, glyphHh * 0.18f, glyphHh * 0.18f, glyphHh * 0.18f),
+                    Path.Direction.CW)
             }
 
             // Cozmo-like happy/glee poses are thin horizontal LED slits, not curved crescents.
@@ -383,20 +384,23 @@ class RobotFaceView(context: Context) : View(context) {
                 shape.close()
             }
             EyeSilhouette.FOCUSED -> {
-                shape.moveTo(cx - hw, centerY - hh * 0.28f)
-                shape.lineTo(cx - hw * 0.64f, centerY - hh * 0.78f)
-                shape.quadTo(cx, centerY - hh * 0.94f, cx + hw * 0.60f, centerY - hh * 0.70f)
-                shape.lineTo(cx + hw, centerY - hh * 0.14f)
-                shape.lineTo(cx + hw * 0.86f, centerY + hh * 0.72f)
-                shape.quadTo(cx, centerY + hh, cx - hw * 0.78f, centerY + hh * 0.66f)
-                shape.close()
+                // Determined eyes stay pixel-like; a subtle slant is created by lid position,
+                // while the LED body retains the reference's rounded rectangular silhouette.
+                val focusedRect = RectF(cx - hw, centerY - glyphHh * 0.76f,
+                    cx + hw, centerY + glyphHh * 0.76f)
+                shape.addRoundRect(focusedRect,
+                    floatArrayOf(glyphHh * 0.28f, glyphHh * 0.28f, glyphHh * 0.18f, glyphHh * 0.18f,
+                        glyphHh * 0.18f, glyphHh * 0.18f, glyphHh * 0.28f, glyphHh * 0.28f),
+                    Path.Direction.CW)
             }
             EyeSilhouette.ANNOYED -> {
-                shape.moveTo(cx - hw, centerY - hh * 0.68f)
-                shape.lineTo(cx + hw, centerY - hh * 0.20f)
-                shape.lineTo(cx + hw * 0.90f, centerY + hh * 0.48f)
-                shape.quadTo(cx, centerY + hh * 0.72f, cx - hw * 0.92f, centerY + hh * 0.40f)
-                shape.close()
+                // Annoyance is a low, slightly slanted LED slit rather than a sharp polygon.
+                val annoyedRect = RectF(cx - hw, centerY - glyphHh * 0.42f,
+                    cx + hw, centerY + glyphHh * 0.42f)
+                shape.addRoundRect(annoyedRect,
+                    floatArrayOf(glyphHh * 0.16f, glyphHh * 0.16f, glyphHh * 0.12f, glyphHh * 0.12f,
+                        glyphHh * 0.20f, glyphHh * 0.20f, glyphHh * 0.14f, glyphHh * 0.14f),
+                    Path.Direction.CW)
             }
             EyeSilhouette.SHARP -> {
                 shape.moveTo(cx + side * hw, centerY - hh * 0.84f)
@@ -408,27 +412,31 @@ class RobotFaceView(context: Context) : View(context) {
                 shape.close()
             }
             EyeSilhouette.FURIOUS -> {
-                shape.moveTo(cx + side * hw, centerY - hh * 0.98f)
-                shape.lineTo(cx - side * hw, centerY - hh * 0.05f)
-                shape.lineTo(cx - side * hw * 0.72f, centerY + hh * 0.34f)
-                shape.quadTo(cx, centerY + hh * 0.76f, cx + side * hw, centerY + hh * 0.60f)
-                shape.close()
+                // Furious keeps a broad LED block with a lowered inner corner.
+                val furiousRect = RectF(cx - hw, centerY - glyphHh * 0.58f,
+                    cx + hw, centerY + glyphHh * 0.58f)
+                shape.addRoundRect(furiousRect,
+                    floatArrayOf(glyphHh * 0.08f, glyphHh * 0.08f, glyphHh * 0.30f, glyphHh * 0.30f,
+                        glyphHh * 0.12f, glyphHh * 0.12f, glyphHh * 0.26f, glyphHh * 0.26f),
+                    Path.Direction.CW)
             }
             EyeSilhouette.SKEPTIC -> {
-                val tilt = side * hh * 0.28f
-                shape.moveTo(cx - hw, centerY - hh * 0.48f - tilt)
-                shape.cubicTo(cx - hw * 0.30f, centerY - hh * 0.88f,
-                    cx + hw * 0.42f, centerY - hh * 0.20f + tilt, cx + hw, centerY - hh * 0.40f + tilt)
-                shape.lineTo(cx + hw * 0.94f, centerY + hh * 0.38f)
-                shape.quadTo(cx, centerY + hh * 0.78f, cx - hw, centerY + hh * 0.30f)
-                shape.close()
+                // Skepticism is a one-sided lowered lid; avoid the reference-breaking wavy outline.
+                val skepticH = glyphHh * if (side < 0) 0.64f else 0.92f
+                val skepticRect = RectF(cx - hw, centerY - skepticH * 0.5f,
+                    cx + hw, centerY + skepticH * 0.5f)
+                shape.addRoundRect(skepticRect,
+                    floatArrayOf(skepticH * 0.24f, skepticH * 0.24f, skepticH * 0.18f, skepticH * 0.18f,
+                        skepticH * 0.18f, skepticH * 0.18f, skepticH * 0.24f, skepticH * 0.24f),
+                    Path.Direction.CW)
             }
             EyeSilhouette.SUSPICIOUS -> {
-                shape.moveTo(cx - hw, centerY - hh * 0.60f)
-                shape.lineTo(cx + hw, centerY - hh * 0.08f)
-                shape.lineTo(cx + hw * 0.88f, centerY + hh * 0.34f)
-                shape.quadTo(cx, centerY + hh * 0.52f, cx - hw, centerY + hh * 0.28f)
-                shape.close()
+                val suspiciousRect = RectF(cx - hw, centerY - glyphHh * 0.44f,
+                    cx + hw, centerY + glyphHh * 0.44f)
+                shape.addRoundRect(suspiciousRect,
+                    floatArrayOf(glyphHh * 0.08f, glyphHh * 0.08f, glyphHh * 0.22f, glyphHh * 0.22f,
+                        glyphHh * 0.14f, glyphHh * 0.14f, glyphHh * 0.22f, glyphHh * 0.22f),
+                    Path.Direction.CW)
             }
             EyeSilhouette.PLAYFUL -> {
                 // Preserve Cozmo-like rounded LED pixels; curiosity is shown with gaze/asymmetry,
