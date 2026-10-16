@@ -2,6 +2,7 @@ package com.eve.robot
 
 import android.graphics.Color
 import android.graphics.Typeface
+import android.content.Intent
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -177,6 +178,7 @@ class RobotGamesActivity : ComponentActivity() {
         addWideButton("⭕  إكس-أو — أحاول ألّا أترك لك فرصة", ::startXo)
         addWideButton("✊  حجر • ورقة • مقص — أتعلّم من اختياراتك", ::startRps)
         addWideButton("🎨  Paint Shot — لعبة طلقات الطلاء", ::startPaintShot, true)
+        addWideButton("📷  طلقات افتراضية عبر الكاميرا", ::startCameraShots, true)
         addWideButton("🎯  إصابة الهدف — هل ردّ فعلك أسرع؟", ::startTarget)
         addWideButton("◈  ذاكرة الأنماط — كرّر تسلسل الإضاءة", ::startMemory)
         addWideButton("⚡  اختبار سرعة الاستجابة", ::startReflex)
@@ -188,6 +190,11 @@ class RobotGamesActivity : ComponentActivity() {
         ))
         addSpace(12)
         addWideButton("عودة إلى وجه إيف", { finish() })
+    }
+
+    /** Opens live camera mode with offline, purely visual virtual projectile effects. */
+    private fun startCameraShots() {
+        startActivity(Intent(this, CameraShotActivity::class.java))
     }
 
     private fun saveResult(name: String, result: String) {
