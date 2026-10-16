@@ -30,7 +30,10 @@ class RobotFaceView(context: Context) : View(context) {
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
     }
-    private val glint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(210, 255, 255) }
+    private val segmentCuts = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(112, 0, 42, 54)
+        style = Paint.Style.FILL
+    }
     private val shape = Path()
     private var mood = EveMood.AWAKE
     private var silhouette = EyeSilhouette.ALMOND
@@ -469,6 +472,26 @@ class RobotFaceView(context: Context) : View(context) {
             else -> Color.rgb(20, 218, 228)
         }
         c.drawPath(shape, fill)
+
+        // The reference's rounded LED pixels are visibly segmented on the block-like poses.
+        // Clip the dark horizontal separators to the glyph so they never escape its rounded edge.
+        val segmentCount = when (eyeSilhouette) {
+            EyeSilhouette.NEUTRAL, EyeSilhouette.ALMOND, EyeSilhouette.SOFT -> 2
+            EyeSilhouette.ROUND_SURPRISE, EyeSilhouette.SCARED, EyeSilhouette.AWE,
+            EyeSilhouette.FOCUSED -> 1
+            else -> 0
+        }
+        if (segmentCount > 0 && glyphHh >= 3f) {
+            c.save()
+            c.clipPath(shape)
+            val cutHeight = max(1f, glyphHh * 0.075f)
+            for (i in 1..segmentCount) {
+                val y = centerY - glyphHh + (2f * glyphHh * i / (segmentCount + 1))
+                c.drawRect(cx - hw - 1f, y - cutHeight * 0.5f,
+                    cx + hw + 1f, y + cutHeight * 0.5f, segmentCuts)
+            }
+            c.restore()
+        }
         c.restore()
         c.restoreToCount(layerSave)
     }
