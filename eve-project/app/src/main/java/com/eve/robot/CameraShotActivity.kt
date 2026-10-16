@@ -238,6 +238,10 @@ internal class CameraShotOverlay(
     private fun dp(value: Int): Int =
         (value * resources.displayMetrics.density + 0.5f).toInt()
 
+    /** Preserve fractional stroke widths for Canvas paints (e.g. 1.5dp). */
+    private fun dp(value: Float): Float =
+        value * resources.displayMetrics.density
+
     override fun onTouchEvent(event: MotionEvent): Boolean {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> return true
