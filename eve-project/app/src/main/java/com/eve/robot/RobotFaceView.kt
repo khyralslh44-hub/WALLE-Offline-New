@@ -473,23 +473,19 @@ class RobotFaceView(context: Context) : View(context) {
         }
         c.drawPath(shape, fill)
 
-        // The reference's rounded LED pixels are visibly segmented on the block-like poses.
-        // Clip the dark horizontal separators to the glyph so they never escape its rounded edge.
-        val segmentCount = when (eyeSilhouette) {
-            EyeSilhouette.NEUTRAL, EyeSilhouette.ALMOND, EyeSilhouette.SOFT -> 2
-            EyeSilhouette.ROUND_SURPRISE, EyeSilhouette.SCARED, EyeSilhouette.AWE,
-            EyeSilhouette.FOCUSED -> 1
-            else -> 0
+        // Cozmo/Vector-style neutral LEDs read as two vertical cyan blocks per eye.
+        // Split each glyph vertically (not into horizontal stripes), clipped to its rounded contour.
+        val splitVertically = when (eyeSilhouette) {
+            EyeSilhouette.NEUTRAL, EyeSilhouette.ALMOND, EyeSilhouette.SOFT,
+            EyeSilhouette.FOCUSED -> true
+            else -> false
         }
-        if (segmentCount > 0 && glyphHh >= 3f) {
+        if (splitVertically && hw >= 4f && glyphHh >= 3f) {
             c.save()
             c.clipPath(shape)
-            val cutHeight = max(1f, glyphHh * 0.075f)
-            for (i in 1..segmentCount) {
-                val y = centerY - glyphHh + (2f * glyphHh * i / (segmentCount + 1))
-                c.drawRect(cx - hw - 1f, y - cutHeight * 0.5f,
-                    cx + hw + 1f, y + cutHeight * 0.5f, segmentCuts)
-            }
+            val cutWidth = max(1f, hw * 0.10f)
+            c.drawRect(cx - cutWidth * 0.5f, centerY - glyphHh - 1f,
+                cx + cutWidth * 0.5f, centerY + glyphHh + 1f, segmentCuts)
             c.restore()
         }
         c.restore()
