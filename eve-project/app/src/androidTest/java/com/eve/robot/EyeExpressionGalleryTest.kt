@@ -149,7 +149,7 @@ class EyeExpressionGalleryTest {
             val renderedWidth = maxX - minX + 1
             val renderedHeight = maxY - minY + 1
 
-            // The reference's neutral/familiar LED eyes are compact horizontal rounded blocks.
+            // The reference's neutral/familiar LED eyes are compact, rounded blocks close to square.
             // Check each eye independently so the gap between them cannot distort the ratio.
             if (item.expected in setOf(EyeSilhouette.ALMOND, EyeSilhouette.NEUTRAL, EyeSilhouette.SOFT)) {
                 fun eyeBoundsInHalf(startX: Int, endX: Int): IntArray? {
@@ -186,7 +186,7 @@ class EyeExpressionGalleryTest {
                     assertTrue(
                         "${item.label} $side eye should match a horizontal rounded LED block; " +
                             "measured ${eyeWidth}x${eyeHeight} (ratio=$ratio).",
-                        ratio in 1.25f..3.40f
+                        ratio in 0.95f..1.85f
                     )
                 }
             }

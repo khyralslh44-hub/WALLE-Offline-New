@@ -269,7 +269,9 @@ class RobotFaceView(context: Context) : View(context) {
             else -> 1f
         }
         val heightScale = when (eyeSilhouette) {
-            EyeSilhouette.NEUTRAL, EyeSilhouette.ALMOND, EyeSilhouette.SOFT -> 1.03f
+            // In the supplied Cozmo sheet, the normal eyes are close to square rounded pixels,
+            // not the flatter bars used for happy/blink expressions.
+            EyeSilhouette.NEUTRAL, EyeSilhouette.ALMOND, EyeSilhouette.SOFT -> 1.20f
             EyeSilhouette.ROUND_SURPRISE -> 1.24f
             EyeSilhouette.SCARED -> 1.34f
             EyeSilhouette.AWE -> 1.18f
