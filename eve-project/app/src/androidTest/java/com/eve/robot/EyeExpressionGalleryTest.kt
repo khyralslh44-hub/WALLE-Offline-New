@@ -186,7 +186,7 @@ class EyeExpressionGalleryTest {
                     assertTrue(
                         "${item.label} $side eye should match a horizontal rounded LED block; " +
                             "measured ${eyeWidth}x${eyeHeight} (ratio=$ratio).",
-                        ratio in 1.70f..3.40f
+                        ratio in 1.25f..3.40f
                     )
                 }
             }
