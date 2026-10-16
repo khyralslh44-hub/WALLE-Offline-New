@@ -55,6 +55,8 @@ class RobotGamesActivity : ComponentActivity() {
     private var targetRound = 0
     private var targetFinished = false
     private var targetDeadline = 0L
+    private var targetCell = 4
+    private var targetMoveTask: Runnable? = null
 
     // Memory sequence
     private val sequence = mutableListOf<Int>()
@@ -62,6 +64,7 @@ class RobotGamesActivity : ComponentActivity() {
     private var memoryShowing = false
     private var memoryFinished = false
     private var memoryLevel = 1
+    private var memoryCue: TextView? = null
 
     // Reflex challenge
     private var reflexReady = false
@@ -433,34 +436,93 @@ class RobotGamesActivity : ComponentActivity() {
 
     // ------------------------------------------------------------------ Target practice
     private fun startTarget() {
+        targetMoveTask?.let(handler::removeCallbacks)
         game = Game.TARGET
-        targetScore = 0; targetRound = 0; targetFinished = false
+        targetScore = 0
+        targetRound = 0
+        targetFinished = false
+        targetCell = random.nextInt(9)
+        statusText = "اضرب الدائرة التركوازية قبل أن تنتقل إلى مربع آخر."
         renderTarget()
+        scheduleTargetMove()
     }
 
     private fun renderTarget() {
         root.removeAllViews()
-        header("إصابة الهدف", "المس الدائرة قبل أن تتحرك. أمامك عشر محاولات.")
+        header("إصابة الهدف", "المس الدائرة التركوازية قبل أن تنتقل. أمامك عشر محاولات.")
         root.addView(text("الإصابات: $targetScore / $targetRound", 21f, cyan, true))
-        addWideButton("◉  اضرب الهدف الآن", { hitTarget() }, true)
+        val grid = GridLayout(this).apply { columnCount = 3 }
+        for (cellIndex in 0..8) {
+            val isTarget = cellIndex == targetCell
+            val cell = button(if (isTarget) "●" else "·", { hitTarget(cellIndex) }, isTarget)
+            cell.textSize = if (isTarget) 31f else 25f
+            cell.setTextColor(if (isTarget) dark else muted)
+            cell.setBackgroundColor(if (isTarget) cyan else panel2)
+            grid.addView(cell, GridLayout.LayoutParams().apply {
+                width = 0
+                height = dp(76)
+                columnSpec = GridLayout.spec(cellIndex % 3, 1f)
+                rowSpec = GridLayout.spec(cellIndex / 3, 1f)
+                setMargins(dp(4), dp(4), dp(4), dp(4))
+            })
+        }
+        root.addView(grid, LinearLayout.LayoutParams(-1, -2))
         root.addView(text(statusText, 14f, muted))
         addWideButton("ابدأ من جديد", ::startTarget)
         addWideButton("قائمة الألعاب", ::showMenu)
     }
 
-    private fun hitTarget() {
+    private fun scheduleTargetMove() {
+        targetMoveTask?.let(handler::removeCallbacks)
+        if (game != Game.TARGET || targetFinished || isFinishing) return
+        val delay = 700L + random.nextLong(650L)
+        targetDeadline = SystemClock.elapsedRealtime() + delay
+        val task = Runnable {
+            if (game != Game.TARGET || targetFinished || isFinishing) return@Runnable
+            val previous = targetCell
+            val next = random.nextInt(8)
+            targetCell = if (next >= previous) next + 1 else next
+            statusText = "تحرّك الهدف! تتبّع الدائرة."
+            renderTarget()
+            scheduleTargetMove()
+        }
+        targetMoveTask = task
+        handler.postDelayed(task, delay)
+    }
+
+    private fun hitTarget(cellIndex: Int) {
         if (game != Game.TARGET || targetFinished) return
         val now = SystemClock.elapsedRealtime()
-        val delay = if (targetDeadline == 0L) 700L else (targetDeadline - now).coerceAtLeast(250L)
+        val hit = cellIndex == targetCell && now <= targetDeadline
+        targetMoveTask?.let(handler::removeCallbacks)
         targetRound++
-        if (delay > 600L) { statusText = "أبطأت قليلًا؛ الهدف تحرّك قبل إصابته." }
-        else { targetScore++; statusText = listOf("إصابة دقيقة!", "سريع! بدأت أتوقع حركتك.", "هذه نقطة لك.")[targetScore % 3] }
-        targetDeadline = now + (350L + random.nextInt(750))
+        if (hit) {
+            targetScore++
+            statusText = listOf(
+                "إصابة دقيقة!", "سريع! بدأت أتوقع حركتك.", "هذه نقطة لك."
+            )[targetScore % 3]
+        } else {
+            statusText = "لم تصب الهدف في الوقت المناسب. راقب مكانه الجديد."
+        }
         if (targetRound >= 10) {
             targetFinished = true
-            val result = when { targetScore >= 8 -> "player"; targetScore <= 3 -> "robot"; else -> "draw" }
+            targetMoveTask = null
+            val result = when {
+                targetScore >= 8 -> "player"
+                targetScore <= 3 -> "robot"
+                else -> "draw"
+            }
             saveResult("target", result)
             statusText += " انتهت الجولة: $targetScore من 10."
+        } else {
+            if (hit || cellIndex == targetCell || now > targetDeadline) {
+                val previous = targetCell
+                val next = random.nextInt(8)
+                targetCell = if (next >= previous) next + 1 else next
+            }
+            renderTarget()
+            scheduleTargetMove()
+            return
         }
         renderTarget()
     }
@@ -480,6 +542,13 @@ class RobotGamesActivity : ComponentActivity() {
         root.removeAllViews()
         header("ذاكرة الأنماط", message)
         root.addView(text("المستوى $memoryLevel • طول التسلسل ${sequence.size}", 20f, cyan, true))
+        memoryCue = text("استعد لمشاهدة الألوان…", 19f, ivory, true).apply {
+            setBackgroundColor(panel)
+            minHeight = dp(70)
+        }
+        root.addView(memoryCue, LinearLayout.LayoutParams(-1, dp(76)).apply {
+            bottomMargin = dp(8)
+        })
         val grid = GridLayout(this).apply { columnCount = 2 }
         val names = listOf("أزرق", "أخضر", "برتقالي", "بنفسجي")
         names.forEachIndexed { index, name ->
@@ -500,16 +569,29 @@ class RobotGamesActivity : ComponentActivity() {
     private fun playSequence() {
         memoryShowing = true
         memoryInput = 0
+        memoryCue?.text = "راقب الألوان…"
+        memoryCue?.setBackgroundColor(panel)
         var index = 0
+        val colorNames = listOf("أزرق", "أخضر", "برتقالي", "بنفسجي")
+        val colorValues = listOf(
+            Color.rgb(8, 154, 185), Color.rgb(38, 156, 102),
+            Color.rgb(205, 116, 38), Color.rgb(116, 79, 191)
+        )
         handler.postDelayed(object : Runnable {
             override fun run() {
                 if (game != Game.MEMORY || memoryFinished || isFinishing) return
                 if (index >= sequence.size) {
                     memoryShowing = false
+                    memoryCue?.text = "حان دورك — كرّر التسلسل"
+                    memoryCue?.setBackgroundColor(panel)
                     renderMemory("حان دورك. كرّر الألوان بالترتيب.")
                     return
                 }
-                statusText = "أضئ اللون ${sequence[index] + 1}"
+                val cue = sequence[index]
+                statusText = "أضئ اللون ${cue + 1}"
+                memoryCue?.text = "الإشارة ${index + 1}: ${colorNames[cue]}"
+                memoryCue?.setBackgroundColor(colorValues[cue])
+                memoryCue?.setTextColor(Color.WHITE)
                 index++
                 handler.postDelayed(this, 620L)
             }
