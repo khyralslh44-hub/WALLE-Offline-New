@@ -185,10 +185,10 @@ class MainActivity : ComponentActivity() {
         face.id = View.generateViewId()
         cameraStatus = TextView(this).apply {
             text = "جارٍ تجهيز الكاميرا..."
-            textSize = 13f
+            textSize = 10.5f
             setTextColor(android.graphics.Color.WHITE)
             gravity = Gravity.CENTER
-            setPadding(dp(14), dp(8), dp(14), dp(8))
+            setPadding(dp(8), dp(4), dp(8), dp(4))
             background = GradientDrawable().apply {
                 setColor(0xCC07151C.toInt())
                 cornerRadius = dp(22).toFloat()
@@ -303,12 +303,20 @@ class MainActivity : ComponentActivity() {
 
     private fun showCameraStatus(message: String, active: Boolean) {
         if (!::cameraStatus.isInitialized) return
-        cameraStatus.text = if (active) "●  $message  •  انقر مرتين للتبديل" else "●  $message"
+        val lensLabel = when {
+            message.contains("الأمامية") -> "أمامية"
+            message.contains("الخلفية") -> "خلفية"
+            else -> message
+        }
+        // A small status chip identifies the active camera without competing with the face.
+        cameraStatus.text = if (active) "●  $lensLabel  •  مرتين للتبديل" else "●  $lensLabel"
+        cameraStatus.contentDescription = if (active) "الكاميرا $lensLabel تعمل. انقر مرتين للتبديل."
+            else lensLabel
         cameraStatus.setTextColor(if (active) 0xFF8FFFC0.toInt() else 0xFFFFD180.toInt())
         cameraStatus.background = GradientDrawable().apply {
-            setColor(0xCC07151C.toInt())
-            cornerRadius = dp(22).toFloat()
-            setStroke(dp(1), if (active) 0x8837F5A1.toInt() else 0x887D8B92.toInt())
+            setColor(0x9907151C.toInt())
+            cornerRadius = dp(16).toFloat()
+            setStroke(dp(1), if (active) 0x6637F5A1 else 0x667D8B92)
         }
     }
 
