@@ -203,6 +203,24 @@ INSTRUMENTATION_EXIT=0
 timeout 360s adb shell am instrument -w -r "$TEST_PACKAGE/androidx.test.runner.AndroidJUnitRunner" \
   > "$RESULT_DIR/instrumentation-output.txt" 2>&1 || INSTRUMENTATION_EXIT=$?
 cat "$RESULT_DIR/instrumentation-output.txt"
+
+# The instrumentation test renders all 24 expression glyphs from the production view.
+# Pull its contact sheet so a reviewer can inspect the rendered pixels, not only test names.
+GALLERY_DEVICE_PATH="/sdcard/Android/data/com.eve.robot/files/eye-expression-contact-sheet.png"
+GALLERY_HOST_PATH="$RESULT_DIR/eye-expression-contact-sheet.png"
+if timeout 30s adb pull "$GALLERY_DEVICE_PATH" "$GALLERY_HOST_PATH" > "$RESULT_DIR/eye-gallery-pull.txt" 2>&1; then
+  if [ -s "$GALLERY_HOST_PATH" ]; then
+    echo "PASS: eye expression contact sheet pulled: $GALLERY_HOST_PATH" | tee -a "$RESULT_DIR/environment.txt"
+  else
+    echo "FAIL: eye expression gallery pull returned success but file is empty." | tee -a "$RESULT_DIR/environment.txt"
+    exit 14
+  fi
+else
+  cat "$RESULT_DIR/eye-gallery-pull.txt" || true
+  echo "FAIL: could not retrieve the rendered eye-expression contact sheet." | tee -a "$RESULT_DIR/environment.txt"
+  exit 14
+fi
+
 timeout 20s adb logcat -d -v threadtime > "$RESULT_DIR/logcat.txt" 2>&1 || true
 timeout 10s adb devices -l > "$RESULT_DIR/adb-devices-after.txt" 2>&1 || true
 grep -E "EVE_TEST|AndroidJUnitRunner|INSTRUMENTATION_STATUS|INSTRUMENTATION_CODE|FAILURES!!!|FATAL EXCEPTION|ANR in" \
@@ -217,7 +235,7 @@ if grep -E "INSTRUMENTATION_FAILED|FAILURES!!!|INSTRUMENTATION_STATUS_CODE: -2" 
   exit 11
 fi
 
-for marker in FACE_ROBUSTNESS_PASS FACE_FIXTURE_PASS FER_MODEL_PASS OFFLINE_AFFECT_LEARNING_PASS; do
+for marker in FACE_ROBUSTNESS_PASS FACE_FIXTURE_PASS FER_MODEL_PASS OFFLINE_AFFECT_LEARNING_PASS EYE_RENDER_GALLERY_PASS; do
   # AndroidJUnitRunner may capture test stdout while logcat can be lost if the emulator's
   # background services restart. Accept the marker from either independent diagnostic stream.
   if ! grep -F "$marker" "$RESULT_DIR/logcat.txt" "$RESULT_DIR/instrumentation-output.txt" >/dev/null 2>&1; then
