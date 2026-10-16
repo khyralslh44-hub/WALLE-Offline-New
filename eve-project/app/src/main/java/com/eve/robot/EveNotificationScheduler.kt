@@ -230,6 +230,15 @@ object EveNotificationScheduler {
     }
 }
 
+/** Restores locally scheduled reminders after Android boots. */
+class EveBootReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent?) {
+        if (intent?.action == Intent.ACTION_BOOT_COMPLETED) {
+            EveNotificationScheduler.onBoot(context)
+        }
+    }
+}
+
 class EveNotificationReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
         when (intent?.action) {
