@@ -262,16 +262,14 @@ class RobotFaceView(context: Context) : View(context) {
         // The neutral Cozmo reference uses compact, almost-square LED pixels. Slits stay wide,
         // while surprise/scared poses grow taller. Do not use one rectangle size for every mood.
         val widthScale = when (eyeSilhouette) {
-            EyeSilhouette.NEUTRAL, EyeSilhouette.ALMOND -> 0.76f
-            EyeSilhouette.SOFT -> 0.82f
+            EyeSilhouette.NEUTRAL, EyeSilhouette.ALMOND, EyeSilhouette.SOFT -> 0.92f
             EyeSilhouette.ROUND_SURPRISE, EyeSilhouette.SCARED -> 0.78f
             EyeSilhouette.AWE -> 0.84f
             EyeSilhouette.SKEPTIC, EyeSilhouette.SUSPICIOUS -> 0.92f
             else -> 1f
         }
         val heightScale = when (eyeSilhouette) {
-            EyeSilhouette.NEUTRAL, EyeSilhouette.ALMOND -> 1.16f
-            EyeSilhouette.SOFT -> 1.08f
+            EyeSilhouette.NEUTRAL, EyeSilhouette.ALMOND, EyeSilhouette.SOFT -> 1.03f
             EyeSilhouette.ROUND_SURPRISE -> 1.24f
             EyeSilhouette.SCARED -> 1.34f
             EyeSilhouette.AWE -> 1.18f
