@@ -31,7 +31,8 @@ class RobotFaceView(context: Context) : View(context) {
         strokeJoin = Paint.Join.ROUND
     }
     private val segmentCuts = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.argb(112, 0, 42, 54)
+        // Subtle LED segmentation should add texture, not dominate the cyan eye fill.
+        color = Color.argb(68, 0, 42, 54)
         style = Paint.Style.FILL
     }
     private val shape = Path()
@@ -472,24 +473,18 @@ class RobotFaceView(context: Context) : View(context) {
         // Cozmo's LED glyphs have horizontal pixel bands inside the cyan eye blocks.
         // Draw thin horizontal separators, clipped to each expression contour, instead of a
         // vertical center seam that made the eyes look like plain split squares.
-        val bandedLedGlyph = when (eyeSilhouette) {
+        val bandedLedGlyph = eyeSilhouette in setOf(
             EyeSilhouette.NEUTRAL, EyeSilhouette.ALMOND, EyeSilhouette.SOFT,
-            EyeSilhouette.FOCUSED, EyeSilhouette.ROUND_SURPRISE, EyeSilhouette.SCARED,
-            EyeSilhouette.AWE, EyeSilhouette.WORRIED, EyeSilhouette.SAD_DOWN,
-            EyeSilhouette.SAD_UP, EyeSilhouette.DROOPY, EyeSilhouette.ANNOYED,
-            EyeSilhouette.SHARP, EyeSilhouette.FURIOUS, EyeSilhouette.SKEPTIC,
-            EyeSilhouette.SUSPICIOUS, EyeSilhouette.PLAYFUL -> true
-            else -> false
-        }
+            EyeSilhouette.FOCUSED, EyeSilhouette.PLAYFUL, EyeSilhouette.SKEPTIC,
+            EyeSilhouette.SUSPICIOUS
+        )
         if (bandedLedGlyph && hw >= 4f && glyphHh >= 4f) {
             c.save()
             c.clipPath(shape)
-            val bandHeight = max(1f, glyphHh * 0.055f)
-            val span = hw * 0.86f
-            val bands = when (eyeSilhouette) {
-                EyeSilhouette.ROUND_SURPRISE, EyeSilhouette.SCARED, EyeSilhouette.AWE -> listOf(-0.45f, -0.15f, 0.15f, 0.45f)
-                else -> listOf(-0.34f, 0f, 0.34f)
-            }
+            val bandHeight = max(1f, glyphHh * 0.040f)
+            val span = hw * 0.84f
+            // Two faint separators preserve the segmented LED look without striping every expression.
+            val bands = listOf(-0.28f, 0.28f)
             for (offset in bands) {
                 val y = centerY + glyphHh * offset
                 c.drawRect(cx - span, y - bandHeight * 0.5f,
