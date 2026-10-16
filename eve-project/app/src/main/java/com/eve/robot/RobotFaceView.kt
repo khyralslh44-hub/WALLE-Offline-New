@@ -3,16 +3,13 @@ package com.eve.robot
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
-import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
-import android.graphics.Shader
 import android.os.SystemClock
 import android.view.View
 import kotlin.math.max
 import kotlin.math.min
-import kotlin.math.sin
 
 private data class EyeContour(
     val upperPeak: Float,
@@ -79,9 +76,10 @@ class RobotFaceView(context: Context) : View(context) {
     private var blinkDurationMs = 180L
     private var animate = false
     init {
-        isClickable = true
+        isClickable = false
         contentDescription = "EVE_CYAN_EXPRESSION_FACE"
         setBackgroundColor(Color.rgb(2, 7, 10))
+        importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
     }
 
     fun setMood(next: EveMood, seed: Long = SystemClock.uptimeMillis()) {
