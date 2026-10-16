@@ -473,11 +473,12 @@ class RobotFaceView(context: Context) : View(context) {
         // Cozmo's LED glyphs have horizontal pixel bands inside the cyan eye blocks.
         // Draw thin horizontal separators, clipped to each expression contour, instead of a
         // vertical center seam that made the eyes look like plain split squares.
-        val bandedLedGlyph = eyeSilhouette in setOf(
+        val bandedLedGlyph = when (eyeSilhouette) {
             EyeSilhouette.NEUTRAL, EyeSilhouette.ALMOND, EyeSilhouette.SOFT,
             EyeSilhouette.FOCUSED, EyeSilhouette.PLAYFUL, EyeSilhouette.SKEPTIC,
-            EyeSilhouette.SUSPICIOUS
-        )
+            EyeSilhouette.SUSPICIOUS -> true
+            else -> false
+        }
         if (bandedLedGlyph && hw >= 4f && glyphHh >= 4f) {
             c.save()
             c.clipPath(shape)
