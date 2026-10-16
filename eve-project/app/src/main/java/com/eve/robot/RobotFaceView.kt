@@ -237,10 +237,10 @@ class RobotFaceView(context: Context) : View(context) {
         // the two eyes on tall phone screens or when the device uses display scaling.
         // Cozmo-style LED glyphs are wider than tall, with a clear gap between the pair.
         // The reference glyphs are compact, almost-square rounded LED pixels, not broad glossy pills.
-        val w = min(width * 0.19f, height * 0.15f) * eyeWidth
-        // Cozmo's neutral LED glyphs are near-square rounded pixels; the reference expressions
-        // then stretch or compress these base proportions (surprise tall, blinks/happy very thin).
-        val h = min(height * 0.18f, w * 0.82f) * eyeHeight
+        val w = min(width * 0.21f, height * 0.15f) * eyeWidth
+        // Cozmo's neutral LED glyphs are near-square rounded pixels; individual expressions
+        // then stretch or compress them (surprise tall, blinks/happy very thin).
+        val h = min(height * 0.18f, w * 0.98f) * eyeHeight
         val gap = min(width * 0.20f, w * 0.67f) * spacing
         val cy = height * 0.50f
         val silhouetteRaw = if (silhouetteTransitionStartedAt == 0L) 1f else
@@ -473,19 +473,32 @@ class RobotFaceView(context: Context) : View(context) {
         }
         c.drawPath(shape, fill)
 
-        // Cozmo/Vector-style neutral LEDs read as two vertical cyan blocks per eye.
-        // Split each glyph vertically (not into horizontal stripes), clipped to its rounded contour.
-        val splitVertically = when (eyeSilhouette) {
+        // Cozmo's LED glyphs have horizontal pixel bands inside the cyan eye blocks.
+        // Draw thin horizontal separators, clipped to each expression contour, instead of a
+        // vertical center seam that made the eyes look like plain split squares.
+        val bandedLedGlyph = when (eyeSilhouette) {
             EyeSilhouette.NEUTRAL, EyeSilhouette.ALMOND, EyeSilhouette.SOFT,
-            EyeSilhouette.FOCUSED -> true
+            EyeSilhouette.FOCUSED, EyeSilhouette.ROUND_SURPRISE, EyeSilhouette.SCARED,
+            EyeSilhouette.AWE, EyeSilhouette.WORRIED, EyeSilhouette.SAD_DOWN,
+            EyeSilhouette.SAD_UP, EyeSilhouette.DROOPY, EyeSilhouette.ANNOYED,
+            EyeSilhouette.SHARP, EyeSilhouette.FURIOUS, EyeSilhouette.SKEPTIC,
+            EyeSilhouette.SUSPICIOUS, EyeSilhouette.PLAYFUL -> true
             else -> false
         }
-        if (splitVertically && hw >= 4f && glyphHh >= 3f) {
+        if (bandedLedGlyph && hw >= 4f && glyphHh >= 4f) {
             c.save()
             c.clipPath(shape)
-            val cutWidth = max(1f, hw * 0.10f)
-            c.drawRect(cx - cutWidth * 0.5f, centerY - glyphHh - 1f,
-                cx + cutWidth * 0.5f, centerY + glyphHh + 1f, segmentCuts)
+            val bandHeight = max(1f, glyphHh * 0.055f)
+            val span = hw * 0.86f
+            val bands = when (eyeSilhouette) {
+                EyeSilhouette.ROUND_SURPRISE, EyeSilhouette.SCARED, EyeSilhouette.AWE -> listOf(-0.45f, -0.15f, 0.15f, 0.45f)
+                else -> listOf(-0.34f, 0f, 0.34f)
+            }
+            for (offset in bands) {
+                val y = centerY + glyphHh * offset
+                c.drawRect(cx - span, y - bandHeight * 0.5f,
+                    cx + span, y + bandHeight * 0.5f, segmentCuts)
+            }
             c.restore()
         }
         c.restore()
