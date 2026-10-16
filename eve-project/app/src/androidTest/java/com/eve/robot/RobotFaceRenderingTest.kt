@@ -178,6 +178,24 @@ class RobotFaceRenderingTest {
         FileOutputStream(output).use { stream ->
             assertTrue("Could not encode eye-expression contact sheet.", sheet.compress(Bitmap.CompressFormat.PNG, 100, stream))
         }
+
+        // Duplicate the report to app-specific external storage as a fallback for emulators
+        // whose run-as transport intermittently cannot read a just-written private PNG.
+        val externalOutput = context.getExternalFilesDir(null)?.let {
+            File(it, "eye-expression-contact-sheet.png")
+        }
+        if (externalOutput != null) {
+            try {
+                FileOutputStream(externalOutput).use { stream ->
+                    assertTrue(
+                        "Could not encode external eye-expression contact sheet.",
+                        sheet.compress(Bitmap.CompressFormat.PNG, 100, stream)
+                    )
+                }
+            } catch (error: Exception) {
+                Log.w("EVE_TEST", "Could not duplicate eye gallery to external app storage.", error)
+            }
+        }
         sheet.recycle()
 
         val marker = "EYE_RENDER_GALLERY_PASS glyphs=${specs.size} uniqueBinaryMasks=$uniqueMasks path=${output.absolutePath}"
