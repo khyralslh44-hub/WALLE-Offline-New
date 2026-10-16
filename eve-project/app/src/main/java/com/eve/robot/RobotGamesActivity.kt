@@ -492,6 +492,7 @@ class RobotGamesActivity : ComponentActivity() {
 
     private fun hitTarget(cellIndex: Int) {
         if (game != Game.TARGET || targetFinished) return
+        val now = SystemClock.elapsedRealtime()
         val hit = cellIndex == targetCell
         targetMoveTask?.let(handler::removeCallbacks)
         targetRound++
