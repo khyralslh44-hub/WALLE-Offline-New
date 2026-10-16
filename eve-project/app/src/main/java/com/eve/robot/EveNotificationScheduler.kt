@@ -163,71 +163,37 @@ object EveNotificationScheduler {
     private fun composeMessage(context: Context, now: Long): Pair<String, String> {
         val relationship = prefs(context)
         val sent = relationship.getInt("sentCount", 0)
-        val localMemory = context.getSharedPreferences("eve_local_memory", Context.MODE_PRIVATE)
-        val objectCount = localMemory.all.entries
-            .filter { it.key.startsWith("count:") && it.value is Int }
-            .map { it.key.removePrefix("count:") to (it.value as Int) }
-            .filter { it.first.isNotBlank() && it.second > 0 }
-            .maxByOrNull { it.second }
-
+        val memory = context.getSharedPreferences("eve_local_memory", Context.MODE_PRIVATE)
         val games = context.getSharedPreferences("eve_games", Context.MODE_PRIVATE)
-        val lastGameAt = games.getLong("games:lastAt", 0L)
-        val lastGameName = games.getString("games:lastName", null)
-        val lastResult = games.getString("games:lastResult", null)
+        val observationAt = relationship.getLong("lastObservationAt", 0L)
+        val gameAt = games.getLong("games:lastAt", 0L)
         val hour = Calendar.getInstance().apply { timeInMillis = now }.get(Calendar.HOUR_OF_DAY)
-        val salt = abs((now / (60L * 60L * 1000L)).toInt() + sent * 7 + (objectCount?.second ?: 0))
-        val openings = listOf(
-            "علقت في بالي فكرة",
-            "تكوّنت عندي فرضية صغيرة",
-            "لاحظت نمطًا وأريد أن أختبره معك",
-            "أشعر أن لدي سؤالًا يستحق التجربة",
-            "وصلت إلى تحدٍ جديد"
+
+        val generationContext = EveNotificationContext(
+            hourOfDay = hour,
+            sentCount = sent,
+            generationSeed = now / (15L * 60L * 1000L),
+            mood = relationship.getString("lastMood", "NEUTRAL") ?: "NEUTRAL",
+            moodReason = relationship.getString("lastMoodReason", "") ?: "",
+            lastObservationLabel = relationship.getString("lastObservationLabel", null),
+            observationConfidence = relationship.getFloat("lastObservationConfidence", 0f),
+            observationCount = relationship.getInt("lastObservationCount", 0),
+            observationAgeMinutes = if (observationAt > 0L) ((now - observationAt).coerceAtLeast(0L) / 60_000L) else Long.MAX_VALUE,
+            lastGameName = games.getString("games:lastName", null),
+            lastGameResult = games.getString("games:lastResult", null),
+            gameAgeMinutes = if (gameAt > 0L) ((now - gameAt).coerceAtLeast(0L) / 60_000L) else Long.MAX_VALUE
         )
-        val body = when {
-            lastGameAt > 0L && now - lastGameAt < 3L * 24L * 60L * 60L * 1000L &&
-                lastGameName != null && lastResult == "player" ->
-                "أتذكّر نتيجتنا الأخيرة في " + gameArabic(lastGameName) + ". " +
-                    listOf("أريد إعادة المباراة بخطة مختلفة.", "هذه المرة لن أكرر الخطأ نفسه.", "هل تستطيع الفوز مرتين متتاليتين؟")[salt % 3] +
-                    " افتحني لجولة جديدة."
-            lastGameAt > 0L && now - lastGameAt < 3L * 24L * 60L * 60L * 1000L &&
-                lastGameName != null && lastResult == "robot" ->
-                "آخر مرة في " + gameArabic(lastGameName) + " كانت النتيجة لصالحي. " +
-                    listOf("هل تغيّر خطتك هذه المرة؟", "أريد أن أرى إن كنت قد اكتشفت أسلوبي.", "تحدٍّ جديد؟")[salt % 3] +
-                    " اضغط «العب معي» إن رغبت."
-            objectCount != null ->
-                openings[salt % openings.size] + ": رأيت " + objectCount.first + " " +
-                    (if (objectCount.second == 1) "مرة واحدة" else "في " + objectCount.second + " ملاحظات") +
-                    " في تجاربنا السابقة. " +
-                    listOf(
-                        "ما التفصيل الذي ينبغي أن ألاحظه في المرة القادمة؟",
-                        "هل تخمّن ما الذي قد يميّزه عن شيء مشابه؟",
-                        "هل تختبر دقّة ملاحظتي عندما تفتح الكاميرا مجددًا؟",
-                        "ربما أحتاج إلى مقارنة جديدة بدل الاكتفاء بالاسم."
-                    )[salt % 4]
-            hour < 11 ->
-                openings[salt % openings.size] + ": لو بدأنا اليوم بتحدٍّ صغير، أيهما أصعب برأيك—اكتشاف نمط أم توقّع حركة منافس؟"
-            hour >= 21 ->
-                "قبل أن أهدأ، أريد سؤالًا واحدًا: ما الشيء الذي يمكن أن أتعلمه من خسارة في لعبة بدل أن أكرر الحركة نفسها؟"
-            else ->
-                openings[salt % openings.size] + ": لو كان عليّ أن أختار بين الفضول والحذر في تجربة جديدة، ما الاختبار الذي تقترحه؟"
-        }
-        val title = when {
-            lastResult == "player" -> "إيف تتحدّاك من جديد"
-            lastResult == "robot" -> "إيف لديها سؤال لك"
-            sent % 3 == 1 -> "فكرة جديدة خطرت لإيف"
-            else -> "إيف ما زالت فضولية"
-        }
-        return title to body
+
+        val generated = EveGeneratedMessageEngine.generate(generationContext)
+        Log.i(
+            "EVE_NOTIFY",
+            "MESSAGE_GENERATED source=${generated.source} mood=${generationContext.mood} " +
+                "observation=${generationContext.lastObservationLabel} " +
+                "game=${generationContext.lastGameName} ageMinutes=${generationContext.gameAgeMinutes}"
+        )
+        return generated.title to generated.body
     }
 
-    private fun gameArabic(name: String): String = when (name) {
-        "chess" -> "الشطرنج"
-        "xo" -> "إكس-أو"
-        "rps" -> "حجر ورقة مقص"
-        "target" -> "التصويب"
-        "memory" -> "اختبار الذاكرة"
-        else -> "اللعبة"
-    }
 }
 
 /** Restores locally scheduled reminders after Android boots. */
