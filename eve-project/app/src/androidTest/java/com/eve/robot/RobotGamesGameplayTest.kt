@@ -78,9 +78,17 @@ class RobotGamesGameplayTest {
             scenario.onActivity { activity ->
                 requireNotNull(buttonContaining(activity, "ذاكرة الأنماط")).performClick()
             }
-            // The first cue begins after 600ms and the single-item sequence completes 620ms later.
-            SystemClock.sleep(1_450L)
-            instrumentation.waitForIdleSync()
+            // Emulator frame timing varies, so wait for the actual input state instead of
+            // assuming the first cue always finishes within one fixed sleep.
+            var memoryScreenText = ""
+            val inputDeadline = SystemClock.uptimeMillis() + 5_000L
+            while (SystemClock.uptimeMillis() < inputDeadline && !memoryScreenText.contains("حان دورك")) {
+                instrumentation.waitForIdleSync()
+                scenario.onActivity { activity ->
+                    memoryScreenText = visibleText(activity)
+                }
+                if (!memoryScreenText.contains("حان دورك")) SystemClock.sleep(100L)
+            }
 
             scenario.onActivity { activity ->
                 assertTrue(
