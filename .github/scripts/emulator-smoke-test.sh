@@ -284,7 +284,8 @@ fi
 SIZE="$(adb shell wm size | grep -Eo '[0-9]+x[0-9]+' | tail -n 1)"
 WIDTH="$(printf '%s' "$SIZE" | cut -d x -f 1)"
 HEIGHT="$(printf '%s' "$SIZE" | cut -d x -f 2)"
-X=$((WIDTH / 2))
+# Tap inside the left LED eye, not the dark bridge between the two eyes.
+X=$((WIDTH * 35 / 100))
 Y=$((HEIGHT / 2))
 # Verify both physical CameraX selectors and the button-free double-tap gesture.
 adb logcat -d -v threadtime > "$RESULTS_DIR/logcat-before-camera-switch.txt"
@@ -292,8 +293,10 @@ if ! grep -F "CAMERA_LENS active=BACK" "$RESULTS_DIR/logcat-before-camera-switch
   echo "FAIL: rear camera was not confirmed as the initial active lens."
   exit 1
 fi
-echo "Testing double-tap switch BACK -> FRONT." | tee -a "$RESULTS_DIR/result.txt"
-adb shell "input tap $X $Y; sleep 0.35; input tap $X $Y"
+echo "Testing double-tap switch BACK -> FRONT (robust eye-tap sequence)." | tee -a "$RESULTS_DIR/result.txt"
+# Android can consume a first tap while immersive mode is settling. Three taps ensure
+# a valid pair remains; the app clears tap state after a successful lens switch.
+adb shell "input tap $X $Y; sleep 0.35; input tap $X $Y; sleep 0.35; input tap $X $Y"
 sleep 3
 adb logcat -d -v threadtime > "$RESULTS_DIR/logcat-after-front-switch.txt"
 if ! grep -F "CAMERA_SWITCH_SUCCESS from=BACK to=FRONT" "$RESULTS_DIR/logcat-after-front-switch.txt" >/dev/null; then
@@ -307,8 +310,8 @@ if ! grep -F "CAMERA_LENS active=FRONT analysis=offline" "$RESULTS_DIR/logcat-af
 fi
 echo "PASS: front camera is active with offline image analysis." | tee -a "$RESULTS_DIR/result.txt"
 
-echo "Testing double-tap switch FRONT -> BACK." | tee -a "$RESULTS_DIR/result.txt"
-adb shell "input tap $X $Y; sleep 0.35; input tap $X $Y"
+echo "Testing double-tap switch FRONT -> BACK (robust eye-tap sequence)." | tee -a "$RESULTS_DIR/result.txt"
+adb shell "input tap $X $Y; sleep 0.35; input tap $X $Y; sleep 0.35; input tap $X $Y"
 sleep 3
 adb logcat -d -v threadtime > "$RESULTS_DIR/logcat-after-back-switch.txt"
 if ! grep -F "CAMERA_SWITCH_SUCCESS from=FRONT to=BACK" "$RESULTS_DIR/logcat-after-back-switch.txt" >/dev/null; then
