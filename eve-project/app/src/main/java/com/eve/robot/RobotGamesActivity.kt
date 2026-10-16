@@ -31,7 +31,7 @@ class RobotGamesActivity : ComponentActivity() {
     private var statusText = "سأحاول التكيّف مع أسلوبك بدل تكرار الحركة نفسها."
     private val prefs by lazy { getSharedPreferences("eve_games", MODE_PRIVATE) }
 
-    private enum class Game { MENU, XO, RPS, CHESS, TARGET, MEMORY, REFLEX }
+    private enum class Game { MENU, XO, RPS, CHESS, TARGET, PAINT_SHOT, MEMORY, REFLEX }
 
     // Tic-tac-toe
     private val xo = CharArray(9) { ' ' }
@@ -49,6 +49,13 @@ class RobotGamesActivity : ComponentActivity() {
     private var rpsScoreHuman = 0
     private var rpsScoreEve = 0
     private var rpsRound = 0
+
+    // EMO-inspired Paint Shot: local, harmless paint-pulse game.
+    private var paintShotScore = 0
+    private var paintShotRound = 0
+    private var paintShotTargetSide = -1
+    private var paintShotFinished = false
+    private var paintShotMessage = "ارتدِ النظارة الخيالية، وجّه إيف إلى اليسار أو اليمين، ثم أطلق طلقة طلاء."
 
     // Target practice
     private var targetScore = 0
@@ -169,6 +176,7 @@ class RobotGamesActivity : ComponentActivity() {
         addWideButton("♟  الشطرنج — أنا الأسود وأنت الأبيض", ::startChess, true)
         addWideButton("⭕  إكس-أو — أحاول ألّا أترك لك فرصة", ::startXo)
         addWideButton("✊  حجر • ورقة • مقص — أتعلّم من اختياراتك", ::startRps)
+        addWideButton("🎨  Paint Shot — لعبة طلقات الطلاء", ::startPaintShot, true)
         addWideButton("🎯  إصابة الهدف — هل ردّ فعلك أسرع؟", ::startTarget)
         addWideButton("◈  ذاكرة الأنماط — كرّر تسلسل الإضاءة", ::startMemory)
         addWideButton("⚡  اختبار سرعة الاستجابة", ::startReflex)
@@ -433,6 +441,77 @@ class RobotGamesActivity : ComponentActivity() {
     }
 
     private fun squareName(i: Int) = "" + ('a'.code + i % 8).toChar() + (8 - i / 8)
+
+    // ------------------------------------------------------------------ EMO-inspired Paint Shot
+    // EMO uses glasses, a gun/palm-cannon gesture and "bang!".
+    // EVE's phone implementation is a safe, fully offline touch-aiming paint game.
+    private fun startPaintShot() {
+        game = Game.PAINT_SHOT
+        paintShotScore = 0
+        paintShotRound = 0
+        paintShotFinished = false
+        paintShotTargetSide = if (random.nextBoolean()) -1 else 1
+        paintShotMessage = "ارتدِ النظارة الخيالية. اختر جهة الهدف ثم اضغط «بانغ!» لإطلاق طلاء."
+        renderPaintShot()
+    }
+
+    private fun renderPaintShot() {
+        root.removeAllViews()
+        header("🎨 Paint Shot", "لعبة طلاء آمنة تعمل دون إنترنت — الجولة " + (paintShotRound + 1) + " من 10")
+        root.addView(text("👓  وضع النظارة مفعّل", 15f, cyan, true))
+        root.addView(text("النقاط: $paintShotScore / 10", 22f, ivory, true))
+        addSpace(6)
+        val arena = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(dp(4), dp(16), dp(4), dp(16))
+            setBackgroundColor(panel)
+        }
+        val leftTarget = button(if (paintShotTargetSide == -1) "🎯\nهدف الطلاء" else "⬅\nاليسار", {
+            aimPaintShot(-1)
+        }, paintShotTargetSide == -1).apply { textSize = 17f }
+        val rightTarget = button(if (paintShotTargetSide == 1) "🎯\nهدف الطلاء" else "اليمين\n➡", {
+            aimPaintShot(1)
+        }, paintShotTargetSide == 1).apply { textSize = 17f }
+        arena.addView(leftTarget, LinearLayout.LayoutParams(0, dp(118), 1f).apply { setMargins(dp(4), 0, dp(4), 0) })
+        arena.addView(rightTarget, LinearLayout.LayoutParams(0, dp(118), 1f).apply { setMargins(dp(4), 0, dp(4), 0) })
+        root.addView(arena, LinearLayout.LayoutParams(-1, -2))
+        root.addView(text(paintShotMessage, 15f, muted))
+        addSpace(6)
+        addWideButton("💥  بانغ! — أطلق طلقة طلاء", ::firePaintShot, true)
+        addWideButton("جولة جديدة", ::startPaintShot)
+        addWideButton("العودة إلى ألعاب إيف", ::showMenu)
+    }
+
+    private fun aimPaintShot(side: Int) {
+        if (game != Game.PAINT_SHOT || paintShotFinished) return
+        paintShotTargetSide = side
+        paintShotMessage = if (side < 0) "إيف تصوّب نحو اليسار… قل «بانغ!» أو اضغط زر الإطلاق."
+            else "إيف تصوّب نحو اليمين… قل «بانغ!» أو اضغط زر الإطلاق."
+        renderPaintShot()
+    }
+
+    private fun firePaintShot() {
+        if (game != Game.PAINT_SHOT || paintShotFinished) return
+        val hit = random.nextInt(100) < 78
+        paintShotRound++
+        if (hit) paintShotScore++
+        paintShotMessage = when {
+            hit -> if (paintShotTargetSide < 0) "💦 بااانغ! لطخة طلاء على الهدف الأيسر! إيف سعيدة 😄"
+                else "💦 بااانغ! لطخة طلاء على الهدف الأيمن! إيف سعيدة 😄"
+            else -> "💨 فشلت الطلقة! تحرّك الهدف قبل وصول الطلاء. حاول مرة أخرى."
+        }
+        android.util.Log.i("EVE_PAINT_SHOT", "hit=$hit side=$paintShotTargetSide round=$paintShotRound score=$paintShotScore")
+        if (paintShotRound >= 10) {
+            paintShotFinished = true
+            val result = when { paintShotScore >= 7 -> "player"; paintShotScore <= 3 -> "robot"; else -> "draw" }
+            saveResult("paint_shot", result)
+            paintShotMessage += "\nانتهت الجولة: $paintShotScore من 10."
+        } else {
+            paintShotTargetSide = if (random.nextBoolean()) -1 else 1
+        }
+        renderPaintShot()
+    }
 
     // ------------------------------------------------------------------ Target practice
     private fun startTarget() {
