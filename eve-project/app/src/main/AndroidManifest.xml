@@ -28,10 +28,12 @@
         <receiver
             android:name=".EveNotificationReceiver"
             android:enabled="true"
-            android:exported="false">
+            android:exported="false" />
+        <receiver
+            android:name=".EveBootReceiver"
+            android:enabled="true"
+            android:exported="true">
             <intent-filter>
-                <action android:name="com.eve.robot.ACTION_CURIOSITY_REMINDER" />
-                <action android:name="com.eve.robot.ACTION_SNOOZE_REMINDER" />
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
