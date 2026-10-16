@@ -232,16 +232,12 @@ class RobotFaceView(context: Context) : View(context) {
         val idleGaze = if (animate) sin(now / 1610.0).toFloat() * 0.012f else 0f
         val idleGazeY = if (animate) sin(now / 2340.0).toFloat() * 0.007f else 0f
         val breath = if (animate) 0.965f + 0.035f * sin(now / 980.0).toFloat() else 1f
-        // Keep a dark bridge between the independent display-eye glyphs; each mood selects its own contour.
-        // Keep the geometry relative to the view's actual dp size so glow strokes do not merge
-        // the two eyes on tall phone screens or when the device uses display scaling.
-        // Cozmo-style LED glyphs are wider than tall, with a clear gap between the pair.
-        // The reference glyphs are compact, almost-square rounded LED pixels, not broad glossy pills.
+        // The reference sheet uses compact horizontal LED blocks (about 2:1), not square tiles.
+        // Keep a dark bridge between the eyes and scale with the actual view size on phone screens.
         val w = min(width * 0.21f, height * 0.15f) * eyeWidth
-        // Cozmo's neutral LED glyphs are near-square rounded pixels; individual expressions
-        // then stretch or compress them (surprise tall, blinks/happy very thin).
-        val h = min(height * 0.18f, w * 0.98f) * eyeHeight
-        val gap = min(width * 0.20f, w * 0.67f) * spacing
+        val h = min(height * 0.095f, w * 0.50f) * eyeHeight
+        // gap is each eye's center offset from screen center: leave an obvious dark bridge.
+        val gap = min(width * 0.20f, w * 0.70f) * spacing
         val cy = height * 0.50f
         val silhouetteRaw = if (silhouetteTransitionStartedAt == 0L) 1f else
             ((now - silhouetteTransitionStartedAt).toFloat() / silhouetteTransitionDurationMs).coerceIn(0f, 1f)
