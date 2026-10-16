@@ -235,8 +235,9 @@ class RobotFaceView(context: Context) : View(context) {
         // Cozmo-style LED glyphs are wider than tall, with a clear gap between the pair.
         // The reference glyphs are compact, almost-square rounded LED pixels, not broad glossy pills.
         val w = min(width * 0.19f, height * 0.15f) * eyeWidth
-        // Neutral Cozmo eyes are wider than tall; surprise/fear styles expand vertically in drawEye().
-        val h = min(height * 0.105f, w * 0.52f) * eyeHeight
+        // Cozmo's neutral LED glyphs are near-square rounded pixels; the reference expressions
+        // then stretch or compress these base proportions (surprise tall, blinks/happy very thin).
+        val h = min(height * 0.18f, w * 0.82f) * eyeHeight
         val gap = min(width * 0.20f, w * 0.67f) * spacing
         val cy = height * 0.50f
         val silhouetteRaw = if (silhouetteTransitionStartedAt == 0L) 1f else
