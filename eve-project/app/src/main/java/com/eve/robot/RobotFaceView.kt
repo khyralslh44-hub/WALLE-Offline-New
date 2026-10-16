@@ -32,7 +32,7 @@ class RobotFaceView(context: Context) : View(context) {
     }
     private val segmentCuts = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         // Subtle LED segmentation should add texture, not dominate the cyan eye fill.
-        color = Color.argb(68, 0, 42, 54)
+        color = Color.argb(38, 0, 42, 54)
         style = Paint.Style.FILL
     }
     private val shape = Path()
@@ -236,7 +236,8 @@ class RobotFaceView(context: Context) : View(context) {
         // The reference sheet uses compact horizontal LED blocks (about 2:1), not square tiles.
         // Keep a dark bridge between the eyes and scale with the actual view size on phone screens.
         val w = min(width * 0.21f, height * 0.15f) * eyeWidth
-        val h = min(height * 0.095f, w * 0.50f) * eyeHeight
+        // Cozmo neutral eyes are rounded rectangles rather than thin 2:1 bars.
+        val h = min(height * 0.11f, w * 0.66f) * eyeHeight
         // gap is each eye's center offset from screen center: leave an obvious dark bridge.
         val gap = min(width * 0.20f, w * 0.70f) * spacing
         val cy = height * 0.50f
@@ -482,7 +483,7 @@ class RobotFaceView(context: Context) : View(context) {
         if (bandedLedGlyph && hw >= 4f && glyphHh >= 4f) {
             c.save()
             c.clipPath(shape)
-            val bandHeight = max(1f, glyphHh * 0.040f)
+            val bandHeight = max(0.8f, glyphHh * 0.028f)
             val span = hw * 0.84f
             // Two faint separators preserve the segmented LED look without striping every expression.
             val bands = listOf(-0.28f, 0.28f)
