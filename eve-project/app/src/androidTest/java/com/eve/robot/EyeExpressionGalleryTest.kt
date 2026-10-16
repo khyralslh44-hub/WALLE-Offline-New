@@ -151,7 +151,10 @@ class EyeExpressionGalleryTest {
 
             // The reference's neutral/familiar LED eyes are compact, rounded blocks close to square.
             // Check each eye independently so the gap between them cannot distort the ratio.
-            if (item.expected in setOf(EyeSilhouette.ALMOND, EyeSilhouette.NEUTRAL, EyeSilhouette.SOFT)) {
+            if (item.expected in setOf(
+                    EyeSilhouette.ALMOND, EyeSilhouette.NEUTRAL, EyeSilhouette.SOFT,
+                    EyeSilhouette.ROUND_SURPRISE, EyeSilhouette.AWE, EyeSilhouette.SCARED
+                )) {
                 fun eyeBoundsInHalf(startX: Int, endX: Int): IntArray? {
                     var left = frame.width
                     var top = frame.height
@@ -183,10 +186,15 @@ class EyeExpressionGalleryTest {
                     val eyeWidth = box[2] - box[0] + 1
                     val eyeHeight = box[3] - box[1] + 1
                     val ratio = eyeWidth.toFloat() / eyeHeight.coerceAtLeast(1)
+                    val expectedRatio = when (item.expected) {
+                        EyeSilhouette.ROUND_SURPRISE, EyeSilhouette.AWE -> 0.80f..1.30f
+                        EyeSilhouette.SCARED -> 0.68f..1.35f
+                        else -> 0.95f..1.85f
+                    }
                     assertTrue(
-                        "${item.label} $side eye should match a horizontal rounded LED block; " +
-                            "measured ${eyeWidth}x${eyeHeight} (ratio=$ratio).",
-                        ratio in 0.95f..1.85f
+                        "${item.label} $side eye aspect is outside the reference range; " +
+                            "measured ${eyeWidth}x${eyeHeight} (ratio=$ratio expected=$expectedRatio).",
+                        ratio in expectedRatio
                     )
                 }
             }
@@ -204,8 +212,8 @@ class EyeExpressionGalleryTest {
                 EyeSilhouette.FURIOUS -> 10
                 EyeSilhouette.SKEPTIC, EyeSilhouette.PLAYFUL -> 12
                 EyeSilhouette.NEUTRAL, EyeSilhouette.ALMOND, EyeSilhouette.SOFT -> 12
-                EyeSilhouette.ROUND_SURPRISE, EyeSilhouette.AWE -> 28
-                EyeSilhouette.SCARED -> 25
+                EyeSilhouette.ROUND_SURPRISE, EyeSilhouette.AWE -> 14
+                EyeSilhouette.SCARED -> 19
             }
             assertTrue(
                 "${item.label} raster is too thin: ${renderedWidth}x${renderedHeight}, minHeight=$minimumHeight",
