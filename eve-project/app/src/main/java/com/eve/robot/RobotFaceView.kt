@@ -231,7 +231,9 @@ class RobotFaceView(context: Context) : View(context) {
         // while surprise/scared poses grow taller. Do not use one rectangle size for every mood.
         val widthScale = when (eyeSilhouette) {
             EyeSilhouette.NEUTRAL, EyeSilhouette.ALMOND, EyeSilhouette.SOFT -> 0.98f
-            EyeSilhouette.ROUND_SURPRISE, EyeSilhouette.AWE -> 0.94f
+            // Awe is intended to read as round, not vertically stretched.
+            EyeSilhouette.ROUND_SURPRISE -> 0.94f
+            EyeSilhouette.AWE -> 1.10f
             EyeSilhouette.SCARED -> 0.95f
             EyeSilhouette.SKEPTIC, EyeSilhouette.SUSPICIOUS -> 0.92f
             else -> 1f
