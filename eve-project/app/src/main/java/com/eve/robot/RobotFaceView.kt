@@ -261,7 +261,8 @@ class RobotFaceView(context: Context) : View(context) {
         val eyeScale = when (eyeSilhouette) {
             EyeSilhouette.ROUND_SURPRISE -> 1.00f
             EyeSilhouette.SCARED -> 1.42f
-            EyeSilhouette.AWE -> 1.04f
+            // Keep awe eyes enlarged but near-square; an oversized vertical glyph failed the pixel audit.
+            EyeSilhouette.AWE -> 0.90f
             EyeSilhouette.SAD_DOWN, EyeSilhouette.SAD_UP, EyeSilhouette.DROOPY -> 1.24f
             EyeSilhouette.WORRIED -> 1.22f
             EyeSilhouette.FOCUSED -> 0.94f
