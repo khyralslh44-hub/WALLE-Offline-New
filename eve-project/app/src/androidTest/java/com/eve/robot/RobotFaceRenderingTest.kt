@@ -138,7 +138,7 @@ class RobotFaceRenderingTest {
                     val red = Color.red(pixel)
                     val green = Color.green(pixel)
                     val blue = Color.blue(pixel)
-                    val isLed = green > 75 && blue > 75 && green > red * 1.25
+                    val isLed = green > 75 && blue > 75 && green.toFloat() > red.toFloat() * 1.25f
                     hash = (hash xor if (isLed) 1L else 0L) * 1099511628211L
                     if (isLed) {
                         cyanPixels++
