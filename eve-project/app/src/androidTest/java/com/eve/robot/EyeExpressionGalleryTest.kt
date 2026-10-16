@@ -148,6 +148,49 @@ class EyeExpressionGalleryTest {
             assertTrue("${item.label} produced no visible cyan pixels.", litPixels > 8)
             val renderedWidth = maxX - minX + 1
             val renderedHeight = maxY - minY + 1
+
+            // The reference's neutral/familiar LED eyes are rounded pixels, not thin pills.
+            // Check each eye independently so the gap between them cannot distort the ratio.
+            if (item.expected in setOf(EyeSilhouette.ALMOND, EyeSilhouette.NEUTRAL, EyeSilhouette.SOFT)) {
+                fun eyeBoundsInHalf(startX: Int, endX: Int): IntArray? {
+                    var left = frame.width
+                    var top = frame.height
+                    var right = -1
+                    var bottom = -1
+                    for (py in 0 until frame.height) {
+                        for (px in startX until endX) {
+                            val color = frame.getPixel(px, py)
+                            val cyan = Color.green(color) > 95 &&
+                                Color.blue(color) > 105 &&
+                                Color.blue(color) > Color.red(color) + 45
+                            if (cyan) {
+                                left = minOf(left, px)
+                                top = minOf(top, py)
+                                right = maxOf(right, px)
+                                bottom = maxOf(bottom, py)
+                            }
+                        }
+                    }
+                    return if (right >= left && bottom >= top)
+                        intArrayOf(left, top, right, bottom) else null
+                }
+
+                for ((side, bounds) in listOf(
+                    "left" to eyeBoundsInHalf(0, frame.width / 2),
+                    "right" to eyeBoundsInHalf(frame.width / 2, frame.width)
+                )) {
+                    val box = requireNotNull(bounds) { "${item.label} $side eye pixels were not found." }
+                    val eyeWidth = box[2] - box[0] + 1
+                    val eyeHeight = box[3] - box[1] + 1
+                    val ratio = eyeWidth.toFloat() / eyeHeight.coerceAtLeast(1)
+                    assertTrue(
+                        "${item.label} $side eye should be a near-square rounded LED pixel; " +
+                            "measured ${eyeWidth}x${eyeHeight} (ratio=$ratio).",
+                        ratio in 0.72f..1.65f
+                    )
+                }
+            }
+
             val minimumHeight = when (item.expected) {
                 EyeSilhouette.BLINK_HIGH, EyeSilhouette.BLINK_LOW -> 1
                 EyeSilhouette.BORED -> 2
