@@ -492,8 +492,7 @@ class RobotGamesActivity : ComponentActivity() {
 
     private fun hitTarget(cellIndex: Int) {
         if (game != Game.TARGET || targetFinished) return
-        val now = SystemClock.elapsedRealtime()
-        val hit = cellIndex == targetCell && now <= targetDeadline
+        val hit = cellIndex == targetCell
         targetMoveTask?.let(handler::removeCallbacks)
         targetRound++
         if (hit) {
@@ -542,7 +541,13 @@ class RobotGamesActivity : ComponentActivity() {
         root.removeAllViews()
         header("ذاكرة الأنماط", message)
         root.addView(text("المستوى $memoryLevel • طول التسلسل ${sequence.size}", 20f, cyan, true))
-        memoryCue = text("استعد لمشاهدة الألوان…", 19f, ivory, true).apply {
+        val cuePrompt = when {
+            memoryShowing -> "راقب الألوان…"
+            message.contains("حان دورك") -> "حان دورك — كرّر التسلسل"
+            message.startsWith("صحيح!") -> "جولة جديدة — راقب الألوان…"
+            else -> "استعد لمشاهدة الألوان…"
+        }
+        memoryCue = text(cuePrompt, 19f, ivory, true).apply {
             setBackgroundColor(panel)
             minHeight = dp(70)
         }
