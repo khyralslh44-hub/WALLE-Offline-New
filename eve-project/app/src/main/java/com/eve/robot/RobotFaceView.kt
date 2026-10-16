@@ -30,11 +30,6 @@ class RobotFaceView(context: Context) : View(context) {
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
     }
-    private val segmentCuts = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        // Subtle LED segmentation should add texture, not dominate the cyan eye fill.
-        color = Color.argb(38, 0, 42, 54)
-        style = Paint.Style.FILL
-    }
     private val shape = Path()
     private var mood = EveMood.AWAKE
     private var silhouette = EyeSilhouette.ALMOND
@@ -262,8 +257,28 @@ class RobotFaceView(context: Context) : View(context) {
     }
 
     private fun drawEye(c: Canvas, cx: Float, cy: Float, w: Float, h: Float, openness: Float, angle: Float, intensity: Float, squinting: Float, contour: EyeContour, side: Int, eyeSilhouette: EyeSilhouette, opacity: Float) {
-        val hw = w * 0.5f
-        val hh = h * 0.5f * openness.coerceIn(0.06f, 1.18f)
+        val baseHalfWidth = w * 0.5f
+        val baseHalfHeight = h * 0.5f * openness.coerceIn(0.06f, 1.18f)
+        // The neutral Cozmo reference uses compact, almost-square LED pixels. Slits stay wide,
+        // while surprise/scared poses grow taller. Do not use one rectangle size for every mood.
+        val widthScale = when (eyeSilhouette) {
+            EyeSilhouette.NEUTRAL, EyeSilhouette.ALMOND -> 0.76f
+            EyeSilhouette.SOFT -> 0.82f
+            EyeSilhouette.ROUND_SURPRISE, EyeSilhouette.SCARED -> 0.78f
+            EyeSilhouette.AWE -> 0.84f
+            EyeSilhouette.SKEPTIC, EyeSilhouette.SUSPICIOUS -> 0.92f
+            else -> 1f
+        }
+        val heightScale = when (eyeSilhouette) {
+            EyeSilhouette.NEUTRAL, EyeSilhouette.ALMOND -> 1.16f
+            EyeSilhouette.SOFT -> 1.08f
+            EyeSilhouette.ROUND_SURPRISE -> 1.24f
+            EyeSilhouette.SCARED -> 1.34f
+            EyeSilhouette.AWE -> 1.18f
+            else -> 1f
+        }
+        val hw = baseHalfWidth * widthScale
+        val hh = baseHalfHeight * heightScale
         val curve = squinting.coerceIn(0.45f, 1.22f)
         // Contour vertices are interpolated with the other facial parameters to prevent snapping.
         val upperPeak = contour.upperPeak * curve
@@ -315,12 +330,12 @@ class RobotFaceView(context: Context) : View(context) {
             )
         }
         when (eyeSilhouette) {
-            EyeSilhouette.ALMOND -> rounded(min(hw * 0.34f, glyphHh * 0.50f))
-            EyeSilhouette.NEUTRAL -> rounded(min(hw * 0.22f, glyphHh * 0.26f))
-            EyeSilhouette.SOFT -> rounded(min(hw * 0.84f, glyphHh * 0.82f))
-            EyeSilhouette.ROUND_SURPRISE -> rounded(min(hw * 0.26f, glyphHh * 0.34f))
-            EyeSilhouette.SCARED -> rounded(min(hw * 0.38f, glyphHh * 0.45f))
-            EyeSilhouette.AWE -> rounded(min(hw * 0.68f, glyphHh * 0.80f))
+            EyeSilhouette.ALMOND -> rounded(min(hw * 0.48f, glyphHh * 0.48f))
+            EyeSilhouette.NEUTRAL -> rounded(min(hw * 0.52f, glyphHh * 0.44f))
+            EyeSilhouette.SOFT -> rounded(min(hw * 0.68f, glyphHh * 0.72f))
+            EyeSilhouette.ROUND_SURPRISE -> rounded(min(hw * 0.42f, glyphHh * 0.36f))
+            EyeSilhouette.SCARED -> rounded(min(hw * 0.48f, glyphHh * 0.36f))
+            EyeSilhouette.AWE -> rounded(min(hw * 0.70f, glyphHh * 0.74f))
 
             // Thin LED slits placed high or low in the eye socket.
             EyeSilhouette.BLINK_HIGH -> rounded(max(1.3f, glyphHh * 0.40f))
@@ -471,29 +486,6 @@ class RobotFaceView(context: Context) : View(context) {
         }
         c.drawPath(shape, fill)
 
-        // Cozmo's LED glyphs have horizontal pixel bands inside the cyan eye blocks.
-        // Draw thin horizontal separators, clipped to each expression contour, instead of a
-        // vertical center seam that made the eyes look like plain split squares.
-        val bandedLedGlyph = when (eyeSilhouette) {
-            EyeSilhouette.NEUTRAL, EyeSilhouette.ALMOND, EyeSilhouette.SOFT,
-            EyeSilhouette.FOCUSED, EyeSilhouette.PLAYFUL, EyeSilhouette.SKEPTIC,
-            EyeSilhouette.SUSPICIOUS -> true
-            else -> false
-        }
-        if (bandedLedGlyph && hw >= 4f && glyphHh >= 4f) {
-            c.save()
-            c.clipPath(shape)
-            val bandHeight = max(0.8f, glyphHh * 0.028f)
-            val span = hw * 0.84f
-            // Two faint separators preserve the segmented LED look without striping every expression.
-            val bands = listOf(-0.28f, 0.28f)
-            for (offset in bands) {
-                val y = centerY + glyphHh * offset
-                c.drawRect(cx - span, y - bandHeight * 0.5f,
-                    cx + span, y + bandHeight * 0.5f, segmentCuts)
-            }
-            c.restore()
-        }
         c.restore()
         c.restoreToCount(layerSave)
     }
