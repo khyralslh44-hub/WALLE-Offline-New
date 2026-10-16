@@ -200,9 +200,11 @@ class RobotFaceView(context: Context) : View(context) {
         // Compact cyan LED blocks: the reference has two distinct rounded pixels with a
         // dark bridge between them. Keep the base glyph compact and let each expression alter
         // its lid/height rather than turning the whole eye into a skewed polygon.
-        val w = min(width * 0.235f, height * 0.165f) * eyeWidth
-        val h = min(height * 0.16f, w * 0.86f) * eyeHeight
-        val gap = min(width * 0.205f, w * 0.62f) * spacing
+        // Match the reference sheet's compact rounded-square LED pixels instead of wide pills.
+        // Scale both axes independently so the eyes keep their proportions on tall phone screens.
+        val w = min(width * 0.22f, height * 0.15f) * eyeWidth
+        val h = min(height * 0.13f, w * 0.94f) * eyeHeight
+        val gap = min(width * 0.205f, w * 0.60f) * spacing
         val cy = height * 0.50f
         val silhouetteRaw = if (silhouetteTransitionStartedAt == 0L) 1f else
             ((now - silhouetteTransitionStartedAt).toFloat() / silhouetteTransitionDurationMs).coerceIn(0f, 1f)
