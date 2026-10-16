@@ -1,12 +1,14 @@
 package com.eve.robot
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.ImageFormat
 import android.graphics.Matrix
 import android.graphics.Rect
 import android.graphics.drawable.GradientDrawable
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -155,6 +157,29 @@ class MainActivity : ComponentActivity() {
             react(brain.cameraUnavailable("permission declined"), playSound = false)
             Log.i("EVE", "Camera permission declined; face remains active.")
         }
+        requestNotificationPermissionIfNeeded()
+    }
+
+    private val notificationPermissionRequest = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        getSharedPreferences("eve_relationship", MODE_PRIVATE).edit()
+            .putBoolean("notificationPermissionAsked", true)
+            .apply()
+        Log.i("EVE_NOTIFY", "notification permission granted=$granted")
+    }
+
+    private fun requestNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT < 33) return
+        if (ContextCompat.checkSelfPermission(
+                this, Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+        ) return
+        val prefs = getSharedPreferences("eve_relationship", MODE_PRIVATE)
+        if (prefs.getBoolean("notificationPermissionAsked", false)) return
+        // Ask at most once from the foreground. Declining reminders never disables the face or games.
+        prefs.edit().putBoolean("notificationPermissionAsked", true).apply()
+        notificationPermissionRequest.launch(Manifest.permission.POST_NOTIFICATIONS)
     }
 
     private val idleLoop = object : Runnable {
@@ -260,6 +285,12 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                         react(brain.touched(longPress, lastInteractionAt), longPress)
+                        if (longPress) {
+                            // A long press opens the offline game room while preserving recent-label
+                            // reinforcement above. Double-tap remains reserved for camera switching.
+                            Log.i("EVE_GAMES", "GAME_LAUNCH_GESTURE source=face_long_press")
+                            startActivity(Intent(this, RobotGamesActivity::class.java))
+                        }
                         true
                     }
                 }
@@ -271,8 +302,12 @@ class MainActivity : ComponentActivity() {
         react(brain.awakenExperience(), playSound = false)
         face.startAnimation()
         main.postDelayed(idleLoop, 5200L)
-        if (hasCameraPermission()) startCamera()
-        else permissionRequest.launch(Manifest.permission.CAMERA)
+        if (hasCameraPermission()) {
+            startCamera()
+            requestNotificationPermissionIfNeeded()
+        } else {
+            permissionRequest.launch(Manifest.permission.CAMERA)
+        }
     }
 
     override fun onResume() {
