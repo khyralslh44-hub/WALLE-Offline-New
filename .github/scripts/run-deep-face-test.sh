@@ -204,13 +204,29 @@ timeout 360s adb shell am instrument -w -r "$TEST_PACKAGE/androidx.test.runner.A
   > "$RESULT_DIR/instrumentation-output.txt" 2>&1 || INSTRUMENTATION_EXIT=$?
 cat "$RESULT_DIR/instrumentation-output.txt"
 
-# The instrumentation test writes the contact sheet into the app's internal filesDir.
-# Pull it through run-as so the gallery is taken from the exact production renderer under test.
+# The instrumentation test writes the contact sheet into app-internal filesDir and
+# duplicates it to app-specific external storage as a fallback for some API 29 run-as quirks.
 GALLERY_DEVICE_PATH="files/eye-expression-contact-sheet.png"
 GALLERY_HOST_PATH="$RESULT_DIR/eye-expression-contact-sheet.png"
-if timeout 30s adb exec-out run-as com.eve.robot cat "$GALLERY_DEVICE_PATH" > "$GALLERY_HOST_PATH" 2> "$RESULT_DIR/eye-gallery-pull.txt"; then
-  if [ -s "$GALLERY_HOST_PATH" ]; then
-    python3 - "$GALLERY_HOST_PATH" <<'PY'
+GALLERY_PULLED=false
+if timeout 30s adb exec-out run-as com.eve.robot cat "$GALLERY_DEVICE_PATH" > "$GALLERY_HOST_PATH" 2> "$RESULT_DIR/eye-gallery-pull.txt" &&
+   [ -s "$GALLERY_HOST_PATH" ]; then
+  GALLERY_PULLED=true
+else
+  echo "WARN: private-file gallery transfer failed; trying app-specific external storage." | tee -a "$RESULT_DIR/environment.txt"
+  rm -f "$GALLERY_HOST_PATH"
+  if timeout 30s adb pull "/sdcard/Android/data/com.eve.robot/files/eye-expression-contact-sheet.png" \
+      "$GALLERY_HOST_PATH" > "$RESULT_DIR/eye-gallery-external-pull.txt" 2>&1 &&
+      [ -s "$GALLERY_HOST_PATH" ]; then
+    GALLERY_PULLED=true
+  else
+    cat "$RESULT_DIR/eye-gallery-pull.txt" "$RESULT_DIR/eye-gallery-external-pull.txt" 2>/dev/null || true
+    echo "FAIL: could not retrieve the rendered eye-expression contact sheet from either app-specific path." | tee -a "$RESULT_DIR/environment.txt"
+    exit 14
+  fi
+fi
+
+python3 - "$GALLERY_HOST_PATH" <<'PY'
 import struct, sys
 from pathlib import Path
 p = Path(sys.argv[1])
@@ -222,16 +238,7 @@ if w < 1200 or h < 2500:
     raise SystemExit(f"FAIL: expected the current 24-glyph contact sheet >=1200x2500; got {w}x{h}.")
 print(f"PASS: current production eye gallery is {w}x{h}.")
 PY
-    echo "PASS: eye expression contact sheet pulled from app-internal files: $GALLERY_HOST_PATH" | tee -a "$RESULT_DIR/environment.txt"
-  else
-    echo "FAIL: eye expression gallery pull returned success but file is empty." | tee -a "$RESULT_DIR/environment.txt"
-    exit 14
-  fi
-else
-  cat "$RESULT_DIR/eye-gallery-pull.txt" || true
-  echo "FAIL: could not retrieve the rendered eye-expression contact sheet from app-internal files." | tee -a "$RESULT_DIR/environment.txt"
-  exit 14
-fi
+echo "PASS: eye expression contact sheet retrieved: $GALLERY_HOST_PATH" | tee -a "$RESULT_DIR/environment.txt"
 
 timeout 20s adb logcat -d -v threadtime > "$RESULT_DIR/logcat.txt" 2>&1 || true
 timeout 10s adb devices -l > "$RESULT_DIR/adb-devices-after.txt" 2>&1 || true
