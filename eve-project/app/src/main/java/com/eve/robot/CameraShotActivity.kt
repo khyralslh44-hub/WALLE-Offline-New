@@ -100,6 +100,8 @@ class CameraShotActivity : ComponentActivity() {
     private fun dp(value: Int): Int =
         (value * resources.displayMetrics.density + 0.5f).toInt()
 
+    private fun dp(value: Float): Float = value * resources.displayMetrics.density
+
     private fun selector(lens: Lens): CameraSelector =
         if (lens == Lens.FRONT) CameraSelector.DEFAULT_FRONT_CAMERA
         else CameraSelector.DEFAULT_BACK_CAMERA
@@ -153,7 +155,7 @@ class CameraShotActivity : ComponentActivity() {
         val next = if (previous == Lens.BACK) Lens.FRONT else Lens.BACK
         try {
             bindLens(provider, next)
-            performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
+            shotOverlay.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
         } catch (error: Exception) {
             try {
                 bindLens(provider, previous)
