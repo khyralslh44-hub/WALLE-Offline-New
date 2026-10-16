@@ -201,7 +201,7 @@ class RobotFaceView(context: Context) : View(context) {
         // dark bridge between them. Keep the base glyph compact and let each expression alter
         // its lid/height rather than turning the whole eye into a skewed polygon.
         val w = min(width * 0.235f, height * 0.165f) * eyeWidth
-        val h = min(height * 0.135f, w * 0.72f) * eyeHeight
+        val h = min(height * 0.16f, w * 0.86f) * eyeHeight
         val gap = min(width * 0.205f, w * 0.62f) * spacing
         val cy = height * 0.50f
         val silhouetteRaw = if (silhouetteTransitionStartedAt == 0L) 1f else

@@ -189,6 +189,8 @@ class EyeExpressionGalleryTest {
                     val expectedRatio = when (item.expected) {
                         EyeSilhouette.ROUND_SURPRISE, EyeSilhouette.AWE -> 0.80f..1.30f
                         EyeSilhouette.SCARED -> 0.68f..1.35f
+                        // Neutral/warm Cozmo pixels should stay close to square, not wide bars.
+                        EyeSilhouette.ALMOND, EyeSilhouette.NEUTRAL, EyeSilhouette.SOFT -> 0.95f..1.55f
                         else -> 0.95f..1.85f
                     }
                     assertTrue(

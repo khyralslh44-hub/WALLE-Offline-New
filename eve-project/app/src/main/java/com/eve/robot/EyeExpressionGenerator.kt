@@ -193,7 +193,7 @@ object EyeExpressionGenerator {
         // moods were capped at 0.34–0.58 before shape selection, which reduced worry/anger/sleepy
         // to hairlines. Cozmo-style expressions use different lid geometry and different apertures.
         val expressionOpening = when (clearSilhouette) {
-            EyeSilhouette.ALMOND -> clearOpening
+            EyeSilhouette.ALMOND -> maxOf(clearOpening, 0.94f)
             EyeSilhouette.NEUTRAL -> maxOf(clearOpening, 0.90f)
             EyeSilhouette.BLINK_HIGH, EyeSilhouette.BLINK_LOW -> clearOpening
             EyeSilhouette.SMILE -> maxOf(clearOpening, 0.70f)
