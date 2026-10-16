@@ -198,36 +198,15 @@ class RobotFaceView(context: Context) : View(context) {
             if (p < 0.5f) 1f - p * 1.8f else 0.1f + (p - 0.5f) * 1.8f
         } else 1f
         if (blinkStarted > 0L && blinkAge >= blinkDurationMs) blinkStarted = 0L
-        if (animate && now >= nextGlanceAt) {
-            // EVE's gaze is purposeful: playful moods scan a little faster; irritated moods look away.
-            when {
-                mood == EveMood.IRRITATED || mood == EveMood.ANGRY -> when (scanStep % 4) {
-                    0 -> { targetGlanceX = 0.052f; targetGlanceY = 0.008f }
-                    1 -> { targetGlanceX = 0.028f; targetGlanceY = 0.018f }
-                    2 -> { targetGlanceX = -0.020f; targetGlanceY = 0.006f }
-                    else -> { targetGlanceX = 0.018f; targetGlanceY = 0.012f }
-                }
-                else -> when (scanStep % 4) {
-                    0 -> { targetGlanceX = -0.034f; targetGlanceY = 0.004f }
-                    1 -> { targetGlanceX = 0f; targetGlanceY = -0.014f }
-                    2 -> { targetGlanceX = 0.034f; targetGlanceY = 0.004f }
-                    else -> { targetGlanceX = 0f; targetGlanceY = 0f }
-                }
-            }
-            scanStep++
-            nextGlanceAt = now + when (mood) {
-                EveMood.PLAYFUL -> 2700L
-                EveMood.IRRITATED -> 4600L
-                EveMood.ANGRY -> 5600L
-                else -> 3600L
-            }
-        }
+        // Do not invent a new emotion/gaze every few seconds. Cozmo-style micro-animation
+        // is driven by explicit interaction decisions; idle mode only blinks. This prevents
+        // the face from changing when the camera has seen nothing new.
         val glanceEase = if (animate) 0.075f else 1f
         glanceX += (targetGlanceX - glanceX) * glanceEase
         glanceY += (targetGlanceY - glanceY) * glanceEase
-        val idleGaze = if (animate) sin(now / 1610.0).toFloat() * 0.012f else 0f
-        val idleGazeY = if (animate) sin(now / 2340.0).toFloat() * 0.007f else 0f
-        val breath = if (animate) 0.965f + 0.035f * sin(now / 980.0).toFloat() else 1f
+        val idleGaze = 0f
+        val idleGazeY = 0f
+        val breath = 1f
         // The reference sheet uses compact horizontal LED blocks (about 2:1), not square tiles.
         // Keep a dark bridge between the eyes and scale with the actual view size on phone screens.
         // Compact cyan LED blocks: the reference has two distinct rounded pixels with a
