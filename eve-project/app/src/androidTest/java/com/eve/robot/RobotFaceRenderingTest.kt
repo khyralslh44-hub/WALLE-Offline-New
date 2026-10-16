@@ -174,10 +174,7 @@ class RobotFaceRenderingTest {
             uniqueMasks >= 22
         )
 
-        val outDir = requireNotNull(context.getExternalFilesDir(null)) {
-            "External app-specific storage is not available to save the rendered expression audit."
-        }
-        val output = File(outDir, "eye-expression-contact-sheet.png")
+        val output = File(context.filesDir, "eye-expression-contact-sheet.png")
         FileOutputStream(output).use { stream ->
             assertTrue("Could not encode eye-expression contact sheet.", sheet.compress(Bitmap.CompressFormat.PNG, 100, stream))
         }

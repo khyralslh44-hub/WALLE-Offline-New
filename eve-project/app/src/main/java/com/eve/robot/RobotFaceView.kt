@@ -309,20 +309,48 @@ class RobotFaceView(context: Context) : View(context) {
             EyeSilhouette.ROUND_SURPRISE, EyeSilhouette.SCARED, EyeSilhouette.AWE ->
                 rounded(min(hw * 0.40f, glyphHh * 0.34f))
 
+            // Happy is a true curved eyelid/crescent, not a straight horizontal bar.
+            EyeSilhouette.SMILE -> {
+                shape.moveTo(cx - hw, centerY + glyphHh * 0.20f)
+                shape.cubicTo(cx - hw * 0.62f, centerY - glyphHh * 0.95f,
+                    cx + hw * 0.62f, centerY - glyphHh * 0.95f,
+                    cx + hw, centerY + glyphHh * 0.20f)
+                shape.cubicTo(cx + hw * 0.56f, centerY - glyphHh * 0.10f,
+                    cx - hw * 0.56f, centerY - glyphHh * 0.10f,
+                    cx - hw, centerY + glyphHh * 0.20f)
+                shape.close()
+            }
+            // Glee is a flatter, softer crescent than the closed happy-eye expression.
+            EyeSilhouette.GLEE -> {
+                shape.moveTo(cx - hw, centerY + glyphHh * 0.18f)
+                shape.cubicTo(cx - hw * 0.66f, centerY - glyphHh * 0.68f,
+                    cx + hw * 0.60f, centerY - glyphHh * 0.68f,
+                    cx + hw, centerY + glyphHh * 0.18f)
+                shape.cubicTo(cx + hw * 0.58f, centerY - glyphHh * 0.02f,
+                    cx - hw * 0.58f, centerY - glyphHh * 0.02f,
+                    cx - hw, centerY + glyphHh * 0.18f)
+                shape.close()
+            }
+            // Blink, bored, unimpressed and squint are horizontal LED slits.
             EyeSilhouette.BLINK_HIGH, EyeSilhouette.BLINK_LOW,
-            EyeSilhouette.SMILE, EyeSilhouette.GLEE,
             EyeSilhouette.BORED, EyeSilhouette.UNIMPRESSED,
             EyeSilhouette.SQUINT -> {
                 val slit = when (eyeSilhouette) {
                     EyeSilhouette.BLINK_HIGH -> 0.22f
                     EyeSilhouette.BLINK_LOW -> 0.20f
-                    EyeSilhouette.SMILE -> 0.42f
-                    EyeSilhouette.GLEE -> 0.37f
                     EyeSilhouette.BORED -> 0.38f
                     EyeSilhouette.UNIMPRESSED -> 0.30f
                     else -> 0.34f
                 }
-                val r = RectF(cx - hw, centerY - glyphHh * slit, cx + hw, centerY + glyphHh * slit)
+                val offset = when (eyeSilhouette) {
+                    EyeSilhouette.BLINK_HIGH -> -glyphHh * 0.14f
+                    EyeSilhouette.BLINK_LOW -> glyphHh * 0.14f
+                    EyeSilhouette.BORED -> glyphHh * 0.04f
+                    EyeSilhouette.UNIMPRESSED -> glyphHh * 0.08f
+                    else -> 0f
+                }
+                val r = RectF(cx - hw, centerY + offset - glyphHh * slit,
+                    cx + hw, centerY + offset + glyphHh * slit)
                 shape.addRoundRect(r, glyphHh * slit, glyphHh * slit, Path.Direction.CW)
             }
 
@@ -345,13 +373,19 @@ class RobotFaceView(context: Context) : View(context) {
             }
 
             EyeSilhouette.WORRIED -> {
-                // Worried: tall rounded block with a raised inner lid.
-                val r = RectF(cx - hw, centerY - glyphHh * 0.78f, cx + hw, centerY + glyphHh * 0.78f)
-                shape.addRoundRect(r, glyphHh * 0.25f, glyphHh * 0.25f, Path.Direction.CW)
-                shape.moveTo(cx - hw, centerY - glyphHh * 0.48f)
-                shape.quadTo(cx, centerY - glyphHh * 0.82f, cx + hw, centerY - glyphHh * 0.58f)
-                shape.lineTo(cx + hw, centerY - glyphHh * 0.36f)
-                shape.quadTo(cx, centerY - glyphHh * 0.55f, cx - hw, centerY - glyphHh * 0.25f)
+                // Raised inner lid + soft lower bowl. One continuous path avoids a filled,
+                // overlapping polygon that previously made worry look like a slanted tile.
+                shape.moveTo(cx - hw, centerY - glyphHh * 0.38f)
+                shape.cubicTo(cx - hw * 0.66f, centerY - glyphHh * 0.90f,
+                    cx - hw * 0.18f, centerY - glyphHh * 0.56f,
+                    cx + hw * 0.18f, centerY - glyphHh * 0.60f)
+                shape.cubicTo(cx + hw * 0.56f, centerY - glyphHh * 0.64f,
+                    cx + hw * 0.82f, centerY - glyphHh * 0.88f,
+                    cx + hw, centerY - glyphHh * 0.52f)
+                shape.lineTo(cx + hw, centerY + glyphHh * 0.40f)
+                shape.cubicTo(cx + hw * 0.82f, centerY + glyphHh * 0.77f,
+                    cx - hw * 0.72f, centerY + glyphHh * 0.78f,
+                    cx - hw, centerY + glyphHh * 0.42f)
                 shape.close()
             }
 
