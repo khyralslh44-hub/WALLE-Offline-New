@@ -232,7 +232,7 @@ class RobotFaceView(context: Context) : View(context) {
         val widthScale = when (eyeSilhouette) {
             EyeSilhouette.NEUTRAL, EyeSilhouette.ALMOND, EyeSilhouette.SOFT -> 0.98f
             EyeSilhouette.ROUND_SURPRISE, EyeSilhouette.AWE -> 0.94f
-            EyeSilhouette.SCARED -> 0.84f
+            EyeSilhouette.SCARED -> 0.95f
             EyeSilhouette.SKEPTIC, EyeSilhouette.SUSPICIOUS -> 0.92f
             else -> 1f
         }
@@ -241,7 +241,7 @@ class RobotFaceView(context: Context) : View(context) {
             // not the flatter bars used for happy/blink expressions.
             EyeSilhouette.NEUTRAL, EyeSilhouette.ALMOND, EyeSilhouette.SOFT -> 1.00f
             EyeSilhouette.ROUND_SURPRISE, EyeSilhouette.AWE -> 1.00f
-            EyeSilhouette.SCARED -> 1.35f
+            EyeSilhouette.SCARED -> 1.12f
             else -> 1f
         }
         val hw = baseHalfWidth * widthScale
@@ -258,7 +258,7 @@ class RobotFaceView(context: Context) : View(context) {
         // neutral remains a rounded horizontal pixel, while squints and lids get thinner.
         val eyeScale = when (eyeSilhouette) {
             EyeSilhouette.ROUND_SURPRISE -> 1.00f
-            EyeSilhouette.SCARED -> 1.84f
+            EyeSilhouette.SCARED -> 1.42f
             EyeSilhouette.AWE -> 1.04f
             EyeSilhouette.SAD_DOWN, EyeSilhouette.SAD_UP, EyeSilhouette.DROOPY -> 1.24f
             EyeSilhouette.WORRIED -> 1.22f
