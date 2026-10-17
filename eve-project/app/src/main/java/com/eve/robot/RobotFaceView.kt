@@ -202,9 +202,11 @@ class RobotFaceView(context: Context) : View(context) {
         // its lid/height rather than turning the whole eye into a skewed polygon.
         // Match the reference sheet's compact rounded-square LED pixels instead of wide pills.
         // Scale both axes independently so the eyes keep their proportions on tall phone screens.
-        val w = min(width * 0.22f, height * 0.15f) * eyeWidth
-        val h = min(height * 0.13f, w * 0.94f) * eyeHeight
-        val gap = min(width * 0.205f, w * 0.60f) * spacing
+        // Keep the display pixels horizontally rectangular like the Cozmo sheet.
+        // The old near-square eye height made the face read as two large tiles instead of LED eyes.
+        val w = min(width * 0.23f, height * 0.15f) * eyeWidth
+        val h = min(height * 0.085f, w * 0.58f) * eyeHeight
+        val gap = min(width * 0.21f, w * 0.62f) * spacing
         val cy = height * 0.50f
         val silhouetteRaw = if (silhouetteTransitionStartedAt == 0L) 1f else
             ((now - silhouetteTransitionStartedAt).toFloat() / silhouetteTransitionDurationMs).coerceIn(0f, 1f)
@@ -215,10 +217,10 @@ class RobotFaceView(context: Context) : View(context) {
             if (alpha <= 0.005f) return
             drawEye(canvas, width * 0.5f - gap + (gazeX + idleGaze) * width,
                 cy + (gazeY + idleGazeY + 0f) * height, w * (1f + asymmetry * 0.24f), h,
-                opening * blink * breath * (1f + asymmetry * 0.30f), tilt * 0.18f, glow, squint, contour, -1, style, alpha)
+                opening * blink * breath * (1f + asymmetry * 0.30f), tilt * 0.06f, glow, squint, contour, -1, style, alpha)
             drawEye(canvas, width * 0.5f + gap + (gazeX + idleGaze + asymmetry * 0.025f) * width,
                 cy + (gazeY + idleGazeY + 0f - asymmetry * 0.035f) * height, w * (1f - asymmetry * 0.24f), h,
-                opening * blink * breath * (1f - asymmetry * 0.30f), -tilt * 0.18f, glow, squint, contour, 1, style, alpha)
+                opening * blink * breath * (1f - asymmetry * 0.30f), -tilt * 0.06f, glow, squint, contour, 1, style, alpha)
         }
 
         if (silhouetteBlend < 1f) drawExpressionLayer(previousSilhouette, 1f - silhouetteBlend)
