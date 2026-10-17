@@ -200,7 +200,10 @@ class RobotBrainTest {
 
         assertEquals(EveMood.ANGRY, angry.mood)
         assertTrue(cooling.frustration < angry.frustration)
-        assertEquals(EveMood.IRRITATED, cooling.mood)
+        // A very high frustration level should remain visibly angry during a short pause;
+        // cooling is gradual rather than an immediate forced drop to irritation.
+        assertEquals(EveMood.ANGRY, cooling.mood)
+        assertEquals(EveIntent.REGULATE, cooling.intent)
         assertTrue(calmer.frustration < cooling.frustration)
     }
 
