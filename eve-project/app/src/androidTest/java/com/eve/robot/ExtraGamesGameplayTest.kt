@@ -55,9 +55,15 @@ class ExtraGamesGameplayTest {
                     isAccessible = true
                 }
                 repeat(10) { round ->
+                    // Choose the actual target position independently from aiming at it.
+                    val target = buttonContaining(activity, "الهدف")
+                    assertNotNull("Paint Shot target/aim choice missing at round ${round + 1}.", target)
+                    requireNotNull(target).performClick()
+
                     val fire = buttonContaining(activity, "أطلق طلقة طلاء")
                     assertNotNull("Paint Shot launch/fire control missing at round ${round + 1}.", fire)
-                    requireNotNull(fire).performClick()
+                    assertTrue("Fire must be enabled only after a direction has been selected.", requireNotNull(fire).isEnabled)
+                    fire.performClick()
                     assertEquals(
                         "Paint Shot should count each shot immediately.",
                         round + 1,
