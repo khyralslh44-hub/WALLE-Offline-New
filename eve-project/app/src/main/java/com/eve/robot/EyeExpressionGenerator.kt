@@ -145,7 +145,14 @@ object EyeExpressionGenerator {
             else -> gazeY
         }.coerceIn(-0.12f, 0.12f)
 
-        val reason = decision.reason.lowercase()
+        val rawReason = decision.reason.lowercase()
+        // Perception text describes a human's predicted/uncertain expression, not EVE's own mood.
+        // In particular, "uncertain ... label=angry" must never render angry eyes after rejection.
+        val reason = when {
+            rawReason.startsWith("uncertain facial-expression model output") -> ""
+            rawReason.startsWith("facial-expression model predicts ") -> ""
+            else -> rawReason
+        }
         val clearSilhouette = when {
             "fear" in reason -> EyeSilhouette.SCARED
             "sad down" in reason -> EyeSilhouette.SAD_DOWN

@@ -41,6 +41,32 @@ class EyeExpressionGeneratorTest {
         assertTrue("Expected thousands of distinct generated eye poses, got ${profiles.size}", profiles.size >= 9_000)
     }
 
+    @Test fun rejectedLowConfidenceAngryLabelKeepsNeutralRobotEyes() {
+        val rejected = EveDecision(
+            mood = EveMood.NEUTRAL,
+            reason = "uncertain facial-expression model output: label=angry confidence=0.5707551"
+        )
+
+        assertEquals(
+            "A rejected human-expression prediction must not override EVE's neutral affect.",
+            EyeSilhouette.ALMOND,
+            EyeExpressionGenerator.generate(rejected, 19L).silhouette
+        )
+    }
+
+    @Test fun observingAnAngryHumanDoesNotMakeEVELookAngry() {
+        val decision = RobotBrain().observeFacialEmotion("angry", 0.85f)
+        assertEquals(EveMood.CONCERNED, decision.mood)
+
+        val pose = EyeExpressionGenerator.generate(decision, 23L)
+        assertEquals(
+            "EVE should react with concern rather than copy the person's angry expression.",
+            EyeSilhouette.WORRIED,
+            pose.silhouette
+        )
+        assertTrue(pose.silhouette !in setOf(EyeSilhouette.SHARP, EyeSilhouette.FURIOUS))
+    }
+
     @Test fun affectValuesChangeEyePoseEvenForSameMood() {
         val calm = EveDecision(
             mood = EveMood.NEUTRAL, reason = "calm",
