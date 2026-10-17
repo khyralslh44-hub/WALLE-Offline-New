@@ -155,7 +155,18 @@ object EyeExpressionGenerator {
             "human" in rawReason || "person" in rawReason || "observing an angry" in rawReason -> ""
             else -> rawReason
         }
-        val clearSilhouette = when {
+        // Internal goal is a separate cue from emotion: two neutral idle states can look different
+        // because the robot is exploring, connecting, playing, resting, focusing, or regulating.
+        val intentSilhouette = when (decision.intent) {
+            null -> null
+            EveIntent.EXPLORE -> EyeSilhouette.CURIOUS
+            EveIntent.CONNECT -> if (valence >= 0.62f) EyeSilhouette.GLEE else EyeSilhouette.SOFT
+            EveIntent.PLAY -> if (valence < 0.08f) EyeSilhouette.SKEPTIC else EyeSilhouette.PLAYFUL
+            EveIntent.REST -> if (fatigue >= 0.72f) EyeSilhouette.BLINK_LOW else EyeSilhouette.DROOPY
+            EveIntent.FOCUS -> if (arousal < 0.28f) EyeSilhouette.SQUINT else EyeSilhouette.FOCUSED
+            EveIntent.REGULATE -> if (decision.frustration >= 0.55f) EyeSilhouette.UNIMPRESSED else EyeSilhouette.WORRIED
+        }
+        val clearSilhouette = intentSilhouette ?: when {
             // When EVE observes an angry human, her own response is concern, never imitation.
             // Keep this provenance-specific case distinct from EVE's own anger state.
             decision.mood == EveMood.CONCERNED &&
