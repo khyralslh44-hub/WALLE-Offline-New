@@ -46,7 +46,6 @@ class RobotGamesActivityLaunchTest {
                 assertEquals("EVE_CYAN_EXPRESSION_FACE", requireNotNull(face).contentDescription)
 
                 requireNotNull(openButton(activity, "إكس-أو")).performClick()
-                instrumentation.waitForIdleSync()
 
                 val moodField = RobotFaceView::class.java.getDeclaredField("mood").apply {
                     isAccessible = true
