@@ -95,6 +95,9 @@ class HandGestureInterpreter(
         }
 
         if (winningLabel == "Closed_Fist" && winningSample.span != null) {
+            // After the forward-motion cue, suppress further "fist" events for this held pose.
+            // A new non-fist stable label resets this latch in the stable-label transition above.
+            if (punchEmittedForFist) return null
             val previousSpan = lastFistSpan
             val quickApproach = previousSpan != null &&
                 nowMs - lastFistTime in 1L..850L &&
