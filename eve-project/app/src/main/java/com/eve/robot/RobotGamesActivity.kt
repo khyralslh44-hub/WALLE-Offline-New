@@ -29,6 +29,7 @@ class RobotGamesActivity : ComponentActivity() {
     private val random = Random(System.currentTimeMillis())
     private var game = Game.MENU
     private var difficulty = 2
+    private var xoDifficulty = 2
     private var statusText = "سأحاول التكيّف مع أسلوبك بدل تكرار الحركة نفسها."
     private val prefs by lazy { getSharedPreferences("eve_games", MODE_PRIVATE) }
     private lateinit var gameBrain: RobotBrain
@@ -266,6 +267,7 @@ class RobotGamesActivity : ComponentActivity() {
     // ------------------------------------------------------------------ Tic-tac-toe
     private fun startXo() {
         game = Game.XO
+        xoDifficulty = prefs.getInt("difficulty:xo", 2).coerceIn(1, 3)
         reactWithEve("xo", "start")
         xo.fill(' ')
         xoFinished = false
@@ -288,7 +290,20 @@ class RobotGamesActivity : ComponentActivity() {
             })
         }
         root.addView(grid, LinearLayout.LayoutParams(-1, -2))
-        root.addView(text("سجلّك: فوز ${prefs.getInt("games:xo:player", 0)} • خسارة ${prefs.getInt("games:xo:robot", 0)} • تعادل ${prefs.getInt("games:xo:draw", 0)}", 14f, muted))
+        root.addView(text(
+            "مستوى إيف: $xoDifficulty/3 • سجلّك: فوز ${prefs.getInt("games:xo:player", 0)} • " +
+                "خسارة ${prefs.getInt("games:xo:robot", 0)} • تعادل ${prefs.getInt("games:xo:draw", 0)}",
+            14f, muted
+        ))
+        addWideButton("تغيير مستوى التحدّي: $xoDifficulty/3", {
+            xoDifficulty = xoDifficulty % 3 + 1
+            prefs.edit().putInt("difficulty:xo", xoDifficulty).apply()
+            renderXo(when (xoDifficulty) {
+                1 -> "سأجرّب أسلوبًا أخفّ؛ يمكنك استغلال أي ثغرة."
+                2 -> "سأوازن بين الدفاع والهجوم. لا تمنحني فرصة سهلة."
+                else -> "المستوى الصعب: سأحسب أفضل نتيجة ممكنة لكل حركة."
+            })
+        })
         addWideButton("جولة جديدة", ::startXo)
         addWideButton("قائمة الألعاب", ::showMenu)
     }
@@ -336,23 +351,79 @@ class RobotGamesActivity : ComponentActivity() {
         if (xo.none { it == ' ' }) {
             xoFinished = true; saveResult("xo", "draw"); renderXo("تعادلنا. لم تمنحني فرصة سهلة."); return
         }
-        var best = -100
-        var bestMoves = mutableListOf<Int>()
-        for (i in xo.indices) if (xo[i] == ' ') {
-            xo[i] = 'O'
+        val available = xo.indices.filter { xo[it] == ' ' }
+        val scoredMoves = available.map { move ->
+            xo[move] = 'O'
             val score = xoScore(xo, false, 0)
-            xo[i] = ' '
-            when {
-                score > best -> { best = score; bestMoves = mutableListOf(i) }
-                score == best -> bestMoves.add(i)
+            xo[move] = ' '
+            move to score
+        }
+        // Never miss an immediate win, even on the easier setting.
+        val immediateWins = scoredMoves.filter { (move, _) ->
+            xo[move] = 'O'
+            val winsNow = winner(xo) == 'O'
+            xo[move] = ' '
+            winsNow
+        }
+        val chosen = when {
+            immediateWins.isNotEmpty() -> immediateWins[random.nextInt(immediateWins.size)].first
+            xoDifficulty == 1 -> {
+                // Friendly mode blocks an immediate one-move win but may miss deeper forks.
+                val safe = scoredMoves.filter { (move, _) ->
+                    xo[move] = 'O'
+                    val givesHumanImmediateWin = xo.indices.any { humanMove ->
+                        if (xo[humanMove] != ' ') false
+                        else {
+                            xo[humanMove] = 'X'
+                            val wins = winner(xo) == 'X'
+                            xo[humanMove] = ' '
+                            wins
+                        }
+                    }
+                    xo[move] = ' '
+                    !givesHumanImmediateWin
+                }
+                val pool = safe.ifEmpty { scoredMoves }
+                pool[random.nextInt(pool.size)].first
+            }
+            xoDifficulty == 2 -> {
+                // Tactical mode prefers a forced win, then a draw, and avoids a forced loss.
+                fun outcomeTier(score: Int) = when {
+                    score > 0 -> 2
+                    score == 0 -> 1
+                    else -> 0
+                }
+                val tier = scoredMoves.maxOf { outcomeTier(it.second) }
+                val candidates = scoredMoves.filter { outcomeTier(it.second) == tier }
+                candidates[random.nextInt(candidates.size)].first
+            }
+            else -> {
+                // Hard mode picks the best minimax score (fastest win / slowest loss).
+                val bestScore = scoredMoves.maxOf { it.second }
+                val candidates = scoredMoves.filter { it.second == bestScore }
+                candidates[random.nextInt(candidates.size)].first
             }
         }
-        val chosen = if (bestMoves.isNotEmpty()) bestMoves[random.nextInt(bestMoves.size)] else xo.indices.first { xo[it] == ' ' }
         xo[chosen] = 'O'
         when {
-            winner(xo) == 'O' -> { xoFinished = true; saveResult("xo", "robot"); renderXo("هذه الجولة لي. سأحاول الحفاظ على الفوز."); }
-            xo.none { it == ' ' } -> { xoFinished = true; saveResult("xo", "draw"); renderXo("تعادل مرة أخرى. التحدي أصعب مما توقعت."); }
-            else -> renderXo(listOf("راقب الوسط… هل ستغيّر طريقتك؟", "أحاول توقع خطوتك التالية.", "هذه الحركة كانت محسوبة. دورك.")[random.nextInt(3)])
+            winner(xo) == 'O' -> {
+                xoFinished = true
+                saveResult("xo", "robot")
+                renderXo("هذه الجولة لي. راجعت احتمالاتك؛ هل تستطيع قلب النتيجة في مباراة العودة؟")
+            }
+            xo.none { it == ' ' } -> {
+                xoFinished = true
+                saveResult("xo", "draw")
+                renderXo("تعادل قوي! سأبحث عن خطة أفضل، وأنت حاول كسر دفاعي.")
+            }
+            else -> {
+                val taunt = when (xoDifficulty) {
+                    1 -> listOf("هذه حركة ودّية. هل لاحظت زاوية أخرى؟", "سأترك لك مساحة للمناورة… دورك.")
+                    2 -> listOf("أراقب خطوتك التالية؛ هل ستستطيع منع خطتي؟", "أغلقت طريقًا وفتحت آخر. دورك.")
+                    else -> listOf("حسبت عدة نهايات؛ اختيارك الآن سيغيّر المباراة.", "المستوى الصعب لا يرحم الأخطاء الصغيرة. دورك.")
+                }
+                renderXo(taunt[random.nextInt(taunt.size)])
+            }
         }
     }
 
