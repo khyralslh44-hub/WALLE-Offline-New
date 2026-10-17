@@ -48,9 +48,21 @@ class RobotBrainTest {
     }
 
     @Test fun uncertainHandSignalsDoNotInventAnEmotion() {
-        val decision = RobotBrain().observeHandGesture("victory", 0.40f)
-        assertEquals(EveMood.CURIOUS, decision.mood)
-        assertFalse(decision.playSound)
+        val brain = RobotBrain()
+        val veryLowConfidence = brain.observeHandGesture("victory", 0.40f)
+        assertEquals(EveMood.CURIOUS, veryLowConfidence.mood)
+        assertFalse(veryLowConfidence.playSound)
+
+        // Keep the brain's acceptance gate aligned with the interpreter's 0.60 threshold.
+        val belowSharedThreshold = brain.observeHandGesture("thumb_up", 0.59f)
+        assertEquals(EveMood.CURIOUS, belowSharedThreshold.mood)
+        assertFalse(belowSharedThreshold.playSound)
+    }
+
+    @Test fun thumbUpAtInterpreterThresholdProducesHappyAffect() {
+        val decision = RobotBrain().observeHandGesture("thumb_up", 0.615f)
+        assertEquals(EveMood.HAPPY, decision.mood)
+        assertTrue(decision.playSound)
     }
 
     @Test fun lowConfidenceDoesNotClaimCertainty() {
