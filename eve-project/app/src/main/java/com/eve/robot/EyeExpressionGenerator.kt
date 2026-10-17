@@ -6,7 +6,7 @@ package com.eve.robot
  */
 /** Distinct LED-eye glyphs modeled after the Cozmo/Vector-style expression sheet. */
 enum class EyeSilhouette {
-    ALMOND, NEUTRAL, BLINK_HIGH, SMILE, GLEE, BLINK_LOW,
+    ALMOND, NEUTRAL, CURIOUS, BLINK_HIGH, SMILE, GLEE, BLINK_LOW,
     SAD_DOWN, SAD_UP, WORRIED, FOCUSED, ANNOYED, ROUND_SURPRISE,
     SKEPTIC, BORED, UNIMPRESSED, DROOPY, SUSPICIOUS, SQUINT,
     SHARP, FURIOUS, SCARED, AWE, PLAYFUL, SOFT
@@ -30,7 +30,7 @@ data class EyeExpressionProfile(
 private fun defaultSilhouette(mood: EveMood): EyeSilhouette = when (mood) {
     EveMood.AWAKE -> EyeSilhouette.NEUTRAL
     EveMood.NEUTRAL -> EyeSilhouette.ALMOND
-    EveMood.CURIOUS -> EyeSilhouette.PLAYFUL
+    EveMood.CURIOUS -> EyeSilhouette.CURIOUS
     EveMood.HAPPY -> EyeSilhouette.SMILE
     EveMood.SURPRISED -> EyeSilhouette.ROUND_SURPRISE
     EveMood.CONCERNED -> EyeSilhouette.WORRIED
@@ -180,7 +180,7 @@ object EyeExpressionGenerator {
                 EveMood.CURIOUS -> when {
                     curiosity >= 0.84f && arousal >= 0.70f -> EyeSilhouette.AWE
                     curiosity >= 0.82f && valence < -0.10f -> EyeSilhouette.SUSPICIOUS
-                    else -> EyeSilhouette.PLAYFUL
+                    else -> EyeSilhouette.CURIOUS
                 }
                 EveMood.HAPPY -> if (valence >= 0.72f) EyeSilhouette.GLEE else EyeSilhouette.SMILE
                 EveMood.SURPRISED -> if (valence >= 0.45f) EyeSilhouette.AWE else EyeSilhouette.ROUND_SURPRISE
@@ -224,6 +224,7 @@ object EyeExpressionGenerator {
         val expressionOpening = when (expressionSilhouette) {
             EyeSilhouette.ALMOND -> maxOf(clearOpening, 0.94f)
             EyeSilhouette.NEUTRAL -> maxOf(clearOpening, 0.90f)
+            EyeSilhouette.CURIOUS -> maxOf(clearOpening, 0.96f)
             EyeSilhouette.BLINK_HIGH, EyeSilhouette.BLINK_LOW -> clearOpening
             EyeSilhouette.SMILE -> maxOf(clearOpening, 0.70f)
             EyeSilhouette.GLEE -> maxOf(clearOpening, 0.70f)
