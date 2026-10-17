@@ -418,6 +418,44 @@ class FaceVisionIntegrationTest {
     }
 
     @Test
+    fun learnedPersonalityPersistsAcrossRestartsAndDoesNotOverreactToOneGestureBurst() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val preferences = context.getSharedPreferences("eve_local_memory", android.content.Context.MODE_PRIVATE)
+        preferences.edit()
+            .remove("trait:curiosity")
+            .remove("trait:warmth")
+            .remove("trait:playfulness")
+            .remove("trait:patience")
+            .remove("trait:last:friendly_gesture")
+            .commit()
+        try {
+            val memory = EveMemory(context)
+            val before = memory.learnedPersonality()
+            val learned = memory.adaptPersonality("friendly_gesture")
+            val immediateRepeat = memory.adaptPersonality("friendly_gesture")
+            val restored = EveMemory(context).learnedPersonality()
+
+            assertTrue("Friendly feedback should gently strengthen warmth.", learned.warmth > before.warmth)
+            assertTrue("Friendly feedback should gently strengthen playfulness.", learned.playfulness > before.playfulness)
+            assertEquals("Cooldown should prevent a burst from changing the trait twice.", learned.warmth, immediateRepeat.warmth, 0.0001f)
+            assertEquals("Personality traits should persist across memory recreation.", learned.warmth, restored.warmth, 0.0001f)
+            assertEquals(learned.curiosityBias, restored.curiosityBias, 0.0001f)
+            assertEquals(learned.playfulness, restored.playfulness, 0.0001f)
+            assertEquals(learned.patience, restored.patience, 0.0001f)
+            Log.i("EVE_TEST", "PERSISTENT_PERSONALITY_PASS warmth=${restored.warmth} playfulness=${restored.playfulness}")
+            System.out.println("PERSISTENT_PERSONALITY_PASS warmth=${restored.warmth} playfulness=${restored.playfulness}")
+        } finally {
+            preferences.edit()
+                .remove("trait:curiosity")
+                .remove("trait:warmth")
+                .remove("trait:playfulness")
+                .remove("trait:patience")
+                .remove("trait:last:friendly_gesture")
+                .commit()
+        }
+    }
+
+    @Test
     fun uncertainFaceEvidenceDoesNotCreateConfidentEmotionOrVoice() {
         val uncertainInputs = listOf(
             arrayOf<Float?>(null, null, null, 0f),
