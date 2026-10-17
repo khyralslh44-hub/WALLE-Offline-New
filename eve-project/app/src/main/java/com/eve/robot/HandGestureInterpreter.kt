@@ -2,9 +2,12 @@ package com.eve.robot
 
 import kotlin.math.abs
 
+/** Shared acceptance floor for temporal hand voting and affect decisions. */
+internal const val MIN_HAND_GESTURE_CONFIDENCE = 0.60f
+
 /** Converts model labels and short motion history into deliberate, debounced hand events. */
 class HandGestureInterpreter(
-    private val confidenceThreshold: Float = 0.60f,
+    private val confidenceThreshold: Float = MIN_HAND_GESTURE_CONFIDENCE,
     private val stableWindow: Int = 3,
     private val stableVotes: Int = 2
 ) {
