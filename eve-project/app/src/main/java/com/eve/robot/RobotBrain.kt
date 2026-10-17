@@ -494,6 +494,8 @@ class RobotBrain(personality: EvePersonality = EvePersonality()) {
                 EveIntent.REGULATE to EveMood.IRRITATED
             valence < -0.38f && quietFor < 90_000L ->
                 EveIntent.CONNECT to EveMood.CONCERNED
+            familiarity >= 0.35f && quietFor < 30_000L ->
+                EveIntent.CONNECT to EveMood.FAMILIAR
             else -> null
         }
 
