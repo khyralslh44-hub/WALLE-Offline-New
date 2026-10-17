@@ -51,6 +51,14 @@ if [ ! -s "$GITHUB_WORKSPACE/eve-project/app/src/main/assets/eve_emotion_model.t
   echo "FAIL: bundled emotion model is missing." | tee -a "$RESULT_DIR/environment.txt"
   exit 3
 fi
+if [ ! -s "$GITHUB_WORKSPACE/eve-project/app/src/main/assets/gesture_recognizer.task" ]; then
+  echo "FAIL: bundled offline hand-gesture model is missing." | tee -a "$RESULT_DIR/environment.txt"
+  exit 15
+fi
+if [ ! -s "$GITHUB_WORKSPACE/eve-project/app/src/androidTest/assets/gesture_thumb_up.jpg" ]; then
+  echo "FAIL: pinned thumb-up image fixture is missing." | tee -a "$RESULT_DIR/environment.txt"
+  exit 16
+fi
 if [ ! -x "$GRADLE" ]; then
   echo "FAIL: Gradle executable not found at $GRADLE" | tee -a "$RESULT_DIR/environment.txt"
   exit 4
@@ -254,7 +262,7 @@ if grep -E "INSTRUMENTATION_FAILED|FAILURES!!!|INSTRUMENTATION_STATUS_CODE: -2" 
   exit 11
 fi
 
-for marker in FACE_ROBUSTNESS_PASS FACE_FIXTURE_PASS FER_MODEL_PASS OFFLINE_AFFECT_LEARNING_PASS EYE_RENDER_GALLERY_PASS GENERATED_NOTIFICATION_PASS; do
+for marker in FACE_ROBUSTNESS_PASS FACE_FIXTURE_PASS FER_MODEL_PASS HAND_GESTURE_FIXTURE_PASS OFFLINE_AFFECT_LEARNING_PASS EYE_RENDER_GALLERY_PASS GENERATED_NOTIFICATION_PASS; do
   # AndroidJUnitRunner may capture test stdout while logcat can be lost if the emulator's
   # background services restart. Accept the marker from either independent diagnostic stream.
   if ! grep -F "$marker" "$RESULT_DIR/logcat.txt" "$RESULT_DIR/instrumentation-output.txt" >/dev/null 2>&1; then
