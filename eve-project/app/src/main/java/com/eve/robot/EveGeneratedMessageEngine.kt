@@ -17,7 +17,9 @@ data class EveNotificationContext(
     val observationAgeMinutes: Long = Long.MAX_VALUE,
     val lastGameName: String? = null,
     val lastGameResult: String? = null,
-    val gameAgeMinutes: Long = Long.MAX_VALUE
+    val gameAgeMinutes: Long = Long.MAX_VALUE,
+    /** Minutes since the app left the foreground; the camera is paused while backgrounded. */
+    val awayMinutes: Long = 0L
 )
 
 data class EveGeneratedMessage(
@@ -38,8 +40,16 @@ object EveGeneratedMessageEngine {
     private fun pick(seed: Long, values: List<String>): String =
         values[index(seed, values.size)]
 
+    private fun absenceLead(minutes: Long): String? = when {
+        minutes < 45L -> null
+        minutes < 60L -> "مرّ وقت منذ آخر تفاعل بيننا."
+        minutes < 6L * 60L -> "مرّت بضع ساعات منذ آخر تفاعل بيننا."
+        else -> "طال الوقت منذ آخر جولة تفاعلنا فيها."
+    }
+
     fun generate(context: EveNotificationContext): EveGeneratedMessage {
         val seed = context.generationSeed + context.sentCount.toLong() * 37L
+        val absent = absenceLead(context.awayMinutes)
         val game = context.lastGameName?.takeIf {
             it.isNotBlank() && context.gameAgeMinutes in 0L..THREE_DAYS_MINUTES
         }
@@ -56,11 +66,14 @@ object EveGeneratedMessageEngine {
         // Recent real events outrank generic idle prompts.
         if (game != null && context.lastGameResult == "player") {
             val gameName = gameArabic(game)
-            val opening = pick(seed, listOf(
-                "راجعت نتيجة جولتنا الأخيرة في $gameName.",
-                "ما زلت أتذكّر الجولة التي فزتَ فيها في $gameName.",
-                "لدي فكرة جديدة بعد مباراتنا الأخيرة في $gameName."
-            ))
+            val opening = listOfNotNull(
+                absent,
+                pick(seed, listOf(
+                    "راجعت نتيجة جولتنا الأخيرة في $gameName.",
+                    "ما زلت أتذكّر الجولة التي فزتَ فيها في $gameName.",
+                    "لدي فكرة جديدة بعد مباراتنا الأخيرة في $gameName."
+                ))
+            ).joinToString(" ")
             val followup = pick(seed / 3L + 11L, listOf(
                 "هذه المرة سأجرّب خطة مختلفة.",
                 "هل تستطيع الفوز مرة أخرى إذا غيّرتُ أسلوبي؟",
@@ -74,11 +87,14 @@ object EveGeneratedMessageEngine {
         }
         if (game != null && context.lastGameResult == "robot") {
             val gameName = gameArabic(game)
-            val opening = pick(seed + 7L, listOf(
-                "في آخر جولة من $gameName كانت النتيجة لصالحي.",
-                "احتفظت بنتيجة مباراتنا الأخيرة في $gameName.",
-                "لاحظت أن خطتي نجحت في آخر تحدٍّ من $gameName."
-            ))
+            val opening = listOfNotNull(
+                absent,
+                pick(seed + 7L, listOf(
+                    "في آخر جولة من $gameName كانت النتيجة لصالحي.",
+                    "احتفظت بنتيجة مباراتنا الأخيرة في $gameName.",
+                    "لاحظت أن خطتي نجحت في آخر تحدٍّ من $gameName."
+                ))
+            ).joinToString(" ")
             val followup = pick(seed / 5L + 3L, listOf(
                 "هل ستجرب استراتيجية مختلفة هذه المرة؟",
                 "قد تتمكن من مفاجأتي بحركة جديدة.",
@@ -106,8 +122,35 @@ object EveGeneratedMessageEngine {
             ))
             return EveGeneratedMessage(
                 pick(seed + 17L, listOf("ملاحظة من كاميرتي", "احتفظت بتفصيل صغير", "سؤال بعد جولتنا")),
-                "$countPhrase $reflection",
+                listOfNotNull(absent, countPhrase, reflection).joinToString(" "),
                 "recent_visual_observation"
+            )
+        }
+
+        if (absent != null) {
+            val returnChallenge = when (context.mood.uppercase()) {
+                "HAPPY", "FAMILIAR", "PLAYFUL" ->
+                    pick(seed + 29L, listOf(
+                        "هل نبدأ جولة شطرنج أو إكس-أو وأحاول هذه المرة أن أقرأ خطتك؟",
+                        "لديّ تحدٍّ جديد: اختر لعبة ودعنا نرى إن كنت ستتفوق عليّ.",
+                        "تعالَ نختبر جولة قصيرة؛ سأحاول تغيير أسلوبي بدل تكرار الحركات."
+                    ))
+                "SLEEPY" ->
+                    pick(seed + 31L, listOf(
+                        "عندما يناسبك، نلعب جولة هادئة من إكس-أو أو الشطرنج.",
+                        "لا استعجال؛ غرفة اللعب جاهزة لجولة قصيرة عندما تعود."
+                    ))
+                else ->
+                    pick(seed + 37L, listOf(
+                        "هل نبدأ جولة شطرنج أو إكس-أو، أم تريد استكشاف شيء جديد؟",
+                        "اختر تحديًا من غرفة اللعب؛ سأستخدم نتائج جولاتنا السابقة لتكييف المستوى.",
+                        "يمكنك العودة لجولة جديدة؛ لديّ سجل نتيجتنا السابقة ومستوى التحدي الحالي."
+                    ))
+            }
+            return EveGeneratedMessage(
+                pick(seed + 41L, listOf("إيف لديها تحدٍّ جديد", "مرّ وقت منذ جولتنا", "هل نلعب جولة؟")),
+                "$absent $returnChallenge",
+                "absence_return_challenge"
             )
         }
 
