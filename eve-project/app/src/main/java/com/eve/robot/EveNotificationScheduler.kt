@@ -124,7 +124,7 @@ object EveNotificationScheduler {
             return
         }
 
-        val (title, body) = composeMessage(context, now)
+        val (title, body) = composeMessage(context, now, quietFor / 60_000L)
         val openGames = PendingIntent.getActivity(
             context, REQUEST_OPEN_GAMES,
             Intent(context, RobotGamesActivity::class.java)
@@ -160,7 +160,7 @@ object EveNotificationScheduler {
         schedule(context, REPEAT_DELAY_MS)
     }
 
-    private fun composeMessage(context: Context, now: Long): Pair<String, String> {
+    private fun composeMessage(context: Context, now: Long, awayMinutes: Long): Pair<String, String> {
         val relationship = prefs(context)
         val sent = relationship.getInt("sentCount", 0)
         val memory = context.getSharedPreferences("eve_local_memory", Context.MODE_PRIVATE)
@@ -181,7 +181,8 @@ object EveNotificationScheduler {
             observationAgeMinutes = if (observationAt > 0L) ((now - observationAt).coerceAtLeast(0L) / 60_000L) else Long.MAX_VALUE,
             lastGameName = games.getString("games:lastName", null),
             lastGameResult = games.getString("games:lastResult", null),
-            gameAgeMinutes = if (gameAt > 0L) ((now - gameAt).coerceAtLeast(0L) / 60_000L) else Long.MAX_VALUE
+            gameAgeMinutes = if (gameAt > 0L) ((now - gameAt).coerceAtLeast(0L) / 60_000L) else Long.MAX_VALUE,
+            awayMinutes = awayMinutes
         )
 
         val generated = EveGeneratedMessageEngine.generate(generationContext)
