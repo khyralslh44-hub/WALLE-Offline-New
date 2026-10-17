@@ -137,6 +137,17 @@ jobs:
           test "$ACTUAL_GESTURE" = "$EXPECTED_GESTURE"
           echo "PASS: pinned hand-gesture model verified."
           sha256sum "$GESTURE_MODEL" | tee "$RUNNER_TEMP/gesture-model-sha256.txt"
+          GESTURE_FIXTURE="eve-project/app/src/androidTest/assets/gesture_thumb_up.jpg"
+          mkdir -p "$(dirname "$GESTURE_FIXTURE")"
+          curl --fail --location --retry 3 \
+            "https://raw.githubusercontent.com/wgnrto/uniteye/0cbbc9bfbb0d0b0b95b57deec3095e5d5ac81996/com.github.homuler.mediapipe/Tests/Resources/thumb-up.jpg" \
+            --output "$GESTURE_FIXTURE"
+          EXPECTED_FIXTURE="781f7e5eb60c90201f6bb348a433bae5aee06da4"
+          ACTUAL_FIXTURE="$(git hash-object "$GESTURE_FIXTURE")"
+          test "$ACTUAL_FIXTURE" = "$EXPECTED_FIXTURE"
+          grep -Fq 'gesture_thumb_up.jpg' eve-project/app/src/androidTest/java/com/eve/robot/HandGestureIntegrationTest.kt
+          echo "PASS: pinned thumb-up gesture fixture verified."
+          sha256sum "$GESTURE_FIXTURE" | tee "$RUNNER_TEMP/thumb-up-fixture-sha256.txt"
 
       - name: Build matching app and instrumentation APKs with the same signing key
         if: ${{ matrix.api-level == 35 }}
