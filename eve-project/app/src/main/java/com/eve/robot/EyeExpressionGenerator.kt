@@ -199,7 +199,24 @@ object EyeExpressionGenerator {
         // Open or compress each glyph as its own expression preset. Several previous
         // moods were capped at 0.34–0.58 before shape selection, which reduced worry/anger/sleepy
         // to hairlines. Cozmo-style expressions use different lid geometry and different apertures.
-        val expressionOpening = when (clearSilhouette) {
+        // Keep the semantic pose, but add event-linked variation inside moods that previously
+        // reused one glyph for many different situations. The seed is supplied by the event
+        // caller, so the same event/seed remains perfectly repeatable; this is not idle randomness.
+        val expressionSilhouette = when {
+            reason.isNotBlank() -> clearSilhouette
+            decision.mood == EveMood.CURIOUS && seed.mod(3L) == 1L -> EyeSilhouette.SKEPTIC
+            decision.mood == EveMood.CURIOUS && seed.mod(3L) == 2L -> EyeSilhouette.SUSPICIOUS
+            decision.mood == EveMood.HAPPY && seed.mod(3L) == 1L -> EyeSilhouette.GLEE
+            decision.mood == EveMood.CONCERNED && seed.mod(3L) == 1L -> EyeSilhouette.SAD_UP
+            decision.mood == EveMood.CONCERNED && seed.mod(3L) == 2L -> EyeSilhouette.UNIMPRESSED
+            decision.mood == EveMood.IRRITATED && seed.mod(3L) == 1L -> EyeSilhouette.BORED
+            decision.mood == EveMood.IRRITATED && seed.mod(3L) == 2L -> EyeSilhouette.UNIMPRESSED
+            decision.mood == EveMood.FAMILIAR && seed.mod(3L) == 1L -> EyeSilhouette.GLEE
+            decision.mood == EveMood.FOCUSED && seed.mod(3L) == 1L -> EyeSilhouette.SQUINT
+            else -> clearSilhouette
+        }
+
+        val expressionOpening = when (expressionSilhouette) {
             EyeSilhouette.ALMOND -> maxOf(clearOpening, 0.94f)
             EyeSilhouette.NEUTRAL -> maxOf(clearOpening, 0.90f)
             EyeSilhouette.BLINK_HIGH, EyeSilhouette.BLINK_LOW -> clearOpening
@@ -226,7 +243,7 @@ object EyeExpressionGenerator {
 
         // Gaze direction is also part of the pose. The sad-up/down variants previously
         // selected different contours while keeping the same downward gaze.
-        val expressionGazeY = when (clearSilhouette) {
+        val expressionGazeY = when (expressionSilhouette) {
             EyeSilhouette.SAD_DOWN, EyeSilhouette.DROOPY -> maxOf(clearGazeY, 0.055f)
             EyeSilhouette.SAD_UP -> minOf(clearGazeY, -0.045f)
             EyeSilhouette.BLINK_HIGH -> minOf(clearGazeY, -0.040f)
@@ -246,7 +263,7 @@ object EyeExpressionGenerator {
             eyeWidth = eyeWidth,
             eyeHeight = eyeHeight,
             spacing = spacing,
-            silhouette = clearSilhouette
+            silhouette = expressionSilhouette
         )
     }
 }
