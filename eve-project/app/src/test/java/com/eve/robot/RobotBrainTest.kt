@@ -214,8 +214,22 @@ class RobotBrainTest {
         val playful = RobotBrain(EvePersonality(playfulness = 0.95f)).idle(35_000L, 4)
         val reserved = RobotBrain(EvePersonality(playfulness = 0.10f)).idle(35_000L, 4)
         assertEquals(EveMood.PLAYFUL, playful.mood)
+        assertEquals(EveIntent.PLAY, playful.intent)
         assertEquals(EveMood.FOCUSED, reserved.mood)
+        assertEquals(EveIntent.FOCUS, reserved.intent)
         assertEquals(playful.mood, RobotBrain(EvePersonality(playfulness = 0.95f)).idle(35_000L, 88).mood)
+    }
+
+    @Test fun autonomousGoalRespondsToRestNeedAndRecentFrustration() {
+        val restedLater = RobotBrain().idle(180_000L, 30)
+        assertEquals(EveIntent.REST, restedLater.intent)
+        assertEquals(EveMood.SLEEPY, restedLater.mood)
+
+        val overstimulated = RobotBrain()
+        repeat(5) { index -> overstimulated.touched(longPress = false, eventTimeMs = 1_000L + index * 500L) }
+        val regulating = overstimulated.idle(6_000L, 4)
+        assertEquals(EveIntent.REGULATE, regulating.intent)
+        assertEquals(EveMood.ANGRY, regulating.mood)
     }
     
     @Test fun learnedPersonalityUpdatesFutureResponsesWithoutResettingCurrentAffect() {
