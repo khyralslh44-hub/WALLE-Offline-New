@@ -232,22 +232,22 @@ class RobotFaceView(context: Context) : View(context) {
         // The neutral Cozmo reference uses compact, almost-square LED pixels. Slits stay wide,
         // while surprise/scared poses grow taller. Do not use one rectangle size for every mood.
         val widthScale = when (eyeSilhouette) {
-            EyeSilhouette.NEUTRAL, EyeSilhouette.ALMOND, EyeSilhouette.SOFT -> 0.98f
-            // Awe is intended to read as round, not vertically stretched.
-            EyeSilhouette.ROUND_SURPRISE -> 0.94f
-            EyeSilhouette.AWE -> 1.10f
-            EyeSilhouette.SCARED -> 0.95f
+            EyeSilhouette.NEUTRAL -> 0.98f
+            // Neutral mood stays in the compact pixel family rather than becoming a wide almond.
+            EyeSilhouette.ALMOND -> 0.82f
+            EyeSilhouette.SOFT -> 0.86f
+            EyeSilhouette.ROUND_SURPRISE -> 0.84f
+            EyeSilhouette.AWE -> 0.96f
+            EyeSilhouette.SCARED -> 0.90f
             EyeSilhouette.SKEPTIC, EyeSilhouette.SUSPICIOUS -> 0.92f
             else -> 1f
         }
         val heightScale = when (eyeSilhouette) {
-            // In the supplied Cozmo sheet, the normal eyes are close to square rounded pixels,
-            // not the flatter bars used for happy/blink expressions.
-            EyeSilhouette.NEUTRAL, EyeSilhouette.ALMOND -> 1.00f
-            // The gallery audit measured SOFT at 65x34 (1.91:1), too wide for the
-            // reference's rounded warm pixels. Increase only this glyph's vertical body.
-            EyeSilhouette.SOFT -> 1.28f
-            EyeSilhouette.ROUND_SURPRISE, EyeSilhouette.AWE -> 1.00f
+            EyeSilhouette.NEUTRAL -> 1.00f
+            EyeSilhouette.ALMOND -> 1.08f
+            EyeSilhouette.SOFT -> 1.34f
+            EyeSilhouette.ROUND_SURPRISE -> 1.10f
+            EyeSilhouette.AWE -> 1.18f
             EyeSilhouette.SCARED -> 1.12f
             else -> 1f
         }
@@ -279,8 +279,8 @@ class RobotFaceView(context: Context) : View(context) {
         val glyphHh = hh * when (eyeSilhouette) {
             EyeSilhouette.BLINK_HIGH -> 0.15f
             EyeSilhouette.BLINK_LOW -> 0.13f
-            EyeSilhouette.BORED -> 0.32f
-            EyeSilhouette.UNIMPRESSED -> 0.28f
+            EyeSilhouette.BORED -> 0.58f
+            EyeSilhouette.UNIMPRESSED -> 0.58f
             EyeSilhouette.SMILE -> 0.72f
             EyeSilhouette.GLEE -> 0.42f
             else -> eyeScale
@@ -311,15 +311,8 @@ class RobotFaceView(context: Context) : View(context) {
             // Normal/awake: crisp rounded-square LED pixels.
             EyeSilhouette.NEUTRAL -> rounded(min(hw * 0.23f, glyphHh * 0.27f))
 
-            // Neutral variant: genuine almond silhouette with pointed lateral corners.
-            EyeSilhouette.ALMOND -> {
-                shape.moveTo(cx - hw, centerY)
-                shape.cubicTo(cx - hw * 0.62f, centerY - glyphHh * 0.95f,
-                    cx + hw * 0.62f, centerY - glyphHh * 0.95f, cx + hw, centerY)
-                shape.cubicTo(cx + hw * 0.62f, centerY + glyphHh * 0.95f,
-                    cx - hw * 0.62f, centerY + glyphHh * 0.95f, cx - hw, centerY)
-                shape.close()
-            }
+            // Neutral mood: a smaller square-ish pixel with rounder corners than Awake.
+            EyeSilhouette.ALMOND -> rounded(min(hw * 0.35f, glyphHh * 0.45f))
 
             // Warm/familiar: capsule-like eyes, intentionally rounder than neutral/almond.
             EyeSilhouette.SOFT -> {
