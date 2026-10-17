@@ -29,6 +29,10 @@
             android:name=".CameraShotActivity"
             android:screenOrientation="portrait"
             android:exported="false" />
+        <activity
+            android:name=".CameraRpsActivity"
+            android:screenOrientation="portrait"
+            android:exported="false" />
         <receiver
             android:name=".EveNotificationReceiver"
             android:enabled="true"
