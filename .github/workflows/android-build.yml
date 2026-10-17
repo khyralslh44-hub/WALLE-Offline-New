@@ -77,6 +77,24 @@ jobs:
           fi
           ls -lh "$MODEL"
 
+      - name: Download and pin offline hand-gesture model
+        shell: bash
+        run: |
+          set -euo pipefail
+          MODEL="eve-project/app/src/main/assets/gesture_recognizer.task"
+          mkdir -p "$(dirname "$MODEL")"
+          curl --fail --location --retry 3 \
+            "https://raw.githubusercontent.com/aa-del9/silent-speech/65249bd95a6f3467fbe67e175058f12cadbb9715/client/app/src/main/assets/gesture_recognizer.task" \
+            --output "$MODEL"
+          EXPECTED="33524de2b1595e3b755e50c0deaabd602af30085"
+          ACTUAL="$(git hash-object "$MODEL")"
+          echo "Hand gesture model Git blob hash: $ACTUAL"
+          if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "FAIL: gesture model hash changed; refusing an unreviewed model."
+            exit 1
+          fi
+          ls -lh "$MODEL"
+
       - name: Run logic tests and build debug APK
         run: |
           "$RUNNER_TEMP/gradle-8.9/bin/gradle"             --no-daemon --stacktrace -p eve-project             testDebugUnitTest assembleDebug
