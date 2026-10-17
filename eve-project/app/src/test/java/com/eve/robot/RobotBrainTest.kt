@@ -280,4 +280,26 @@ class RobotBrainTest {
         repeat(4) { localBrain.observe("dog", 0.90f, 3) }
         assertEquals(EveMood.FAMILIAR, localBrain.idle(18_000L, 2).mood)
     }
+    @Test
+    fun gameOutcomesUpdateEvesSharedAffectStateWithoutVoiceSpam() {
+        val localBrain = RobotBrain()
+
+        val start = localBrain.gameOutcome("paint_shot", "start")
+        assertEquals(EveMood.PLAYFUL, start.mood)
+        assertFalse(start.playSound)
+
+        val win = localBrain.gameOutcome("paint_shot", "player")
+        assertEquals(EveMood.HAPPY, win.mood)
+        assertFalse(win.playSound)
+        assertTrue(win.valence > start.valence)
+
+        val miss = localBrain.gameOutcome("target", "miss")
+        assertEquals(EveMood.FOCUSED, miss.mood)
+        assertFalse(miss.playSound)
+
+        val draw = localBrain.gameOutcome("chess", "draw")
+        assertEquals(EveMood.CURIOUS, draw.mood)
+        assertFalse(draw.playSound)
+    }
+
 }
