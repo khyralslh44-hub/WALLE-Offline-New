@@ -65,4 +65,26 @@ class HandGestureInterpreterTest {
         }
         assertFalse(HandGestureMapping.signal("Pointing_Up", 0.50f) != null)
     }
+    @Test
+    fun recognizedThumbUpCreatesAVisibleHappyEyeDecision() {
+        val decision = RobotBrain().observeHandGesture("thumb_up", 0.94f)
+        assertEquals(EveMood.HAPPY, decision.mood)
+        assertTrue("A confident positive hand cue should be audible once.", decision.playSound)
+        assertTrue(decision.reason.contains("thumb_up"))
+        val profile = EyeExpressionGenerator.generate(decision, 42L)
+        assertEquals(decision.mood, profile.mood)
+        assertEquals(EyeSilhouette.SMILE, profile.silhouette)
+    }
+
+    @Test
+    fun recognizedWaveCreatesAWarmResponseWithoutRequiringTouch() {
+        val decision = RobotBrain().observeHandGesture("wave", 0.91f)
+        assertTrue(decision.mood == EveMood.HAPPY || decision.mood == EveMood.FAMILIAR)
+        assertTrue(decision.playSound)
+        assertTrue(decision.reason.contains("wave"))
+        val profile = EyeExpressionGenerator.generate(decision, 43L)
+        assertTrue(profile.silhouette == EyeSilhouette.SMILE || profile.silhouette == EyeSilhouette.GLEE ||
+            profile.silhouette == EyeSilhouette.SOFT)
+    }
+
 }
