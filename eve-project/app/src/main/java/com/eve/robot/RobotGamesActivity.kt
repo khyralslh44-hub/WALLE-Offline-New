@@ -53,13 +53,14 @@ class RobotGamesActivity : ComponentActivity() {
     private var rpsScoreEve = 0
     private var rpsRound = 0
 
-    // EMO-inspired Paint Shot: local, harmless paint-pulse game.
+    // EMO-inspired Paint Shot: moving local target, virtual paint projectiles and on-device score.
     private var paintShotScore = 0
     private var paintShotRound = 0
-    private var paintShotTargetSide = -1
-    private var paintShotAimSide = 0
     private var paintShotFinished = false
-    private var paintShotMessage = "ارتدِ النظارة الخيالية، وجّه إيف إلى اليسار أو اليمين، ثم أطلق طلقة طلاء."
+    private var paintShotMessage = "ارتدِ النظارة الخيالية، ثم المس الهدف المتحرك لإطلاق طلقة الطلاء."
+    private var paintShotArena: PaintShotArenaView? = null
+    private var paintShotProgressView: TextView? = null
+    private var paintShotMessageView: TextView? = null
 
     // Target practice
     private var targetScore = 0
@@ -518,100 +519,75 @@ class RobotGamesActivity : ComponentActivity() {
 
     // ------------------------------------------------------------------ EMO-inspired Paint Shot
     // EMO uses glasses, a gun/palm-cannon gesture and "bang!".
-    // EVE's phone implementation is a safe, fully offline touch-aiming paint game.
+    // On a phone, each tap is the virtual "bang": the player must hit a moving target.
+    // All projectiles and scoring are drawn locally; no camera or network is required.
     private fun startPaintShot() {
+        paintShotArena?.setGameActive(false)
         game = Game.PAINT_SHOT
         paintShotScore = 0
         paintShotRound = 0
         paintShotFinished = false
-        paintShotTargetSide = if (random.nextBoolean()) -1 else 1
-        paintShotAimSide = 0
-        paintShotMessage = "ارتدِ النظارة الخيالية. اختر جهة التصويب ثم أطلق طلقة الطلاء."
+        paintShotMessage = "👓 النظارة مفعّلة! المس الهدف التركوازي المتحرك وأطلق طلقات طلاء."
+        paintShotArena = null
+        paintShotProgressView = null
+        paintShotMessageView = null
         reactWithEve("paint_shot", "start")
         renderPaintShot()
     }
 
     private fun renderPaintShot() {
+        paintShotArena?.setGameActive(false)
         root.removeAllViews()
-        header("🎨 Paint Shot", "لعبة طلاء آمنة تعمل دون إنترنت — الجولة " + (paintShotRound + 1) + " من 10")
-        root.addView(text("👓  وضع النظارة مفعّل", 15f, cyan, true))
-        root.addView(text("النقاط: $paintShotScore / 10", 22f, ivory, true))
-        addSpace(6)
-        val arena = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            setPadding(dp(4), dp(16), dp(4), dp(16))
-            setBackgroundColor(panel)
-        }
-        fun aimLabel(side: Int): String {
-            val target = side == paintShotTargetSide
-            val aimed = side == paintShotAimSide
-            val direction = if (side < 0) "اليسار" else "اليمين"
-            return when {
-                target && aimed -> "🎯\nالهدف ✓"
-                target -> "🎯\nالهدف"
-                aimed -> "✓\nالتصويب: $direction"
-                side < 0 -> "⬅\nاليسار"
-                else -> "اليمين\n➡"
-            }
-        }
-        val leftTarget = button(aimLabel(-1), { aimPaintShot(-1) }, paintShotAimSide == -1)
-            .apply { textSize = 15f }
-        val rightTarget = button(aimLabel(1), { aimPaintShot(1) }, paintShotAimSide == 1)
-            .apply { textSize = 15f }
-        arena.addView(leftTarget, LinearLayout.LayoutParams(0, dp(118), 1f).apply { setMargins(dp(4), 0, dp(4), 0) })
-        arena.addView(rightTarget, LinearLayout.LayoutParams(0, dp(118), 1f).apply { setMargins(dp(4), 0, dp(4), 0) })
-        root.addView(arena, LinearLayout.LayoutParams(-1, -2))
-        val targetName = if (paintShotTargetSide < 0) "اليسار" else "اليمين"
-        val aimName = when (paintShotAimSide) { -1 -> "اليسار"; 1 -> "اليمين"; else -> "لم تختر جهة بعد" }
-        root.addView(text("الهدف في $targetName • تصويبك: $aimName", 14f, muted))
-        root.addView(text(paintShotMessage, 15f, muted))
-        addSpace(6)
-        val fire = button(if (paintShotFinished) "انتهت الجولة" else "💥  بانغ! — أطلق طلقة طلاء", ::firePaintShot, true)
-        fire.isEnabled = !paintShotFinished && paintShotAimSide != 0
-        root.addView(fire, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) })
-        addWideButton("جولة جديدة", ::startPaintShot)
+        header("🎨 Paint Shot", "تحدّي تصويب مستوحى من EMO — 10 طلقات، دون إنترنت")
+        root.addView(text("👓 وضع النظارة مفعّل  •  المس الهدف لتقول «بانغ!»", 14f, cyan, true))
+        paintShotProgressView = text("الإصابات: $paintShotScore  •  الطلقات: $paintShotRound / 10", 21f, ivory, true)
+        root.addView(paintShotProgressView, LinearLayout.LayoutParams(-1, -2))
+        addSpace(4)
+
+        val arena = PaintShotArenaView(this) { result -> handlePaintShotResult(result) }
+        paintShotArena = arena
+        root.addView(arena, LinearLayout.LayoutParams(-1, dp(390)))
+        paintShotMessageView = text(paintShotMessage, 14f, muted)
+        root.addView(paintShotMessageView, LinearLayout.LayoutParams(-1, -2))
+        addSpace(4)
+        addWideButton("جولة جديدة", ::startPaintShot, true)
         addWideButton("العودة إلى ألعاب إيف", ::showMenu)
     }
 
-    private fun aimPaintShot(side: Int) {
-        if (game != Game.PAINT_SHOT || paintShotFinished || side !in -1..1 || side == 0) return
-        // Aiming changes the player's direction only; it must never move the target itself.
-        paintShotAimSide = side
-        val direction = if (side < 0) "اليسار" else "اليمين"
-        paintShotMessage = "إيف تصوّب نحو $direction. أطلق عندما تكون جاهزًا."
-        renderPaintShot()
-    }
-
-    private fun firePaintShot() {
+    private fun handlePaintShotResult(result: PaintShotResult) {
         if (game != Game.PAINT_SHOT || paintShotFinished) return
-        if (paintShotAimSide == 0) {
-            paintShotMessage = "اختر جهة التصويب أولًا."
-            renderPaintShot()
-            return
-        }
-        // Skill now matters: hit/miss is determined by aim vs. the independent target position.
-        val hit = paintShotAimSide == paintShotTargetSide
-        paintShotRound++
-        if (hit) paintShotScore++
+        paintShotRound = result.shotNumber
+        if (result.hit) paintShotScore++
         paintShotMessage = when {
-            hit -> if (paintShotTargetSide < 0) "💦 بانغ! أصبت هدف الطلاء الأيسر! إيف سعيدة 😄"
-                else "💦 بانغ! أصبت هدف الطلاء الأيمن! إيف سعيدة 😄"
-            else -> "💨 أخطأت الهدف. راقب موقعه وصوّب في الجولة التالية."
+            result.hit -> listOf(
+                "💦 إصابة مباشرة! إيف تحتفل معك.",
+                "🎯 تصويب ممتاز! الهدف أصيب بطلقة الطلاء.",
+                "✨ بانغ! إصابة دقيقة. حاول الحفاظ على السلسلة."
+            )[paintShotScore % 3]
+            else -> "💨 أخطأت! الهدف يتحرّك باستمرار—تابعه وصوّب مجددًا."
         }
-        reactWithEve("paint_shot", if (hit) "success" else "miss")
-        android.util.Log.i("EVE_PAINT_SHOT", "hit=$hit aim=$paintShotAimSide target=$paintShotTargetSide round=$paintShotRound score=$paintShotScore")
-        paintShotAimSide = 0
+        reactWithEve("paint_shot", if (result.hit) "success" else "miss")
+        android.util.Log.i(
+            "EVE_PAINT_SHOT",
+            "shot=${paintShotRound} hit=${result.hit} score=${paintShotScore}/${paintShotRound}"
+        )
+
+        paintShotProgressView?.text =
+            "الإصابات: $paintShotScore  •  الطلقات: $paintShotRound / 10"
+        paintShotMessageView?.text = paintShotMessage
+
         if (paintShotRound >= 10) {
             paintShotFinished = true
-            val result = when { paintShotScore >= 7 -> "player"; paintShotScore <= 3 -> "robot"; else -> "draw" }
-            saveResult("paint_shot", result)
-            paintShotMessage += "\nانتهت الجولة: $paintShotScore من 10."
-        } else {
-            // The target changes side after every shot, so the previous aim is never reused.
-            paintShotTargetSide = -paintShotTargetSide
+            paintShotArena?.setGameActive(false)
+            val resultName = when {
+                paintShotScore >= 7 -> "player"
+                paintShotScore <= 3 -> "robot"
+                else -> "draw"
+            }
+            saveResult("paint_shot", resultName)
+            paintShotMessage += "\nانتهى التحدّي: $paintShotScore إصابة من 10."
+            paintShotMessageView?.text = paintShotMessage
         }
-        renderPaintShot()
     }
 
     // ------------------------------------------------------------------ Target practice
