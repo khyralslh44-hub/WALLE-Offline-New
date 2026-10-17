@@ -7,6 +7,7 @@ import android.widget.TextView
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -31,6 +32,39 @@ class RobotGamesActivityLaunchTest {
     private fun visibleText(activity: RobotGamesActivity): String =
         descendants(activity.window.decorView).filterIsInstance<TextView>()
             .joinToString(" ") { it.text?.toString().orEmpty() }
+
+    @Test
+    fun animatedEveFaceAppearsInGameRoomAndReactsWhenGameStarts() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val scenario = ActivityScenario.launch(RobotGamesActivity::class.java)
+        try {
+            scenario.onActivity { activity ->
+                val face = descendants(activity.window.decorView)
+                    .filterIsInstance<RobotFaceView>()
+                    .firstOrNull()
+                assertNotNull("Game room should render EVE's animated face.", face)
+                assertEquals("EVE_CYAN_EXPRESSION_FACE", requireNotNull(face).contentDescription)
+
+                requireNotNull(openButton(activity, "إكس-أو")).performClick()
+                instrumentation.waitForIdleSync()
+
+                val moodField = RobotFaceView::class.java.getDeclaredField("mood").apply {
+                    isAccessible = true
+                }
+                assertEquals(
+                    "EVE should react with a playful pose when a game starts.",
+                    EveMood.PLAYFUL,
+                    moodField.get(requireNotNull(face))
+                )
+                assertTrue(
+                    "The same EVE face should remain attached during gameplay.",
+                    descendants(activity.window.decorView).contains(face)
+                )
+            }
+        } finally {
+            scenario.close()
+        }
+    }
 
     @Test
     fun allSixOfflineGameScreensAreReachableFromTheMenu() {
