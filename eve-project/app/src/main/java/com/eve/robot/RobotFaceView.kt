@@ -316,6 +316,17 @@ class RobotFaceView(context: Context) : View(context) {
             // Neutral mood: a smaller square-ish pixel with rounder corners than Awake.
             EyeSilhouette.ALMOND -> rounded(min(hw * 0.35f, glyphHh * 0.45f))
 
+            // Curious: both eyes remain open LED pixels; a slight lid offset conveys attention.
+            EyeSilhouette.CURIOUS -> {
+                val eyeTopScale = if (side < 0) 0.78f else 0.88f
+                val curiousRect = RectF(
+                    cx - hw, centerY - glyphHh * eyeTopScale,
+                    cx + hw, centerY + glyphHh * eyeTopScale
+                )
+                val r = min(hw * 0.26f, glyphHh * 0.32f)
+                shape.addRoundRect(curiousRect, r, r, Path.Direction.CW)
+            }
+
             // Warm/familiar: capsule-like eyes, intentionally rounder than neutral/almond.
             EyeSilhouette.SOFT -> {
                 val r = min(hw * 0.90f, glyphHh * 0.92f)
@@ -557,7 +568,7 @@ class RobotFaceView(context: Context) : View(context) {
         EyeSilhouette.FOCUSED, EyeSilhouette.SQUINT -> EyeContour(0.72f, 0.34f, 0.56f, 0.37f, 0f)
         EyeSilhouette.WORRIED -> EyeContour(0.83f, 0.47f, 0.76f, 0.61f, 0f)
         EyeSilhouette.SHARP, EyeSilhouette.FURIOUS, EyeSilhouette.ANNOYED -> EyeContour(0.70f, 0.29f, 0.48f, 0.35f, -0.11f)
-        EyeSilhouette.PLAYFUL, EyeSilhouette.SKEPTIC, EyeSilhouette.SUSPICIOUS -> EyeContour(0.94f, 0.49f, 0.72f, 0.53f, 0f)
+        EyeSilhouette.CURIOUS, EyeSilhouette.PLAYFUL, EyeSilhouette.SKEPTIC, EyeSilhouette.SUSPICIOUS -> EyeContour(0.94f, 0.49f, 0.72f, 0.53f, 0f)
         EyeSilhouette.SOFT -> EyeContour(0.96f, 0.47f, 0.84f, 0.56f, 0f)
         EyeSilhouette.ALMOND -> EyeContour(0.90f, 0.46f, 0.80f, 0.54f, 0f)
         EyeSilhouette.NEUTRAL, EyeSilhouette.BLINK_HIGH, EyeSilhouette.BORED,
