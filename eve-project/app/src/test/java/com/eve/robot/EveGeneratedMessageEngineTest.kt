@@ -109,6 +109,26 @@ class EveGeneratedMessageEngineTest {
     }
 
     @Test
+    fun longAbsenceGeneratesAContextualReturnChallengeForChessOrXo() {
+        val generated = EveGeneratedMessageEngine.generate(
+            EveNotificationContext(
+                hourOfDay = 16,
+                sentCount = 3,
+                generationSeed = 712L,
+                mood = "NEUTRAL",
+                moodReason = "contextual idle",
+                awayMinutes = 95L
+            )
+        )
+        assertEquals("absence_return_challenge", generated.source)
+        assertTrue(generated.body.contains("آخر تفاعل"))
+        assertTrue(
+            "A return reminder should invite an actual game: ${generated.body}",
+            generated.body.contains("الشطرنج") || generated.body.contains("إكس-أو")
+        )
+    }
+
+    @Test
     fun generatedMessageAlwaysHasReadableTitleAndBody() {
         for (mood in listOf("NEUTRAL", "HAPPY", "SLEEPY", "CONCERNED", "IRRITATED", "ANGRY")) {
             val generated = EveGeneratedMessageEngine.generate(
