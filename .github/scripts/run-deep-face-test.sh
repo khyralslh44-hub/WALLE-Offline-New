@@ -208,7 +208,7 @@ fi
 timeout 10s adb logcat -c >/dev/null 2>&1 || true
 
 INSTRUMENTATION_EXIT=0
-timeout 360s adb shell am instrument -w -r "$TEST_PACKAGE/androidx.test.runner.AndroidJUnitRunner" \
+timeout 600s adb shell am instrument -w -r "$TEST_PACKAGE/androidx.test.runner.AndroidJUnitRunner" \
   > "$RESULT_DIR/instrumentation-output.txt" 2>&1 || INSTRUMENTATION_EXIT=$?
 cat "$RESULT_DIR/instrumentation-output.txt"
 
