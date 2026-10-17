@@ -80,6 +80,68 @@ class RobotBrain(private val personality: EvePersonality = EvePersonality()) {
         return snapshot(EveMood.CURIOUS, "camera switched to $safeLens", false)
     }
 
+    /**
+     * Hand signals are first-class sensory events in the same affect engine as vision, touch,
+     * facial-expression estimates and idle behavior. These are visual cues, not mind reading.
+     */
+    @Synchronized
+    fun observeHandGesture(signal: String, confidence: Float): EveDecision {
+        val safeSignal = signal.trim().lowercase().take(32)
+        if (safeSignal.isBlank() || !confidence.isFinite() || confidence < 0.68f) {
+            curiosity = (curiosity + 0.025f).coerceAtMost(1f)
+            return snapshot(EveMood.CURIOUS, "uncertain hand signal", false)
+        }
+
+        fatigue = (fatigue - 0.05f).coerceAtLeast(0f)
+        arousal = (0.50f + confidence.coerceIn(0f, 1f) * 0.35f).coerceIn(0f, 1f)
+        val mood = when (safeSignal) {
+            "wave", "open_palm" -> {
+                valence = (valence + if (safeSignal == "wave") 0.22f else 0.06f).coerceAtMost(0.95f)
+                familiarity = (familiarity + if (safeSignal == "wave") 0.12f else 0.025f).coerceAtMost(1f)
+                curiosity = (curiosity + 0.06f).coerceAtMost(1f)
+                if (safeSignal == "wave" && familiarity >= 0.50f) EveMood.FAMILIAR else EveMood.HAPPY
+            }
+            "victory", "i_love_you" -> {
+                valence = (valence + 0.18f).coerceAtMost(0.95f)
+                curiosity = (curiosity + 0.06f).coerceAtMost(1f)
+                EveMood.PLAYFUL
+            }
+            "thumb_up" -> {
+                valence = (valence + 0.17f).coerceAtMost(0.95f)
+                frustration = (frustration - 0.12f).coerceAtLeast(0f)
+                EveMood.HAPPY
+            }
+            "thumb_down", "angry_gesture" -> {
+                valence = (valence - 0.16f).coerceAtLeast(-1f)
+                frustration = (frustration + 0.16f).coerceAtMost(0.68f)
+                EveMood.IRRITATED
+            }
+            "pointing_up" -> {
+                curiosity = (curiosity + 0.15f).coerceAtMost(1f)
+                EveMood.CURIOUS
+            }
+            "fist" -> {
+                arousal = 0.68f
+                curiosity = (curiosity + 0.04f).coerceAtMost(1f)
+                EveMood.FOCUSED
+            }
+            "punch" -> {
+                valence = (valence - 0.18f).coerceAtLeast(-0.55f)
+                arousal = 0.92f
+                frustration = (frustration + 0.10f).coerceAtMost(0.70f)
+                EveMood.CONCERNED
+            }
+            else -> {
+                curiosity = (curiosity + 0.04f).coerceAtMost(1f)
+                EveMood.CURIOUS
+            }
+        }
+        val canVocalize = safeSignal in setOf(
+            "wave", "victory", "i_love_you", "thumb_up", "thumb_down", "angry_gesture", "punch"
+        )
+        return snapshot(mood, "recognized hand signal: $safeSignal", canVocalize)
+    }
+
     @Synchronized
     fun observe(label: String, confidence: Float, sightings: Int, learnedAffinity: Float = 0f): EveDecision {
         val item = label.trim().lowercase()
