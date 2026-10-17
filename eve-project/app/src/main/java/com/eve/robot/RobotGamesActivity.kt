@@ -257,6 +257,32 @@ class RobotGamesActivity : ComponentActivity() {
             prefs.getInt("games:" + name + ":robot", 0) >= 3 -> 2
             else -> 1
         }
+        if (name == "xo") adaptXoDifficulty(result)
+    }
+
+    /** Two consecutive results nudge the next X/O match without abruptly changing mid-game. */
+    private fun adaptXoDifficulty(result: String) {
+        var level = prefs.getInt("difficulty:xo", xoDifficulty).coerceIn(1, 3)
+        var playerStreak = prefs.getInt("difficulty:xo:playerStreak", 0)
+        var robotStreak = prefs.getInt("difficulty:xo:robotStreak", 0)
+        when (result) {
+            "player" -> { playerStreak++; robotStreak = 0 }
+            "robot" -> { robotStreak++; playerStreak = 0 }
+            else -> { playerStreak = 0; robotStreak = 0 }
+        }
+        if (playerStreak >= 2) {
+            if (level < 3) level++
+            playerStreak = 0
+        } else if (robotStreak >= 2) {
+            if (level > 1) level--
+            robotStreak = 0
+        }
+        prefs.edit()
+            .putInt("difficulty:xo", level)
+            .putInt("difficulty:xo:playerStreak", playerStreak)
+            .putInt("difficulty:xo:robotStreak", robotStreak)
+            .apply()
+        xoDifficulty = level
     }
 
     private fun addResultLine(gameName: String, result: String, line: String) {
