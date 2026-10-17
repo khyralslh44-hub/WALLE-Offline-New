@@ -308,81 +308,129 @@ class RobotFaceView(context: Context) : View(context) {
         // Expression is created by changing lids, height, width, gaze and corner shape—not by
         // drawing a different cartoon face.
         when (eyeSilhouette) {
-            EyeSilhouette.NEUTRAL, EyeSilhouette.ALMOND, EyeSilhouette.SOFT ->
-                rounded(min(hw * 0.34f, glyphHh * 0.38f))
+            // Normal/awake: crisp rounded-square LED pixels.
+            EyeSilhouette.NEUTRAL -> rounded(min(hw * 0.23f, glyphHh * 0.27f))
 
-            EyeSilhouette.ROUND_SURPRISE, EyeSilhouette.SCARED, EyeSilhouette.AWE ->
-                rounded(min(hw * 0.40f, glyphHh * 0.34f))
-
-            // Happy is a true curved eyelid/crescent, not a straight horizontal bar.
-            EyeSilhouette.SMILE -> {
-                shape.moveTo(cx - hw, centerY + glyphHh * 0.20f)
+            // Neutral variant: genuine almond silhouette with pointed lateral corners.
+            EyeSilhouette.ALMOND -> {
+                shape.moveTo(cx - hw, centerY)
                 shape.cubicTo(cx - hw * 0.62f, centerY - glyphHh * 0.95f,
-                    cx + hw * 0.62f, centerY - glyphHh * 0.95f,
-                    cx + hw, centerY + glyphHh * 0.20f)
-                shape.cubicTo(cx + hw * 0.56f, centerY - glyphHh * 0.10f,
-                    cx - hw * 0.56f, centerY - glyphHh * 0.10f,
-                    cx - hw, centerY + glyphHh * 0.20f)
+                    cx + hw * 0.62f, centerY - glyphHh * 0.95f, cx + hw, centerY)
+                shape.cubicTo(cx + hw * 0.62f, centerY + glyphHh * 0.95f,
+                    cx - hw * 0.62f, centerY + glyphHh * 0.95f, cx - hw, centerY)
                 shape.close()
             }
-            // Glee is a flatter, softer crescent than the closed happy-eye expression.
-            EyeSilhouette.GLEE -> {
+
+            // Warm/familiar: capsule-like eyes, intentionally rounder than neutral/almond.
+            EyeSilhouette.SOFT -> {
+                val r = min(hw * 0.90f, glyphHh * 0.92f)
+                val rect = RectF(cx - hw, centerY - glyphHh * 0.82f,
+                    cx + hw, centerY + glyphHh * 0.82f)
+                shape.addRoundRect(rect, r, r, Path.Direction.CW)
+            }
+
+            // Surprise: nearly square, bright blocks; awe is oval and scared is angular.
+            EyeSilhouette.ROUND_SURPRISE -> rounded(min(hw * 0.32f, glyphHh * 0.36f))
+
+            EyeSilhouette.AWE -> {
+                val oval = RectF(cx - hw * 0.98f, centerY - glyphHh * 0.92f,
+                    cx + hw * 0.98f, centerY + glyphHh * 0.92f)
+                shape.addOval(oval, Path.Direction.CW)
+            }
+
+            EyeSilhouette.SCARED -> {
+                // Tall eye with a pinched upper edge and expanded lower edge: visibly alarmed.
+                shape.moveTo(cx - hw * 0.62f, centerY - glyphHh)
+                shape.quadTo(cx, centerY - glyphHh * 1.16f, cx + hw * 0.62f, centerY - glyphHh)
+                shape.lineTo(cx + hw, centerY + glyphHh * 0.62f)
+                shape.quadTo(cx, centerY + glyphHh, cx - hw, centerY + glyphHh * 0.62f)
+                shape.close()
+            }
+
+            // Happy is a clearly upward arch/crescent rather than a neutral block.
+            EyeSilhouette.SMILE -> {
                 shape.moveTo(cx - hw, centerY + glyphHh * 0.18f)
-                shape.cubicTo(cx - hw * 0.66f, centerY - glyphHh * 0.68f,
-                    cx + hw * 0.60f, centerY - glyphHh * 0.68f,
+                shape.cubicTo(cx - hw * 0.60f, centerY - glyphHh * 1.05f,
+                    cx + hw * 0.60f, centerY - glyphHh * 1.05f,
                     cx + hw, centerY + glyphHh * 0.18f)
-                shape.cubicTo(cx + hw * 0.58f, centerY - glyphHh * 0.02f,
-                    cx - hw * 0.58f, centerY - glyphHh * 0.02f,
+                shape.cubicTo(cx + hw * 0.54f, centerY - glyphHh * 0.06f,
+                    cx - hw * 0.54f, centerY - glyphHh * 0.06f,
                     cx - hw, centerY + glyphHh * 0.18f)
                 shape.close()
             }
-            // Blink, bored, unimpressed and squint are horizontal LED slits.
-            EyeSilhouette.BLINK_HIGH, EyeSilhouette.BLINK_LOW,
-            EyeSilhouette.BORED, EyeSilhouette.UNIMPRESSED,
-            EyeSilhouette.SQUINT -> {
-                val slit = when (eyeSilhouette) {
-                    EyeSilhouette.BLINK_HIGH -> 0.22f
-                    EyeSilhouette.BLINK_LOW -> 0.20f
-                    EyeSilhouette.BORED -> 0.38f
-                    EyeSilhouette.UNIMPRESSED -> 0.30f
-                    else -> 0.34f
-                }
-                val offset = when (eyeSilhouette) {
-                    EyeSilhouette.BLINK_HIGH -> -glyphHh * 0.14f
-                    EyeSilhouette.BLINK_LOW -> glyphHh * 0.14f
-                    EyeSilhouette.BORED -> glyphHh * 0.04f
-                    EyeSilhouette.UNIMPRESSED -> glyphHh * 0.08f
-                    else -> 0f
-                }
-                val r = RectF(cx - hw, centerY + offset - glyphHh * slit,
-                    cx + hw, centerY + offset + glyphHh * slit)
-                shape.addRoundRect(r, glyphHh * slit, glyphHh * slit, Path.Direction.CW)
+
+            // Glee: higher, flatter lid arcs than the broad happy crescent.
+            EyeSilhouette.GLEE -> {
+                shape.moveTo(cx - hw, centerY + glyphHh * 0.22f)
+                shape.cubicTo(cx - hw * 0.54f, centerY - glyphHh * 0.68f,
+                    cx + hw * 0.54f, centerY - glyphHh * 0.68f,
+                    cx + hw, centerY + glyphHh * 0.22f)
+                shape.cubicTo(cx + hw * 0.62f, centerY + glyphHh * 0.04f,
+                    cx - hw * 0.62f, centerY + glyphHh * 0.04f,
+                    cx - hw, centerY + glyphHh * 0.22f)
+                shape.close()
             }
 
+            // High/low blink are separate slits at different vertical positions.
+            EyeSilhouette.BLINK_HIGH, EyeSilhouette.BLINK_LOW -> {
+                val y = if (eyeSilhouette == EyeSilhouette.BLINK_HIGH) -glyphHh * 0.42f else glyphHh * 0.42f
+                val slitH = max(1.1f, glyphHh * if (eyeSilhouette == EyeSilhouette.BLINK_HIGH) 0.20f else 0.24f)
+                val r = RectF(cx - hw, centerY + y - slitH, cx + hw, centerY + y + slitH)
+                shape.addRoundRect(r, slitH, slitH, Path.Direction.CW)
+            }
+
+            // Bored: heavy, sagging lid line. Unlike a blink it droops toward the centre.
+            EyeSilhouette.BORED -> {
+                shape.moveTo(cx - hw, centerY - glyphHh * 0.10f)
+                shape.cubicTo(cx - hw * 0.58f, centerY + glyphHh * 0.26f,
+                    cx + hw * 0.52f, centerY + glyphHh * 0.26f, cx + hw, centerY - glyphHh * 0.10f)
+                shape.lineTo(cx + hw, centerY + glyphHh * 0.22f)
+                shape.quadTo(cx, centerY + glyphHh * 0.45f, cx - hw, centerY + glyphHh * 0.22f)
+                shape.close()
+            }
+
+            // Unimpressed: angled lid with the outer corner deliberately lower than the inner one.
+            EyeSilhouette.UNIMPRESSED -> {
+                val inner = cx - side * hw
+                val outer = cx + side * hw
+                shape.moveTo(outer, centerY - glyphHh * 0.26f)
+                shape.lineTo(inner, centerY + glyphHh * 0.03f)
+                shape.lineTo(inner, centerY + glyphHh * 0.34f)
+                shape.quadTo(cx, centerY + glyphHh * 0.40f, outer, centerY + glyphHh * 0.16f)
+                shape.close()
+            }
+
+            // Squint: pinched centre with tapered lateral edges, not a straight slit.
+            EyeSilhouette.SQUINT -> {
+                shape.moveTo(cx - hw, centerY - glyphHh * 0.18f)
+                shape.quadTo(cx, centerY - glyphHh * 0.02f, cx + hw, centerY - glyphHh * 0.18f)
+                shape.quadTo(cx + hw * 0.60f, centerY + glyphHh * 0.18f, cx, centerY + glyphHh * 0.13f)
+                shape.quadTo(cx - hw * 0.60f, centerY + glyphHh * 0.18f, cx - hw, centerY - glyphHh * 0.18f)
+                shape.close()
+            }
+
+            // Sad looking down/up intentionally have different lids and gaze directions.
             EyeSilhouette.SAD_DOWN -> {
-                // Down-looking sadness: upper lid is lowered toward the inner/upper edge.
-                shape.moveTo(cx - hw, centerY - hh * 0.10f)
-                shape.quadTo(cx, centerY + hh * 0.20f, cx + hw, centerY + hh * 0.02f)
-                shape.lineTo(cx + hw, centerY + hh * 0.54f)
-                shape.quadTo(cx, centerY + hh * 0.72f, cx - hw, centerY + hh * 0.50f)
+                shape.moveTo(cx - hw, centerY - glyphHh * 0.08f)
+                shape.quadTo(cx, centerY + glyphHh * 0.28f, cx + hw, centerY + glyphHh * 0.04f)
+                shape.lineTo(cx + hw, centerY + glyphHh * 0.56f)
+                shape.quadTo(cx, centerY + glyphHh * 0.78f, cx - hw, centerY + glyphHh * 0.50f)
                 shape.close()
             }
 
             EyeSilhouette.SAD_UP -> {
-                // Up-looking sadness: the top edge rises toward the outside, like the reference sheet.
-                shape.moveTo(cx - hw, centerY - hh * 0.52f)
-                shape.quadTo(cx, centerY - hh * 0.72f, cx + hw, centerY - hh * 0.20f)
-                shape.lineTo(cx + hw, centerY + hh * 0.44f)
-                shape.quadTo(cx, centerY + hh * 0.64f, cx - hw, centerY + hh * 0.42f)
+                shape.moveTo(cx - hw, centerY - glyphHh * 0.58f)
+                shape.quadTo(cx, centerY - glyphHh * 0.86f, cx + hw, centerY - glyphHh * 0.18f)
+                shape.lineTo(cx + hw, centerY + glyphHh * 0.42f)
+                shape.quadTo(cx, centerY + glyphHh * 0.64f, cx - hw, centerY + glyphHh * 0.42f)
                 shape.close()
             }
 
             EyeSilhouette.WORRIED -> {
-                // Raised inner lid + soft lower bowl. One continuous path avoids a filled,
-                // overlapping polygon that previously made worry look like a slanted tile.
+                // Uneven raised lid + round lower bowl.
                 shape.moveTo(cx - hw, centerY - glyphHh * 0.38f)
-                shape.cubicTo(cx - hw * 0.66f, centerY - glyphHh * 0.90f,
-                    cx - hw * 0.18f, centerY - glyphHh * 0.56f,
+                shape.cubicTo(cx - hw * 0.66f, centerY - glyphHh * 0.94f,
+                    cx - hw * 0.18f, centerY - glyphHh * 0.54f,
                     cx + hw * 0.18f, centerY - glyphHh * 0.60f)
                 shape.cubicTo(cx + hw * 0.56f, centerY - glyphHh * 0.64f,
                     cx + hw * 0.82f, centerY - glyphHh * 0.88f,
@@ -395,56 +443,87 @@ class RobotFaceView(context: Context) : View(context) {
             }
 
             EyeSilhouette.FOCUSED -> {
-                // Determined/focused: one clean compact pixel with a slightly heavier lower lid.
-                val r = RectF(cx - hw, centerY - glyphHh * 0.68f, cx + hw, centerY + glyphHh * 0.68f)
-                shape.addRoundRect(r, glyphHh * 0.20f, glyphHh * 0.20f, Path.Direction.CW)
+                // Determined: compact block with clipped upper corners and a flatter lid.
+                shape.moveTo(cx - hw, centerY - glyphHh * 0.38f)
+                shape.lineTo(cx - hw * 0.72f, centerY - glyphHh * 0.76f)
+                shape.lineTo(cx + hw * 0.62f, centerY - glyphHh * 0.76f)
+                shape.lineTo(cx + hw, centerY - glyphHh * 0.34f)
+                shape.lineTo(cx + hw * 0.92f, centerY + glyphHh * 0.48f)
+                shape.quadTo(cx, centerY + glyphHh * 0.64f, cx - hw * 0.92f, centerY + glyphHh * 0.48f)
+                shape.close()
             }
 
             EyeSilhouette.ANNOYED -> {
-                // Annoyed: narrowed horizontal block; no cartoon mouth or extra marks.
-                val r = RectF(cx - hw, centerY - glyphHh * 0.30f, cx + hw, centerY + glyphHh * 0.30f)
+                // Annoyed: narrow wedge, but less aggressive than the angry shape.
+                shape.moveTo(cx - hw, centerY - glyphHh * 0.50f)
+                shape.lineTo(cx + hw, centerY - glyphHh * 0.18f)
+                shape.lineTo(cx + hw * 0.92f, centerY + glyphHh * 0.28f)
+                shape.quadTo(cx, centerY + glyphHh * 0.48f, cx - hw * 0.92f, centerY + glyphHh * 0.28f)
+                shape.close()
+            }
+
+            EyeSilhouette.SKEPTIC -> {
+                // One raised and one lowered eyelid gives a recognisable asymmetrical expression.
+                val top = if (side < 0) centerY - glyphHh * 0.76f else centerY - glyphHh * 0.26f
+                val bottom = if (side < 0) centerY + glyphHh * 0.38f else centerY + glyphHh * 0.52f
+                val r = RectF(cx - hw, top, cx + hw, bottom)
                 shape.addRoundRect(r, glyphHh * 0.18f, glyphHh * 0.18f, Path.Direction.CW)
             }
 
-            EyeSilhouette.SKEPTIC, EyeSilhouette.SUSPICIOUS -> {
-                // One lid is lower than the other. The two eyes remain individually readable.
-                val extra = if ((side < 0) == (eyeSilhouette == EyeSilhouette.SKEPTIC)) 0.22f else 0f
-                val top = -glyphHh * (0.56f - extra)
-                val bottom = glyphHh * 0.48f
-                val r = RectF(cx - hw, centerY + top, cx + hw, centerY + bottom)
-                shape.addRoundRect(r, glyphHh * 0.18f, glyphHh * 0.18f, Path.Direction.CW)
+            EyeSilhouette.SUSPICIOUS -> {
+                // Both eyes tilt inward, a wary look distinct from the one-sided skeptic.
+                val inner = cx - side * hw
+                val outer = cx + side * hw
+                shape.moveTo(outer, centerY - glyphHh * 0.54f)
+                shape.lineTo(inner, centerY - glyphHh * 0.10f)
+                shape.lineTo(inner, centerY + glyphHh * 0.28f)
+                shape.quadTo(cx, centerY + glyphHh * 0.46f, outer, centerY + glyphHh * 0.34f)
+                shape.close()
             }
 
             EyeSilhouette.DROOPY -> {
-                val r = RectF(cx - hw, centerY - glyphHh * 0.32f, cx + hw, centerY + glyphHh * 0.48f)
-                shape.addRoundRect(r, glyphHh * 0.22f, glyphHh * 0.22f, Path.Direction.CW)
+                // Sleepy lid is a curved falling arc, not a straight-line eye.
+                shape.moveTo(cx - hw, centerY - glyphHh * 0.20f)
+                shape.quadTo(cx, centerY + glyphHh * 0.34f, cx + hw, centerY - glyphHh * 0.06f)
+                shape.lineTo(cx + hw, centerY + glyphHh * 0.30f)
+                shape.quadTo(cx, centerY + glyphHh * 0.54f, cx - hw, centerY + glyphHh * 0.30f)
+                shape.close()
             }
 
             EyeSilhouette.SHARP -> {
-                // Angry: the inner upper corner is lowered while the LED body stays compact.
+                // Angry: upper inner corner drops, matching the inward-sloping angry brow.
                 val inner = cx - side * hw
                 val outer = cx + side * hw
-                shape.moveTo(outer, centerY - glyphHh * 0.62f)
-                shape.lineTo(inner, centerY - glyphHh * 0.18f)
-                shape.lineTo(inner, centerY + glyphHh * 0.44f)
-                shape.quadTo(cx, centerY + glyphHh * 0.62f, outer, centerY + glyphHh * 0.40f)
+                shape.moveTo(outer, centerY - glyphHh * 0.74f)
+                shape.lineTo(inner, centerY + glyphHh * 0.18f)
+                shape.lineTo(inner, centerY + glyphHh * 0.54f)
+                shape.quadTo(cx, centerY + glyphHh * 0.64f, outer, centerY + glyphHh * 0.36f)
                 shape.close()
             }
 
             EyeSilhouette.FURIOUS -> {
-                // Furious: broader, low-set block with a strong inward brow.
+                // Furious: more extreme inward slope and lower lid.
                 val inner = cx - side * hw
                 val outer = cx + side * hw
-                shape.moveTo(outer, centerY - glyphHh * 0.54f)
-                shape.lineTo(inner, centerY + glyphHh * 0.02f)
-                shape.lineTo(inner, centerY + glyphHh * 0.50f)
-                shape.lineTo(outer, centerY + glyphHh * 0.38f)
+                shape.moveTo(outer, centerY - glyphHh * 0.92f)
+                shape.lineTo(inner, centerY + glyphHh * 0.38f)
+                shape.lineTo(inner, centerY + glyphHh * 0.62f)
+                shape.lineTo(outer, centerY + glyphHh * 0.34f)
                 shape.close()
             }
 
             EyeSilhouette.PLAYFUL -> {
-                // Playful/curious: keep the rounded LED pixel and let gaze/asymmetry carry the emotion.
-                rounded(min(hw * 0.30f, glyphHh * 0.34f))
+                // A small crescent on the left and a rounded open pixel on the right form a playful wink.
+                if (side < 0) {
+                    shape.moveTo(cx - hw, centerY + glyphHh * 0.12f)
+                    shape.cubicTo(cx - hw * 0.54f, centerY - glyphHh * 0.72f,
+                        cx + hw * 0.52f, centerY - glyphHh * 0.72f, cx + hw, centerY + glyphHh * 0.12f)
+                    shape.lineTo(cx + hw * 0.90f, centerY + glyphHh * 0.34f)
+                    shape.quadTo(cx, centerY + glyphHh * 0.10f, cx - hw, centerY + glyphHh * 0.34f)
+                    shape.close()
+                } else {
+                    rounded(min(hw * 0.28f, glyphHh * 0.36f))
+                }
             }
         }
         if (opacity <= 0.005f) return
