@@ -28,6 +28,31 @@ class RobotBrainTest {
         assertFalse(unavailable.playSound)
     }
 
+    @Test fun handSignalsChangeTheCentralAffectState() {
+        val brain = RobotBrain()
+        val wave = brain.observeHandGesture("wave", 0.93f)
+        assertEquals(EveMood.HAPPY, wave.mood)
+        assertTrue(wave.valence > 0.12f)
+        assertTrue(wave.playSound)
+
+        val victory = brain.observeHandGesture("victory", 0.92f)
+        assertEquals(EveMood.PLAYFUL, victory.mood)
+
+        val thumbDown = brain.observeHandGesture("thumb_down", 0.91f)
+        assertEquals(EveMood.IRRITATED, thumbDown.mood)
+        assertTrue(thumbDown.frustration > 0f)
+
+        val punch = brain.observeHandGesture("punch", 0.90f)
+        assertEquals(EveMood.CONCERNED, punch.mood)
+        assertTrue(punch.arousal > 0.8f)
+    }
+
+    @Test fun uncertainHandSignalsDoNotInventAnEmotion() {
+        val decision = RobotBrain().observeHandGesture("victory", 0.40f)
+        assertEquals(EveMood.CURIOUS, decision.mood)
+        assertFalse(decision.playSound)
+    }
+
     @Test fun lowConfidenceDoesNotClaimCertainty() {
         val decision = brain.observe("unknown", 0.2f, 0)
         assertEquals(EveMood.CONCERNED, decision.mood)
