@@ -158,9 +158,12 @@ class HandGestureInterpreter(
         return reversals >= 2
     }
 
-    private fun normalize(name: String?): String? = when (name?.trim()) {
-        "Closed_Fist", "Open_Palm", "Victory", "Thumb_Up", "Thumb_Down", "Pointing_Up", "ILoveYou" -> name.trim()
-        else -> null
+    private fun normalize(name: String?): String? {
+        val value = name?.trim() ?: return null
+        return when (value) {
+            "Closed_Fist", "Open_Palm", "Victory", "Thumb_Up", "Thumb_Down", "Pointing_Up", "ILoveYou" -> value
+            else -> null
+        }
     }
 }
 
