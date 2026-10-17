@@ -154,7 +154,7 @@ class RobotBrain(personality: EvePersonality = EvePersonality()) {
     @Synchronized
     fun observeHandGesture(signal: String, confidence: Float): EveDecision {
         val safeSignal = signal.trim().lowercase().take(32)
-        if (safeSignal.isBlank() || !confidence.isFinite() || confidence < 0.68f) {
+        if (safeSignal.isBlank() || !confidence.isFinite() || confidence < MIN_HAND_GESTURE_CONFIDENCE) {
             curiosity = (curiosity + 0.025f).coerceAtMost(1f)
             return snapshot(EveMood.CURIOUS, "uncertain hand signal", false)
         }
