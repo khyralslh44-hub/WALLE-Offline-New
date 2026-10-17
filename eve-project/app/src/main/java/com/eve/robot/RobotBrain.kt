@@ -76,6 +76,50 @@ class RobotBrain(personality: EvePersonality = EvePersonality()) {
 
     private enum class Kind { FOOD, ANIMAL, PERSON, PLANT, OTHER }
 
+    /**
+     * Game feedback updates the same local affect state used by camera/touch behavior.
+     * This is a playful character response, not a claim that EVE feels human emotions.
+     */
+    @Synchronized
+    fun gameOutcome(gameName: String, outcome: String): EveDecision {
+        val safeGame = gameName.trim().lowercase()
+            .filter { it.isLetterOrDigit() || it == '_' }
+            .take(24).ifBlank { "game" }
+        return when (outcome.trim().lowercase()) {
+            "player", "success", "hit" -> {
+                valence = (valence + 0.16f + personality.warmth * 0.04f).coerceAtMost(0.95f)
+                arousal = 0.66f
+                curiosity = (curiosity + 0.04f).coerceAtMost(1f)
+                frustration = (frustration - 0.10f).coerceAtLeast(0f)
+                snapshot(EveMood.HAPPY, "happy game result: player succeeds in $safeGame", false)
+            }
+            "robot" -> {
+                valence = (valence + 0.07f * personality.playfulness).coerceAtMost(0.85f)
+                arousal = 0.58f
+                curiosity = (curiosity + 0.07f).coerceAtMost(1f)
+                snapshot(EveMood.PLAYFUL, "skeptic EVE wins in $safeGame", false)
+            }
+            "draw" -> {
+                valence = (valence + 0.02f).coerceIn(-0.8f, 0.85f)
+                arousal = 0.42f
+                curiosity = (curiosity + 0.10f).coerceAtMost(1f)
+                snapshot(EveMood.CURIOUS, "curious game draw in $safeGame", false)
+            }
+            "miss", "wrong" -> {
+                valence = (valence - 0.03f).coerceAtLeast(-0.65f)
+                arousal = 0.62f
+                frustration = (frustration + 0.025f).coerceAtMost(0.45f)
+                snapshot(EveMood.FOCUSED, "focused game miss in $safeGame", false)
+            }
+            "start" -> {
+                arousal = 0.54f
+                curiosity = (curiosity + 0.05f).coerceAtMost(1f)
+                snapshot(EveMood.PLAYFUL, "playful game started: $safeGame", false)
+            }
+            else -> snapshot(EveMood.CURIOUS, "curious game event in $safeGame", false)
+        }
+    }
+
     /** Entry point for startup so initial behavior also comes from the central affect state. */
     @Synchronized
     fun awakenExperience(): EveDecision {
