@@ -182,7 +182,7 @@ class HandGestureInterpreter(
 /** Unit-testable mapping for the standard MediaPipe Gesture Recognizer categories. */
 object HandGestureMapping {
     fun signal(categoryName: String?, confidence: Float): String? {
-        if (categoryName.isNullOrBlank() || !confidence.isFinite() || confidence < 0.68f) return null
+        if (categoryName.isNullOrBlank() || !confidence.isFinite() || confidence < MIN_HAND_GESTURE_CONFIDENCE) return null
         return when (categoryName.trim().lowercase().replace(' ', '_').replace('-', '_')) {
             "closed_fist", "closedfist", "fist" -> "fist"
             "open_palm", "openpalm", "open_hand", "palm" -> "open_palm"
