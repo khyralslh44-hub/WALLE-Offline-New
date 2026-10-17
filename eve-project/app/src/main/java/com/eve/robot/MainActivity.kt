@@ -449,15 +449,32 @@ class MainActivity : ComponentActivity() {
         react(decision, decision.playSound)
     }
 
+    private val hideCameraStatus = Runnable {
+        if (::cameraStatus.isInitialized && cameraStarted) {
+            cameraStatus.animate().cancel()
+            cameraStatus.animate()
+                .alpha(0f)
+                .setDuration(220L)
+                .withEndAction {
+                    if (cameraStarted) cameraStatus.visibility = View.INVISIBLE
+                }
+                .start()
+        }
+    }
+
     private fun showCameraStatus(message: String, active: Boolean) {
         if (!::cameraStatus.isInitialized) return
+        main.removeCallbacks(hideCameraStatus)
+        cameraStatus.animate().cancel()
+        cameraStatus.alpha = 1f
+        cameraStatus.visibility = View.VISIBLE
         val lensLabel = when {
             message.contains("الأمامية") -> "أمامية"
             message.contains("الخلفية") -> "خلفية"
             else -> message
         }
-        // A small status chip identifies the active camera without competing with the face.
-        cameraStatus.text = if (active) "●  $lensLabel  •  ضع يدك/وجهك أمامها • مرتين للتبديل" else "●  $lensLabel"
+        // Show the active lens briefly for diagnostics, then leave only the robot eyes on screen.
+        cameraStatus.text = if (active) "●  $lensLabel  •  انقر مرتين للتبديل" else "●  $lensLabel"
         cameraStatus.contentDescription = if (active) "الكاميرا $lensLabel تعمل. انقر مرتين للتبديل."
             else lensLabel
         cameraStatus.setTextColor(if (active) 0xFF8FFFC0.toInt() else 0xFFFFD180.toInt())
@@ -466,6 +483,7 @@ class MainActivity : ComponentActivity() {
             cornerRadius = dp(16).toFloat()
             setStroke(dp(1), if (active) 0x6637F5A1 else 0x667D8B92)
         }
+        if (active) main.postDelayed(hideCameraStatus, 1800L)
     }
 
     private fun hasCameraPermission(): Boolean =
