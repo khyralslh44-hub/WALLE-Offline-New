@@ -90,7 +90,7 @@ class EyeExpressionGeneratorTest {
         assertEquals(EyeSilhouette.DROOPY, silhouette(EveMood.SLEEPY))
         assertEquals(EyeSilhouette.WORRIED, silhouette(EveMood.CONCERNED))
         assertEquals(EyeSilhouette.SHARP, silhouette(EveMood.ANGRY))
-        assertEquals(EyeSilhouette.PLAYFUL, silhouette(EveMood.CURIOUS))
+        assertEquals(EyeSilhouette.CURIOUS, silhouette(EveMood.CURIOUS))
         val count = EveMood.values().map(::silhouette).toSet().size
         assertTrue("Expected visibly distinct eye contours across the mood set", count >= 9)
     }
@@ -117,6 +117,7 @@ class EyeExpressionGeneratorTest {
         val actual = setOf(
             glyph(EveMood.NEUTRAL),                                   // neutral rounded pixel
             glyph(EveMood.AWAKE),                                     // awake/neutral pose
+            glyph(EveMood.CURIOUS),                                   // two open curious pixels
             glyph(EveMood.NEUTRAL, "blink high"),                    // upper blink
             glyph(EveMood.HAPPY, "happy", valence = 0.25f),          // happy
             glyph(EveMood.HAPPY, "happy", valence = 0.85f),          // glee
