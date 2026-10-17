@@ -449,20 +449,37 @@ class RobotGamesActivity : ComponentActivity() {
 
     private fun selectChess(square: Int) {
         if (game != Game.CHESS || chessFinished || chessThinking || !chess.position.whiteToMove) return
+        if (square !in 0..63) return
+        val board = chess.position.board
         val from = chessSelected
-        if (from == null || chess.position.board[square].isUpperCase().not() && chess.position.board[square] != '.') {
-            if (chess.position.board[square] != '.' && chess.position.board[square].isUpperCase()) {
+
+        if (from == null) {
+            if (board[square] != '.' && board[square].isUpperCase()) {
                 chessSelected = square
                 renderChess("اخترت ${squareName(square)}. المس مربعًا أخضر للحركة.")
+            } else {
+                renderChess("اختر قطعة بيضاء أولًا.")
             }
             return
         }
-        if (from == square) { chessSelected = null; renderChess("حُدّد الاختيار من جديد."); return }
+
+        if (from == square) {
+            chessSelected = null
+            renderChess("ألغيت اختيار القطعة.")
+            return
+        }
+
+        // Selecting another white piece changes the selection. A black piece is instead
+        // treated as a capture destination and is checked against the engine's legal moves.
+        if (board[square] != '.' && board[square].isUpperCase()) {
+            chessSelected = square
+            renderChess("اخترت ${squareName(square)}. المس مربعًا أخضر للحركة.")
+            return
+        }
+
         val move = chess.legalMoves(from).firstOrNull { it.to == square }
         if (move == null) {
-            if (chess.position.board[square] != '.' && chess.position.board[square].isUpperCase()) {
-                chessSelected = square; renderChess("اختر قطعة بيضاء ثم حركة قانونية.")
-            } else renderChess("هذه الحركة غير قانونية؛ جرّب مربعًا آخر.")
+            renderChess("هذه الحركة غير قانونية؛ جرّب مربعًا أخضر.")
             return
         }
         chess.play(move)
