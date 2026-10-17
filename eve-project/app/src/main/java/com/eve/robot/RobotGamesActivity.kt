@@ -601,6 +601,7 @@ class RobotGamesActivity : ComponentActivity() {
         targetFinished = false
         targetCell = random.nextInt(9)
         statusText = "اضرب الدائرة التركوازية قبل أن تنتقل إلى مربع آخر."
+        reactWithEve("target", "start")
         renderTarget()
         scheduleTargetMove()
     }
@@ -650,21 +651,23 @@ class RobotGamesActivity : ComponentActivity() {
 
     private fun hitTarget(cellIndex: Int) {
         if (game != Game.TARGET || targetFinished) return
-        val now = SystemClock.elapsedRealtime()
+        val previousTarget = targetCell
         val hit = cellIndex == targetCell
         targetMoveTask?.let(handler::removeCallbacks)
+        targetMoveTask = null
         targetRound++
         if (hit) {
             targetScore++
             statusText = listOf(
                 "إصابة دقيقة!", "سريع! بدأت أتوقع حركتك.", "هذه نقطة لك."
             )[targetScore % 3]
+            reactWithEve("target", "success")
         } else {
-            statusText = "لم تصب الهدف في الوقت المناسب. راقب مكانه الجديد."
+            statusText = "أخطأت هذه المرة؛ انتقل الهدف إلى موضع جديد."
+            reactWithEve("target", "miss")
         }
         if (targetRound >= 10) {
             targetFinished = true
-            targetMoveTask = null
             val result = when {
                 targetScore >= 8 -> "player"
                 targetScore <= 3 -> "robot"
@@ -673,11 +676,9 @@ class RobotGamesActivity : ComponentActivity() {
             saveResult("target", result)
             statusText += " انتهت الجولة: $targetScore من 10."
         } else {
-            if (hit || cellIndex == targetCell || now > targetDeadline) {
-                val previous = targetCell
-                val next = random.nextInt(8)
-                targetCell = if (next >= previous) next + 1 else next
-            }
+            // Every attempt advances the target and starts a fresh timer; misses cannot freeze it.
+            val next = random.nextInt(8)
+            targetCell = if (next >= previousTarget) next + 1 else next
             renderTarget()
             scheduleTargetMove()
             return
