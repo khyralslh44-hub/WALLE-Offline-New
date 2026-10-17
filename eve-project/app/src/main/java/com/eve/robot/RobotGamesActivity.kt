@@ -503,7 +503,9 @@ class RobotGamesActivity : ComponentActivity() {
         paintShotRound = 0
         paintShotFinished = false
         paintShotTargetSide = if (random.nextBoolean()) -1 else 1
-        paintShotMessage = "ارتدِ النظارة الخيالية. اختر جهة الهدف ثم اضغط «بانغ!» لإطلاق طلاء."
+        paintShotAimSide = 0
+        paintShotMessage = "ارتدِ النظارة الخيالية. اختر جهة التصويب ثم أطلق طلقة الطلاء."
+        reactWithEve("paint_shot", "start")
         renderPaintShot()
     }
 
@@ -519,48 +521,73 @@ class RobotGamesActivity : ComponentActivity() {
             setPadding(dp(4), dp(16), dp(4), dp(16))
             setBackgroundColor(panel)
         }
-        val leftTarget = button(if (paintShotTargetSide == -1) "🎯\nهدف الطلاء" else "⬅\nاليسار", {
-            aimPaintShot(-1)
-        }, paintShotTargetSide == -1).apply { textSize = 17f }
-        val rightTarget = button(if (paintShotTargetSide == 1) "🎯\nهدف الطلاء" else "اليمين\n➡", {
-            aimPaintShot(1)
-        }, paintShotTargetSide == 1).apply { textSize = 17f }
+        fun aimLabel(side: Int): String {
+            val target = side == paintShotTargetSide
+            val aimed = side == paintShotAimSide
+            val direction = if (side < 0) "اليسار" else "اليمين"
+            return when {
+                target && aimed -> "🎯\nالهدف ✓"
+                target -> "🎯\nالهدف"
+                aimed -> "✓\nالتصويب: $direction"
+                side < 0 -> "⬅\nاليسار"
+                else -> "اليمين\n➡"
+            }
+        }
+        val leftTarget = button(aimLabel(-1), { aimPaintShot(-1) }, paintShotAimSide == -1)
+            .apply { textSize = 15f }
+        val rightTarget = button(aimLabel(1), { aimPaintShot(1) }, paintShotAimSide == 1)
+            .apply { textSize = 15f }
         arena.addView(leftTarget, LinearLayout.LayoutParams(0, dp(118), 1f).apply { setMargins(dp(4), 0, dp(4), 0) })
         arena.addView(rightTarget, LinearLayout.LayoutParams(0, dp(118), 1f).apply { setMargins(dp(4), 0, dp(4), 0) })
         root.addView(arena, LinearLayout.LayoutParams(-1, -2))
+        val targetName = if (paintShotTargetSide < 0) "اليسار" else "اليمين"
+        val aimName = when (paintShotAimSide) { -1 -> "اليسار"; 1 -> "اليمين"; else -> "لم تختر جهة بعد" }
+        root.addView(text("الهدف في $targetName • تصويبك: $aimName", 14f, muted))
         root.addView(text(paintShotMessage, 15f, muted))
         addSpace(6)
-        addWideButton("💥  بانغ! — أطلق طلقة طلاء", ::firePaintShot, true)
+        val fire = button(if (paintShotFinished) "انتهت الجولة" else "💥  بانغ! — أطلق طلقة طلاء", ::firePaintShot, true)
+        fire.isEnabled = !paintShotFinished && paintShotAimSide != 0
+        root.addView(fire, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) })
         addWideButton("جولة جديدة", ::startPaintShot)
         addWideButton("العودة إلى ألعاب إيف", ::showMenu)
     }
 
     private fun aimPaintShot(side: Int) {
-        if (game != Game.PAINT_SHOT || paintShotFinished) return
-        paintShotTargetSide = side
-        paintShotMessage = if (side < 0) "إيف تصوّب نحو اليسار… قل «بانغ!» أو اضغط زر الإطلاق."
-            else "إيف تصوّب نحو اليمين… قل «بانغ!» أو اضغط زر الإطلاق."
+        if (game != Game.PAINT_SHOT || paintShotFinished || side !in -1..1 || side == 0) return
+        // Aiming changes the player's direction only; it must never move the target itself.
+        paintShotAimSide = side
+        val direction = if (side < 0) "اليسار" else "اليمين"
+        paintShotMessage = "إيف تصوّب نحو $direction. أطلق عندما تكون جاهزًا."
         renderPaintShot()
     }
 
     private fun firePaintShot() {
         if (game != Game.PAINT_SHOT || paintShotFinished) return
-        val hit = random.nextInt(100) < 78
+        if (paintShotAimSide == 0) {
+            paintShotMessage = "اختر جهة التصويب أولًا."
+            renderPaintShot()
+            return
+        }
+        // Skill now matters: hit/miss is determined by aim vs. the independent target position.
+        val hit = paintShotAimSide == paintShotTargetSide
         paintShotRound++
         if (hit) paintShotScore++
         paintShotMessage = when {
-            hit -> if (paintShotTargetSide < 0) "💦 بااانغ! لطخة طلاء على الهدف الأيسر! إيف سعيدة 😄"
-                else "💦 بااانغ! لطخة طلاء على الهدف الأيمن! إيف سعيدة 😄"
-            else -> "💨 فشلت الطلقة! تحرّك الهدف قبل وصول الطلاء. حاول مرة أخرى."
+            hit -> if (paintShotTargetSide < 0) "💦 بانغ! أصبت هدف الطلاء الأيسر! إيف سعيدة 😄"
+                else "💦 بانغ! أصبت هدف الطلاء الأيمن! إيف سعيدة 😄"
+            else -> "💨 أخطأت الهدف. راقب موقعه وصوّب في الجولة التالية."
         }
-        android.util.Log.i("EVE_PAINT_SHOT", "hit=$hit side=$paintShotTargetSide round=$paintShotRound score=$paintShotScore")
+        reactWithEve("paint_shot", if (hit) "success" else "miss")
+        android.util.Log.i("EVE_PAINT_SHOT", "hit=$hit aim=$paintShotAimSide target=$paintShotTargetSide round=$paintShotRound score=$paintShotScore")
+        paintShotAimSide = 0
         if (paintShotRound >= 10) {
             paintShotFinished = true
             val result = when { paintShotScore >= 7 -> "player"; paintShotScore <= 3 -> "robot"; else -> "draw" }
             saveResult("paint_shot", result)
             paintShotMessage += "\nانتهت الجولة: $paintShotScore من 10."
         } else {
-            paintShotTargetSide = if (random.nextBoolean()) -1 else 1
+            // The target changes side after every shot, so the previous aim is never reused.
+            paintShotTargetSide = -paintShotTargetSide
         }
         renderPaintShot()
     }
