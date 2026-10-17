@@ -427,8 +427,12 @@ class RobotBrain(personality: EvePersonality = EvePersonality()) {
         // Update continuous drives first. No random mood picker is used.
         val quietFor = inactiveMs.coerceAtLeast(0L)
         fatigue = ((quietFor - 45_000L).coerceAtLeast(0L) / 240_000f).coerceIn(0f, 1f)
+        val frustrationBeforeQuietDecay = frustration
         if (quietFor >= 5_000L) {
-            frustration = (frustration - if (quietFor >= 45_000L) 0.16f else 0.11f).coerceAtLeast(0f)
+            // Irritation fades gradually during a short pause; it should not jump from angry
+            // to calm just because the idle loop ran once.
+            val decay = if (quietFor >= 45_000L) 0.16f else 0.03f
+            frustration = (frustration - decay).coerceAtLeast(0f)
         }
         valence = (valence * 0.985f + 0.002f).coerceIn(-0.5f, 0.75f)
         arousal = (arousal * 0.84f + 0.16f * 0.27f).coerceIn(0.12f, 0.80f)
@@ -436,50 +440,39 @@ class RobotBrain(personality: EvePersonality = EvePersonality()) {
             if (quietFor < 45_000L) 0.035f * personality.curiosityBias.coerceIn(0f, 1f) else 0.012f)
             .coerceIn(0.25f, 0.90f)
 
-        // Strong unmet drives take priority; otherwise score several possible goals from current
-        // curiosity, social familiarity, playfulness, fatigue and frustration.
+        // Goal stages are deterministic and contextual: neutral pause, exploration, a
+        // personality-shaped play/focus phase, rest, a second curiosity phase, then rest.
+        // This prevents the old repeated/random-looking mood flips while preserving agency.
         val forced: Pair<EveIntent, EveMood>? = when {
-            frustration >= 0.80f && quietFor < 12_000L -> EveIntent.REGULATE to EveMood.ANGRY
-            frustration >= 0.42f && quietFor < 24_000L -> EveIntent.REGULATE to EveMood.IRRITATED
-            valence < -0.38f && quietFor < 90_000L -> EveIntent.CONNECT to EveMood.CONCERNED
+            (frustrationBeforeQuietDecay >= 0.80f || frustration >= 0.80f) && quietFor < 12_000L ->
+                EveIntent.REGULATE to EveMood.ANGRY
+            frustration >= 0.42f && quietFor < 24_000L ->
+                EveIntent.REGULATE to EveMood.IRRITATED
+            valence < -0.38f && quietFor < 90_000L ->
+                EveIntent.CONNECT to EveMood.CONCERNED
             else -> null
         }
 
-        val selected: Pair<EveIntent, EveMood> = forced ?: run {
-            val quietProgress = (quietFor / 180_000f).coerceIn(0f, 1f)
-            val playWindow = if (quietFor in 10_000L..60_000L) 0.10f else 0f
-            val explore = curiosity * 0.22f +
-                personality.curiosityBias.coerceIn(0f, 1f) * 0.10f +
-                arousal * 0.08f - fatigue * 0.28f
-            val connect = familiarity * 0.43f +
-                personality.warmth.coerceIn(0f, 1f) * 0.22f +
-                valence.coerceAtLeast(0f) * 0.12f +
-                (if (quietFor >= 60_000L) 0.08f else 0f) -
-                fatigue * 0.20f
-            val play = personality.playfulness.coerceIn(0f, 1f) * 0.38f +
-                valence.coerceAtLeast(0f) * 0.16f +
-                (1f - fatigue) * 0.12f +
-                playWindow - frustration * 0.55f
-            val rest = fatigue * 0.70f + quietProgress * 0.48f + 0.10f
-            val focus = curiosity * 0.23f + arousal * 0.22f +
-                (if (quietFor in 20_000L..60_000L) 0.14f else 0f) -
-                frustration * 0.15f - fatigue * 0.20f
-
-            val scores = listOf(
-                EveIntent.EXPLORE to (explore to EveMood.CURIOUS),
-                EveIntent.CONNECT to (connect to if (familiarity >= 0.52f) EveMood.FAMILIAR else EveMood.NEUTRAL),
-                EveIntent.PLAY to (play to if (valence < 0.08f) EveMood.CURIOUS else EveMood.PLAYFUL),
-                EveIntent.REST to (rest to EveMood.SLEEPY),
-                EveIntent.FOCUS to (focus to EveMood.FOCUSED)
-            )
-            val ordered = scores.sortedByDescending { it.second.first }
-            val best = ordered.first()
-            val repeatPenaltyApplies = best.first == lastIdleIntent && repeatedIdleIntentCount >= 2
-            val alternative = if (repeatPenaltyApplies) {
-                ordered.drop(1).firstOrNull { best.second.first - it.second.first <= 0.16f }
-            } else null
-            val chosen = alternative ?: best
-            chosen.first to chosen.second.second
+        val selected: Pair<EveIntent, EveMood> = forced ?: when {
+            quietFor < 12_000L -> EveIntent.CONNECT to EveMood.NEUTRAL
+            quietFor < 30_000L -> EveIntent.EXPLORE to EveMood.CURIOUS
+            quietFor < 42_000L -> {
+                val play = personality.playfulness.coerceIn(0f, 1f) * 0.38f +
+                    valence.coerceAtLeast(0f) * 0.16f +
+                    (1f - fatigue) * 0.12f +
+                    (if (quietFor in 30_000L..42_000L) 0.10f else 0f) -
+                    frustration * 0.55f
+                val focus = curiosity * 0.23f + arousal * 0.22f + 0.14f -
+                    frustration * 0.15f - fatigue * 0.20f
+                if (play >= focus) {
+                    EveIntent.PLAY to if (valence < 0.08f) EveMood.CURIOUS else EveMood.PLAYFUL
+                } else {
+                    EveIntent.FOCUS to EveMood.FOCUSED
+                }
+            }
+            quietFor < 90_000L -> EveIntent.REST to EveMood.SLEEPY
+            quietFor < 150_000L -> EveIntent.EXPLORE to EveMood.CURIOUS
+            else -> EveIntent.REST to EveMood.SLEEPY
         }
 
         if (selected.first == lastIdleIntent) {
