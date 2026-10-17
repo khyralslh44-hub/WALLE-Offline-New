@@ -43,6 +43,41 @@ class RobotGamesGameplayTest {
             .joinToString(" ") { it.text?.toString().orEmpty() }
 
     @Test
+    fun xoDifficultyCanBeChangedAndPersistsForTheNextMatch() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        context.getSharedPreferences("eve_games", android.content.Context.MODE_PRIVATE)
+            .edit()
+            .putInt("difficulty:xo", 2)
+            .putInt("difficulty:xo:playerStreak", 0)
+            .putInt("difficulty:xo:robotStreak", 0)
+            .commit()
+
+        val scenario = ActivityScenario.launch(RobotGamesActivity::class.java)
+        try {
+            scenario.onActivity { activity ->
+                requireNotNull(buttonContaining(activity, "إكس-أو")).performClick()
+            }
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+
+            scenario.onActivity { activity ->
+                assertTrue("XO should show its current level: ${visibleText(activity)}",
+                    visibleText(activity).contains("مستوى إيف: 2/3"))
+                requireNotNull(buttonContaining(activity, "تغيير مستوى التحدّي: 2/3")).performClick()
+                assertTrue("XO should visibly switch to hard mode: ${visibleText(activity)}",
+                    visibleText(activity).contains("مستوى إيف: 3/3"))
+                assertEquals(
+                    "The selected XO level should persist locally.",
+                    3,
+                    activity.getSharedPreferences("eve_games", android.content.Context.MODE_PRIVATE)
+                        .getInt("difficulty:xo", 0)
+                )
+            }
+        } finally {
+            scenario.close()
+        }
+    }
+
+    @Test
     fun paintShotArenaFiresAtMovingTargetAndScoresOnlyAccurateShots() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val scenario = ActivityScenario.launch(RobotGamesActivity::class.java)
