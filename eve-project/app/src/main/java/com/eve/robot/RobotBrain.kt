@@ -16,7 +16,14 @@ data class EvePersonality(
     val warmth: Float = 0.76f,
     val playfulness: Float = 0.62f,
     val patience: Float = 0.68f
-)
+) {
+    fun bounded() = copy(
+        curiosityBias = curiosityBias.coerceIn(0.15f, 0.95f),
+        warmth = warmth.coerceIn(0.20f, 0.98f),
+        playfulness = playfulness.coerceIn(0.10f, 0.92f),
+        patience = patience.coerceIn(0.20f, 0.98f)
+    )
+}
 
 /**
  * A local affect snapshot shared by vision, touch, idle behavior, facial expression and sound.
@@ -39,7 +46,15 @@ data class EveDecision(
  * Stateful local affect engine. It reacts to confidence, semantic category, repeated sightings,
  * touch and inactivity. This is a lightweight emotional-behavior simulation, not consciousness.
  */
-class RobotBrain(private val personality: EvePersonality = EvePersonality()) {
+class RobotBrain(personality: EvePersonality = EvePersonality()) {
+    @Volatile private var personality = personality.bounded()
+
+    /** Apply learned, persistent traits without resetting the current emotional state. */
+    @Synchronized
+    fun updatePersonality(next: EvePersonality) {
+        personality = next.bounded()
+    }
+
     private var valence = 0.12f       // negative = wary, positive = warm
     private var arousal = 0.32f       // calm <-> alert
     private var curiosity = 0.58f
@@ -466,6 +481,62 @@ class RobotBrain(private val personality: EvePersonality = EvePersonality()) {
 /** Persistent on-device counters. Only labels/counts/timestamps are saved, never camera frames. */
 class EveMemory(context: Context) {
     private val prefs = context.getSharedPreferences("eve_local_memory", Context.MODE_PRIVATE)
+
+    /**
+     * Stable character traits survive app restarts. These are small behavioral preferences,
+     * not neural-network weights or proof of consciousness.
+     */
+    @Synchronized
+    fun learnedPersonality(): EvePersonality = EvePersonality(
+        curiosityBias = prefs.getFloat("trait:curiosity", 0.72f),
+        warmth = prefs.getFloat("trait:warmth", 0.76f),
+        playfulness = prefs.getFloat("trait:playfulness", 0.62f),
+        patience = prefs.getFloat("trait:patience", 0.68f)
+    ).bounded()
+
+    /**
+     * Update only from meaningful, confidence-worthy feedback, with an event cooldown so one
+     * burst of taps cannot rewrite the character. This is transparent online adaptation.
+     */
+    @Synchronized
+    fun adaptPersonality(event: String, strength: Float = 1f): EvePersonality {
+        val key = event.trim().lowercase().take(48)
+        if (key.isBlank() || !strength.isFinite()) return learnedPersonality()
+        val now = System.currentTimeMillis()
+        val lastAtKey = "trait:last:$key"
+        if (now - prefs.getLong(lastAtKey, 0L) in 0L until 25_000L) {
+            return learnedPersonality()
+        }
+        val amount = strength.coerceIn(0f, 1f) * 0.012f
+        val old = learnedPersonality()
+        val next = when (key) {
+            "gentle_contact" -> old.copy(
+                warmth = old.warmth + amount,
+                patience = old.patience + amount * 0.45f,
+                playfulness = old.playfulness + amount * 0.18f
+            )
+            "friendly_gesture" -> old.copy(
+                warmth = old.warmth + amount * 0.70f,
+                playfulness = old.playfulness + amount * 0.55f
+            )
+            "curiosity_reward" -> old.copy(
+                curiosityBias = old.curiosityBias + amount * 0.45f
+            )
+            "overstimulation" -> old.copy(
+                patience = old.patience - amount * 0.80f,
+                playfulness = old.playfulness - amount * 0.25f
+            )
+            else -> old
+        }.bounded()
+        prefs.edit()
+            .putFloat("trait:curiosity", next.curiosityBias)
+            .putFloat("trait:warmth", next.warmth)
+            .putFloat("trait:playfulness", next.playfulness)
+            .putFloat("trait:patience", next.patience)
+            .putLong(lastAtKey, now)
+            .apply()
+        return next
+    }
 
     @Synchronized
     fun remember(label: String): Int {
