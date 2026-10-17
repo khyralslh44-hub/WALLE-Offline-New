@@ -396,8 +396,22 @@ if ! grep -F "BEHAVIOR mood=HAPPY reason=comforting long touch; frustration ease
   echo "FAIL: touch did not trigger a logged behavioral reaction."
   exit 1
 fi
-if ! grep -F "AUTONOMOUS mood=" "$RESULTS_DIR/logcat.txt" >/dev/null; then
-  echo "FAIL: no autonomous idle behavior was observed during the test."
+# The idle loop is intentionally debounced: it checks every 6 seconds and only
+# emits a contextual autonomous decision after 5 seconds without interaction. A
+# short fixed delay after a long touch can miss a valid later tick, so poll logcat.
+AUTONOMOUS_FOUND=false
+for attempt in $(seq 1 18); do
+  adb logcat -d -v threadtime > "$RESULTS_DIR/logcat-idle-wait.txt"
+  if grep -F "AUTONOMOUS mood=" "$RESULTS_DIR/logcat-idle-wait.txt" >/dev/null; then
+    cp "$RESULTS_DIR/logcat-idle-wait.txt" "$RESULTS_DIR/logcat.txt"
+    AUTONOMOUS_FOUND=true
+    break
+  fi
+  sleep 1
+done
+if [ "$AUTONOMOUS_FOUND" != true ]; then
+  echo "FAIL: no autonomous idle behavior was observed within the 18-second post-touch observation window."
+  grep -E "AUTONOMOUS mood=|BEHAVIOR mood=|CAMERA_LENS" "$RESULTS_DIR/logcat-idle-wait.txt" | tail -30 || true
   exit 1
 fi
 if ! grep -F "EVE_VOICE: PLAYBACK_STARTED mood=HAPPY" "$RESULTS_DIR/logcat.txt" >/dev/null; then
