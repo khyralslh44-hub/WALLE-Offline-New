@@ -156,6 +156,11 @@ object EyeExpressionGenerator {
             else -> rawReason
         }
         val clearSilhouette = when {
+            // When EVE observes an angry human, her own response is concern, never imitation.
+            // Keep this provenance-specific case distinct from EVE's own anger state.
+            decision.mood == EveMood.CONCERNED &&
+                ("observing an angry" in rawReason || "human" in rawReason || "person" in rawReason) ->
+                EyeSilhouette.WORRIED
             "fear" in reason -> EyeSilhouette.SCARED
             "sad down" in reason -> EyeSilhouette.SAD_DOWN
             "sad up" in reason -> EyeSilhouette.SAD_UP
