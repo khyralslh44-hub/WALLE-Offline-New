@@ -454,7 +454,7 @@ class RobotBrain(personality: EvePersonality = EvePersonality()) {
             val connect = familiarity * 0.43f +
                 personality.warmth.coerceIn(0f, 1f) * 0.22f +
                 valence.coerceAtLeast(0f) * 0.12f +
-                if (quietFor >= 60_000L) 0.08f else 0f -
+                (if (quietFor >= 60_000L) 0.08f else 0f) -
                 fatigue * 0.20f
             val play = personality.playfulness.coerceIn(0f, 1f) * 0.38f +
                 valence.coerceAtLeast(0f) * 0.16f +
@@ -462,7 +462,7 @@ class RobotBrain(personality: EvePersonality = EvePersonality()) {
                 playWindow - frustration * 0.55f
             val rest = fatigue * 0.70f + quietProgress * 0.48f + 0.10f
             val focus = curiosity * 0.23f + arousal * 0.22f +
-                if (quietFor in 20_000L..60_000L) 0.14f else 0f -
+                (if (quietFor in 20_000L..60_000L) 0.14f else 0f) -
                 frustration * 0.15f - fatigue * 0.20f
 
             val scores = listOf(
