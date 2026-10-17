@@ -50,31 +50,58 @@ class ExtraGamesGameplayTest {
         try {
             scenario.onActivity { activity ->
                 requireNotNull(buttonContaining(activity, "Paint Shot")).performClick()
+            }
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
 
-                val roundField = RobotGamesActivity::class.java.getDeclaredField("paintShotRound").apply {
-                    isAccessible = true
-                }
-                repeat(10) { round ->
-                    // Choose the actual target position independently from aiming at it.
-                    val target = buttonContaining(activity, "الهدف")
-                    assertNotNull("Paint Shot target/aim choice missing at round ${round + 1}.", target)
-                    requireNotNull(target).performClick()
+            val arenaField = RobotGamesActivity::class.java.getDeclaredField("paintShotArena").apply {
+                isAccessible = true
+            }
+            val roundField = RobotGamesActivity::class.java.getDeclaredField("paintShotRound").apply {
+                isAccessible = true
+            }
+            val scoreField = RobotGamesActivity::class.java.getDeclaredField("paintShotScore").apply {
+                isAccessible = true
+            }
 
-                    val fire = buttonContaining(activity, "أطلق طلقة طلاء")
-                    assertNotNull("Paint Shot launch/fire control missing at round ${round + 1}.", fire)
-                    assertTrue("Fire must be enabled only after a direction has been selected.", requireNotNull(fire).isEnabled)
-                    fire.performClick()
+            repeat(10) { round ->
+                scenario.onActivity { activity ->
+                    val arena = requireNotNull(arenaField.get(activity) as? PaintShotArenaView) {
+                        "Paint Shot arena missing at round " + (round + 1)
+                    }
+                    assertTrue("Paint Shot arena must be laid out.", arena.width > 0 && arena.height > 0)
+
+                    // Tap the moving target through the actual view touch path, rather than
+                    // searching for obsolete target/launch buttons from an older game design.
+                    val target = arena.targetCenterForTest
+                    val downTime = SystemClock.uptimeMillis()
+                    val down = MotionEvent.obtain(
+                        downTime, downTime, MotionEvent.ACTION_DOWN, target.first, target.second, 0
+                    )
+                    val up = MotionEvent.obtain(
+                        downTime, downTime + 18L, MotionEvent.ACTION_UP, target.first, target.second, 0
+                    )
+                    try {
+                        arena.dispatchTouchEvent(down)
+                        arena.dispatchTouchEvent(up)
+                    } finally {
+                        down.recycle()
+                        up.recycle()
+                    }
                     assertEquals(
-                        "Paint Shot should count each shot immediately.",
+                        "Paint Shot should count each real touch as one shot.",
                         round + 1,
                         roundField.getInt(activity)
                     )
                 }
+            }
 
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+            scenario.onActivity { activity ->
                 assertTrue(
-                    "Paint Shot should show a completed 10-shot result: ${visibleText(activity)}",
-                    visibleText(activity).contains("انتهت الجولة")
+                    "Paint Shot should show the completed ten-shot result: " + visibleText(activity),
+                    visibleText(activity).contains("انتهى التحدّي")
                 )
+                assertEquals("The centered target taps should register hits.", 10, scoreField.getInt(activity))
                 assertTrue(
                     "Paint Shot should persist an EVE game rating locally.",
                     activity.getSharedPreferences("eve_games", android.content.Context.MODE_PRIVATE)
