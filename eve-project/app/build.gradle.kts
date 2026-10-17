@@ -46,6 +46,8 @@ dependencies {
     implementation("com.google.mlkit:image-labeling:17.0.7")
     implementation("com.google.mlkit:face-detection:16.1.7")
     implementation("org.tensorflow:tensorflow-lite:2.16.1")
+    // Offline hand-sign recognition: model is pinned/downloaded during the build and packaged locally.
+    implementation("com.google.mediapipe:tasks-vision:1.0.0")
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test:rules:1.6.1")
