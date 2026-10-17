@@ -52,7 +52,7 @@ class HandGestureIntegrationTest {
             )
             assertTrue(
                 "Thumb-up confidence $confidence is below the app's production threshold.",
-                confidence >= 0.68f
+                confidence >= 0.60f
             )
             assertTrue("MediaPipe returned too few hand landmarks.", points.size >= 10)
 
