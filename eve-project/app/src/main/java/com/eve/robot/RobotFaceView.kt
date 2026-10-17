@@ -205,7 +205,8 @@ class RobotFaceView(context: Context) : View(context) {
         // Keep the display pixels horizontally rectangular like the Cozmo sheet.
         // The old near-square eye height made the face read as two large tiles instead of LED eyes.
         val w = min(width * 0.23f, height * 0.15f) * eyeWidth
-        val h = min(height * 0.085f, w * 0.58f) * eyeHeight
+        // Neutral Cozmo-style LED blocks are close to square; each expression then changes its own aperture.
+        val h = min(height * 0.11f, w * 0.82f) * eyeHeight
         val gap = min(width * 0.21f, w * 0.62f) * spacing
         val cy = height * 0.50f
         val silhouetteRaw = if (silhouetteTransitionStartedAt == 0L) 1f else
@@ -311,10 +312,10 @@ class RobotFaceView(context: Context) : View(context) {
         // drawing a different cartoon face.
         when (eyeSilhouette) {
             // Normal/awake: crisp rounded-square LED pixels.
-            EyeSilhouette.NEUTRAL -> rounded(min(hw * 0.23f, glyphHh * 0.27f))
+            EyeSilhouette.NEUTRAL -> rounded(min(hw * 0.40f, glyphHh * 0.42f))
 
             // Neutral mood: a smaller square-ish pixel with rounder corners than Awake.
-            EyeSilhouette.ALMOND -> rounded(min(hw * 0.35f, glyphHh * 0.45f))
+            EyeSilhouette.ALMOND -> rounded(min(hw * 0.43f, glyphHh * 0.45f))
 
             // Curious: both eyes remain open LED pixels; a slight lid offset conveys attention.
             EyeSilhouette.CURIOUS -> {
@@ -336,7 +337,7 @@ class RobotFaceView(context: Context) : View(context) {
             }
 
             // Surprise: nearly square, bright blocks; awe is oval and scared is angular.
-            EyeSilhouette.ROUND_SURPRISE -> rounded(min(hw * 0.32f, glyphHh * 0.36f))
+            EyeSilhouette.ROUND_SURPRISE -> rounded(min(hw * 0.42f, glyphHh * 0.44f))
 
             EyeSilhouette.AWE -> {
                 val oval = RectF(cx - hw * 0.98f, centerY - glyphHh * 0.92f,
@@ -550,10 +551,10 @@ class RobotFaceView(context: Context) : View(context) {
         fill.alpha = 255
         fill.color = when (mood) {
             EveMood.SLEEPY, EveMood.CONCERNED, EveMood.IRRITATED, EveMood.ANGRY ->
-                Color.rgb(13, 201, 215)
+                Color.rgb(0, 158, 174)
             EveMood.HAPPY, EveMood.SURPRISED, EveMood.PLAYFUL ->
-                Color.rgb(27, 231, 238)
-            else -> Color.rgb(20, 218, 228)
+                Color.rgb(0, 205, 215)
+            else -> Color.rgb(0, 181, 193)
         }
         c.drawPath(shape, fill)
 

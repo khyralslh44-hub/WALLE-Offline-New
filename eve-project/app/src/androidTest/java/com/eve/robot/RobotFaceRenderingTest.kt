@@ -58,6 +58,7 @@ class RobotFaceRenderingTest {
         val specs = listOf(
             spec("Neutral", EveMood.NEUTRAL, EyeSilhouette.ALMOND, reason = "neutral"),
             spec("Awake", EveMood.AWAKE, EyeSilhouette.NEUTRAL, reason = "awake"),
+            spec("Curious", EveMood.CURIOUS, EyeSilhouette.CURIOUS, reason = "curiosity"),
             spec("Blink high", EveMood.NEUTRAL, EyeSilhouette.BLINK_HIGH, reason = "blink high"),
             spec("Happy", EveMood.HAPPY, EyeSilhouette.SMILE, reason = "happy", valence = 0.25f, arousal = 0.75f),
             spec("Glee", EveMood.HAPPY, EyeSilhouette.GLEE, reason = "happy", valence = 0.85f, arousal = 0.85f),

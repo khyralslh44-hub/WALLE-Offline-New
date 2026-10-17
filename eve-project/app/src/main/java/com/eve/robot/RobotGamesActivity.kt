@@ -184,6 +184,8 @@ class RobotGamesActivity : ComponentActivity() {
             setPadding(0, dp(3), 0, dp(3))
         }
         val companion = eveGameFace ?: RobotFaceView(this).also { eveGameFace = it }
+        // The same animated face is reused across game screens; detach it from its old header first.
+        (companion.parent as? android.view.ViewGroup)?.removeView(companion)
         row.addView(companion, LinearLayout.LayoutParams(dp(86), dp(72)).apply {
             marginEnd = dp(8)
         })

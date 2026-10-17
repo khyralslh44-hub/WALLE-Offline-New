@@ -215,7 +215,6 @@ class EyeExpressionGalleryTest {
                 EyeSilhouette.FURIOUS -> 10
                 EyeSilhouette.CURIOUS, EyeSilhouette.SKEPTIC, EyeSilhouette.PLAYFUL -> 12
                 EyeSilhouette.NEUTRAL, EyeSilhouette.ALMOND, EyeSilhouette.SOFT -> 12
-                EyeSilhouette.CURIOUS -> 12
                 EyeSilhouette.ROUND_SURPRISE, EyeSilhouette.AWE -> 14
                 EyeSilhouette.SCARED -> 19
             }

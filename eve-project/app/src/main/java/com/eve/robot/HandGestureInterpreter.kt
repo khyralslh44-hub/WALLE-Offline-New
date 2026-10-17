@@ -162,9 +162,15 @@ class HandGestureInterpreter(
     }
 
     private fun normalize(name: String?): String? {
-        val value = name?.trim() ?: return null
-        return when (value) {
-            "Closed_Fist", "Open_Palm", "Victory", "Thumb_Up", "Thumb_Down", "Pointing_Up", "ILoveYou" -> value
+        val value = name?.trim()?.replace(' ', '_')?.replace('-', '_') ?: return null
+        return when (value.lowercase()) {
+            "closed_fist", "closedfist", "fist" -> "Closed_Fist"
+            "open_palm", "openpalm", "open_hand", "palm" -> "Open_Palm"
+            "victory", "peace" -> "Victory"
+            "thumb_up", "thumbup", "thumbs_up", "like" -> "Thumb_Up"
+            "thumb_down", "thumbdown", "thumbs_down", "dislike" -> "Thumb_Down"
+            "pointing_up", "pointingup", "point_up" -> "Pointing_Up"
+            "iloveyou", "i_love_you" -> "ILoveYou"
             else -> null
         }
     }
@@ -174,14 +180,14 @@ class HandGestureInterpreter(
 object HandGestureMapping {
     fun signal(categoryName: String?, confidence: Float): String? {
         if (categoryName.isNullOrBlank() || !confidence.isFinite() || confidence < 0.68f) return null
-        return when (categoryName.trim()) {
-            "Closed_Fist" -> "fist"
-            "Open_Palm" -> "open_palm"
-            "Victory" -> "victory"
-            "Thumb_Up" -> "thumb_up"
-            "Thumb_Down" -> "thumb_down"
-            "Pointing_Up" -> "pointing_up"
-            "ILoveYou" -> "i_love_you"
+        return when (categoryName.trim().lowercase().replace(' ', '_').replace('-', '_')) {
+            "closed_fist", "closedfist", "fist" -> "fist"
+            "open_palm", "openpalm", "open_hand", "palm" -> "open_palm"
+            "victory", "peace" -> "victory"
+            "thumb_up", "thumbup", "thumbs_up", "like" -> "thumb_up"
+            "thumb_down", "thumbdown", "thumbs_down", "dislike" -> "thumb_down"
+            "pointing_up", "pointingup", "point_up" -> "pointing_up"
+            "iloveyou", "i_love_you" -> "i_love_you"
             else -> null
         }
     }
