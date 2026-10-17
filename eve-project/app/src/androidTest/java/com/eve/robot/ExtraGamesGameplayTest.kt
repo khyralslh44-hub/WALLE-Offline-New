@@ -45,6 +45,25 @@ class ExtraGamesGameplayTest {
             .joinToString(" ") { it.text?.toString().orEmpty() }
 
     @Test
+    fun bothEmoInspiredShootingModesAreReachableFromEveGameMenu() {
+        val scenario = ActivityScenario.launch(RobotGamesActivity::class.java)
+        try {
+            scenario.onActivity { activity ->
+                assertNotNull(
+                    "Moving-target Paint Shot mode must be listed in the game menu.",
+                    buttonContaining(activity, "Paint Shot")
+                )
+                assertNotNull(
+                    "Camera augmented-reality shooting mode must be listed in the game menu.",
+                    buttonContaining(activity, "مثل EMO")
+                )
+            }
+        } finally {
+            scenario.close()
+        }
+    }
+
+    @Test
     fun paintShotRunsTenRoundsAndStoresItsResultLocally() {
         val scenario = ActivityScenario.launch(RobotGamesActivity::class.java)
         try {
