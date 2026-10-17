@@ -36,6 +36,18 @@ class ChessEngineTest {
     }
 
     @Test
+    fun legalCaptureRemovesTheCapturedPieceAndLeavesMoverOnDestination() {
+        val chess = ChessEngine()
+        assertTrue(chess.play(ChessEngine.Move(from = 52, to = 36))) // e2-e4
+        assertTrue(chess.play(ChessEngine.Move(from = 11, to = 27))) // d7-d5
+        assertTrue(chess.play(ChessEngine.Move(from = 36, to = 27))) // e4xd5
+
+        assertEquals('P', chess.position.board[27])
+        assertEquals('.', chess.position.board[36])
+        assertTrue(chess.position.whiteToMove.not())
+    }
+
+    @Test
     fun foolsMateIsRecognizedAsCheckmate() {
         val chess = ChessEngine()
         assertTrue(chess.play(ChessEngine.Move(53, 45))) // f2-f3
