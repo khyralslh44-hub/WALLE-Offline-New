@@ -33,9 +33,11 @@ class EveGeneratedNotificationDeliveryTest {
         relationship.edit().clear().commit()
         games.edit().clear().commit()
 
+        // Keep a wide time margin so emulator lifecycle callbacks cannot make the
+        // seeded background state look newer than the foreground timestamp.
         relationship.edit()
-            .putLong("lastForegroundAt", now - 90L * 60L * 1000L)
-            .putLong("lastBackgroundAt", now - 60L * 60L * 1000L)
+            .putLong("lastForegroundAt", now - 6L * 60L * 60L * 1000L)
+            .putLong("lastBackgroundAt", now - 5L * 60L * 60L * 1000L)
             .putInt("sentCount", 0)
             .putString("lastMood", "SLEEPY")
             .putString("lastMoodReason", "contextual idle")
