@@ -153,7 +153,7 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) startCamera() else {
-            showCameraStatus("الكاميرا متوقفة: لم يُمنح إذن الكاميرا", active = false)
+            showCameraStatus("الكاميرا متوقفة • اضغط هنا للسماح", active = false)
             react(brain.cameraUnavailable("permission declined"), playSound = false)
             Log.i("EVE", "Camera permission declined; face remains active.")
         }
@@ -219,8 +219,9 @@ class MainActivity : ComponentActivity() {
                 cornerRadius = dp(22).toFloat()
                 setStroke(dp(1), 0x6637F5A1)
             }
-            isClickable = false
-            isFocusable = false
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { handleCameraStatusTap() }
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
         }
         val root = FrameLayout(this).apply {
@@ -306,6 +307,53 @@ class MainActivity : ComponentActivity() {
             startCamera()
             requestNotificationPermissionIfNeeded()
         } else {
+            getSharedPreferences("eve_relationship", MODE_PRIVATE).edit()
+                .putBoolean("cameraPermissionRequested", true).apply()
+            permissionRequest.launch(Manifest.permission.CAMERA)
+        }
+    }
+
+    private fun handleCameraStatusTap() {
+        if (hasCameraPermission()) {
+            if (!cameraStarted) startCamera()
+            else android.widget.Toast.makeText(
+                this,
+                if (activeCameraLens == CameraLens.FRONT) "الكاميرا الأمامية تعمل" else "الكاميرا الخلفية تعمل",
+                android.widget.Toast.LENGTH_SHORT
+            ).show()
+            return
+        }
+
+        val prefs = getSharedPreferences("eve_relationship", MODE_PRIVATE)
+        val askedBefore = prefs.getBoolean("cameraPermissionRequested", false)
+        if (shouldShowRequestPermissionRationale(Manifest.permission.CAMERA)) {
+            android.app.AlertDialog.Builder(this)
+                .setTitle("اسمح لإيف برؤية ما حولها")
+                .setMessage("الكاميرا تُحلَّل على الهاتف حتى تتفاعل إيف مع الأشياء وتعبيرات الوجه. لا حاجة إلى اتصال بالإنترنت.")
+                .setPositiveButton("السماح بالكاميرا") { _, _ ->
+                    prefs.edit().putBoolean("cameraPermissionRequested", true).apply()
+                    permissionRequest.launch(Manifest.permission.CAMERA)
+                }
+                .setNegativeButton("لاحقًا", null)
+                .show()
+        } else if (askedBefore) {
+            android.app.AlertDialog.Builder(this)
+                .setTitle("الكاميرا محظورة")
+                .setMessage("يبدو أن Android منع طلب الإذن مرة أخرى. افتح إعدادات التطبيق وفعّل إذن الكاميرا، ثم ارجع واضغط على الشريط.")
+                .setPositiveButton("فتح الإعدادات") { _, _ ->
+                    try {
+                        startActivity(Intent(
+                            android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                            android.net.Uri.parse("package:$packageName")
+                        ))
+                    } catch (error: Exception) {
+                        Log.e("EVE", "Could not open application settings.", error)
+                    }
+                }
+                .setNegativeButton("إلغاء", null)
+                .show()
+        } else {
+            prefs.edit().putBoolean("cameraPermissionRequested", true).apply()
             permissionRequest.launch(Manifest.permission.CAMERA)
         }
     }
@@ -380,7 +428,7 @@ class MainActivity : ComponentActivity() {
 
         val analysis = ImageAnalysis.Builder()
             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-            .setTargetResolution(Size(320, 240))
+            .setTargetResolution(Size(480, 360))
             .build()
         analysis.setAnalyzer(cameraExecutor, ::analyzeFrame)
 
@@ -388,6 +436,7 @@ class MainActivity : ComponentActivity() {
         provider.bindToLifecycle(this, selector, analysis)
         activeCameraLens = lens
         cameraStarted = true
+        lastAnalysis.set(0L) // process the first frame from a new lens immediately
         faceCueSmoother.reset()
         emotionSmoother.reset()
         lastFaceSeenAt = 0L
@@ -470,7 +519,8 @@ class MainActivity : ComponentActivity() {
     private fun analyzeFrame(proxy: ImageProxy) {
         val now = SystemClock.elapsedRealtime()
         val previous = lastAnalysis.get()
-        if (now - previous < 1500L || !lastAnalysis.compareAndSet(previous, now)) {
+        // Keep CameraX's latest-frame backpressure and avoid the previous 1.5-second reaction lag.
+        if (now - previous < 400L || !lastAnalysis.compareAndSet(previous, now)) {
             proxy.close()
             return
         }
@@ -504,7 +554,7 @@ class MainActivity : ComponentActivity() {
                 if (best.confidence < 0.58f || best.text.isBlank()) return@addOnSuccessListener
                 val label = best.text.trim().lowercase()
                 val elapsed = SystemClock.elapsedRealtime()
-                if (elapsed - (lastLabelAt[label] ?: 0L) < 9000L) return@addOnSuccessListener
+                if (elapsed - (lastLabelAt[label] ?: 0L) < 2600L) return@addOnSuccessListener
                 if (elapsed - lastFaceSeenAt < 8000L && !isMeaningfulLabel(label)) {
                     Log.i("EVE", "VISION generic label suppressed during face interaction: $label")
                     return@addOnSuccessListener
@@ -614,7 +664,7 @@ class MainActivity : ComponentActivity() {
                                             } else {
                                                 main.post {
                                                     if (isFinishing || isDestroyed) return@post
-                                                    if (SystemClock.elapsedRealtime() - lastFaceReactionAt < 6500L) return@post
+                                                    if (SystemClock.elapsedRealtime() - lastFaceReactionAt < 1800L) return@post
                                                     val decision = brain.observeFacialEmotion(
                                                         stableEmotion.label,
                                                         stableEmotion.confidence
@@ -760,7 +810,7 @@ class MainActivity : ComponentActivity() {
     private fun applyFaceCueFallback(cue: EveFaceCue, reason: String) {
         if (isFinishing || isDestroyed) return
         val now = SystemClock.elapsedRealtime()
-        if (now - lastFaceReactionAt < 6500L) return
+        if (now - lastFaceReactionAt < 1800L) return
         lastFaceReactionAt = now
         val decision = brain.observeHumanFace(
             smilingProbability = cue.smilingProbability,
