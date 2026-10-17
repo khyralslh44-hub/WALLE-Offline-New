@@ -112,21 +112,47 @@ jobs:
           test "$ACTUAL" = "$EXPECTED"
           ls -lh "$MODEL"
 
+      - name: Download and pin offline thumb-up gesture fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          FIXTURE="eve-project/app/src/androidTest/assets/gesture_thumb_up.jpg"
+          mkdir -p "$(dirname "$FIXTURE")"
+          curl --fail --location --retry 3 \
+            "https://raw.githubusercontent.com/wgnrto/uniteye/0cbbc9bfbb0d0b0b95b57deec3095e5d5ac81996/com.github.homuler.mediapipe/Tests/Resources/thumb-up.jpg" \
+            --output "$FIXTURE"
+          EXPECTED="781f7e5eb60c90201f6bb348a433bae5aee06da4"
+          ACTUAL="$(git hash-object "$FIXTURE")"
+          echo "Thumb-up fixture Git blob hash: $ACTUAL"
+          if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "FAIL: thumb-up fixture hash mismatch; refusing unreviewed input."
+            exit 1
+          fi
+          file "$FIXTURE" || true
+          sha256sum "$FIXTURE" | tee "$RUNNER_TEMP/thumb-up-fixture-sha256.txt"
+
       - name: Verify pinned test inputs match the integration test
         shell: bash
         run: |
           set -euo pipefail
           FIXTURE="eve-project/app/src/androidTest/assets/face_fixture.jpg"
+          GESTURE_FIXTURE="eve-project/app/src/androidTest/assets/gesture_thumb_up.jpg"
           TEST_SOURCE="eve-project/app/src/androidTest/java/com/eve/robot/FaceVisionIntegrationTest.kt"
+          GESTURE_TEST_SOURCE="eve-project/app/src/androidTest/java/com/eve/robot/HandGestureIntegrationTest.kt"
           TEST_SCRIPT=".github/scripts/run-deep-face-test.sh"
           test -s "$FIXTURE"
+          test -s "$GESTURE_FIXTURE"
           test -s "eve-project/app/src/main/assets/eve_emotion_model.tflite"
           grep -Fq 'face_fixture.jpg' "$TEST_SOURCE"
+          grep -Fq 'gesture_thumb_up.jpg' "$GESTURE_TEST_SOURCE"
+          grep -Fq 'gesture_thumb_up.jpg' "$TEST_SCRIPT"
           grep -Fq 'face_fixture.jpg' "$TEST_SCRIPT"
-          grep -Fq 'face_fixture.jpg' ".github/workflows/eve-deep-verification.yml"
-          echo "PASS: fixture path is consistent across workflow, test runner, and instrumentation test."
-          echo "Fixture SHA256:"
+          grep -Fq 'gesture_thumb_up.jpg' ".github/workflows/eve-deep-verification.yml"
+          echo "PASS: face and thumb-up fixtures are pinned and referenced by their instrumentation tests."
+          echo "Face fixture SHA256:"
           sha256sum "$FIXTURE"
+          echo "Thumb-up gesture fixture SHA256:"
+          sha256sum "$GESTURE_FIXTURE"
           echo "FER model SHA256:"
           sha256sum eve-project/app/src/main/assets/eve_emotion_model.tflite
 
