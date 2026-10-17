@@ -234,6 +234,11 @@ class MainActivity : ComponentActivity() {
             isClickable = true
             isFocusable = true
             setOnClickListener { handleCameraStatusTap() }
+            // Hidden long-press opens the offline game room without adding a visible app button.
+            setOnLongClickListener {
+                startActivity(Intent(this@MainActivity, RobotGamesActivity::class.java))
+                true
+            }
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
         }
         val root = FrameLayout(this).apply {
