@@ -34,6 +34,10 @@ import com.google.mlkit.vision.face.FaceDetector
 import com.google.mlkit.vision.face.FaceDetectorOptions
 import com.google.mlkit.vision.label.ImageLabeling
 import com.google.mlkit.vision.label.defaults.ImageLabelerOptions
+import com.google.mediapipe.framework.image.BitmapImageBuilder
+import com.google.mediapipe.tasks.core.BaseOptions
+import com.google.mediapipe.tasks.vision.core.RunningMode
+import com.google.mediapipe.tasks.vision.gesturerecognizer.GestureRecognizer
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
@@ -52,6 +56,13 @@ class MainActivity : ComponentActivity() {
     private val main = Handler(Looper.getMainLooper())
     private val cameraExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private val emotionExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+    // Recognizer creation, inference and release all occur on this one worker.
+    private val gestureExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+    @Volatile private var handGestureRecognizer: GestureRecognizer? = null
+    @Volatile private var handGestureReady = false
+    private val handGestureInferenceRunning = AtomicBoolean(false)
+    private val handGestureInterpreter = HandGestureInterpreter()
+    private val lastHandReactionAt = mutableMapOf<String, Long>()
     private val emotionClassifierDelegate = lazy { EveFacialEmotionClassifier(applicationContext) }
     private val emotionClassifier by emotionClassifierDelegate
     private val emotionSmoother = EveEmotionSmoother(windowSize = 3, requiredVotes = 2, minConfidence = 0.62f)
@@ -244,6 +255,7 @@ class MainActivity : ComponentActivity() {
         brain = RobotBrain()
         memory = EveMemory(applicationContext)
         voice = RobotVoice()
+        initializeHandGestureRecognizer()
 
         face.setOnTouchListener { _, event ->
             when (event.actionMasked) {
@@ -396,6 +408,47 @@ class MainActivity : ComponentActivity() {
     private fun dp(value: Int): Int =
         (value * resources.displayMetrics.density + 0.5f).toInt()
 
+    private fun initializeHandGestureRecognizer() {
+        try {
+            gestureExecutor.execute {
+                try {
+                    val options = GestureRecognizer.GestureRecognizerOptions.builder()
+                        .setBaseOptions(
+                            BaseOptions.builder()
+                                .setModelAssetPath("gesture_recognizer.task")
+                                .build()
+                        )
+                        .setRunningMode(RunningMode.IMAGE)
+                        .setNumHands(1)
+                        .build()
+                    handGestureRecognizer = GestureRecognizer.createFromOptions(applicationContext, options)
+                    handGestureReady = true
+                    Log.i("EVE_GESTURE", "Offline MediaPipe hand gesture model ready.")
+                } catch (error: Exception) {
+                    handGestureReady = false
+                    Log.e(
+                        "EVE_GESTURE",
+                        "Offline hand gesture model failed to load; facial and object vision remain active.",
+                        error
+                    )
+                }
+            }
+        } catch (error: Exception) {
+            Log.e("EVE_GESTURE", "Gesture worker is not available.", error)
+        }
+    }
+
+    private fun handleHandGesture(signal: String, confidence: Float) {
+        if (isFinishing || isDestroyed) return
+        val now = SystemClock.elapsedRealtime()
+        val cooldown = if (signal == "wave") 4200L else 1900L
+        if (now - (lastHandReactionAt[signal] ?: 0L) < cooldown) return
+        lastHandReactionAt[signal] = now
+        val decision = brain.observeHandGesture(signal, confidence)
+        Log.i("EVE_GESTURE", "HAND_SIGNAL signal=$signal confidence=$confidence mood=${decision.mood}")
+        react(decision, decision.playSound)
+    }
+
     private fun showCameraStatus(message: String, active: Boolean) {
         if (!::cameraStatus.isInitialized) return
         val lensLabel = when {
@@ -404,7 +457,7 @@ class MainActivity : ComponentActivity() {
             else -> message
         }
         // A small status chip identifies the active camera without competing with the face.
-        cameraStatus.text = if (active) "●  $lensLabel  •  مرتين للتبديل" else "●  $lensLabel"
+        cameraStatus.text = if (active) "●  $lensLabel  •  ضع يدك/وجهك أمامها • مرتين للتبديل" else "●  $lensLabel"
         cameraStatus.contentDescription = if (active) "الكاميرا $lensLabel تعمل. انقر مرتين للتبديل."
             else lensLabel
         cameraStatus.setTextColor(if (active) 0xFF8FFFC0.toInt() else 0xFFFFD180.toInt())
@@ -532,7 +585,9 @@ class MainActivity : ComponentActivity() {
 
         // This bitmap is independent of ImageProxy memory. It lets the local FER classifier
         // crop a detected face, while the ML Kit tasks continue using the original camera image.
-        val frameBitmap = if (emotionClassifier.isReady && !ferInferenceRunning.get()) {
+        val bitmapNeeded = (emotionClassifier.isReady && !ferInferenceRunning.get()) ||
+            (handGestureReady && !handGestureInferenceRunning.get())
+        val frameBitmap = if (bitmapNeeded) {
             try {
                 imageProxyToUprightBitmap(proxy)
             } catch (error: Exception) {
@@ -587,7 +642,9 @@ class MainActivity : ComponentActivity() {
 
         // Crop faces on the camera executor, then run TensorFlow Lite on its own single thread.
         // A 2-of-3 temporal vote prevents a single blink/blurred frame from changing the character.
-        val pendingFrameConsumers = AtomicLong(2L)
+        val runHandGesture = frameBitmap != null && handGestureReady &&
+            handGestureInferenceRunning.compareAndSet(false, true)
+        val pendingFrameConsumers = AtomicLong(if (runHandGesture) 3L else 2L)
         fun finishFrameConsumer() {
             if (pendingFrameConsumers.decrementAndGet() == 0L) {
                 try { frameBitmap?.recycle() } catch (_: Exception) { }
@@ -598,6 +655,49 @@ class MainActivity : ComponentActivity() {
         // Release the frame only after image labels are done and the face listener has finished
         // cropping the image. Inference then owns its independent crop bitmap.
         labelsTask.addOnCompleteListener(mainExecutor) { finishFrameConsumer() }
+
+        if (runHandGesture && frameBitmap != null) {
+            val gestureBitmap = frameBitmap
+            try {
+                gestureExecutor.execute {
+                    try {
+                        val inputBitmap = BitmapImageBuilder(gestureBitmap).build()
+                        val result = handGestureRecognizer?.recognize(inputBitmap)
+                        val category = result?.gestures()?.firstOrNull()?.firstOrNull()
+                        val points = result?.landmarks()?.firstOrNull().orEmpty()
+                        val xs = points.map { it.x() }.filter { it.isFinite() }
+                        val ys = points.map { it.y() }.filter { it.isFinite() }
+                        val centerX = xs.takeIf { it.isNotEmpty() }?.average()?.toFloat()
+                        val spanX = if (xs.size >= 2) (xs.maxOrNull()!! - xs.minOrNull()!!) else 0f
+                        val spanY = if (ys.size >= 2) (ys.maxOrNull()!! - ys.minOrNull()!!) else 0f
+                        val span = maxOf(spanX, spanY).takeIf { it > 0f }
+                        val label = category?.categoryName()
+                        val confidence = category?.score() ?: 0f
+                        val observedAt = SystemClock.elapsedRealtime()
+                        main.post {
+                            if (!isFinishing && !isDestroyed) {
+                                val signal = handGestureInterpreter.observe(
+                                    label, confidence, centerX, span, observedAt
+                                )
+                                if (signal != null) handleHandGesture(signal, confidence)
+                            }
+                        }
+                        if (label != null) {
+                            Log.d("EVE_GESTURE", "HAND_FRAME label=$label confidence=$confidence")
+                        }
+                    } catch (error: Exception) {
+                        Log.w("EVE_GESTURE", "Offline hand gesture inference failed for one frame.", error)
+                    } finally {
+                        handGestureInferenceRunning.set(false)
+                        finishFrameConsumer()
+                    }
+                }
+            } catch (error: Exception) {
+                handGestureInferenceRunning.set(false)
+                finishFrameConsumer()
+                Log.e("EVE_GESTURE", "Could not queue hand gesture inference.", error)
+            }
+        }
 
         faceTask
             .addOnSuccessListener(cameraExecutor) { faces ->
@@ -849,6 +949,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         main.removeCallbacks(idleLoop)
+        handGestureReady = false
         try { cameraProvider?.unbindAll() } catch (_: Exception) { }
         try { labeler.close() } catch (_: Exception) { }
         try { faceDetector.close() } catch (_: Exception) { }
@@ -859,6 +960,15 @@ class MainActivity : ComponentActivity() {
             } catch (_: Exception) { }
         }
         emotionExecutor.shutdown()
+        try {
+            gestureExecutor.execute {
+                try { handGestureRecognizer?.close() } catch (_: Exception) { }
+                handGestureRecognizer = null
+            }
+            gestureExecutor.shutdown()
+        } catch (_: Exception) {
+            try { gestureExecutor.shutdownNow() } catch (_: Exception) { }
+        }
         if (::voice.isInitialized) voice.close()
         super.onDestroy()
     }
