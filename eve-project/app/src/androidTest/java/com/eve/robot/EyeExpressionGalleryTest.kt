@@ -83,10 +83,10 @@ class EyeExpressionGalleryTest {
         assertEquals("Every defined glyph must be reachable from an affect decision.", EyeSilhouette.values().toSet(), selected)
 
         val columns = 4
-        val tileWidth = 260
-        val viewHeight = 360
-        val cropHeight = 120
-        val captionHeight = 25
+        val tileWidth = 320
+        val viewHeight = 528
+        val cropHeight = 488
+        val captionHeight = 40
         val tileHeight = cropHeight + captionHeight
         val rows = (glyphCases.size + columns - 1) / columns
         val sheet = Bitmap.createBitmap(columns * tileWidth, rows * tileHeight, Bitmap.Config.ARGB_8888)
@@ -213,7 +213,7 @@ class EyeExpressionGalleryTest {
                 EyeSilhouette.WORRIED, EyeSilhouette.FOCUSED -> 11
                 EyeSilhouette.SUSPICIOUS, EyeSilhouette.SHARP -> 8
                 EyeSilhouette.FURIOUS -> 10
-                EyeSilhouette.SKEPTIC, EyeSilhouette.PLAYFUL -> 12
+                EyeSilhouette.CURIOUS, EyeSilhouette.SKEPTIC, EyeSilhouette.PLAYFUL -> 12
                 EyeSilhouette.NEUTRAL, EyeSilhouette.ALMOND, EyeSilhouette.SOFT -> 12
                 EyeSilhouette.CURIOUS -> 12
                 EyeSilhouette.ROUND_SURPRISE, EyeSilhouette.AWE -> 14

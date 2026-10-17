@@ -61,6 +61,7 @@ class MainActivity : ComponentActivity() {
     @Volatile private var handGestureRecognizer: GestureRecognizer? = null
     @Volatile private var handGestureReady = false
     private val handGestureInferenceRunning = AtomicBoolean(false)
+    private val lastGestureDiagnosticAt = AtomicLong(0L)
     private val handGestureInterpreter = HandGestureInterpreter()
     private val lastHandReactionAt = mutableMapOf<String, Long>()
     private val emotionClassifierDelegate = lazy { EveFacialEmotionClassifier(applicationContext) }
@@ -84,7 +85,7 @@ class MainActivity : ComponentActivity() {
     private var cameraProvider: ProcessCameraProvider? = null
     private var cameraStarted = false
     private enum class CameraLens { BACK, FRONT }
-    private var activeCameraLens = CameraLens.BACK
+    private var activeCameraLens = CameraLens.FRONT
     private var lastTapUptime = 0L
     private var lastTapX = 0f
     private var lastTapY = 0f
@@ -423,7 +424,7 @@ class MainActivity : ComponentActivity() {
                         .build()
                     handGestureRecognizer = GestureRecognizer.createFromOptions(applicationContext, options)
                     handGestureReady = true
-                    Log.i("EVE_GESTURE", "Offline MediaPipe hand gesture model ready.")
+                    Log.i("EVE_GESTURE", "Offline MediaPipe hand gesture model ready; activeLens=$activeCameraLens.")
                 } catch (error: Exception) {
                     handGestureReady = false
                     Log.e(
@@ -702,6 +703,13 @@ class MainActivity : ComponentActivity() {
                         }
                         if (label != null) {
                             Log.d("EVE_GESTURE", "HAND_FRAME label=$label confidence=$confidence")
+                        } else {
+                            val previousDiagnostic = lastGestureDiagnosticAt.get()
+                            if (observedAt - previousDiagnostic >= 5000L &&
+                                lastGestureDiagnosticAt.compareAndSet(previousDiagnostic, observedAt)
+                            ) {
+                                Log.i("EVE_GESTURE", "HAND_FRAME label=none inference=completed")
+                            }
                         }
                     } catch (error: Exception) {
                         Log.w("EVE_GESTURE", "Offline hand gesture inference failed for one frame.", error)
