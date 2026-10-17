@@ -253,8 +253,8 @@ class MainActivity : ComponentActivity() {
             })
         }
         setContentView(root)
-        brain = RobotBrain()
         memory = EveMemory(applicationContext)
+        brain = RobotBrain(memory.learnedPersonality())
         voice = RobotVoice()
         initializeHandGestureRecognizer()
 
@@ -298,13 +298,22 @@ class MainActivity : ComponentActivity() {
                                     "feedbackCount=${memory.feedbackCount(recentLabel)}"
                             )
                         }
-                        react(brain.touched(longPress, lastInteractionAt), longPress)
-                        if (longPress) {
-                            // A long press opens the offline game room while preserving recent-label
-                            // reinforcement above. Double-tap remains reserved for camera switching.
-                            Log.i("EVE_GAMES", "GAME_LAUNCH_GESTURE source=face_long_press")
-                            startActivity(Intent(this, RobotGamesActivity::class.java))
+                        val touchDecision = brain.touched(longPress, lastInteractionAt)
+                        val learnedPersonality = when {
+                            longPress -> memory.adaptPersonality("gentle_contact")
+                            touchDecision.mood == EveMood.IRRITATED || touchDecision.mood == EveMood.ANGRY ->
+                                memory.adaptPersonality("overstimulation")
+                            else -> memory.learnedPersonality()
                         }
+                        brain.updatePersonality(learnedPersonality)
+                        Log.i(
+                            "EVE_PERSONALITY",
+                            "traits warmth=${learnedPersonality.warmth} " +
+                                "curiosity=${learnedPersonality.curiosityBias} " +
+                                "playfulness=${learnedPersonality.playfulness} patience=${learnedPersonality.patience}"
+                        )
+                        // A hold comforts/reinforces; it does not unexpectedly open a game.
+                        react(touchDecision, longPress && touchDecision.playSound)
                         true
                     }
                 }
@@ -446,7 +455,17 @@ class MainActivity : ComponentActivity() {
         if (now - (lastHandReactionAt[signal] ?: 0L) < cooldown) return
         lastHandReactionAt[signal] = now
         val decision = brain.observeHandGesture(signal, confidence)
-        Log.i("EVE_GESTURE", "HAND_SIGNAL signal=$signal confidence=$confidence mood=${decision.mood}")
+        val learnedPersonality = when (signal) {
+            "wave", "thumb_up", "victory", "i_love_you" -> memory.adaptPersonality("friendly_gesture")
+            "pointing_up" -> memory.adaptPersonality("curiosity_reward")
+            else -> memory.learnedPersonality()
+        }
+        brain.updatePersonality(learnedPersonality)
+        Log.i(
+            "EVE_GESTURE",
+            "HAND_SIGNAL signal=$signal confidence=$confidence mood=${decision.mood} " +
+                "personalityWarmth=${learnedPersonality.warmth} playfulness=${learnedPersonality.playfulness}"
+        )
         react(decision, decision.playSound)
     }
 
@@ -645,6 +664,11 @@ class MainActivity : ComponentActivity() {
                         .putInt("lastObservationCount", sightings)
                         .putLong("lastObservationAt", System.currentTimeMillis())
                         .apply()
+                }
+                if (sightings == 1 && isMeaningfulLabel(label)) {
+                    val learnedPersonality = memory.adaptPersonality("curiosity_reward", strength = best.confidence)
+                    brain.updatePersonality(learnedPersonality)
+                    Log.i("EVE_PERSONALITY", "novel observation nudged curiosity=${learnedPersonality.curiosityBias}")
                 }
                 val affinity = memory.learnedAffinity(label)
                 val decision = brain.observe(label, best.confidence, sightings, affinity)
