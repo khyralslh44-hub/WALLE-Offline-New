@@ -151,6 +151,8 @@ object EyeExpressionGenerator {
         val reason = when {
             rawReason.startsWith("uncertain facial-expression model output") -> ""
             rawReason.startsWith("facial-expression model predicts ") -> ""
+            // The perceived person's emotion must not be copied onto EVE's own face.
+            "human" in rawReason || "person" in rawReason || "observing an angry" in rawReason -> ""
             else -> rawReason
         }
         val clearSilhouette = when {
@@ -207,8 +209,6 @@ object EyeExpressionGenerator {
             decision.mood == EveMood.CURIOUS && seed.mod(3L) == 1L -> EyeSilhouette.SKEPTIC
             decision.mood == EveMood.CURIOUS && seed.mod(3L) == 2L -> EyeSilhouette.SUSPICIOUS
             decision.mood == EveMood.HAPPY && seed.mod(3L) == 1L -> EyeSilhouette.GLEE
-            decision.mood == EveMood.CONCERNED && seed.mod(3L) == 1L -> EyeSilhouette.SAD_UP
-            decision.mood == EveMood.CONCERNED && seed.mod(3L) == 2L -> EyeSilhouette.UNIMPRESSED
             decision.mood == EveMood.IRRITATED && seed.mod(3L) == 1L -> EyeSilhouette.BORED
             decision.mood == EveMood.IRRITATED && seed.mod(3L) == 2L -> EyeSilhouette.UNIMPRESSED
             decision.mood == EveMood.FAMILIAR && seed.mod(3L) == 1L -> EyeSilhouette.GLEE
