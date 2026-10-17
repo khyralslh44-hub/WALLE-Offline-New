@@ -47,6 +47,7 @@ class EyeExpressionGalleryTest {
     private fun cases() = listOf(
         GlyphCase(EyeSilhouette.ALMOND, "NEUTRAL PIXEL", decision(EveMood.NEUTRAL)),
         GlyphCase(EyeSilhouette.NEUTRAL, "AWAKE", decision(EveMood.AWAKE)),
+        GlyphCase(EyeSilhouette.CURIOUS, "CURIOUS", decision(EveMood.CURIOUS, "curiosity", curiosity = 0.8f)),
         GlyphCase(EyeSilhouette.BLINK_HIGH, "BLINK HIGH", decision(EveMood.NEUTRAL, "blink high")),
         GlyphCase(EyeSilhouette.SMILE, "HAPPY", decision(EveMood.HAPPY, "happy", valence = 0.25f)),
         GlyphCase(EyeSilhouette.GLEE, "GLEE", decision(EveMood.HAPPY, "happy", valence = 0.85f)),
@@ -214,6 +215,7 @@ class EyeExpressionGalleryTest {
                 EyeSilhouette.FURIOUS -> 10
                 EyeSilhouette.SKEPTIC, EyeSilhouette.PLAYFUL -> 12
                 EyeSilhouette.NEUTRAL, EyeSilhouette.ALMOND, EyeSilhouette.SOFT -> 12
+                EyeSilhouette.CURIOUS -> 12
                 EyeSilhouette.ROUND_SURPRISE, EyeSilhouette.AWE -> 14
                 EyeSilhouette.SCARED -> 19
             }
