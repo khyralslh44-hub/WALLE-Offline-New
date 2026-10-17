@@ -221,13 +221,13 @@ class RobotBrainTest {
     @Test fun learnedPersonalityUpdatesFutureResponsesWithoutResettingCurrentAffect() {
         val brain = RobotBrain(EvePersonality(warmth = 0.25f, curiosityBias = 0.30f))
         val before = brain.awakenExperience()
-        brain.updatePersonality(EvePersonality(warmth = 0.90f, curiosityBias = 0.85f))
+        brain.updatePersonality(EvePersonality(warmth = 0.90f, curiosityBias = 0.85f, playfulness = 0.90f))
         val after = brain.touched(longPress = true)
 
         assertTrue("A warmer learned personality should respond more warmly.", after.valence > before.valence)
         assertEquals(EveMood.HAPPY, after.mood)
         assertTrue(after.curiosity > before.curiosity)
-        assertEquals(0.90f, after.playfulness.let { 0.62f }, 0.0001f)
+        assertTrue(after.playfulness > before.playfulness)
     }
 
     @Test fun theMainEyeMoodsHaveClearlyDifferentSilhouettes() {
