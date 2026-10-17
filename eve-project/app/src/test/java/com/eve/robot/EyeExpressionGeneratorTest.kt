@@ -149,3 +149,17 @@ class EyeExpressionGeneratorTest {
     }
 
 }
+    @Test fun intentCanChangeEyesWithoutChangingTheCurrentMood() {
+        val neutral = EveDecision(mood = EveMood.NEUTRAL, reason = "same mood")
+        val explore = EyeExpressionGenerator.generate(neutral.copy(intent = EveIntent.EXPLORE), 8L)
+        val rest = EyeExpressionGenerator.generate(neutral.copy(intent = EveIntent.REST), 8L)
+        val connect = EyeExpressionGenerator.generate(neutral.copy(intent = EveIntent.CONNECT), 8L)
+
+        assertEquals(EveMood.NEUTRAL, explore.mood)
+        assertEquals(EveMood.NEUTRAL, rest.mood)
+        assertEquals(EveMood.NEUTRAL, connect.mood)
+        assertEquals(EyeSilhouette.CURIOUS, explore.silhouette)
+        assertEquals(EyeSilhouette.DROOPY, rest.silhouette)
+        assertEquals(EyeSilhouette.SOFT, connect.silhouette)
+        assertTrue(setOf(explore.silhouette, rest.silhouette, connect.silhouette).size == 3)
+    }
