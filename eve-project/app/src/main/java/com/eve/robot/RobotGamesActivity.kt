@@ -31,6 +31,8 @@ class RobotGamesActivity : ComponentActivity() {
     private var difficulty = 2
     private var statusText = "سأحاول التكيّف مع أسلوبك بدل تكرار الحركة نفسها."
     private val prefs by lazy { getSharedPreferences("eve_games", MODE_PRIVATE) }
+    private lateinit var gameBrain: RobotBrain
+    private var eveGameFace: RobotFaceView? = null
 
     private enum class Game { MENU, XO, RPS, CHESS, TARGET, PAINT_SHOT, MEMORY, REFLEX }
 
@@ -55,6 +57,7 @@ class RobotGamesActivity : ComponentActivity() {
     private var paintShotScore = 0
     private var paintShotRound = 0
     private var paintShotTargetSide = -1
+    private var paintShotAimSide = 0
     private var paintShotFinished = false
     private var paintShotMessage = "ارتدِ النظارة الخيالية، وجّه إيف إلى اليسار أو اليمين، ثم أطلق طلقة طلاء."
 
@@ -75,12 +78,14 @@ class RobotGamesActivity : ComponentActivity() {
     private var memoryCue: TextView? = null
 
     // Reflex challenge
+    private var reflexGameStarted = false
     private var reflexReady = false
     private var reflexFinished = false
     private var reflexStartedAt = 0L
     private var reflexDelayUntil = 0L
     private var reflexRound = 0
     private var reflexHits = 0
+    private var reflexTotalMs = 0L
 
     private val ivory = Color.rgb(231, 248, 249)
     private val cyan = Color.rgb(20, 215, 230)
@@ -105,18 +110,34 @@ class RobotGamesActivity : ComponentActivity() {
         }
         val scroll = ScrollView(this).apply { addView(root) }
         setContentView(scroll)
+        gameBrain = RobotBrain(EveMemory(applicationContext).learnedPersonality())
+        eveGameFace = RobotFaceView(this).apply {
+            isClickable = false
+            isFocusable = false
+            setExpression(gameBrain.awakenExperience(), SystemClock.uptimeMillis())
+            startAnimation()
+        }
         showMenu()
     }
 
     override fun onStart() {
         super.onStart()
+        eveGameFace?.startAnimation()
         EveNotificationScheduler.onForeground(this)
     }
 
     override fun onStop() {
         handler.removeCallbacksAndMessages(null)
+        eveGameFace?.stopAnimation()
         EveNotificationScheduler.onBackground(this)
         super.onStop()
+    }
+
+    override fun onDestroy() {
+        handler.removeCallbacksAndMessages(null)
+        eveGameFace?.stopAnimation()
+        eveGameFace = null
+        super.onDestroy()
     }
 
     @Deprecated("Compatibility with older Android navigation")
@@ -157,10 +178,33 @@ class RobotGamesActivity : ComponentActivity() {
     }
 
     private fun header(title: String, subtitle: String) {
-        root.addView(text("E V E   •   ساحة التحدّي", 12f, cyan, true))
-        root.addView(text(title, 26f, ivory, true))
-        root.addView(text(subtitle, 14f, muted))
-        addSpace(10)
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(3), 0, dp(3))
+        }
+        val companion = eveGameFace ?: RobotFaceView(this).also { eveGameFace = it }
+        row.addView(companion, LinearLayout.LayoutParams(dp(86), dp(72)).apply {
+            marginEnd = dp(8)
+        })
+        val labels = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        labels.addView(text("E V E  •  ساحة التحدّي", 11f, cyan, true))
+        labels.addView(text(title, 22f, ivory, true))
+        labels.addView(text(subtitle, 12f, muted))
+        row.addView(labels, LinearLayout.LayoutParams(0, -2, 1f))
+        root.addView(row, LinearLayout.LayoutParams(-1, -2))
+        addSpace(8)
+    }
+
+    /** Feed game events into EVE's local affect engine and render the matching eye expression. */
+    private fun reactWithEve(gameName: String, outcome: String) {
+        if (!::gameBrain.isInitialized) return
+        val decision = gameBrain.gameOutcome(gameName, outcome)
+        eveGameFace?.setExpression(decision, SystemClock.uptimeMillis())
+        android.util.Log.i("EVE_GAME", "game=$gameName outcome=$outcome mood=${decision.mood} reason=${decision.reason}")
     }
 
     private fun addWideButton(label: String, action: () -> Unit, accent: Boolean = false) {
@@ -199,6 +243,7 @@ class RobotGamesActivity : ComponentActivity() {
 
     private fun saveResult(name: String, result: String) {
         EveNotificationScheduler.recordGameResult(this, name, result)
+        reactWithEve(name, result)
         val ratingKey = "rating:" + name
         val old = prefs.getInt(ratingKey, 1000)
         val update = when (result) { "player" -> old + 18; "robot" -> old - 16; else -> old + 2 }
