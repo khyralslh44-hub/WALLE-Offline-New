@@ -162,3 +162,4 @@ class EyeExpressionGeneratorTest {
         assertEquals(EyeSilhouette.SOFT, connect.silhouette)
         assertTrue(setOf(explore.silhouette, rest.silhouette, connect.silhouette).size == 3)
     }
+}
