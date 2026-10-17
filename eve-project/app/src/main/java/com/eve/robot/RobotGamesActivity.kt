@@ -263,6 +263,7 @@ class RobotGamesActivity : ComponentActivity() {
     // ------------------------------------------------------------------ Tic-tac-toe
     private fun startXo() {
         game = Game.XO
+        reactWithEve("xo", "start")
         xo.fill(' ')
         xoFinished = false
         xoHumanMoves = 0
@@ -355,6 +356,7 @@ class RobotGamesActivity : ComponentActivity() {
     // ------------------------------------------------------------------ Rock / Paper / Scissors
     private fun startRps() {
         game = Game.RPS
+        reactWithEve("rps", "start")
         playerRpsHistory.clear()
         rpsScoreHuman = 0; rpsScoreEve = 0; rpsRound = 0
         renderRps("لن أكشف استراتيجيتي قبل أن أرى اختياراتك.")
@@ -401,6 +403,7 @@ class RobotGamesActivity : ComponentActivity() {
     // ------------------------------------------------------------------ Chess
     private fun startChess() {
         game = Game.CHESS
+        reactWithEve("chess", "start")
         chess.reset()
         chessSelected = null
         chessFinished = false
@@ -689,6 +692,7 @@ class RobotGamesActivity : ComponentActivity() {
     // ------------------------------------------------------------------ Pattern memory
     private fun startMemory() {
         game = Game.MEMORY
+        reactWithEve("memory", "start")
         sequence.clear()
         memoryLevel = 1; memoryInput = 0
         memoryShowing = false; memoryFinished = false
@@ -789,8 +793,15 @@ class RobotGamesActivity : ComponentActivity() {
     // ------------------------------------------------------------------ Reflex duel
     private fun startReflex() {
         game = Game.REFLEX
-        reflexReady = false; reflexFinished = false; reflexRound = 0; reflexHits = 0
-        reflexStartedAt = 0L; reflexDelayUntil = 0L
+        reflexGameStarted = false
+        reflexReady = false
+        reflexFinished = false
+        reflexRound = 0
+        reflexHits = 0
+        reflexTotalMs = 0L
+        reflexStartedAt = 0L
+        reflexDelayUntil = 0L
+        reactWithEve("reflex", "start")
         renderReflex("اضغط ابدأ، انتظر ظهور الإشارة ثم المس زر الاستجابة.")
     }
 
@@ -808,26 +819,36 @@ class RobotGamesActivity : ComponentActivity() {
 
     private fun onReflexTap() {
         if (game != Game.REFLEX || reflexFinished) return
-        if (reflexStartedAt == 0L) {
-            reflexRound = 0; reflexHits = 0
+        if (!reflexGameStarted) {
+            reflexGameStarted = true
             scheduleReflexSignal()
             renderReflex("انتظر… لا تضغط حتى تظهر ⚡.")
             return
         }
         if (!reflexReady) {
+            // A tap during the random wait is a genuine false start, not another start command.
             reflexFinished = true
+            reactWithEve("reflex", "miss")
             saveResult("reflex", "robot")
             renderReflex("ضغطت مبكرًا! نقطة لإيف. خذ وقتك وأعد المحاولة.")
             return
         }
-        val reaction = SystemClock.elapsedRealtime() - reflexStartedAt
-        reflexReady = false; reflexStartedAt = 0L
+        val reaction = (SystemClock.elapsedRealtime() - reflexStartedAt).coerceAtLeast(0L)
+        reflexReady = false
+        reflexStartedAt = 0L
         reflexRound++
-        if (reaction < 450L) reflexHits++
+        reflexTotalMs += reaction
+        if (reaction < 450L) {
+            reflexHits++
+            reactWithEve("reflex", "success")
+        } else {
+            reactWithEve("reflex", "miss")
+        }
         if (reflexRound >= 5) {
             reflexFinished = true
             saveResult("reflex", if (reflexHits >= 4) "player" else if (reflexHits <= 1) "robot" else "draw")
-            renderReflex("متوسط ردّك ${reaction}ms. نتيجتك $reflexHits/5.")
+            val average = reflexTotalMs / reflexRound.coerceAtLeast(1)
+            renderReflex("متوسط ردّك ${average} ms (آخر جولة ${reaction}ms). نتيجتك $reflexHits/5.")
         } else {
             renderReflex("استجابة ${reaction}ms. جولة أخرى—هل تستطيع أن تكون أسرع؟")
             scheduleReflexSignal()
