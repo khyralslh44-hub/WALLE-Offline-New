@@ -8,6 +8,11 @@ enum class EveMood {
     PLAYFUL, IRRITATED, ANGRY
 }
 
+/** A short-lived goal, separate from mood: the same feeling can lead to different actions. */
+enum class EveIntent {
+    EXPLORE, CONNECT, PLAY, REST, FOCUS, REGULATE
+}
+
 /**
  * Stable personality traits tune EVE's behavior. They are deliberately bounded and deterministic.
  */
@@ -39,7 +44,8 @@ data class EveDecision(
     val familiarity: Float = 0.05f,
     val fatigue: Float = 0f,
     val frustration: Float = 0f,
-    val playfulness: Float = 0.58f
+    val playfulness: Float = 0.58f,
+    val intent: EveIntent? = null
 )
 
 /**
@@ -65,6 +71,8 @@ class RobotBrain(personality: EvePersonality = EvePersonality()) {
     private var rapidTouchCount = 0
     private var lastHumanMood: EveMood? = null
     private var lastModelEmotion: String? = null
+    private var lastIdleIntent: EveIntent? = null
+    private var repeatedIdleIntentCount = 0
 
     private enum class Kind { FOOD, ANIMAL, PERSON, PLANT, OTHER }
 
@@ -416,7 +424,7 @@ class RobotBrain(personality: EvePersonality = EvePersonality()) {
     @Synchronized
     @Suppress("UNUSED_PARAMETER")
     fun idle(inactiveMs: Long, next: Int): EveDecision {
-        // Idle actions follow elapsed time and the current affect state, never a random mood picker.
+        // Update continuous drives first. No random mood picker is used.
         val quietFor = inactiveMs.coerceAtLeast(0L)
         fatigue = ((quietFor - 45_000L).coerceAtLeast(0L) / 240_000f).coerceIn(0f, 1f)
         if (quietFor >= 5_000L) {
@@ -428,32 +436,72 @@ class RobotBrain(personality: EvePersonality = EvePersonality()) {
             if (quietFor < 45_000L) 0.035f * personality.curiosityBias.coerceIn(0f, 1f) else 0.012f)
             .coerceIn(0.25f, 0.90f)
 
-        val mood = when {
-            frustration >= 0.80f && quietFor < 12_000L -> EveMood.ANGRY
-            frustration >= 0.42f && quietFor < 24_000L -> EveMood.IRRITATED
-            valence < -0.38f && quietFor < 90_000L -> EveMood.CONCERNED
-            quietFor < 10_000L -> EveMood.NEUTRAL
-            quietFor < 25_000L -> when {
-                familiarity > 0.58f -> EveMood.FAMILIAR
-                curiosity >= 0.45f -> EveMood.CURIOUS
-                else -> EveMood.NEUTRAL
-            }
-            quietFor < 45_000L -> when {
-                valence > 0.60f -> EveMood.HAPPY
-                familiarity > 0.70f -> EveMood.FAMILIAR
-                personality.playfulness.coerceIn(0f, 1f) >= 0.58f &&
-                    curiosity >= 0.50f && frustration < 0.30f -> EveMood.PLAYFUL
-                else -> EveMood.FOCUSED
-            }
-            quietFor < 90_000L -> EveMood.SLEEPY
-            // After resting, EVE gently reorients to her surroundings instead of staying asleep forever.
-            quietFor < 120_000L -> EveMood.CURIOUS
-            quietFor < 180_000L -> if (familiarity > 0.62f) EveMood.FAMILIAR else EveMood.NEUTRAL
-            fatigue > 0.65f -> EveMood.SLEEPY
-            curiosity >= 0.60f -> EveMood.CURIOUS
-            else -> EveMood.NEUTRAL
+        // Strong unmet drives take priority; otherwise score several possible goals from current
+        // curiosity, social familiarity, playfulness, fatigue and frustration.
+        val forced: Pair<EveIntent, EveMood>? = when {
+            frustration >= 0.80f && quietFor < 12_000L -> EveIntent.REGULATE to EveMood.ANGRY
+            frustration >= 0.42f && quietFor < 24_000L -> EveIntent.REGULATE to EveMood.IRRITATED
+            valence < -0.38f && quietFor < 90_000L -> EveIntent.CONNECT to EveMood.CONCERNED
+            else -> null
         }
-        return snapshot(mood, "contextual idle: quietForMs=$quietFor", false)
+
+        val selected: Pair<EveIntent, EveMood> = forced ?: run {
+            val quietProgress = (quietFor / 180_000f).coerceIn(0f, 1f)
+            val playWindow = if (quietFor in 10_000L..60_000L) 0.10f else 0f
+            val explore = curiosity * 0.22f +
+                personality.curiosityBias.coerceIn(0f, 1f) * 0.10f +
+                arousal * 0.08f - fatigue * 0.28f
+            val connect = familiarity * 0.43f +
+                personality.warmth.coerceIn(0f, 1f) * 0.22f +
+                valence.coerceAtLeast(0f) * 0.12f +
+                if (quietFor >= 60_000L) 0.08f else 0f -
+                fatigue * 0.20f
+            val play = personality.playfulness.coerceIn(0f, 1f) * 0.38f +
+                valence.coerceAtLeast(0f) * 0.16f +
+                (1f - fatigue) * 0.12f +
+                playWindow - frustration * 0.55f
+            val rest = fatigue * 0.70f + quietProgress * 0.48f + 0.10f
+            val focus = curiosity * 0.23f + arousal * 0.22f +
+                if (quietFor in 20_000L..60_000L) 0.14f else 0f -
+                frustration * 0.15f - fatigue * 0.20f
+
+            val scores = listOf(
+                EveIntent.EXPLORE to (explore to EveMood.CURIOUS),
+                EveIntent.CONNECT to (connect to if (familiarity >= 0.52f) EveMood.FAMILIAR else EveMood.NEUTRAL),
+                EveIntent.PLAY to (play to if (valence < 0.08f) EveMood.CURIOUS else EveMood.PLAYFUL),
+                EveIntent.REST to (rest to EveMood.SLEEPY),
+                EveIntent.FOCUS to (focus to EveMood.FOCUSED)
+            )
+            val ordered = scores.sortedByDescending { it.second.first }
+            val best = ordered.first()
+            val repeatPenaltyApplies = best.first == lastIdleIntent && repeatedIdleIntentCount >= 2
+            val alternative = if (repeatPenaltyApplies) {
+                ordered.drop(1).firstOrNull { best.second.first - it.second.first <= 0.16f }
+            } else null
+            val chosen = alternative ?: best
+            chosen.first to chosen.second.second
+        }
+
+        if (selected.first == lastIdleIntent) {
+            repeatedIdleIntentCount = (repeatedIdleIntentCount + 1).coerceAtMost(10)
+        } else {
+            lastIdleIntent = selected.first
+            repeatedIdleIntentCount = 1
+        }
+        val explanation = when (selected.first) {
+            EveIntent.EXPLORE -> "seeking something novel"
+            EveIntent.CONNECT -> "checking in socially"
+            EveIntent.PLAY -> "looking for playful interaction"
+            EveIntent.REST -> "resting after quiet time"
+            EveIntent.FOCUS -> "quietly observing"
+            EveIntent.REGULATE -> "regulating frustration"
+        }
+        return snapshot(
+            selected.second,
+            "contextual idle goal=${selected.first.name.lowercase()} ($explanation); quietForMs=$quietFor",
+            false,
+            selected.first
+        )
     }
 
     private fun classify(item: String): Kind = when {
@@ -464,7 +512,12 @@ class RobotBrain(personality: EvePersonality = EvePersonality()) {
         else -> Kind.OTHER
     }
 
-    private fun snapshot(mood: EveMood, reason: String, sound: Boolean) = EveDecision(
+    private fun snapshot(
+        mood: EveMood,
+        reason: String,
+        sound: Boolean,
+        intent: EveIntent? = null
+    ) = EveDecision(
         mood = mood,
         reason = reason,
         playSound = sound,
@@ -474,7 +527,8 @@ class RobotBrain(personality: EvePersonality = EvePersonality()) {
         familiarity = familiarity.coerceIn(0f, 1f),
         fatigue = fatigue.coerceIn(0f, 1f),
         frustration = frustration.coerceIn(0f, 1f),
-        playfulness = personality.playfulness.coerceIn(0f, 1f)
+        playfulness = personality.playfulness.coerceIn(0f, 1f),
+        intent = intent
     )
 }
 
