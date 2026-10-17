@@ -2,6 +2,7 @@ package com.eve.robot
 
 import android.os.SystemClock
 import android.view.View
+import android.view.MotionEvent
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.TextView
@@ -40,6 +41,62 @@ class RobotGamesGameplayTest {
     private fun visibleText(activity: RobotGamesActivity): String =
         descendants(activity.window.decorView).filterIsInstance<TextView>()
             .joinToString(" ") { it.text?.toString().orEmpty() }
+
+    @Test
+    fun paintShotArenaFiresAtMovingTargetAndScoresOnlyAccurateShots() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val scenario = ActivityScenario.launch(RobotGamesActivity::class.java)
+        try {
+            scenario.onActivity { activity ->
+                requireNotNull(buttonContaining(activity, "Paint Shot")).performClick()
+            }
+            instrumentation.waitForIdleSync()
+
+            scenario.onActivity { activity ->
+                val arena = descendants(activity.window.decorView)
+                    .filterIsInstance<PaintShotArenaView>()
+                    .firstOrNull()
+                assertNotNull("Paint Shot must show a real animated shooting arena.", arena)
+                requireNotNull(arena)
+                assertTrue("The shooting arena needs a usable touch area.", arena.width > 0 && arena.height > 0)
+
+                fun tapAt(x: Float, y: Float) {
+                    val downTime = SystemClock.uptimeMillis()
+                    val down = MotionEvent.obtain(
+                        downTime, downTime, MotionEvent.ACTION_DOWN, x, y, 0
+                    )
+                    val up = MotionEvent.obtain(
+                        downTime, downTime + 40L, MotionEvent.ACTION_UP, x, y, 0
+                    )
+                    try {
+                        arena.dispatchTouchEvent(down)
+                        arena.dispatchTouchEvent(up)
+                    } finally {
+                        down.recycle()
+                        up.recycle()
+                    }
+                }
+
+                // A corner shot is well away from the moving target and must miss.
+                tapAt(arena.width * 0.04f, arena.height * 0.90f)
+                assertEquals("One touch should fire one projectile.", 1, arena.shotsFiredForTest)
+                assertEquals("A distant shot must not be awarded as a hit.", 0, arena.shotsHitForTest)
+
+                // Shoot at the current target position; the same production scoring path is used.
+                val target = arena.targetCenterForTest
+                tapAt(target.first, target.second)
+                assertEquals("Two touches should create two shots.", 2, arena.shotsFiredForTest)
+                assertEquals("Touching the visible moving target should score a hit.", 1, arena.shotsHitForTest)
+                assertTrue(
+                    "The game screen should update its progress after a hit: ${visibleText(activity)}",
+                    visibleText(activity).contains("الإصابات: 1")
+                )
+                assertTrue("The game should count the shots out of ten.", visibleText(activity).contains("2 / 10"))
+            }
+        } finally {
+            scenario.close()
+        }
+    }
 
     @Test
     fun movingTargetScoresTheVisibleCellAndMovesAfterAHit() {
