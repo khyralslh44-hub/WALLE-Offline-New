@@ -236,7 +236,7 @@ class RobotFaceView(context: Context) : View(context) {
             // Neutral mood stays in the compact pixel family rather than becoming a wide almond.
             EyeSilhouette.ALMOND -> 0.82f
             EyeSilhouette.SOFT -> 0.86f
-            EyeSilhouette.ROUND_SURPRISE -> 0.84f
+            EyeSilhouette.ROUND_SURPRISE -> 0.96f
             EyeSilhouette.AWE -> 0.96f
             EyeSilhouette.SCARED -> 0.90f
             EyeSilhouette.SKEPTIC, EyeSilhouette.SUSPICIOUS -> 0.92f
@@ -246,7 +246,7 @@ class RobotFaceView(context: Context) : View(context) {
             EyeSilhouette.NEUTRAL -> 1.00f
             EyeSilhouette.ALMOND -> 1.08f
             EyeSilhouette.SOFT -> 1.34f
-            EyeSilhouette.ROUND_SURPRISE -> 1.10f
+            EyeSilhouette.ROUND_SURPRISE -> 1.00f
             EyeSilhouette.AWE -> 1.18f
             EyeSilhouette.SCARED -> 1.12f
             else -> 1f
