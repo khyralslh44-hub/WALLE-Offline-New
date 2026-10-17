@@ -340,18 +340,19 @@ class RobotFaceView(context: Context) : View(context) {
             EyeSilhouette.ROUND_SURPRISE -> rounded(min(hw * 0.42f, glyphHh * 0.44f))
 
             EyeSilhouette.AWE -> {
-                val oval = RectF(cx - hw * 0.98f, centerY - glyphHh * 0.92f,
-                    cx + hw * 0.98f, centerY + glyphHh * 0.92f)
-                shape.addOval(oval, Path.Direction.CW)
+                // The reference's awe pose is an enlarged rounded LED block, not a circular eye.
+                val aweRect = RectF(cx - hw * 0.90f, centerY - glyphHh * 0.92f,
+                    cx + hw * 0.90f, centerY + glyphHh * 0.92f)
+                val radius = min(hw * 0.42f, glyphHh * 0.58f)
+                shape.addRoundRect(aweRect, radius, radius, Path.Direction.CW)
             }
 
             EyeSilhouette.SCARED -> {
-                // Tall eye with a pinched upper edge and expanded lower edge: visibly alarmed.
-                shape.moveTo(cx - hw * 0.62f, centerY - glyphHh)
-                shape.quadTo(cx, centerY - glyphHh * 1.16f, cx + hw * 0.62f, centerY - glyphHh)
-                shape.lineTo(cx + hw, centerY + glyphHh * 0.62f)
-                shape.quadTo(cx, centerY + glyphHh, cx - hw, centerY + glyphHh * 0.62f)
-                shape.close()
+                // The Cozmo-style scared pose keeps two bright LED blocks; height/gaze convey alarm.
+                val scaredRect = RectF(cx - hw * 0.88f, centerY - glyphHh * 0.94f,
+                    cx + hw * 0.88f, centerY + glyphHh * 0.94f)
+                val radius = min(hw * 0.34f, glyphHh * 0.36f)
+                shape.addRoundRect(scaredRect, radius, radius, Path.Direction.CW)
             }
 
             // Happy is a clearly upward arch/crescent rather than a neutral block.
