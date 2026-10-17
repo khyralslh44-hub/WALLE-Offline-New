@@ -13,6 +13,12 @@ class HandGestureInterpreterTest {
         assertEquals("open_palm", HandGestureMapping.signal("Open_Palm", 0.89f))
         assertEquals("victory", HandGestureMapping.signal("Victory", 0.93f))
         assertEquals("thumb_up", HandGestureMapping.signal("Thumb_Up", 0.91f))
+        assertEquals(
+            "The category mapping must match the shared 0.60 confidence floor.",
+            "thumb_up",
+            HandGestureMapping.signal("Thumb_Up", 0.615f)
+        )
+        assertNull("Below the shared confidence floor should be rejected.", HandGestureMapping.signal("Thumb_Up", 0.59f))
         assertEquals("thumb_down", HandGestureMapping.signal("Thumb_Down", 0.86f))
         assertNull(HandGestureMapping.signal("Open_Palm", 0.30f))
         assertNull(HandGestureMapping.signal("Unknown", 0.99f))
