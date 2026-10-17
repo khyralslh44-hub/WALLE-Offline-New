@@ -4,7 +4,7 @@ import kotlin.math.abs
 
 /** Converts model labels and short motion history into deliberate, debounced hand events. */
 class HandGestureInterpreter(
-    private val confidenceThreshold: Float = 0.68f,
+    private val confidenceThreshold: Float = 0.60f,
     private val stableWindow: Int = 3,
     private val stableVotes: Int = 2
 ) {
