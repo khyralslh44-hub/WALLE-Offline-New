@@ -659,6 +659,16 @@ class MainActivity : ComponentActivity() {
                 }
                 lastLabelAt[label] = elapsed
                 val sightings = memory.remember(label)
+                if (isVisualNoiseLabel(label)) {
+                    // Keep the sighting counter for diagnostics, but texture/background labels
+                    // must not overwrite an intentional face expression (for example after a touch).
+                    Log.i(
+                        "EVE",
+                        "VISION label=$label confidence=${best.confidence} sightings=$sightings " +
+                            "affinity=${memory.learnedAffinity(label)} mood=UNCHANGED ignored=visual_noise"
+                    )
+                    return@addOnSuccessListener
+                }
                 if (best.confidence >= 0.80f && isMeaningfulLabel(label)) {
                     lastMeaningfulLabel = label
                     lastMeaningfulLabelAt = elapsed
@@ -976,6 +986,12 @@ class MainActivity : ComponentActivity() {
         Log.i("EVE", "FACE_CUE_FALLBACK reason=$reason mood=${decision.mood}")
         react(decision, decision.playSound)
     }
+
+    private fun isVisualNoiseLabel(label: String): Boolean =
+        label.trim().lowercase() in setOf(
+            "pattern", "texture", "background", "wall", "floor", "ceiling",
+            "line", "geometry", "grid", "tile", "color", "colour", "design"
+        )
 
     private fun isMeaningfulLabel(label: String): Boolean =
         listOf(
