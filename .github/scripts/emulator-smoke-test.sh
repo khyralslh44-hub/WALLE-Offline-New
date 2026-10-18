@@ -86,6 +86,8 @@ PY
 fi
 
 adb shell pm grant "$PACKAGE" android.permission.CAMERA
+adb shell pm grant "$PACKAGE" android.permission.RECORD_AUDIO
+echo "PASS: camera and microphone permissions pre-granted for offline vision and speech tests." | tee -a "$RESULTS_DIR/result.txt"
 if [ "$TEST_API_LEVEL" -ge 33 ]; then
   adb shell pm grant "$PACKAGE" android.permission.POST_NOTIFICATIONS 2>&1 | tee "$RESULTS_DIR/grant-notifications.txt"
   echo "PASS: notification permission pre-granted so the system prompt cannot cover the face." | tee -a "$RESULTS_DIR/result.txt"
@@ -101,6 +103,27 @@ if [ -z "$PID" ]; then
   exit 1
 fi
 echo "PASS: EVE stayed alive after launch with Wi-Fi and mobile data disabled (PID $PID)." | tee -a "$RESULTS_DIR/result.txt"
+
+# Wait for the bundled Arabic ASR model to unpack and start. This proves speech input
+# is local and not dependent on the device's Android speech service or a language pack.
+SPEECH_READY=false
+for attempt in $(seq 1 60); do
+  timeout 12s adb logcat -d -v threadtime > "$RESULTS_DIR/logcat-speech-startup.txt" 2>/dev/null || true
+  if grep -F "OFFLINE_SPEECH_LISTENING language=ar source=bundled_vosk" "$RESULTS_DIR/logcat-speech-startup.txt" >/dev/null; then
+    SPEECH_READY=true
+    break
+  fi
+  if [ "$attempt" -eq 1 ] || [ $((attempt % 10)) -eq 0 ]; then
+    echo "Waiting for bundled offline Arabic speech model ($attempt/60)..." | tee -a "$RESULTS_DIR/result.txt"
+  fi
+  sleep 5
+done
+if [ "$SPEECH_READY" != true ]; then
+  grep -E "OFFLINE_SPEECH|Vosk|EVE_AUDIO|FATAL EXCEPTION" "$RESULTS_DIR/logcat-speech-startup.txt" | tail -80 || true
+  echo "FAIL: bundled offline Arabic speech model did not reach listening state within 5 minutes." | tee -a "$RESULTS_DIR/result.txt"
+  exit 1
+fi
+echo "PASS: bundled Arabic speech model loaded and microphone recognizer started with network disabled." | tee -a "$RESULTS_DIR/result.txt"
 
 # Android 10 can show a one-time immersive-mode teaching overlay above the app.
 # Dismiss that system overlay before asserting the app's UI hierarchy.
