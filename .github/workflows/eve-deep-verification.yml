@@ -8,6 +8,7 @@ on:
       - '.github/workflows/eve-deep-verification.yml'
       - '.github/scripts/run-deep-face-test.sh'
       - '.github/scripts/emulator-smoke-test.sh'
+      - '.github/scripts/fetch-arabic-vosk-model.sh'
 
 concurrency:
   group: eve-deep-offline-${{ github.ref }}
@@ -131,6 +132,10 @@ jobs:
           file "$FIXTURE" || true
           sha256sum "$FIXTURE" | tee "$RUNNER_TEMP/thumb-up-fixture-sha256.txt"
 
+      - name: Bundle fully offline Arabic speech recognition model
+        shell: bash
+        run: bash .github/scripts/fetch-arabic-vosk-model.sh
+
       - name: Verify pinned test inputs match the integration test
         shell: bash
         run: |
@@ -143,6 +148,9 @@ jobs:
           test -s "$FIXTURE"
           test -s "$GESTURE_FIXTURE"
           test -s "eve-project/app/src/main/assets/eve_emotion_model.tflite"
+          test -s "eve-project/app/src/main/assets/vosk-model-ar-mgb2-0.4/uuid"
+          test -s "eve-project/app/src/main/assets/vosk-model-ar-mgb2-0.4/conf/model.conf"
+          test -s "eve-project/app/src/main/assets/vosk-model-ar-mgb2-0.4/am/final.mdl"
           grep -Fq 'face_fixture.jpg' "$TEST_SOURCE"
           grep -Fq 'gesture_thumb_up.jpg' "$GESTURE_TEST_SOURCE"
           grep -Fq 'gesture_thumb_up.jpg' "$TEST_SCRIPT"
