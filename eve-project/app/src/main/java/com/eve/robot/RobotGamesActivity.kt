@@ -496,8 +496,17 @@ class RobotGamesActivity : ComponentActivity() {
         game = Game.RPS
         reactWithEve("rps", "start")
         playerRpsHistory.clear()
+        playerRpsHistory.addAll(
+            prefs.getString("rps:move_history", "").orEmpty()
+                .split(',').mapNotNull { it.toIntOrNull()?.takeIf { move -> move in 0..2 } }
+                .takeLast(18)
+        )
         rpsScoreHuman = 0; rpsScoreEve = 0; rpsRound = 0
-        renderRps("أرني إشارة يدك أمام الكاميرا: قبضة = حجر، كف مفتوح = ورقة، إصبعان = مقص.")
+        val opening = if (playerRpsHistory.size >= 5)
+            "أتذكر نمطًا من مبارياتنا السابقة. حاول أن تخدعني هذه المرة!"
+        else
+            "لنبدأ؛ سأراقب اختياراتك وأحاول قراءة نمطك."
+        renderRps("$opening قبضة = حجر، كف مفتوح = ورقة، إصبعان = مقص.")
     }
 
     private fun renderRps(message: String) {
@@ -530,6 +539,8 @@ class RobotGamesActivity : ComponentActivity() {
         val robot = if (playerRpsHistory.size >= 3 && mostUsed.size == 1) (mostUsed[0] + 1) % 3
                     else random.nextInt(3)
         playerRpsHistory.add(player)
+        if (playerRpsHistory.size > 24) playerRpsHistory.removeAt(0)
+        prefs.edit().putString("rps:move_history", playerRpsHistory.joinToString(",")).apply()
         rpsRound++
         val labels = listOf("حجر", "ورقة", "مقص")
         val result = when {
