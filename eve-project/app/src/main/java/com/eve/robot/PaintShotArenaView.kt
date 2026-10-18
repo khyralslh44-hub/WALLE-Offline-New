@@ -63,6 +63,10 @@ internal class PaintShotArenaView(
     private var targetX = 0f
     private var targetY = 0f
     private var targetInitialized = false
+    private var dodgeOffsetX = 0f
+    private var dodgeOffsetY = 0f
+    private var dodgeStartedAt = 0L
+    private var dodgeDurationMs = 420L
     private var active = true
     private var muzzleFlashAt = 0L
     private var lastHitAt = 0L
@@ -101,10 +105,27 @@ internal class PaintShotArenaView(
     private fun updateTarget(now: Long) {
         if (width <= 0 || height <= 0) return
         val elapsed = (now - epoch).coerceAtLeast(0L).toDouble()
-        // Two smooth, independent sine paths make the target move across the range.
-        targetX = width * (0.50f + 0.32f * sin(elapsed / 1650.0).toFloat())
-        targetY = height * (0.31f + 0.085f * sin(elapsed / 1010.0 + 0.8).toFloat())
+        val dodgeRaw = if (dodgeStartedAt == 0L) 1f else
+            ((now - dodgeStartedAt).toFloat() / dodgeDurationMs).coerceIn(0f, 1f)
+        val dodgeBlend = dodgeRaw * dodgeRaw * (3f - 2f * dodgeRaw)
+        if (dodgeRaw >= 1f) {
+            dodgeStartedAt = 0L
+            dodgeOffsetX = 0f
+            dodgeOffsetY = 0f
+        }
+        val idleX = width * (0.50f + 0.19f * sin(elapsed / 1650.0).toFloat())
+        val idleY = height * (0.31f + 0.055f * sin(elapsed / 1010.0 + 0.8).toFloat())
+        targetX = idleX + dodgeOffsetX * (1f - dodgeBlend)
+        targetY = idleY + dodgeOffsetY * (1f - dodgeBlend)
         if (!targetInitialized) targetInitialized = true
+    }
+
+    private fun dodgeEyes(now: Long, shotX: Float) {
+        val direction = if (shotX < targetX) 1f else -1f
+        dodgeOffsetX = direction * width * 0.19f
+        dodgeOffsetY = -height * 0.035f
+        dodgeStartedAt = now
+        dodgeDurationMs = 460L
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -129,11 +150,14 @@ internal class PaintShotArenaView(
         if (!active || width <= 0 || height <= 0) return
         val now = SystemClock.uptimeMillis()
         updateTarget(now)
-        val dx = x - targetX
-        val dy = y - targetY
-        // A generous but finite touch radius keeps the game playable on a phone screen.
-        val hitRadius = dp(49f)
-        val hit = hypot(dx.toDouble(), dy.toDouble()) <= hitRadius
+        val eyeHalfGap = dp(22f)
+        val eyeRadiusX = dp(27f)
+        val eyeRadiusY = dp(23f)
+        val leftEyeDistance = hypot(((x - (targetX - eyeHalfGap)) / eyeRadiusX).toDouble(),
+            ((y - targetY) / eyeRadiusY).toDouble())
+        val rightEyeDistance = hypot(((x - (targetX + eyeHalfGap)) / eyeRadiusX).toDouble(),
+            ((y - targetY) / eyeRadiusY).toDouble())
+        val hit = min(leftEyeDistance, rightEyeDistance) <= 1.35
         shotsFired++
         if (hit) shotsHit++
         shots += Shot(
@@ -147,8 +171,9 @@ internal class PaintShotArenaView(
         muzzleFlashAt = now
         lastHitAt = now
         lastHit = hit
+        if (!hit) dodgeEyes(now, x)
         performHapticFeedback(if (hit) HapticFeedbackConstants.CONFIRM else HapticFeedbackConstants.VIRTUAL_KEY)
-        android.util.Log.i("EVE_PAINT_SHOT", "shots=$shotsFired hit=$hit totalHits=$shotsHit")
+        android.util.Log.i("EVE_PAINT_SHOT", "shots=$shotsFired hit=$hit evaded=${!hit} totalHits=$shotsHit")
         onShot(PaintShotResult(hit, shotsFired, targetX, targetY, x, y))
         invalidate()
     }
@@ -193,36 +218,47 @@ internal class PaintShotArenaView(
 
     private fun drawTarget(canvas: Canvas, now: Long) {
         val pulse = 1f + 0.055f * sin(now / 145.0).toFloat()
-        val radius = dp(26f) * pulse
-        val distance = if (lastHit) dp(36f) else dp(30f)
         val flashAge = now - lastHitAt
         val flash = flashAge in 0L..230L
-        fill.color = if (flash && lastHit) Color.argb(55, 45, 255, 194) else Color.argb(30, 23, 222, 237)
-        canvas.drawCircle(targetX, targetY, radius * 1.75f, fill)
-        stroke.style = Paint.Style.STROKE
-        stroke.strokeWidth = dp(2f)
-        stroke.color = if (flash && lastHit) Color.rgb(88, 255, 189) else Color.rgb(24, 227, 238)
-        canvas.drawCircle(targetX, targetY, radius * 1.23f, stroke)
-        stroke.strokeWidth = dp(1f)
-        stroke.color = Color.argb(170, 115, 250, 255)
-        canvas.drawCircle(targetX, targetY, radius * 0.78f, stroke)
-        fill.color = if (flash && lastHit) Color.rgb(88, 255, 189) else Color.rgb(255, 176, 79)
-        canvas.drawCircle(targetX, targetY, radius * 0.47f, fill)
-        fill.color = Color.rgb(7, 21, 28)
-        canvas.drawCircle(targetX, targetY, radius * 0.19f, fill)
-        // Simple target crosshairs.
-        stroke.strokeWidth = dp(1.4f)
-        stroke.color = Color.argb(190, 205, 255, 255)
-        val arm = radius * 1.55f
-        val gap = radius * 1.31f
-        canvas.drawLine(targetX - arm, targetY, targetX - gap, targetY, stroke)
-        canvas.drawLine(targetX + gap, targetY, targetX + arm, targetY, stroke)
-        canvas.drawLine(targetX, targetY - arm, targetX, targetY - gap, stroke)
-        canvas.drawLine(targetX, targetY + gap, targetX, targetY + arm, stroke)
-        if (flash && !lastHit) {
+        val radiusX = dp(21f) * pulse
+        val radiusY = dp(20f) * pulse
+        val eyeGap = dp(23f)
+        val eyeColor = if (flash && lastHit) Color.rgb(115, 255, 203) else Color.rgb(0, 222, 231)
+        fill.color = Color.argb(28, 0, 224, 236)
+        canvas.drawRoundRect(
+            RectF(targetX - eyeGap - radiusX * 1.35f, targetY - radiusY * 1.5f,
+                targetX + eyeGap + radiusX * 1.35f, targetY + radiusY * 1.5f),
+            dp(17f), dp(17f), fill
+        )
+        for (eyeCenterX in floatArrayOf(targetX - eyeGap, targetX + eyeGap)) {
+            fill.color = Color.argb(42, 0, 240, 245)
+            canvas.drawRoundRect(
+                RectF(eyeCenterX - radiusX * 1.32f, targetY - radiusY * 1.32f,
+                    eyeCenterX + radiusX * 1.32f, targetY + radiusY * 1.32f),
+                dp(11f), dp(11f), fill
+            )
+            fill.color = eyeColor
+            canvas.drawRoundRect(
+                RectF(eyeCenterX - radiusX, targetY - radiusY,
+                    eyeCenterX + radiusX, targetY + radiusY),
+                dp(7f), dp(7f), fill
+            )
+        }
+        if (flash && lastHit) {
+            stroke.strokeWidth = dp(2f)
+            stroke.color = Color.argb(220, 115, 255, 203)
+            canvas.drawRoundRect(
+                RectF(targetX - eyeGap - radiusX * 1.45f, targetY - radiusY * 1.55f,
+                    targetX + eyeGap + radiusX * 1.45f, targetY + radiusY * 1.55f),
+                dp(12f), dp(12f), stroke
+            )
+            textPaint.color = Color.rgb(115, 255, 203)
+            textPaint.textSize = dp(11f)
+            canvas.drawText("HIT!", targetX, targetY - radiusY * 2.0f, textPaint)
+        } else if (flash && !lastHit) {
             textPaint.color = Color.rgb(255, 190, 106)
             textPaint.textSize = dp(11f)
-            canvas.drawText("MISS", targetX, targetY - radius * 1.8f, textPaint)
+            canvas.drawText("DODGED!", targetX, targetY - radiusY * 2.0f, textPaint)
         }
     }
 
