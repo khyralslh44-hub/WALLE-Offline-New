@@ -129,11 +129,24 @@ class LocalLanguageBrain(
                         )
                     }
 
+                    // LiteRT-LM requires its cache directory to exist and be writable before Engine.initialize().
+                    val engineCacheDirectory = File(appContext.cacheDir, "eve-litertlm-cache")
+                    if (!engineCacheDirectory.exists() && !engineCacheDirectory.mkdirs()) {
+                        throw IllegalStateException(
+                            "تعذر إنشاء مجلد التخزين المؤقت للنموذج المحلي."
+                        )
+                    }
+                    if (!engineCacheDirectory.isDirectory || !engineCacheDirectory.canWrite()) {
+                        throw IllegalStateException(
+                            "مجلد التخزين المؤقت للنموذج المحلي غير قابل للكتابة."
+                        )
+                    }
+
                     val newEngine = Engine(
                         EngineConfig(
                             modelPath = file.absolutePath,
                             backend = Backend.CPU(),
-                            cacheDir = File(appContext.cacheDir, "eve-litertlm-cache").absolutePath
+                            cacheDir = engineCacheDirectory.absolutePath
                         )
                     )
                     try {
