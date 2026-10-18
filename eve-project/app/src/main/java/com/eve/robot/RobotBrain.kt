@@ -255,6 +255,34 @@ class RobotBrain(personality: EvePersonality = EvePersonality()) {
         return snapshot(mood, if (isQuestion) "heard a question; curious nonverbal response" else "heard speech; attentive nonverbal response", false)
     }
 
+    /**
+     * Self-generated exploratory intent: high-confidence novelty changes the central affect state.
+     * The prompt text is composed by EveCuriosityEngine from the observed label and local memory.
+     */
+    @Synchronized
+    fun selfGeneratedCuriosity(label: String, confidence: Float, sightings: Int): EveDecision {
+        val item = label.trim().lowercase().take(64)
+        if (item.isBlank() || !confidence.isFinite() || confidence < 0.82f) {
+            return snapshot(EveMood.NEUTRAL, "curiosity suppressed: insufficient visual confidence", false)
+        }
+        val novelty = when {
+            sightings <= 1 -> 0.22f
+            sightings <= 4 -> 0.12f
+            else -> 0.04f
+        }
+        curiosity = (curiosity + 0.07f * personality.curiosityBias + novelty * confidence)
+            .coerceIn(0f, 1f)
+        arousal = (arousal * 0.62f + confidence * 0.38f).coerceIn(0.25f, 0.92f)
+        valence = (valence + 0.025f * personality.warmth).coerceIn(-1f, 0.95f)
+        fatigue = (fatigue - 0.025f).coerceAtLeast(0f)
+        return snapshot(
+            EveMood.CURIOUS,
+            "self-generated curiosity: high-confidence observation=$item sightings=$sightings",
+            false,
+            EveIntent.EXPLORE
+        )
+    }
+
     @Synchronized
     fun observe(label: String, confidence: Float, sightings: Int, learnedAffinity: Float = 0f): EveDecision {
         val item = label.trim().lowercase()
