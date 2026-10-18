@@ -38,6 +38,22 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
     testOptions { unitTests.isReturnDefaultValues = true }
+
+    buildTypes {
+        getByName("release") {
+            // Redmi 12 is an ARM64 device. Keep every app feature/model, but do not package
+            // duplicate x86/x86_64/32-bit native libraries in the phone-install APK.
+            // The debug build remains universal so x86 emulator CI tests are unchanged.
+            ndk {
+                abiFilters += "arm64-v8a"
+            }
+            // Do not shrink code or resources: this package-size optimization is ABI-only.
+            isMinifyEnabled = false
+            isShrinkResources = false
+            // Sign consistently with the project's verified CI APK for easy direct install.
+            signingConfig = signingConfigs.getByName("debug")
+        }
+    }
 }
 
 dependencies {
