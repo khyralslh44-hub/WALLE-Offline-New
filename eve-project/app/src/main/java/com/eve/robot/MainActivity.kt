@@ -400,6 +400,8 @@ class MainActivity : ComponentActivity() {
                 .putBoolean("cameraPermissionRequested", true).apply()
             permissionRequest.launch(Manifest.permission.CAMERA)
         }
+        // Camera setup can overwrite the same top chip; restore the language-brain status afterward.
+        if (::localLanguageBrain.isInitialized) localLanguageBrain.refreshStatus()
     }
 
 
@@ -657,7 +659,10 @@ class MainActivity : ComponentActivity() {
             main.postDelayed(idleLoop, 5200L)
         }
         if (::face.isInitialized && hasCameraPermission() && !cameraStarted) startCamera()
-        if (::localLanguageBrain.isInitialized) localLanguageBrain.ensureReady()
+        if (::localLanguageBrain.isInitialized) {
+            localLanguageBrain.ensureReady()
+            localLanguageBrain.refreshStatus()
+        }
     }
 
     override fun onStop() {
