@@ -67,6 +67,32 @@ class EyeExpressionGeneratorTest {
         assertTrue(pose.silhouette !in setOf(EyeSilhouette.SHARP, EyeSilhouette.FURIOUS))
     }
 
+    @Test fun learnedPlayfulnessChangesEyeMicroExpressionForSameMood() {
+        val restrained = EveDecision(
+            mood = EveMood.NEUTRAL,
+            reason = "same context",
+            valence = 0.20f,
+            arousal = 0.40f,
+            curiosity = 0.55f,
+            familiarity = 0.10f,
+            playfulness = 0.15f
+        )
+        val playful = restrained.copy(playfulness = 0.90f)
+        val restrainedPose = EyeExpressionGenerator.generate(restrained, 44L)
+        val playfulPose = EyeExpressionGenerator.generate(playful, 44L)
+
+        assertEquals(EveMood.NEUTRAL, restrainedPose.mood)
+        assertEquals(EveMood.NEUTRAL, playfulPose.mood)
+        assertTrue(
+            "A learned character trait must influence subtle face geometry even when mood is unchanged.",
+            restrainedPose != playfulPose
+        )
+        assertTrue(
+            "The playful character should have a more expressive eye asymmetry.",
+            playfulPose.asymmetry > restrainedPose.asymmetry
+        )
+    }
+
     @Test fun affectValuesChangeEyePoseEvenForSameMood() {
         val calm = EveDecision(
             mood = EveMood.NEUTRAL, reason = "calm",
