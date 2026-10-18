@@ -243,7 +243,10 @@ class LocalLanguageBrain(
                     val activeConversation = conversation ?: throw IllegalStateException("لا توجد محادثة محلية نشطة.")
                     // LiteRT-LM 0.18 exposes maxOutputToken in ConversationConfig, not sendMessage.
                     val response = activeConversation.sendMessage(prompt)
-                    val responseText = response.text.orEmpty()
+                    // LiteRT-LM 0.18 returns a Message whose text segments live in contents.
+                    val responseText = response.contents.contents
+                        .filterIsInstance<com.google.ai.edge.litertlm.Content.Text>()
+                        .joinToString(separator = "") { it.text }
                     val parsed = parseResponse(responseText, maxOutputTokens)
                     Log.i(
                         TAG,
