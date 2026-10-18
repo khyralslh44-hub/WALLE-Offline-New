@@ -51,7 +51,7 @@ class EyeExpressionGalleryTest {
         GlyphCase(EyeSilhouette.BLINK_HIGH, "BLINK HIGH", decision(EveMood.NEUTRAL, "blink high", arousal = 0.10f)),
         GlyphCase(EyeSilhouette.SMILE, "HAPPY", decision(EveMood.HAPPY, "happy", valence = 0.25f)),
         GlyphCase(EyeSilhouette.GLEE, "GLEE", decision(EveMood.HAPPY, "happy", valence = 0.85f, arousal = 0.85f)),
-        GlyphCase(EyeSilhouette.BLINK_LOW, "BLINK LOW", decision(EveMood.NEUTRAL, "blink low")),
+        GlyphCase(EyeSilhouette.BLINK_LOW, "BLINK LOW", decision(EveMood.NEUTRAL, "blink low", fatigue = 0.80f)),
         GlyphCase(EyeSilhouette.SAD_DOWN, "SAD DOWN", decision(EveMood.CONCERNED, "sad down", valence = -0.70f, fatigue = 0.70f)),
         GlyphCase(EyeSilhouette.SAD_UP, "SAD UP", decision(EveMood.CONCERNED, "sad up", valence = -0.70f, fatigue = 0.10f)),
         GlyphCase(EyeSilhouette.WORRIED, "WORRIED", decision(EveMood.CONCERNED, arousal = 0.65f)),
