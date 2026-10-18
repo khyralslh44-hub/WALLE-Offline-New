@@ -13,6 +13,7 @@ import android.view.View
 import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.sin
 
 /** Result from a local Paint Shot round. No image or shot data leaves the device. */
