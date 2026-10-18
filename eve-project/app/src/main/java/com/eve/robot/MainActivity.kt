@@ -57,6 +57,15 @@ class MainActivity : ComponentActivity() {
     private var lastSpeechText = ""
     private var lastSpeechAt = 0L
     private lateinit var cameraStatus: TextView
+    private lateinit var dialogueBubble: TextView
+    private val hideDialogue = Runnable {
+        if (::dialogueBubble.isInitialized) {
+            dialogueBubble.animate().cancel()
+            dialogueBubble.animate().alpha(0f).setDuration(220L).withEndAction {
+                if (::dialogueBubble.isInitialized) dialogueBubble.visibility = View.GONE
+            }.start()
+        }
+    }
     private val main = Handler(Looper.getMainLooper())
     private val cameraExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private val emotionExecutor: ExecutorService = Executors.newSingleThreadExecutor()
@@ -108,6 +117,7 @@ class MainActivity : ComponentActivity() {
     private var touchDownAt = 0L
     private var lastMeaningfulLabel: String? = null
     private var lastMeaningfulLabelAt = 0L
+    private var lastMeaningfulConfidence = 0f
 
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
         val action = event.actionMasked
@@ -254,6 +264,28 @@ class MainActivity : ComponentActivity() {
             }
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
         }
+        dialogueBubble = TextView(this).apply {
+            text = ""
+            textSize = 16f
+            setTextColor(0xFFE6FFFF.toInt())
+            gravity = Gravity.CENTER
+            textAlignment = View.TEXT_ALIGNMENT_CENTER
+            setPadding(dp(18), dp(12), dp(18), dp(12))
+            minWidth = dp(160)
+            maxWidth = dp(340)
+            maxLines = 3
+            background = GradientDrawable().apply {
+                setColor(0xE6071015.toInt())
+                cornerRadius = dp(20).toFloat()
+                setStroke(dp(1), 0xCC00CFE0.toInt())
+            }
+            visibility = View.GONE
+            alpha = 0f
+            isClickable = false
+            isFocusable = false
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+            elevation = dp(5).toFloat()
+        }
         val root = FrameLayout(this).apply {
             setBackgroundColor(android.graphics.Color.rgb(2, 7, 10))
             addView(face, FrameLayout.LayoutParams(
@@ -268,6 +300,15 @@ class MainActivity : ComponentActivity() {
                 topMargin = dp(16)
                 marginStart = dp(12)
                 marginEnd = dp(12)
+            })
+            addView(dialogueBubble, FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+            ).apply {
+                bottomMargin = dp(42)
+                marginStart = dp(18)
+                marginEnd = dp(18)
             })
         }
         setContentView(root)
@@ -404,6 +445,29 @@ class MainActivity : ComponentActivity() {
         ) {
             react(brain.observeFacialEmotion("neutral", 0.90f), playSound = false)
             Log.i("EVE_AUDIO", "SPEECH_RESPONSE_SUPPRESSED reason=quiet_command")
+            return
+        }
+
+        // Direct questions get a short, honest local answer and a matching eye expression.
+        // Unknown questions receive a clear limitation; EVE never fabricates a fact offline.
+        val currentVisualAge = if (lastMeaningfulLabelAt > 0L) now - lastMeaningfulLabelAt else Long.MAX_VALUE
+        val offlineAnswer = OfflineEveResponder.answer(
+            rawQuestion = text,
+            latestLabel = lastMeaningfulLabel,
+            latestConfidence = lastMeaningfulConfidence,
+            observationAgeMs = currentVisualAge
+        )
+        if (offlineAnswer != null) {
+            val speechState = brain.respondToSpeech(text, addressedToEve = true)
+            val answerDecision = speechState.copy(
+                mood = offlineAnswer.mood,
+                reason = "local answer: " + offlineAnswer.topic,
+                intent = if (offlineAnswer.mood == EveMood.CURIOUS) EveIntent.EXPLORE else EveIntent.FOCUS
+            )
+            react(answerDecision, playSound = false)
+            showDialogueText(offlineAnswer.text, durationMs = 7200L)
+            voice.respondToSpeech(answerDecision.mood, text)
+            Log.i("EVE_DIALOGUE", "ANSWER topic=" + offlineAnswer.topic + " mood=" + answerDecision.mood + " local=true")
             return
         }
 
@@ -855,9 +919,12 @@ class MainActivity : ComponentActivity() {
                     )
                     return@addOnSuccessListener
                 }
-                if (best.confidence >= 0.80f && isMeaningfulLabel(label)) {
+                if (best.confidence >= 0.80f &&
+                    (isMeaningfulLabel(label) || isCuriosityWorthyLabel(label))
+                ) {
                     lastMeaningfulLabel = label
                     lastMeaningfulLabelAt = elapsed
+                    lastMeaningfulConfidence = best.confidence
                     // Persist only the latest high-confidence label and a count; never camera frames.
                     getSharedPreferences("eve_relationship", MODE_PRIVATE).edit()
                         .putString("lastObservationLabel", label)
@@ -879,6 +946,7 @@ class MainActivity : ComponentActivity() {
                         "affinity=$affinity mood=${decision.mood}"
                 )
                 react(decision, decision.playSound && isMeaningfulLabel(label))
+                maybeAskFromCuriosity(label, best.confidence, sightings)
             }
             .addOnFailureListener(mainExecutor) { error ->
                 Log.w("EVE", "Offline image labeling frame failed.", error)
@@ -1188,6 +1256,72 @@ class MainActivity : ComponentActivity() {
             "leaf", "grass", "garden"
         ).any(label::contains)
 
+    private fun isCuriosityWorthyLabel(label: String): Boolean {
+        val value = label.trim().lowercase(Locale.ROOT)
+        return listOf(
+            "food", "fruit", "banana", "apple", "pizza", "bread", "meal", "sandwich",
+            "vegetable", "cake", "orange", "strawberry", "egg", "animal", "cat", "dog",
+            "bird", "pet", "puppy", "kitten", "horse", "rabbit", "fish", "hamster",
+            "turtle", "butterfly", "person", "people", "human", "face", "man", "woman",
+            "child", "boy", "girl", "plant", "flower", "tree", "leaf", "grass", "garden",
+            "cactus", "phone", "mobile phone", "cell phone", "smartphone", "laptop",
+            "computer", "keyboard", "book", "cup", "bottle", "car", "bicycle", "toy",
+            "clock", "camera", "headphones", "remote control", "shoe", "umbrella",
+            "bag", "backpack", "glasses", "watch"
+        ).any(value::contains) && !isVisualNoiseLabel(value)
+    }
+
+    private fun maybeAskFromCuriosity(label: String, confidence: Float, sightings: Int) {
+        if (isFinishing || isDestroyed || !::dialogueBubble.isInitialized) return
+        val preferences = getSharedPreferences("eve_curiosity", MODE_PRIVATE)
+        val safeKey = label.trim().lowercase(Locale.ROOT).filter { it.isLetterOrDigit() }.take(48)
+        if (safeKey.isBlank()) return
+        val now = System.currentTimeMillis()
+        val lastAny = preferences.getLong("last_question_at", 0L)
+        val lastForLabel = preferences.getLong("label_question_at:" + safeKey, 0L)
+        val countForLabel = preferences.getInt("label_question_count:" + safeKey, 0)
+        val learned = memory.learnedPersonality()
+        val thought = EveCuriosityEngine.consider(
+            label = label,
+            confidence = confidence,
+            sightings = sightings,
+            curiosityBias = learned.curiosityBias,
+            lastAnyQuestionAtMs = lastAny,
+            lastLabelQuestionAtMs = lastForLabel,
+            previousQuestionCount = countForLabel,
+            nowMs = now
+        ) ?: return
+
+        preferences.edit()
+            .putLong("last_question_at", now)
+            .putLong("label_question_at:" + safeKey, now)
+            .putInt("label_question_count:" + safeKey, countForLabel + 1)
+            .putString("last_question_label", label)
+            .putString("last_question_text", thought.text)
+            .apply()
+
+        val decision = brain.selfGeneratedCuriosity(label, confidence, sightings)
+        react(decision, playSound = false)
+        showDialogueText(thought.text, durationMs = 6100L)
+        Log.i(
+            "EVE_CURIOSITY",
+            "SELF_QUESTION label=" + label + " confidence=" + confidence + " sightings=" + sightings +
+                " interest=" + thought.interest + " reason=" + thought.reason + " trait=" + learned.curiosityBias
+        )
+    }
+
+    private fun showDialogueText(text: String, durationMs: Long = 5200L) {
+        if (isFinishing || isDestroyed || !::dialogueBubble.isInitialized || text.isBlank()) return
+        main.removeCallbacks(hideDialogue)
+        dialogueBubble.animate().cancel()
+        dialogueBubble.text = text
+        dialogueBubble.contentDescription = text
+        dialogueBubble.alpha = 0f
+        dialogueBubble.visibility = View.VISIBLE
+        dialogueBubble.animate().alpha(1f).setDuration(180L).start()
+        main.postDelayed(hideDialogue, durationMs.coerceIn(2500L, 9000L))
+    }
+
     private fun react(decision: EveDecision, playSound: Boolean) {
         // Perception/touch/camera events restart the idle clock; idle decisions do not restart themselves.
         if (!decision.reason.startsWith("contextual idle:")) {
@@ -1206,6 +1340,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         main.removeCallbacks(idleLoop)
+        main.removeCallbacks(hideDialogue)
+        if (::dialogueBubble.isInitialized) dialogueBubble.animate().cancel()
         offlineArabicSpeech?.close()
         offlineArabicSpeech = null
         handGestureReady = false
