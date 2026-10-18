@@ -62,6 +62,80 @@ class RobotBrain(personality: EvePersonality = EvePersonality()) {
         personality = next.bounded()
     }
 
+    /**
+     * Merge a validated local-LLM suggestion into the bounded affect state.
+     * The model cannot invoke device actions or overwrite hard behavior rules; it only supplies
+     * a small mood/goal hint which is range-checked here before reaching the face renderer.
+     */
+    @Synchronized
+    fun integrateLanguageInsight(
+        moodHint: String?,
+        intentHint: String?,
+        confidence: Float,
+        note: String,
+        source: String = "context"
+    ): EveDecision {
+        val certainty = confidence.takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: 0f
+        val hint = moodHint?.trim()?.lowercase()?.takeIf { certainty >= 0.45f }
+        val intent = when (intentHint?.trim()?.lowercase()) {
+            "observe", "focus" -> EveIntent.FOCUS
+            "explore" -> EveIntent.EXPLORE
+            "connect", "respond" -> EveIntent.CONNECT
+            "play" -> EveIntent.PLAY
+            "rest" -> EveIntent.REST
+            "regulate" -> EveIntent.REGULATE
+            else -> null
+        }
+
+        // Language output nudges the same affect variables used by perception/touch/idle.
+        // These increments are intentionally small; the LLM is advisory, not the authority.
+        when (hint) {
+            "happy" -> {
+                valence = (valence + 0.045f * certainty * personality.warmth).coerceIn(-1f, 1f)
+                arousal = (arousal + 0.025f * certainty).coerceIn(0f, 1f)
+            }
+            "curious" -> curiosity = (curiosity + 0.055f * certainty).coerceAtMost(1f)
+            "concerned" -> {
+                valence = (valence - 0.025f * certainty).coerceAtLeast(-1f)
+                curiosity = (curiosity + 0.020f * certainty).coerceAtMost(1f)
+            }
+            "focused" -> arousal = (arousal + 0.020f * certainty).coerceIn(0f, 1f)
+            "playful" -> {
+                valence = (valence + 0.025f * certainty).coerceIn(-1f, 1f)
+                curiosity = (curiosity + 0.020f * certainty).coerceAtMost(1f)
+            }
+            "sleepy" -> fatigue = (fatigue + 0.025f * certainty).coerceAtMost(1f)
+            "irritated" -> frustration = (frustration + 0.020f * certainty).coerceAtMost(1f)
+            "neutral" -> Unit
+        }
+
+        val hintedMood = when (hint) {
+            "neutral" -> EveMood.NEUTRAL
+            "curious" -> EveMood.CURIOUS
+            "happy" -> EveMood.HAPPY
+            "concerned" -> EveMood.CONCERNED
+            "focused" -> EveMood.FOCUSED
+            "playful" -> EveMood.PLAYFUL
+            "sleepy" -> EveMood.SLEEPY
+            "irritated" -> EveMood.IRRITATED
+            else -> currentMood
+        }
+        val safeMood = when {
+            frustration >= 0.84f -> EveMood.ANGRY
+            frustration >= 0.62f && hintedMood !in setOf(EveMood.SLEEPY, EveMood.NEUTRAL) -> EveMood.IRRITATED
+            else -> hintedMood
+        }
+        val safeNote = note.trim().replace(Regex("\\s+"), " ").take(110)
+        val safeSource = source.filter { it.isLetterOrDigit() || it == '_' || it == '-' }.take(24)
+        return snapshot(
+            safeMood,
+            "local LLM ${safeSource.ifBlank { "context" }} insight confidence=${"%.2f".format(java.util.Locale.ROOT, certainty)}" +
+                if (safeNote.isNotBlank()) ": $safeNote" else "",
+            false,
+            intent
+        )
+    }
+
     private var valence = 0.12f       // negative = wary, positive = warm
     private var arousal = 0.32f       // calm <-> alert
     private var curiosity = 0.58f
@@ -812,4 +886,99 @@ class EveMemory(context: Context) {
 
     fun feedbackCount(label: String): Int =
         prefs.getInt("feedback:${label.trim().lowercase().take(80)}", 0)
+
+    /** A compact, recency-ranked prompt context; only labels, counts, affinities and timestamps. */
+    @Synchronized
+    fun recentVisualMemories(limit: Int = 5): List<String> {
+        val recent = prefs.all.entries.mapNotNull { entry ->
+            val key = entry.key
+            val timestamp = entry.value as? Long
+            if (!key.startsWith("seen:") || timestamp == null) return@mapNotNull null
+            val label = key.removePrefix("seen:").take(80)
+            if (label.isBlank()) return@mapNotNull null
+            Triple(label, timestamp, prefs.getInt("count:$label", 0))
+        }.sortedByDescending { it.second }.take(limit.coerceIn(0, 10))
+        return recent.map { (label, _, count) ->
+            "$label (مرات الرؤية=$count، الارتباط المتعلم=${"%.2f".format(java.util.Locale.ROOT, learnedAffinity(label))})"
+        }
+    }
+
+    /** Keep only the latest short user/model exchanges to ground the next local generation. */
+    @Synchronized
+    fun rememberDialogue(userText: String, assistantText: String) {
+        val user = userText.trim().take(280)
+        val answer = assistantText.trim().take(420)
+        if (user.isBlank() || answer.isBlank()) return
+        val now = maxOf(System.currentTimeMillis(), prefs.getLong("dialogue:last_timestamp", 0L) + 1L)
+        prefs.edit()
+            .putString("dialogue:$now:user", user)
+            .putString("dialogue:$now:assistant", answer)
+            .putLong("dialogue:last_timestamp", now)
+            .apply()
+        val oldTimes = prefs.all.keys.asSequence()
+            .filter { it.startsWith("dialogue:") && it.endsWith(":user") }
+            .mapNotNull { it.removePrefix("dialogue:").removeSuffix(":user").toLongOrNull() }
+            .sortedDescending()
+            .drop(MAX_DIALOGUE_MEMORIES)
+            .toList()
+        if (oldTimes.isNotEmpty()) {
+            val edit = prefs.edit()
+            oldTimes.forEach { timestamp ->
+                edit.remove("dialogue:$timestamp:user")
+                edit.remove("dialogue:$timestamp:assistant")
+            }
+            edit.apply()
+        }
+    }
+
+    @Synchronized
+    fun recentDialogues(limit: Int = 3): List<String> {
+        val times = prefs.all.keys.asSequence()
+            .filter { it.startsWith("dialogue:") && it.endsWith(":user") }
+            .mapNotNull { it.removePrefix("dialogue:").removeSuffix(":user").toLongOrNull() }
+            .sortedDescending()
+            .take(limit.coerceIn(0, MAX_DIALOGUE_MEMORIES))
+        return times.mapNotNull { timestamp ->
+            val user = prefs.getString("dialogue:$timestamp:user", null) ?: return@mapNotNull null
+            val assistant = prefs.getString("dialogue:$timestamp:assistant", null) ?: return@mapNotNull null
+            "المستخدم: $user | إيف: $assistant"
+        }.toList()
+    }
+
+    @Synchronized
+    fun rememberReflection(note: String) {
+        val safe = note.trim().replace(Regex("\\s+"), " ").take(240)
+        if (safe.isBlank()) return
+        val now = maxOf(System.currentTimeMillis(), prefs.getLong("reflection:last_timestamp", 0L) + 1L)
+        prefs.edit().putString("reflection:$now", safe).putLong("reflection:last_timestamp", now).apply()
+        val oldTimes = prefs.all.keys.asSequence()
+            .filter { it.startsWith("reflection:") && it != "reflection:last_timestamp" }
+            .mapNotNull { it.removePrefix("reflection:").toLongOrNull() }
+            .sortedDescending()
+            .drop(MAX_REFLECTION_MEMORIES)
+            .toList()
+        if (oldTimes.isNotEmpty()) {
+            val edit = prefs.edit()
+            oldTimes.forEach { edit.remove("reflection:$it") }
+            edit.apply()
+        }
+    }
+
+    @Synchronized
+    fun recentReflections(limit: Int = 3): List<String> = prefs.all.keys.asSequence()
+        .filter { it.startsWith("reflection:") && it != "reflection:last_timestamp" }
+        .mapNotNull { key ->
+            val timestamp = key.removePrefix("reflection:").toLongOrNull() ?: return@mapNotNull null
+            val note = prefs.getString(key, null) ?: return@mapNotNull null
+            timestamp to note
+        }
+        .sortedByDescending { it.first }
+        .take(limit.coerceIn(0, MAX_REFLECTION_MEMORIES))
+        .map { it.second }
+        .toList()
+
+    companion object {
+        private const val MAX_DIALOGUE_MEMORIES = 12
+        private const val MAX_REFLECTION_MEMORIES = 10
+    }
 }
