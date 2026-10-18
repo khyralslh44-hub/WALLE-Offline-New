@@ -494,5 +494,15 @@ else
   echo "INFO: no live label was available for a restart counter comparison; instrumentation checks persistent learning." | tee -a "$RESULTS_DIR/result.txt"
 fi
 
-adb logcat -d -v threadtime > "$RESULTS_DIR/logcat-after-restart.txt"
+# Log capture is diagnostic only at this point; the emulator may disconnect after all
+# assertions passed. Don't turn a transient final ADB read into a false-negative test.
+if ! timeout 15s adb logcat -d -v threadtime > "$RESULTS_DIR/logcat-after-restart.txt" 2>"$RESULTS_DIR/adb-final-logcat-error.txt"; then
+  echo "WARN: final ADB logcat read failed after all behavioral assertions passed; reconnecting once." | tee -a "$RESULTS_DIR/result.txt"
+  adb start-server >/dev/null 2>&1 || true
+  timeout 45s adb wait-for-device >/dev/null 2>&1 || true
+  if ! timeout 15s adb logcat -d -v threadtime > "$RESULTS_DIR/logcat-after-restart.txt" 2>>"$RESULTS_DIR/adb-final-logcat-error.txt"; then
+    echo "WARN: final post-restart logcat was unavailable; earlier logs and assertions are retained." | tee -a "$RESULTS_DIR/result.txt"
+    printf '%s\n' "WARN: final post-restart logcat unavailable after reconnect." > "$RESULTS_DIR/logcat-after-restart-unavailable.txt"
+  fi
+fi
 echo "PASS: offline launch, image labeling, autonomous idle behavior, touch reaction, synthesized audio submission, persistent sighting counter, and no app crash/ANR." | tee -a "$RESULTS_DIR/result.txt"
