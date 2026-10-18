@@ -187,20 +187,30 @@ class RobotBrainTest {
         assertFalse(decision.playSound)
     }
 
-    @Test fun idleEventuallySleeps() {
-        assertEquals(EveMood.SLEEPY, RobotBrain().idle(45_000L, 1).mood)
+    @Test fun idlePreservesCurrentAffectBrieflyAndRestNeedEventuallyWins() {
+        assertEquals(EveMood.SLEEPY, RobotBrain().idle(180_000L, 1).mood)
         assertEquals(EveMood.NEUTRAL, RobotBrain().idle(8_000L, 2).mood)
     }
 
-    @Test fun autonomousIdleFollowsContextualStagesRatherThanRandomMoodPicks() {
+    @Test fun autonomousGoalIsUtilitySelectedAndDoesNotFollowARigidMoodClock() {
+        val early = RobotBrain().idle(8_000L, 1)
+        assertEquals(EveMood.NEUTRAL, early.mood)
+
+        val afterQuiet = RobotBrain().idle(18_000L, 2)
+        assertEquals(EveIntent.EXPLORE, afterQuiet.intent)
+        assertEquals(EveMood.CURIOUS, afterQuiet.mood)
+
+        // The legacy poll counter is not allowed to change the decision for the same affect state.
+        val sameStateDifferentPoll = RobotBrain().idle(18_000L, 99)
+        assertEquals(afterQuiet.mood, sameStateDifferentPoll.mood)
+        assertEquals(afterQuiet.intent, sameStateDifferentPoll.intent)
+    }
+
+    @Test fun theCurrentIdleGoalHasHysteresisInsteadOfFlippingOnEveryPoll() {
         val localBrain = RobotBrain()
-        val stages = listOf(8_000L, 18_000L, 35_000L, 65_000L, 100_000L)
-            .mapIndexed { index, quietFor -> localBrain.idle(quietFor, index).mood }
-        assertEquals(
-            listOf(EveMood.NEUTRAL, EveMood.CURIOUS, EveMood.PLAYFUL, EveMood.SLEEPY, EveMood.CURIOUS),
-            stages
-        )
-        assertEquals(RobotBrain().idle(18_000L, 1).mood, RobotBrain().idle(18_000L, 99).mood)
+        val first = localBrain.idle(18_000L, 3)
+        val nextPoll = localBrain.idle(24_000L, 4)
+        assertEquals(first.intent, nextPoll.intent)
     }
 
     @Test fun repeatedRapidTouchesEscalateOnlyToBoundedIrritationAndAnger() {
@@ -256,9 +266,13 @@ class RobotBrainTest {
         assertFalse(decision.playSound)
     }
 
-    @Test fun stablePersonalityTraitsShapeIdleBehaviorWithoutRandomSelection() {
-        val playful = RobotBrain(EvePersonality(playfulness = 0.95f)).idle(35_000L, 4)
-        val reserved = RobotBrain(EvePersonality(playfulness = 0.10f)).idle(35_000L, 4)
+    @Test fun stablePersonalityTraitsShapeGoalUtilitiesWithoutRandomSelection() {
+        val playful = RobotBrain(
+            EvePersonality(playfulness = 0.95f)
+        ).idle(35_000L, 4)
+        val reserved = RobotBrain(
+            EvePersonality(playfulness = 0.10f, curiosityBias = 0.15f)
+        ).idle(35_000L, 4)
         assertEquals(EveMood.PLAYFUL, playful.mood)
         assertEquals(EveIntent.PLAY, playful.intent)
         assertEquals(EveMood.FOCUSED, reserved.mood)
