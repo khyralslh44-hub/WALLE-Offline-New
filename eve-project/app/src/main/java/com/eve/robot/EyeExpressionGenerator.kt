@@ -145,72 +145,94 @@ object EyeExpressionGenerator {
             else -> gazeY
         }.coerceIn(-0.12f, 0.12f)
 
-        val rawReason = decision.reason.lowercase()
-        // Perception text describes a human's predicted/uncertain expression, not EVE's own mood.
-        // In particular, "uncertain ... label=angry" must never render angry eyes after rejection.
-        val reason = when {
-            rawReason.startsWith("uncertain facial-expression model output") -> ""
-            rawReason.startsWith("facial-expression model predicts ") -> ""
-            // The perceived person's emotion must not be copied onto EVE's own face.
-            "human" in rawReason || "person" in rawReason || "observing an angry" in rawReason -> ""
-            else -> rawReason
-        }
-        // Internal goal is a separate cue from emotion: two neutral idle states can look different
-        // because the robot is exploring, connecting, playing, resting, focusing, or regulating.
-        val intentSilhouette = when (decision.intent) {
-            null -> null
-            EveIntent.EXPLORE -> EyeSilhouette.CURIOUS
-            EveIntent.CONNECT -> if (valence >= 0.62f) EyeSilhouette.GLEE else EyeSilhouette.SOFT
-            EveIntent.PLAY -> if (valence < 0.08f) EyeSilhouette.SKEPTIC else EyeSilhouette.PLAYFUL
-            EveIntent.REST -> if (fatigue >= 0.72f) EyeSilhouette.BLINK_LOW else EyeSilhouette.DROOPY
-            EveIntent.FOCUS -> if (arousal < 0.28f) EyeSilhouette.SQUINT else EyeSilhouette.FOCUSED
-            EveIntent.REGULATE -> if (decision.frustration >= 0.55f) EyeSilhouette.UNIMPRESSED else EyeSilhouette.WORRIED
-        }
-        val clearSilhouette = intentSilhouette ?: when {
-            // When EVE observes an angry human, her own response is concern, never imitation.
-            // Keep this provenance-specific case distinct from EVE's own anger state.
-            decision.mood == EveMood.CONCERNED &&
-                ("observing an angry" in rawReason || "human" in rawReason || "person" in rawReason) ->
-                EyeSilhouette.WORRIED
-            "fear" in reason -> EyeSilhouette.SCARED
-            "sad down" in reason -> EyeSilhouette.SAD_DOWN
-            "sad up" in reason -> EyeSilhouette.SAD_UP
-            "sad" in reason -> if (clearGazeY >= 0.03f || valence < -0.55f) EyeSilhouette.SAD_DOWN else EyeSilhouette.SAD_UP
-            "angry" in reason -> if (arousal >= 0.72f || decision.frustration >= 0.70f) EyeSilhouette.FURIOUS else EyeSilhouette.SHARP
-            "surpris" in reason -> if (valence >= 0.35f) EyeSilhouette.AWE else EyeSilhouette.ROUND_SURPRISE
-            "happy" in reason -> if (valence >= 0.62f) EyeSilhouette.GLEE else EyeSilhouette.SMILE
-            "bored" in reason -> EyeSilhouette.BORED
-            "skeptic" in reason -> EyeSilhouette.SKEPTIC
-            "suspicious" in reason -> EyeSilhouette.SUSPICIOUS
-            "unimpressed" in reason -> EyeSilhouette.UNIMPRESSED
-            "blink high" in reason -> EyeSilhouette.BLINK_HIGH
-            "blink low" in reason -> EyeSilhouette.BLINK_LOW
-            else -> when (decision.mood) {
+        // Face choice is derived from the internal affect vector and current goal,
+        // never from diagnostic prose. The brain may describe an event in any language
+        // without that wording directly forcing a visual expression.
+        val intent = decision.intent
+        val clearSilhouette = when (intent) {
+            EveIntent.EXPLORE -> when {
+                curiosity >= 0.86f && arousal >= 0.72f && valence >= 0.18f -> EyeSilhouette.AWE
+                curiosity >= 0.82f && valence <= -0.28f -> EyeSilhouette.SUSPICIOUS
+                curiosity >= 0.80f && valence < 0.10f -> EyeSilhouette.SKEPTIC
+                else -> EyeSilhouette.CURIOUS
+            }
+            EveIntent.CONNECT -> when {
+                valence >= 0.62f && familiarity >= 0.25f -> EyeSilhouette.GLEE
+                valence <= -0.55f && clearGazeY >= 0.02f -> EyeSilhouette.SAD_DOWN
+                valence <= -0.55f -> EyeSilhouette.SAD_UP
+                else -> EyeSilhouette.SOFT
+            }
+            EveIntent.PLAY -> when {
+                decision.frustration >= 0.55f -> EyeSilhouette.ANNOYED
+                valence < 0.10f -> EyeSilhouette.SKEPTIC
+                valence >= 0.66f -> EyeSilhouette.GLEE
+                else -> EyeSilhouette.PLAYFUL
+            }
+            EveIntent.REST -> when {
+                fatigue >= 0.78f -> EyeSilhouette.BLINK_LOW
+                fatigue < 0.16f && arousal >= 0.48f -> EyeSilhouette.SOFT
+                else -> EyeSilhouette.DROOPY
+            }
+            EveIntent.FOCUS -> when {
+                decision.frustration >= 0.58f -> EyeSilhouette.UNIMPRESSED
+                fatigue >= 0.76f -> EyeSilhouette.BLINK_LOW
+                arousal < 0.30f -> EyeSilhouette.SQUINT
+                else -> EyeSilhouette.FOCUSED
+            }
+            EveIntent.REGULATE -> when {
+                decision.frustration >= 0.78f && arousal >= 0.72f -> EyeSilhouette.FURIOUS
+                decision.frustration >= 0.50f -> EyeSilhouette.ANNOYED
+                valence <= -0.55f && clearGazeY >= 0.02f -> EyeSilhouette.SAD_DOWN
+                valence <= -0.55f -> EyeSilhouette.SAD_UP
+                else -> EyeSilhouette.WORRIED
+            }
+            null -> when (decision.mood) {
                 EveMood.AWAKE -> EyeSilhouette.NEUTRAL
-                EveMood.NEUTRAL -> if (fatigue >= 0.76f) EyeSilhouette.BLINK_LOW else EyeSilhouette.ALMOND
+                EveMood.NEUTRAL -> when {
+                    fatigue >= 0.76f -> EyeSilhouette.BLINK_LOW
+                    arousal <= 0.16f -> EyeSilhouette.BLINK_HIGH
+                    else -> EyeSilhouette.ALMOND
+                }
                 EveMood.CURIOUS -> when {
-                    curiosity >= 0.84f && arousal >= 0.70f -> EyeSilhouette.AWE
-                    curiosity >= 0.82f && valence < -0.10f -> EyeSilhouette.SUSPICIOUS
+                    curiosity >= 0.86f && arousal >= 0.72f && valence >= 0.18f -> EyeSilhouette.AWE
+                    curiosity >= 0.82f && valence <= -0.28f -> EyeSilhouette.SUSPICIOUS
+                    curiosity >= 0.80f && valence < 0.10f -> EyeSilhouette.SKEPTIC
                     else -> EyeSilhouette.CURIOUS
                 }
-                EveMood.HAPPY -> if (valence >= 0.72f) EyeSilhouette.GLEE else EyeSilhouette.SMILE
-                EveMood.SURPRISED -> if (valence >= 0.45f) EyeSilhouette.AWE else EyeSilhouette.ROUND_SURPRISE
+                EveMood.HAPPY -> if (valence >= 0.66f && arousal >= 0.48f) EyeSilhouette.GLEE
+                    else EyeSilhouette.SMILE
+                EveMood.SURPRISED -> if (valence >= 0.45f) EyeSilhouette.AWE
+                    else EyeSilhouette.ROUND_SURPRISE
                 EveMood.CONCERNED -> when {
-                    valence < -0.45f && clearGazeY > 0.02f -> EyeSilhouette.SAD_DOWN
-                    valence < -0.45f -> EyeSilhouette.SAD_UP
+                    valence <= -0.28f && arousal >= 0.82f -> EyeSilhouette.SCARED
+                    valence <= -0.55f && clearGazeY >= 0.02f -> EyeSilhouette.SAD_DOWN
+                    valence <= -0.55f -> EyeSilhouette.SAD_UP
                     arousal < 0.28f -> EyeSilhouette.UNIMPRESSED
                     else -> EyeSilhouette.WORRIED
                 }
-                EveMood.FAMILIAR -> if (valence >= 0.60f) EyeSilhouette.GLEE else EyeSilhouette.SOFT
-                EveMood.SLEEPY -> if (fatigue >= 0.72f) EyeSilhouette.BLINK_LOW else EyeSilhouette.DROOPY
-                EveMood.FOCUSED -> if (arousal < 0.30f) EyeSilhouette.SQUINT else EyeSilhouette.FOCUSED
-                EveMood.PLAYFUL -> if (valence < 0f) EyeSilhouette.SKEPTIC else EyeSilhouette.PLAYFUL
+                EveMood.FAMILIAR -> if (valence >= 0.62f && familiarity >= 0.25f)
+                    EyeSilhouette.GLEE else EyeSilhouette.SOFT
+                EveMood.SLEEPY -> if (fatigue >= 0.78f) EyeSilhouette.BLINK_LOW
+                    else EyeSilhouette.DROOPY
+                EveMood.FOCUSED -> when {
+                    decision.frustration >= 0.58f -> EyeSilhouette.UNIMPRESSED
+                    fatigue >= 0.76f -> EyeSilhouette.BLINK_LOW
+                    arousal < 0.30f -> EyeSilhouette.SQUINT
+                    else -> EyeSilhouette.FOCUSED
+                }
+                EveMood.PLAYFUL -> when {
+                    decision.frustration >= 0.55f -> EyeSilhouette.ANNOYED
+                    valence < 0.10f -> EyeSilhouette.SKEPTIC
+                    valence >= 0.66f -> EyeSilhouette.GLEE
+                    else -> EyeSilhouette.PLAYFUL
+                }
                 EveMood.IRRITATED -> when {
                     decision.frustration >= 0.55f -> EyeSilhouette.UNIMPRESSED
                     arousal < 0.30f -> EyeSilhouette.BORED
                     else -> EyeSilhouette.ANNOYED
                 }
-                EveMood.ANGRY -> if (arousal >= 0.72f || decision.frustration >= 0.70f) EyeSilhouette.FURIOUS else EyeSilhouette.SHARP
+                EveMood.ANGRY -> if (arousal >= 0.72f || decision.frustration >= 0.70f)
+                    EyeSilhouette.FURIOUS else EyeSilhouette.SHARP
             }
         }
 
@@ -220,17 +242,8 @@ object EyeExpressionGenerator {
         // Keep the semantic pose, but add event-linked variation inside moods that previously
         // reused one glyph for many different situations. The seed is supplied by the event
         // caller, so the same event/seed remains perfectly repeatable; this is not idle randomness.
-        val expressionSilhouette = when {
-            reason.isNotBlank() -> clearSilhouette
-            decision.mood == EveMood.CURIOUS && seed.mod(3L) == 1L -> EyeSilhouette.SKEPTIC
-            decision.mood == EveMood.CURIOUS && seed.mod(3L) == 2L -> EyeSilhouette.SUSPICIOUS
-            decision.mood == EveMood.HAPPY && seed.mod(3L) == 1L -> EyeSilhouette.GLEE
-            decision.mood == EveMood.IRRITATED && seed.mod(3L) == 1L -> EyeSilhouette.BORED
-            decision.mood == EveMood.IRRITATED && seed.mod(3L) == 2L -> EyeSilhouette.UNIMPRESSED
-            decision.mood == EveMood.FAMILIAR && seed.mod(3L) == 1L -> EyeSilhouette.GLEE
-            decision.mood == EveMood.FOCUSED && seed.mod(3L) == 1L -> EyeSilhouette.SQUINT
-            else -> clearSilhouette
-        }
+        // No seed-based pose picking: personality, context, drives, and intent explain the expression.
+        val expressionSilhouette = clearSilhouette
 
         val expressionOpening = when (expressionSilhouette) {
             EyeSilhouette.ALMOND -> maxOf(clearOpening, 0.94f)
