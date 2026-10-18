@@ -239,7 +239,10 @@ class RobotFaceView(context: Context) : View(context) {
             // Neutral mood stays in the compact pixel family rather than becoming a wide almond.
             EyeSilhouette.ALMOND -> 0.82f
             EyeSilhouette.SOFT -> 0.86f
-            EyeSilhouette.ROUND_SURPRISE -> 0.96f
+            // The first raster audit measured 0.779 width/height, just below the 0.80 floor.
+            // Widen only the surprise glyph slightly so it reads as a tall rounded LED block,
+            // without making it as wide as the neutral pixel.
+            EyeSilhouette.ROUND_SURPRISE -> 1.01f
             EyeSilhouette.AWE -> 0.96f
             EyeSilhouette.SCARED -> 0.90f
             EyeSilhouette.SKEPTIC, EyeSilhouette.SUSPICIOUS -> 0.92f
@@ -338,8 +341,8 @@ class RobotFaceView(context: Context) : View(context) {
 
             // Surprise: taller blocks with rounded corners; distinguish it from the neutral glyph.
             EyeSilhouette.ROUND_SURPRISE -> {
-                val surpriseRect = RectF(cx - hw * 0.88f, centerY - glyphHh * 1.12f,
-                    cx + hw * 0.88f, centerY + glyphHh * 1.12f)
+                val surpriseRect = RectF(cx - hw * 0.90f, centerY - glyphHh * 1.10f,
+                    cx + hw * 0.90f, centerY + glyphHh * 1.10f)
                 val radius = min(hw * 0.30f, glyphHh * 0.32f)
                 shape.addRoundRect(surpriseRect, radius, radius, Path.Direction.CW)
             }
