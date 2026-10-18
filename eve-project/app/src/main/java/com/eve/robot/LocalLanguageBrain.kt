@@ -261,7 +261,12 @@ class LocalLanguageBrain(
                     if (closed.get()) throw IllegalStateException("تم إغلاق النموذج المحلي.")
                     val activeConversation = conversation ?: throw IllegalStateException("لا توجد محادثة محلية نشطة.")
                     // LiteRT-LM 0.18 exposes maxOutputToken in ConversationConfig, not sendMessage.
+                    // Record native-call timing because CPU inference can be slow on x86 CI emulators.
+                    val inferenceStartedAt = SystemClock.elapsedRealtime()
+                    Log.i(TAG, "LOCAL_LLM_INFERENCE_START promptChars=${prompt.length} outputCap=$MAX_OUTPUT_TOKENS")
                     val response = activeConversation.sendMessage(prompt)
+                    val nativeElapsed = SystemClock.elapsedRealtime() - inferenceStartedAt
+                    Log.i(TAG, "LOCAL_LLM_NATIVE_RETURN elapsedMs=$nativeElapsed")
                     // LiteRT-LM 0.18 returns a Message whose text segments live in contents.
                     val responseText = response.contents.contents
                         .filterIsInstance<com.google.ai.edge.litertlm.Content.Text>()
@@ -269,7 +274,8 @@ class LocalLanguageBrain(
                     val parsed = parseResponse(responseText, maxOutputTokens)
                     Log.i(
                         TAG,
-                        "LOCAL_LLM_INFERENCE_OK chars=${responseText.length} mood=${parsed.moodHint ?: "none"} " +
+                        "LOCAL_LLM_INFERENCE_OK elapsedMs=${SystemClock.elapsedRealtime() - inferenceStartedAt} " +
+                            "chars=${responseText.length} mood=${parsed.moodHint ?: "none"} " +
                             "intent=${parsed.intentHint ?: "none"}"
                     )
                     deliver(callback, Result.success(parsed))
@@ -291,45 +297,43 @@ class LocalLanguageBrain(
             ?.coerceIn(0f, 1f) ?: 0f
         val hasFreshVisualEvidence = context.visionObservationAgeMs in 0L..12_000L &&
             context.latestVisionLabel != null && latestConfidence >= 0.45f
-        val label = if (hasFreshVisualEvidence) context.latestVisionLabel.orEmpty().take(64) else "none"
+        val label = if (hasFreshVisualEvidence) context.latestVisionLabel.orEmpty().take(48) else "none"
         val confidence = if (hasFreshVisualEvidence) {
             String.format(Locale.ROOT, "%.2f", latestConfidence)
         } else "0.00"
-        val observations = context.recentObservations.take(5).joinToString("؛ ").ifBlank { "لا توجد ملاحظات سابقة" }
-        val dialogues = context.recentDialogues.take(3).joinToString("\n").ifBlank { "لا توجد محادثات محفوظة" }
-        val reflections = context.recentReflections.take(3).joinToString("؛ ").ifBlank { "لا توجد استنتاجات بصرية محفوظة" }
-        val reason = context.moodReason.take(180).replace("\n", " ")
-        val user = userText.trim().take(500).ifBlank { "لا يوجد كلام جديد من المستخدم" }
-        val personality = "الدفء=${context.personality.warmth}; الفضول=${context.personality.curiosityBias}; " +
-            "المرح=${context.personality.playfulness}; الصبر=${context.personality.patience}"
+        val observations = context.recentObservations.take(3).joinToString("؛ ").take(180)
+            .ifBlank { "لا توجد ملاحظات" }
+        val dialogues = context.recentDialogues.take(2).joinToString("\n").take(220)
+            .ifBlank { "لا توجد محادثات" }
+        val reflections = context.recentReflections.take(2).joinToString("؛ ").take(140)
+            .ifBlank { "لا توجد استنتاجات" }
+        val reason = context.moodReason.take(72).replace("\n", " ")
+        val user = userText.trim().take(280).ifBlank { "لا يوجد كلام جديد" }
+        val personality = "warmth=${context.personality.warmth}; curiosity=${context.personality.curiosityBias}; " +
+            "play=${context.personality.playfulness}; patience=${context.personality.patience}"
         val task = if (mode == "USER") {
-            "أجب المستخدم بإجابة عربية ودودة ومختصرة من جملة إلى ثلاث جمل. إذا كان السؤال عن المشهد، استخدم الملاحظة المرئية المتاحة فقط. لا تدّعِ أنك ترى تفاصيل غير موجودة في بيانات الرؤية."
+            "أجب بالعربية باختصار. لا تصف المشهد إلا إذا كانت الرؤية حديثة وموثوقة."
         } else {
-            "لا تتحدث إلى المستخدم ولا تكتب ردًا ظاهرًا. استنتج ملاحظة داخلية قصيرة عن المشهد أو عن عدم اليقين، واقترح مزاجًا وهدفًا هادئًا للروبوت. reply_ar يجب أن يكون فارغًا."
+            "استنتج ملاحظة داخلية قصيرة. اجعل reply_ar فارغًا ولا تخاطب المستخدم."
         }
         return """
 MODE=$mode
-TASK: $task
-
-LATEST_ON_DEVICE_VISION_LABEL=$label
+TASK=$task
+VISION=$label
 VISION_CONFIDENCE=$confidence
-CURRENT_OBSERVATION_AGE_MS=${context.visionObservationAgeMs.coerceAtLeast(0L)}
-CURRENT_OBSERVATION_FRESH=$hasFreshVisualEvidence
-SIGHTING_COUNT=${context.sightingCount.coerceIn(0, 100000)}
-LEARNED_AFFINITY=${context.learnedAffinity.takeIf { it.isFinite() }?.coerceIn(-1f, 1f) ?: 0f}
-CURRENT_ROBOT_MOOD=${context.currentMood.take(32)}
-CURRENT_MOOD_REASON=$reason
-PERSISTENT_PERSONALITY=$personality
-RECENT_LOCAL_VISUAL_MEMORY=$observations
-RECENT_LOCAL_DIALOGUE_MEMORY:
-$dialogues
-RECENT_LOCAL_REFLECTIONS=$reflections
-USER_UTTERANCE=$user
-
-Return exactly one JSON object, without Markdown:
-{"reply_ar":"short Arabic reply or empty","reflection_ar":"one short internal Arabic note","mood":"neutral|curious|happy|concerned|focused|playful|sleepy|irritated|none","intent":"observe|explore|connect|play|focus|rest|regulate|none","confidence":0.0}
-
-Rules: this app runs offline. You are the language component of a robot whose deterministic behavior engine remains in charge. Use the supplied memory as context, never invent memories. An observation counts as current evidence only when CURRENT_OBSERVATION_FRESH=true; if false, say you do not have a fresh visual observation and never present an old memory as what is in front of the camera now. Image-label output is only a probable category, not proof of identity. Never claim to recognize the identity of a person or know their private inner feelings from a label. When vision confidence is weak or label is generic, explicitly remain uncertain. Choose only the allowed mood and intent values. Never instruct the app to change cameras, access files, or perform an external action.
+VISION_FRESH=$hasFreshVisualEvidence
+VISION_AGE_MS=${context.visionObservationAgeMs.coerceAtLeast(0L)}
+SIGHTINGS=${context.sightingCount.coerceIn(0, 100000)}
+AFFINITY=${context.learnedAffinity.takeIf { it.isFinite() }?.coerceIn(-1f, 1f) ?: 0f}
+MOOD=${context.currentMood.take(24)} ($reason)
+PERSONALITY=$personality
+MEMORY=$observations
+DIALOGUE=$dialogues
+REFLECTIONS=$reflections
+USER=$user
+Return ONLY this JSON schema:
+{"reply_ar":"short Arabic reply or empty","reflection_ar":"short or empty","mood":"neutral|curious|happy|concerned|focused|playful|sleepy|irritated|none","intent":"observe|explore|connect|play|focus|rest|regulate|none","confidence":0.0}
+Rules: if VISION_FRESH=false, do not describe what is currently in view. Labels are uncertain categories, not identity or proof of private feelings. Never invent memory, claim consciousness, or request external actions. The Kotlin behavior engine validates hints. If MODE=OBSERVATION, reply_ar must be empty.
         """.trimIndent()
     }
 
@@ -572,7 +576,7 @@ Rules: this app runs offline. You are the language component of a robot whose de
         private const val READ_TIMEOUT_MS = 75_000
         private const val RETRY_DELAY_MS = 30_000L
         private const val MAX_REPLY_CHARS = 650
-        private const val MAX_OUTPUT_TOKENS = 160
+        private const val MAX_OUTPUT_TOKENS = 64
         /**
          * Qwen2 chat format adapted for LiteRT-LM 0.18 typed content.
          * The stock bundle template concatenates role + content as strings, which fails when
