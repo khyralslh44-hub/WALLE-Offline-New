@@ -13,6 +13,9 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.speech.RecognitionListener
+import android.speech.RecognizerIntent
+import android.speech.SpeechRecognizer
 import android.util.Log
 import android.util.Size
 import android.view.Gravity
@@ -52,6 +55,11 @@ class MainActivity : ComponentActivity() {
     private lateinit var brain: RobotBrain
     private lateinit var memory: EveMemory
     private lateinit var voice: RobotVoice
+    private var speechRecognizer: SpeechRecognizer? = null
+    private var speechListening = false
+    private var lastSpeechText = ""
+    private var lastSpeechAt = 0L
+    private val speechRestart = Runnable { startOfflineSpeechListening() }
     private lateinit var cameraStatus: TextView
     private val main = Handler(Looper.getMainLooper())
     private val cameraExecutor: ExecutorService = Executors.newSingleThreadExecutor()
@@ -172,6 +180,13 @@ class MainActivity : ComponentActivity() {
         requestNotificationPermissionIfNeeded()
     }
 
+    private val audioPermissionRequest = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) startOfflineSpeechListening()
+        else Log.i("EVE_AUDIO", "Microphone permission declined; offline listening disabled.")
+    }
+
     private val notificationPermissionRequest = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
@@ -262,6 +277,7 @@ class MainActivity : ComponentActivity() {
         brain = RobotBrain(memory.learnedPersonality())
         voice = RobotVoice()
         initializeHandGestureRecognizer()
+        requestOfflineSpeechPermission()
 
         face.setOnTouchListener { _, event ->
             when (event.actionMasked) {
@@ -338,6 +354,119 @@ class MainActivity : ComponentActivity() {
                 .putBoolean("cameraPermissionRequested", true).apply()
             permissionRequest.launch(Manifest.permission.CAMERA)
         }
+    }
+
+
+    private fun requestOfflineSpeechPermission() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) ==
+            PackageManager.PERMISSION_GRANTED
+        ) startOfflineSpeechListening()
+        else audioPermissionRequest.launch(Manifest.permission.RECORD_AUDIO)
+    }
+
+    // Uses Android's local recognizer only; there is deliberately no cloud fallback.
+    private fun startOfflineSpeechListening() {
+        if (isFinishing || isDestroyed || speechListening) return
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) !=
+            PackageManager.PERMISSION_GRANTED
+        ) return
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
+            !SpeechRecognizer.isOnDeviceRecognitionAvailable(this)
+        ) {
+            Log.i("EVE_AUDIO", "OFFLINE_SPEECH_UNAVAILABLE reason=no_local_recognizer_or_language_pack")
+            return
+        }
+        try {
+            if (speechRecognizer == null) {
+                speechRecognizer = SpeechRecognizer.createOnDeviceSpeechRecognizer(this).apply {
+                    setRecognitionListener(object : RecognitionListener {
+                        override fun onReadyForSpeech(params: android.os.Bundle?) {
+                            speechListening = true
+                            Log.i("EVE_AUDIO", "LISTENING mode=on_device language=ar")
+                        }
+                        override fun onBeginningOfSpeech() { Log.i("EVE_AUDIO", "SPEECH_STARTED") }
+                        override fun onRmsChanged(rmsdB: Float) {}
+                        override fun onBufferReceived(buffer: ByteArray?) {}
+                        override fun onEndOfSpeech() { speechListening = false }
+                        override fun onError(error: Int) {
+                            speechListening = false
+                            Log.i("EVE_AUDIO", "LISTEN_ERROR code=$error; retrying locally")
+                            main.removeCallbacks(speechRestart)
+                            main.postDelayed(speechRestart, 1200L)
+                        }
+                        override fun onResults(results: android.os.Bundle?) {
+                            speechListening = false
+                            val text = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                                ?.firstOrNull()?.trim().orEmpty()
+                            if (text.isNotBlank()) handleRecognizedSpeech(text, "final")
+                            main.removeCallbacks(speechRestart)
+                            main.postDelayed(speechRestart, 350L)
+                        }
+                        override fun onPartialResults(partialResults: android.os.Bundle?) {
+                            val text = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                                ?.firstOrNull()?.trim().orEmpty()
+                            if (text.isNotBlank()) handleRecognizedSpeech(text, "partial")
+                        }
+                        override fun onEvent(eventType: Int, params: android.os.Bundle?) {}
+                    })
+                }
+            }
+            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ar")
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "ar")
+                putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
+                putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+                putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, packageName)
+            }
+            speechListening = true
+            speechRecognizer?.startListening(intent)
+        } catch (error: Exception) {
+            speechListening = false
+            Log.w("EVE_AUDIO", "OFFLINE_SPEECH_START_FAILED", error)
+            main.removeCallbacks(speechRestart)
+            main.postDelayed(speechRestart, 1800L)
+        }
+    }
+
+    private fun handleRecognizedSpeech(rawText: String, source: String) {
+        val text = rawText.trim().lowercase()
+        if (text.isBlank()) return
+        val now = SystemClock.elapsedRealtime()
+        if (text == lastSpeechText && now - lastSpeechAt < 2800L) return
+        if (source == "partial" && text.length < 3) return
+        lastSpeechText = text
+        lastSpeechAt = now
+        Log.i("EVE_AUDIO", "RECOGNIZED source=$source text=$text")
+
+        val decision = when {
+            listOf("مرحبا", "السلام عليكم", "أهلا", "اهلا", "hello", "hi ").any { text.contains(it) } ->
+                brain.observeHandGesture("wave", 0.96f)
+            listOf("سعيد", "سعيدة", "فرحان", "فرحانة", "happy").any { text.contains(it) } ->
+                brain.observeFacialEmotion("happy", 0.96f)
+            listOf("حزين", "حزينة", "زعلان", "sad").any { text.contains(it) } ->
+                brain.observeFacialEmotion("sad", 0.90f)
+            listOf("غاضب", "غضبان", "معصب", "angry").any { text.contains(it) } ->
+                brain.observeFacialEmotion("angry", 0.90f)
+            listOf("خائف", "خايف", "خائفة", "scared").any { text.contains(it) } ->
+                brain.observeFacialEmotion("fearful", 0.90f)
+            listOf("مندهش", "مفاجأة", "surprised").any { text.contains(it) } ->
+                brain.observeFacialEmotion("surprised", 0.90f)
+            listOf("ما هذا", "ما ترين", "ماذا ترين", "what is this", "what do you see").any { text.contains(it) } -> {
+                val visualLabel = lastMeaningfulLabel
+                if (visualLabel != null && now - lastMeaningfulLabelAt in 0L..12_000L)
+                    brain.observe(visualLabel, 0.90f, 1)
+                else brain.touched(false, now)
+            }
+            listOf("توقفي", "اسكتي", "لا تتكلمي", "stop talking", "be quiet").any { text.contains(it) } ->
+                brain.observeFacialEmotion("neutral", 0.90f)
+            else -> {
+                Log.i("EVE_AUDIO", "UNMAPPED_UTTERANCE text=$text")
+                brain.touched(false, now)
+            }
+        }
+        react(decision, playSound = decision.playSound)
     }
 
     private fun handleCameraStatusTap() {
@@ -1020,6 +1149,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         main.removeCallbacks(idleLoop)
+        main.removeCallbacks(speechRestart)
+        speechListening = false
+        try { speechRecognizer?.cancel() } catch (_: Exception) { }
+        try { speechRecognizer?.destroy() } catch (_: Exception) { }
+        speechRecognizer = null
         handGestureReady = false
         try { cameraProvider?.unbindAll() } catch (_: Exception) { }
         try { labeler.close() } catch (_: Exception) { }
