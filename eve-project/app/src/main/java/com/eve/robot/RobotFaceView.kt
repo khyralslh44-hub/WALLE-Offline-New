@@ -238,7 +238,8 @@ class RobotFaceView(context: Context) : View(context) {
             EyeSilhouette.NEUTRAL -> 0.98f
             // Neutral mood stays in the compact pixel family rather than becoming a wide almond.
             EyeSilhouette.ALMOND -> 0.82f
-            EyeSilhouette.SOFT -> 0.86f
+            // Warm eyes are rounded but still compact; avoid a tall capsule failing the pixel audit.
+            EyeSilhouette.SOFT -> 0.96f
             // The first raster audit measured 0.779 width/height, just below the 0.80 floor.
             // Widen only the surprise glyph slightly so it reads as a tall rounded LED block,
             // without making it as wide as the neutral pixel.
@@ -251,7 +252,7 @@ class RobotFaceView(context: Context) : View(context) {
         val heightScale = when (eyeSilhouette) {
             EyeSilhouette.NEUTRAL -> 1.00f
             EyeSilhouette.ALMOND -> 1.08f
-            EyeSilhouette.SOFT -> 1.34f
+            EyeSilhouette.SOFT -> 1.00f
             EyeSilhouette.ROUND_SURPRISE -> 1.00f
             EyeSilhouette.AWE -> 1.18f
             EyeSilhouette.SCARED -> 1.12f
