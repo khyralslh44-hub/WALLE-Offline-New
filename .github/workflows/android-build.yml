@@ -17,7 +17,7 @@ on:
       - '.github/scripts/fetch-arabic-vosk-model.sh'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -138,3 +138,19 @@ jobs:
           path: eve-project/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
+
+      - name: Publish direct-install APK release
+        if: ${{ github.ref == 'refs/heads/main' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: eve-build-${{ github.run_number }}
+          name: EVE Android APK build ${{ github.run_number }}
+          body: |
+            Direct-install APK built by GitHub Actions.
+            Source commit: ${{ github.sha }}
+            Core camera labeling, facial-expression inference, gesture recognition, and behavior logic are designed to run on-device.
+          files: eve-project/app/build/outputs/apk/debug/app-debug.apk
+          generate_release_notes: false
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
