@@ -79,7 +79,7 @@ class RobotFaceRenderingTest {
             spec("Furious", EveMood.ANGRY, EyeSilhouette.FURIOUS, reason = "angry", arousal = 0.88f, frustration = 0.88f),
             spec("Scared", EveMood.CONCERNED, EyeSilhouette.SCARED, reason = "fearful", valence = -0.50f, arousal = 0.85f),
             spec("Awe", EveMood.SURPRISED, EyeSilhouette.AWE, reason = "surprised", valence = 0.85f, arousal = 0.86f),
-            spec("Playful", EveMood.PLAYFUL, EyeSilhouette.PLAYFUL, reason = "playful", valence = 0.70f),
+            spec("Playful", EveMood.PLAYFUL, EyeSilhouette.PLAYFUL, reason = "playful", valence = 0.40f),
             spec("Warm", EveMood.FAMILIAR, EyeSilhouette.SOFT, reason = "familiar", valence = 0.25f)
         )
 
