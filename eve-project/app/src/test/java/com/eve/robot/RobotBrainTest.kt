@@ -28,6 +28,37 @@ class RobotBrainTest {
         assertFalse(unavailable.playSound)
     }
 
+    @Test fun offlineRecognizedQuestionTriggersCuriousNonverbalAffect() {
+        val localBrain = RobotBrain()
+        val before = localBrain.awakenExperience()
+        val response = localBrain.respondToSpeech("كيف حالك", addressedToEve = false)
+
+        assertEquals(EveMood.CURIOUS, response.mood)
+        assertTrue(response.curiosity > before.curiosity)
+        assertTrue(response.reason.contains("heard a question"))
+        assertFalse("Audio playback is dispatched by RobotVoice, not duplicated by the brain.", response.playSound)
+    }
+
+    @Test fun directAddressBuildsWarmthAndChangesTheNextSpeechResponse() {
+        val localBrain = RobotBrain()
+        localBrain.awakenExperience()
+        val first = localBrain.respondToSpeech("يا ايف", addressedToEve = true)
+        val second = localBrain.respondToSpeech("مرحبا يا ايف", addressedToEve = true)
+
+        assertTrue(first.familiarity > 0f)
+        assertEquals(EveMood.PLAYFUL, second.mood)
+        assertTrue(second.valence > first.valence)
+        assertFalse(second.playSound)
+    }
+
+    @Test fun unrecognizedCompleteSpeechStillGetsAttentiveNonverbalResponse() {
+        val response = RobotBrain().respondToSpeech("انا اتحدث اليك", addressedToEve = false)
+
+        assertEquals(EveMood.CURIOUS, response.mood)
+        assertTrue(response.reason.contains("attentive nonverbal response"))
+        assertFalse(response.playSound)
+    }
+
     @Test fun handSignalsChangeTheCentralAffectState() {
         val brain = RobotBrain()
         val wave = brain.observeHandGesture("wave", 0.93f)
