@@ -66,6 +66,7 @@ object EyeExpressionGenerator {
         val curiosity = decision.curiosity.coerceIn(0f, 1f)
         val familiarity = decision.familiarity.coerceIn(0f, 1f)
         val fatigue = decision.fatigue.coerceIn(0f, 1f)
+        val characterPlayfulness = decision.playfulness.coerceIn(0f, 1f)
 
         val opening = (base[0] + (arousal - 0.42f) * 0.24f - fatigue * 0.17f)
             .coerceIn(0.14f, 1.20f)
@@ -75,10 +76,14 @@ object EyeExpressionGenerator {
         val gazeX = (base[2] + (curiosity - 0.5f) * 0.105f).coerceIn(-0.16f, 0.16f)
         val gazeY = (base[3] + fatigue * 0.060f - arousal * 0.030f).coerceIn(-0.12f, 0.12f)
         val glow = (base[4] *
-            (0.86f + valence * 0.07f + arousal * 0.05f + familiarity * 0.04f))
+            (0.84f + valence * 0.07f + arousal * 0.05f + familiarity * 0.04f +
+                characterPlayfulness * 0.04f))
             .coerceIn(0.22f, 1f)
         val squint = (base[5] + valence * 0.08f - fatigue * 0.26f).coerceIn(0.40f, 1.25f)
-        val asymmetry = (base[6] + (curiosity - 0.5f) * 0.26f).coerceIn(-0.38f, 0.38f)
+        // Character temperament subtly changes eye micro-gestures without replacing the
+        // emotional state: playful characters are a little more asymmetrical/expressive.
+        val asymmetry = (base[6] + (curiosity - 0.5f) * 0.26f +
+            (characterPlayfulness - 0.5f) * 0.16f).coerceIn(-0.38f, 0.38f)
         val eyeWidth = (base[7] + (arousal - 0.45f) * 0.075f).coerceIn(0.76f, 1.24f)
         val eyeHeight = (base[8] + valence * 0.045f - fatigue * 0.09f).coerceIn(0.60f, 1.25f)
         val spacing = (base[9] + (arousal - 0.4f) * 0.08f).coerceIn(0.78f, 1.22f)
@@ -157,15 +162,16 @@ object EyeExpressionGenerator {
                 else -> EyeSilhouette.CURIOUS
             }
             EveIntent.CONNECT -> when {
-                valence >= 0.62f && familiarity >= 0.25f -> EyeSilhouette.GLEE
+                valence >= 0.62f && familiarity >= 0.25f && characterPlayfulness >= 0.45f -> EyeSilhouette.GLEE
                 valence <= -0.55f && fatigue >= 0.52f -> EyeSilhouette.SAD_DOWN
                 valence <= -0.55f -> EyeSilhouette.SAD_UP
                 else -> EyeSilhouette.SOFT
             }
             EveIntent.PLAY -> when {
                 decision.frustration >= 0.55f -> EyeSilhouette.ANNOYED
+                characterPlayfulness < 0.30f -> EyeSilhouette.SOFT
                 valence < 0.10f -> EyeSilhouette.SKEPTIC
-                valence >= 0.66f -> EyeSilhouette.GLEE
+                valence >= 0.66f && characterPlayfulness >= 0.55f -> EyeSilhouette.GLEE
                 else -> EyeSilhouette.PLAYFUL
             }
             EveIntent.REST -> when {
@@ -199,8 +205,8 @@ object EyeExpressionGenerator {
                     curiosity >= 0.80f && valence < 0.10f -> EyeSilhouette.SKEPTIC
                     else -> EyeSilhouette.CURIOUS
                 }
-                EveMood.HAPPY -> if (valence >= 0.66f && arousal >= 0.48f) EyeSilhouette.GLEE
-                    else EyeSilhouette.SMILE
+                EveMood.HAPPY -> if (valence >= 0.66f && arousal >= 0.48f &&
+                    characterPlayfulness >= 0.50f) EyeSilhouette.GLEE else EyeSilhouette.SMILE
                 EveMood.SURPRISED -> if (valence >= 0.45f) EyeSilhouette.AWE
                     else EyeSilhouette.ROUND_SURPRISE
                 EveMood.CONCERNED -> when {
@@ -210,8 +216,8 @@ object EyeExpressionGenerator {
                     arousal < 0.28f -> EyeSilhouette.UNIMPRESSED
                     else -> EyeSilhouette.WORRIED
                 }
-                EveMood.FAMILIAR -> if (valence >= 0.62f && familiarity >= 0.25f)
-                    EyeSilhouette.GLEE else EyeSilhouette.SOFT
+                EveMood.FAMILIAR -> if (valence >= 0.62f && familiarity >= 0.25f &&
+                    characterPlayfulness >= 0.45f) EyeSilhouette.GLEE else EyeSilhouette.SOFT
                 EveMood.SLEEPY -> if (fatigue >= 0.78f) EyeSilhouette.BLINK_LOW
                     else EyeSilhouette.DROOPY
                 EveMood.FOCUSED -> when {
@@ -222,8 +228,9 @@ object EyeExpressionGenerator {
                 }
                 EveMood.PLAYFUL -> when {
                     decision.frustration >= 0.55f -> EyeSilhouette.ANNOYED
+                    characterPlayfulness < 0.30f -> EyeSilhouette.SOFT
                     valence < 0.10f -> EyeSilhouette.SKEPTIC
-                    valence >= 0.66f -> EyeSilhouette.GLEE
+                    valence >= 0.66f && characterPlayfulness >= 0.55f -> EyeSilhouette.GLEE
                     else -> EyeSilhouette.PLAYFUL
                 }
                 EveMood.IRRITATED -> when {
