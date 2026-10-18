@@ -173,7 +173,8 @@ class MainActivity : ComponentActivity() {
             react(brain.cameraUnavailable("permission declined"), playSound = false)
             Log.i("EVE", "Camera permission declined; face remains active.")
         }
-        requestNotificationPermissionIfNeeded()
+        // Request system permissions sequentially; Android can queue only one runtime dialog at a time.
+        requestOfflineSpeechPermission()
     }
 
     private val audioPermissionRequest = registerForActivityResult(
@@ -181,6 +182,7 @@ class MainActivity : ComponentActivity() {
     ) { granted ->
         if (granted) startOfflineSpeechListening()
         else Log.i("EVE_AUDIO", "Microphone permission declined; offline listening disabled.")
+        requestNotificationPermissionIfNeeded()
     }
 
     private val notificationPermissionRequest = registerForActivityResult(
@@ -344,7 +346,7 @@ class MainActivity : ComponentActivity() {
         main.postDelayed(idleLoop, 5200L)
         if (hasCameraPermission()) {
             startCamera()
-            requestNotificationPermissionIfNeeded()
+            requestOfflineSpeechPermission()
         } else {
             getSharedPreferences("eve_relationship", MODE_PRIVATE).edit()
                 .putBoolean("cameraPermissionRequested", true).apply()
@@ -356,8 +358,12 @@ class MainActivity : ComponentActivity() {
     private fun requestOfflineSpeechPermission() {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) ==
             PackageManager.PERMISSION_GRANTED
-        ) startOfflineSpeechListening()
-        else audioPermissionRequest.launch(Manifest.permission.RECORD_AUDIO)
+        ) {
+            startOfflineSpeechListening()
+            requestNotificationPermissionIfNeeded()
+        } else {
+            audioPermissionRequest.launch(Manifest.permission.RECORD_AUDIO)
+        }
     }
 
     // This recognizer and its Arabic model are bundled in the APK and never use Android/cloud STT.
