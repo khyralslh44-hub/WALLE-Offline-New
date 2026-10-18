@@ -13,9 +13,6 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
-import android.speech.RecognitionListener
-import android.speech.RecognizerIntent
-import android.speech.SpeechRecognizer
 import android.util.Log
 import android.util.Size
 import android.view.Gravity
@@ -55,11 +52,9 @@ class MainActivity : ComponentActivity() {
     private lateinit var brain: RobotBrain
     private lateinit var memory: EveMemory
     private lateinit var voice: RobotVoice
-    private var speechRecognizer: SpeechRecognizer? = null
-    private var speechListening = false
+    private var offlineArabicSpeech: OfflineArabicSpeech? = null
     private var lastSpeechText = ""
     private var lastSpeechAt = 0L
-    private val speechRestart = Runnable { startOfflineSpeechListening() }
     private lateinit var cameraStatus: TextView
     private val main = Handler(Looper.getMainLooper())
     private val cameraExecutor: ExecutorService = Executors.newSingleThreadExecutor()
@@ -364,70 +359,25 @@ class MainActivity : ComponentActivity() {
         else audioPermissionRequest.launch(Manifest.permission.RECORD_AUDIO)
     }
 
-    // Uses Android's local recognizer only; there is deliberately no cloud fallback.
+    // This recognizer and its Arabic model are bundled in the APK and never use Android/cloud STT.
     private fun startOfflineSpeechListening() {
-        if (isFinishing || isDestroyed || speechListening) return
+        if (isFinishing || isDestroyed || offlineArabicSpeech != null) return
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) !=
             PackageManager.PERMISSION_GRANTED
         ) return
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
-            !SpeechRecognizer.isOnDeviceRecognitionAvailable(this)
-        ) {
-            Log.i("EVE_AUDIO", "OFFLINE_SPEECH_UNAVAILABLE reason=no_local_recognizer_or_language_pack")
-            return
-        }
-        try {
-            if (speechRecognizer == null) {
-                speechRecognizer = SpeechRecognizer.createOnDeviceSpeechRecognizer(this).apply {
-                    setRecognitionListener(object : RecognitionListener {
-                        override fun onReadyForSpeech(params: android.os.Bundle?) {
-                            speechListening = true
-                            Log.i("EVE_AUDIO", "LISTENING mode=on_device language=ar")
-                        }
-                        override fun onBeginningOfSpeech() { Log.i("EVE_AUDIO", "SPEECH_STARTED") }
-                        override fun onRmsChanged(rmsdB: Float) {}
-                        override fun onBufferReceived(buffer: ByteArray?) {}
-                        override fun onEndOfSpeech() { speechListening = false }
-                        override fun onError(error: Int) {
-                            speechListening = false
-                            Log.i("EVE_AUDIO", "LISTEN_ERROR code=$error; retrying locally")
-                            main.removeCallbacks(speechRestart)
-                            main.postDelayed(speechRestart, 1200L)
-                        }
-                        override fun onResults(results: android.os.Bundle?) {
-                            speechListening = false
-                            val text = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                                ?.firstOrNull()?.trim().orEmpty()
-                            if (text.isNotBlank()) handleRecognizedSpeech(text, "final")
-                            main.removeCallbacks(speechRestart)
-                            main.postDelayed(speechRestart, 350L)
-                        }
-                        override fun onPartialResults(partialResults: android.os.Bundle?) {
-                            val text = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                                ?.firstOrNull()?.trim().orEmpty()
-                            if (text.isNotBlank()) handleRecognizedSpeech(text, "partial")
-                        }
-                        override fun onEvent(eventType: Int, params: android.os.Bundle?) {}
-                    })
+
+        offlineArabicSpeech = OfflineArabicSpeech(
+            context = applicationContext,
+            onTranscript = { recognizedText ->
+                if (!isFinishing && !isDestroyed) {
+                    handleRecognizedSpeech(recognizedText, "offline_vosk")
                 }
+            },
+            onStatus = { status ->
+                Log.i("EVE_AUDIO", status)
             }
-            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ar")
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "ar")
-                putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
-                putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
-                putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, packageName)
-            }
-            speechListening = true
-            speechRecognizer?.startListening(intent)
-        } catch (error: Exception) {
-            speechListening = false
-            Log.w("EVE_AUDIO", "OFFLINE_SPEECH_START_FAILED", error)
-            main.removeCallbacks(speechRestart)
-            main.postDelayed(speechRestart, 1800L)
-        }
+        )
+        offlineArabicSpeech?.start()
     }
 
     private fun handleRecognizedSpeech(rawText: String, source: String) {
@@ -1149,11 +1099,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         main.removeCallbacks(idleLoop)
-        main.removeCallbacks(speechRestart)
-        speechListening = false
-        try { speechRecognizer?.cancel() } catch (_: Exception) { }
-        try { speechRecognizer?.destroy() } catch (_: Exception) { }
-        speechRecognizer = null
+        offlineArabicSpeech?.close()
+        offlineArabicSpeech = null
         handGestureReady = false
         try { cameraProvider?.unbindAll() } catch (_: Exception) { }
         try { labeler.close() } catch (_: Exception) { }
