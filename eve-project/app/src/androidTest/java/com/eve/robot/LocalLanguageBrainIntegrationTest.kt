@@ -119,7 +119,8 @@ class LocalLanguageBrainIntegrationTest {
                 throw AssertionError("Local Qwen engine failed to initialize: ${status.get()}")
             }
             if (brain.currentState == LocalLlmState.WAITING_FOR_WIFI &&
-                !hasValidatedUnmeteredNetwork(InstrumentationRegistry.getInstrumentation().targetContext)
+                !hasValidatedUnmeteredNetwork(InstrumentationRegistry.getInstrumentation().targetContext) &&
+                !hasVerifiedModel(InstrumentationRegistry.getInstrumentation().targetContext)
             ) {
                 throw AssertionError("Local Qwen needs an unmetered connection for first setup: ${status.get()}")
             }
@@ -146,6 +147,18 @@ class LocalLanguageBrainIntegrationTest {
         val outcome = result.get()
         assertNotNull("The $phase callback returned no result container.", outcome)
         return outcome!!.getOrElse { throw AssertionError("The $phase failed.", it) }
+    }
+
+    private fun hasVerifiedModel(context: Context): Boolean {
+        val file = File(
+            File(context.filesDir, "local-language-brain"),
+            "Qwen2_0.5B_Instruct.litertlm"
+        )
+        val prefs = context.getSharedPreferences("eve_local_llm", Context.MODE_PRIVATE)
+        return file.isFile &&
+            file.length() >= MIN_MODEL_BYTES &&
+            prefs.getString("verifiedModelSha256", null) == MODEL_SHA256 &&
+            prefs.getLong("verifiedModelBytes", -1L) == file.length()
     }
 
     private fun hasValidatedNetwork(context: Context): Boolean {
