@@ -311,20 +311,20 @@ class RobotFaceView(context: Context) : View(context) {
         // Expression is created by changing lids, height, width, gaze and corner shape—not by
         // drawing a different cartoon face.
         when (eyeSilhouette) {
-            // Normal/awake: crisp rounded-square LED pixels.
-            EyeSilhouette.NEUTRAL -> rounded(min(hw * 0.40f, glyphHh * 0.42f))
+            // Normal/awake: rounded-square LED pixels; avoid the pill silhouette in the previous render.
+            EyeSilhouette.NEUTRAL -> rounded(min(hw * 0.28f, glyphHh * 0.29f))
 
-            // Neutral mood: a smaller square-ish pixel with rounder corners than Awake.
-            EyeSilhouette.ALMOND -> rounded(min(hw * 0.43f, glyphHh * 0.45f))
+            // Neutral mood: slightly softer corners, still a pixel block rather than a capsule.
+            EyeSilhouette.ALMOND -> rounded(min(hw * 0.33f, glyphHh * 0.34f))
 
-            // Curious: both eyes remain open LED pixels; a slight lid offset conveys attention.
+            // Curious: compact squared pixels with a subtle asymmetric lid height.
             EyeSilhouette.CURIOUS -> {
-                val eyeTopScale = if (side < 0) 0.78f else 0.88f
+                val eyeTopScale = if (side < 0) 0.86f else 0.96f
                 val curiousRect = RectF(
-                    cx - hw, centerY - glyphHh * eyeTopScale,
-                    cx + hw, centerY + glyphHh * eyeTopScale
+                    cx - hw * 0.94f, centerY - glyphHh * eyeTopScale,
+                    cx + hw * 0.94f, centerY + glyphHh * eyeTopScale
                 )
-                val r = min(hw * 0.26f, glyphHh * 0.32f)
+                val r = min(hw * 0.27f, glyphHh * 0.28f)
                 shape.addRoundRect(curiousRect, r, r, Path.Direction.CW)
             }
 
@@ -336,8 +336,13 @@ class RobotFaceView(context: Context) : View(context) {
                 shape.addRoundRect(rect, r, r, Path.Direction.CW)
             }
 
-            // Surprise: nearly square, bright blocks; awe is oval and scared is angular.
-            EyeSilhouette.ROUND_SURPRISE -> rounded(min(hw * 0.42f, glyphHh * 0.44f))
+            // Surprise: taller blocks with rounded corners; distinguish it from the neutral glyph.
+            EyeSilhouette.ROUND_SURPRISE -> {
+                val surpriseRect = RectF(cx - hw * 0.88f, centerY - glyphHh * 1.12f,
+                    cx + hw * 0.88f, centerY + glyphHh * 1.12f)
+                val radius = min(hw * 0.30f, glyphHh * 0.32f)
+                shape.addRoundRect(surpriseRect, radius, radius, Path.Direction.CW)
+            }
 
             EyeSilhouette.AWE -> {
                 // The reference's awe pose is an enlarged rounded LED block, not a circular eye.
