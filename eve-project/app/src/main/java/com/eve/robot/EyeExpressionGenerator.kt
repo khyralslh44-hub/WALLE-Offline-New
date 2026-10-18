@@ -158,7 +158,7 @@ object EyeExpressionGenerator {
             }
             EveIntent.CONNECT -> when {
                 valence >= 0.62f && familiarity >= 0.25f -> EyeSilhouette.GLEE
-                valence <= -0.55f && clearGazeY >= 0.02f -> EyeSilhouette.SAD_DOWN
+                valence <= -0.55f && fatigue >= 0.52f -> EyeSilhouette.SAD_DOWN
                 valence <= -0.55f -> EyeSilhouette.SAD_UP
                 else -> EyeSilhouette.SOFT
             }
@@ -182,7 +182,7 @@ object EyeExpressionGenerator {
             EveIntent.REGULATE -> when {
                 decision.frustration >= 0.78f && arousal >= 0.72f -> EyeSilhouette.FURIOUS
                 decision.frustration >= 0.50f -> EyeSilhouette.ANNOYED
-                valence <= -0.55f && clearGazeY >= 0.02f -> EyeSilhouette.SAD_DOWN
+                valence <= -0.55f && fatigue >= 0.52f -> EyeSilhouette.SAD_DOWN
                 valence <= -0.55f -> EyeSilhouette.SAD_UP
                 else -> EyeSilhouette.WORRIED
             }
@@ -205,7 +205,7 @@ object EyeExpressionGenerator {
                     else EyeSilhouette.ROUND_SURPRISE
                 EveMood.CONCERNED -> when {
                     valence <= -0.28f && arousal >= 0.82f -> EyeSilhouette.SCARED
-                    valence <= -0.55f && clearGazeY >= 0.02f -> EyeSilhouette.SAD_DOWN
+                    valence <= -0.55f && fatigue >= 0.52f -> EyeSilhouette.SAD_DOWN
                     valence <= -0.55f -> EyeSilhouette.SAD_UP
                     arousal < 0.28f -> EyeSilhouette.UNIMPRESSED
                     else -> EyeSilhouette.WORRIED
