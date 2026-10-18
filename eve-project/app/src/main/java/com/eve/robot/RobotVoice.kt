@@ -7,6 +7,7 @@ import android.os.SystemClock
 import android.util.Log
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.PI
 import kotlin.math.pow
 import kotlin.math.exp
@@ -20,6 +21,7 @@ import kotlin.math.sin
 class RobotVoice {
     private val executor = Executors.newSingleThreadExecutor()
     private val lastPlayed = AtomicLong(0L)
+    private val reactionVariant = AtomicInteger(0)
     @Volatile private var lastMood: EveMood? = null
     @Volatile private var closed = false
 
@@ -42,6 +44,35 @@ class RobotVoice {
         }
     }
 
+    /**
+     * Short, nonverbal reply to a recognized utterance. It never speaks the transcript aloud.
+     * A small set of deterministic vocal contours keeps the character from repeating one exact
+     * tone each time while the cooldown prevents background speech from creating sound spam.
+     */
+    fun respondToSpeech(mood: EveMood, transcript: String) {
+        if (closed) return
+        val now = SystemClock.elapsedRealtime()
+        val elapsed = now - lastPlayed.get()
+        if (elapsed < SPEECH_RESPONSE_COOLDOWN_MS) {
+            Log.d("EVE_VOICE", "SPEECH_RESPONSE_SUPPRESSED cooldownMs=$elapsed mood=$mood")
+            return
+        }
+        lastPlayed.set(now)
+        lastMood = mood
+        val variant = reactionVariant.getAndIncrement() and 0x3
+        try {
+            executor.execute {
+                play(mood, variant = variant, conversational = true)
+            }
+            Log.i(
+                "EVE_VOICE",
+                "SPEECH_RESPONSE_QUEUED mood=$mood variant=$variant transcriptLength=${transcript.length}"
+            )
+        } catch (_: Exception) {
+            Log.w("EVE_VOICE", "Speech-response audio executor is not available.")
+        }
+    }
+
     private data class VoiceProfile(
         val pitch: Double,
         val pitchLift: Double,
@@ -54,10 +85,10 @@ class RobotVoice {
         val pulseHz: Double = 1.2
     )
 
-    private fun play(mood: EveMood) {
+    private fun play(mood: EveMood, variant: Int = 0, conversational: Boolean = false) {
         if (closed) return
         // A low, stable, vowel-shaped electronic voice rather than fast, high-pitched bird chirps.
-        val profile = when (mood) {
+        val baseProfile = when (mood) {
             EveMood.HAPPY -> VoiceProfile(205.0, 18.0, -5.0, 690.0, 1180.0, 900, 4.0, 3.2, 1.8)
             EveMood.SURPRISED -> VoiceProfile(218.0, 26.0, -12.0, 720.0, 1280.0, 760, 5.2, 5.2, 2.6)
             EveMood.SLEEPY -> VoiceProfile(178.0, 7.0, -15.0, 580.0, 990.0, 1050, 1.8, 1.2, 0.6)
@@ -70,6 +101,55 @@ class RobotVoice {
             EveMood.PLAYFUL -> VoiceProfile(220.0, 28.0, -2.0, 720.0, 1240.0, 760, 6.0, 5.8, 3.0)
             EveMood.IRRITATED -> VoiceProfile(184.0, 3.0, -18.0, 600.0, 1010.0, 650, 3.2, 2.4, 1.1)
             EveMood.ANGRY -> VoiceProfile(174.0, 2.0, -24.0, 565.0, 940.0, 560, 2.0, 1.5, 0.45)
+        }
+
+        val profile = if (!conversational) {
+            baseProfile
+        } else {
+            // Four restrained contours: warm acknowledgement, bright curiosity, gentle fall,
+            // and playful lift. The sound remains wordless and is not a copied Cozmo recording.
+            when (variant and 0x3) {
+                0 -> baseProfile.copy(
+                    pitchLift = baseProfile.pitchLift * 0.72,
+                    pitchFall = baseProfile.pitchFall * 0.70,
+                    formant1 = baseProfile.formant1 * 0.98,
+                    durationMs = baseProfile.durationMs.coerceIn(460, 720),
+                    vibratoDepth = baseProfile.vibratoDepth * 0.78,
+                    pulseHz = maxOf(1.0, baseProfile.pulseHz * 0.90)
+                )
+                1 -> baseProfile.copy(
+                    pitch = baseProfile.pitch * 1.045,
+                    pitchLift = baseProfile.pitchLift * 0.88,
+                    pitchFall = baseProfile.pitchFall * 0.55,
+                    formant1 = baseProfile.formant1 * 1.025,
+                    formant2 = baseProfile.formant2 * 1.045,
+                    durationMs = 560,
+                    vibratoHz = baseProfile.vibratoHz + 0.45,
+                    vibratoDepth = baseProfile.vibratoDepth * 0.90,
+                    pulseHz = 2.0
+                )
+                2 -> baseProfile.copy(
+                    pitch = baseProfile.pitch * 0.955,
+                    pitchLift = baseProfile.pitchLift * 0.60,
+                    pitchFall = baseProfile.pitchFall * 1.22,
+                    formant1 = baseProfile.formant1 * 0.96,
+                    formant2 = baseProfile.formant2 * 0.94,
+                    durationMs = 620,
+                    vibratoHz = maxOf(1.5, baseProfile.vibratoHz - 0.40),
+                    vibratoDepth = baseProfile.vibratoDepth * 0.68,
+                    pulseHz = 1.05
+                )
+                else -> baseProfile.copy(
+                    pitchLift = baseProfile.pitchLift * 1.12,
+                    pitchFall = baseProfile.pitchFall * 0.68,
+                    formant1 = baseProfile.formant1 * 1.01,
+                    formant2 = baseProfile.formant2 * 1.06,
+                    durationMs = 680,
+                    vibratoHz = baseProfile.vibratoHz + 0.65,
+                    vibratoDepth = baseProfile.vibratoDepth * 1.08,
+                    pulseHz = 2.35
+                )
+            }
         }
 
         val rate = 24_000
@@ -141,7 +221,7 @@ class RobotVoice {
                 // Gentle source gain; media volume buttons remain the master volume control.
                 track.setVolume(0.22f)
                 track.play()
-                Log.i("EVE_VOICE", "PLAYBACK_STARTED mood=$mood samples=$sampleCount state=${track.playState}")
+                Log.i("EVE_VOICE", "PLAYBACK_STARTED mood=$mood variant=$variant conversational=$conversational samples=$sampleCount state=${track.playState}")
                 Thread.sleep(profile.durationMs + 100L)
                 Log.i("EVE_VOICE", "PLAYBACK_FINISHED mood=$mood")
             } else {
@@ -159,6 +239,10 @@ class RobotVoice {
     private fun Double.powSoft(exponent: Double): Double {
         // integer-loop version avoids bringing extra math libraries into this tiny offline synthesizer
         return this.pow(exponent)
+    }
+
+    companion object {
+        private const val SPEECH_RESPONSE_COOLDOWN_MS = 2_200L
     }
 
     fun close() {
