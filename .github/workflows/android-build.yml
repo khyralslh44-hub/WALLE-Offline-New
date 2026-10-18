@@ -14,6 +14,7 @@ on:
       - '.github/workflows/eve-deep-verification.yml'
       - '.github/scripts/emulator-smoke-test.sh'
       - '.github/scripts/run-deep-face-test.sh'
+      - '.github/scripts/fetch-arabic-vosk-model.sh'
 
 permissions:
   contents: read
@@ -94,6 +95,10 @@ jobs:
             exit 1
           fi
           ls -lh "$MODEL"
+
+      - name: Bundle fully offline Arabic speech recognition model
+        shell: bash
+        run: bash .github/scripts/fetch-arabic-vosk-model.sh
 
       - name: Run logic tests and build debug APK
         run: |
