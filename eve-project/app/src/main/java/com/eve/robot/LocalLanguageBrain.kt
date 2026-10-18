@@ -159,7 +159,11 @@ class LocalLanguageBrain(
                                     topP = 0.88,
                                     temperature = 0.35
                                 ),
-                                maxOutputToken = MAX_OUTPUT_TOKENS
+                                maxOutputToken = MAX_OUTPUT_TOKENS,
+                                // The bundled Qwen2 file has the legacy string-content template.
+                                // LiteRT-LM 0.18 passes message content as typed parts, so override
+                                // the metadata template to safely flatten text parts before formatting.
+                                chatTemplate = QWEN2_COMPATIBLE_CHAT_TEMPLATE
                             )
                         )
                         engine = newEngine
@@ -569,6 +573,38 @@ Rules: this app runs offline. You are the language component of a robot whose de
         private const val RETRY_DELAY_MS = 30_000L
         private const val MAX_REPLY_CHARS = 650
         private const val MAX_OUTPUT_TOKENS = 160
+        /**
+         * Qwen2 chat format adapted for LiteRT-LM 0.18 typed content.
+         * The stock bundle template concatenates role + content as strings, which fails when
+         * the runtime supplies content as a sequence of {type: text, text: ...} parts.
+         */
+        private const val QWEN2_COMPATIBLE_CHAT_TEMPLATE = """
+{%- macro format_content(content) -%}
+{%- if content is string -%}
+{{- content -}}
+{%- else -%}
+{%- for item in content -%}
+{%- if item['type'] == 'text' -%}
+{{- item['text'] -}}
+{%- elif item['type'] == 'tool_response' -%}
+{%- if item['response'] is mapping or item['response'] is sequence -%}
+{{- item['response'] | tojson -}}
+{%- else -%}
+{{- item['response'] | string -}}
+{%- endif -%}
+{%- endif -%}
+{%- endfor -%}
+{%- endif -%}
+{%- endmacro -%}
+{%- for message in messages -%}
+{{- '<|im_start|>' + message['role'] + '\\n' -}}
+{{- format_content(message['content']) -}}
+{{- '<|im_end|>\\n' -}}
+{%- endfor -%}
+{%- if add_generation_prompt -%}
+{{- '<|im_start|>assistant\\n' -}}
+{%- endif -%}
+""".trimIndent()
         private val ALLOWED_MOODS = setOf(
             "neutral", "curious", "happy", "concerned", "focused", "playful", "sleepy", "irritated", "none"
         )
