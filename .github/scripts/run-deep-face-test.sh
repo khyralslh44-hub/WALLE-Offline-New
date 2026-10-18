@@ -59,6 +59,12 @@ if [ ! -s "$GITHUB_WORKSPACE/eve-project/app/src/androidTest/assets/gesture_thum
   echo "FAIL: pinned thumb-up image fixture is missing." | tee -a "$RESULT_DIR/environment.txt"
   exit 16
 fi
+VOSK_MODEL="$GITHUB_WORKSPACE/eve-project/app/src/main/assets/vosk-model-ar-mgb2-0.4"
+if [ ! -s "$VOSK_MODEL/uuid" ] || [ ! -s "$VOSK_MODEL/conf/model.conf" ] || [ ! -s "$VOSK_MODEL/am/final.mdl" ]; then
+  echo "FAIL: bundled Arabic Vosk model files are missing; offline speech build is incomplete." | tee -a "$RESULT_DIR/environment.txt"
+  exit 17
+fi
+echo "PASS: bundled Arabic Vosk model assets are present for offline speech." | tee -a "$RESULT_DIR/environment.txt"
 if [ ! -x "$GRADLE" ]; then
   echo "FAIL: Gradle executable not found at $GRADLE" | tee -a "$RESULT_DIR/environment.txt"
   exit 4
