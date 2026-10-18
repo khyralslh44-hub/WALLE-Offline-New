@@ -7,6 +7,11 @@ android {
     namespace = "com.eve.robot"
     compileSdk = 35
 
+    // The Arabic Vosk model is already ZIP-compressed; store it as-is in the APK.
+    androidResources {
+        noCompress += "zip"
+    }
+
     // Include legacy JAR (v1) signing as well as modern APK signing so OEM installers
     // have the broadest possible compatibility. Keep the debug build signed with the
     // standard debug keystore used by this workflow.
