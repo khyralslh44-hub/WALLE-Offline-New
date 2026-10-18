@@ -72,6 +72,8 @@ dependencies {
     implementation("com.alphacephei:vosk-android:0.3.75@aar")
     // Offline hand-sign recognition: model is pinned/downloaded during the build and packaged locally.
     implementation("com.google.mediapipe:tasks-vision:1.0.0")
+    // Real on-device generative language model; the model file is downloaded once to private storage.
+    implementation("com.google.ai.edge.litertlm:litertlm-android:latest.release")
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test:rules:1.6.1")
