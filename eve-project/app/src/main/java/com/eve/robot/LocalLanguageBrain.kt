@@ -597,12 +597,12 @@ Rules: this app runs offline. You are the language component of a robot whose de
 {%- endif -%}
 {%- endmacro -%}
 {%- for message in messages -%}
-{{- '<|im_start|>' + message['role'] + '\\n' -}}
+{{- '<|im_start|>' + message['role'] + '\n' -}}
 {{- format_content(message['content']) -}}
-{{- '<|im_end|>\\n' -}}
+{{- '<|im_end|>\n' -}}
 {%- endfor -%}
 {%- if add_generation_prompt -%}
-{{- '<|im_start|>assistant\\n' -}}
+{{- '<|im_start|>assistant\n' -}}
 {%- endif -%}
 """.trimIndent()
         private val ALLOWED_MOODS = setOf(
