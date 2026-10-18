@@ -497,18 +497,27 @@ class RobotGamesActivity : ComponentActivity() {
         reactWithEve("rps", "start")
         playerRpsHistory.clear()
         rpsScoreHuman = 0; rpsScoreEve = 0; rpsRound = 0
-        renderRps("لن أكشف استراتيجيتي قبل أن أرى اختياراتك.")
+        renderRps("أرني إشارة يدك أمام الكاميرا: قبضة = حجر، كف مفتوح = ورقة، إصبعان = مقص.")
     }
 
     private fun renderRps(message: String) {
         root.removeAllViews()
         header("حجر • ورقة • مقص", message)
         root.addView(text("أنت $rpsScoreHuman   —   إيف $rpsScoreEve", 21f, cyan, true))
-        listOf("✊ حجر" to 0, "✋ ورقة" to 1, "✌ مقص" to 2).forEach { (label, move) ->
-            addWideButton(label, { playRps(move) }, move == 1)
-        }
+        root.addView(text("وضع الرؤية: افتح كاميرا اللعب لتقرأ إيف إشارة اليد دون لمس خيارات الحركة.", 14f, cyan))
+        addWideButton("📷 العب بإشارات اليد عبر الكاميرا", { startActivity(Intent(this, CameraShotActivity::class.java).putExtra("eve_camera_game", "rps")) }, true)
         addSpace(8)
-        root.addView(text("الجولات: $rpsRound • نمط اللعب يتكيّف مع أكثر حركة تكررها.", 13f, muted))
+        root.addView(text("الجولات: $rpsRound • تتعلم إيف أنماط اختيارك من سجل الجولات المحلي.", 13f, muted))
+        addWideButton("لعب احتياطي باللمس", {
+            root.removeAllViews()
+            header("حجر • ورقة • مقص", "وضع اللمس الاحتياطي")
+            root.addView(text("أنت $rpsScoreHuman   —   إيف $rpsScoreEve", 21f, cyan, true))
+            listOf("✊ حجر" to 0, "✋ ورقة" to 1, "✌ مقص" to 2).forEach { (label, move) ->
+                addWideButton(label, { playRps(move) }, move == 1)
+            }
+            addWideButton("عودة إلى وضع الرؤية", { renderRps("أرني إشارة يدك أمام الكاميرا.") })
+            addWideButton("قائمة الألعاب", ::showMenu)
+        })
         addWideButton("تصفير المباراة", ::startRps)
         addWideButton("قائمة الألعاب", ::showMenu)
     }
@@ -655,6 +664,9 @@ class RobotGamesActivity : ComponentActivity() {
     // On a phone, each tap is the virtual "bang": the player must hit a moving target.
     // All projectiles and scoring are drawn locally; no camera or network is required.
     private fun startPaintShot() {
+        // Vision-first mode uses the live camera scene and virtual projectiles. The arena remains
+        // available as a touch fallback, but is no longer the only aiming method.
+        startActivity(Intent(this, CameraShotActivity::class.java).putExtra("eve_camera_game", "paint_shot"))
         paintShotArena?.setGameActive(false)
         game = Game.PAINT_SHOT
         paintShotScore = 0
