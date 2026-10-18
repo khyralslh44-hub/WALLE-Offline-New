@@ -42,6 +42,7 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import java.util.Locale
 
 /**
  * EVE face experience: camera labeling and behavior operate locally while the activity is open.
@@ -381,42 +382,116 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleRecognizedSpeech(rawText: String, source: String) {
-        val text = rawText.trim().lowercase()
+        val text = normalizeArabicSpeech(rawText)
         if (text.isBlank()) return
         val now = SystemClock.elapsedRealtime()
         if (text == lastSpeechText && now - lastSpeechAt < 2800L) return
-        if (source == "partial" && text.length < 3) return
         lastSpeechText = text
         lastSpeechAt = now
         Log.i("EVE_AUDIO", "RECOGNIZED source=$source text=$text")
 
-        val decision = when {
-            listOf("مرحبا", "السلام عليكم", "أهلا", "اهلا", "hello", "hi ").any { text.contains(it) } ->
+        // Camera changes are actions, not spoken responses; EVE never reads Arabic text aloud.
+        if (listOf(
+                "بدلي الكاميرا", "غيري الكاميرا", "بدل الكاميرا", "غير الكاميرا",
+                "switch camera", "change camera", "flip camera"
+            ).any(text::contains)
+        ) {
+            switchCamera()
+            return
+        }
+
+        val decision: EveDecision? = when {
+            listOf(
+                "مرحبا", "السلام عليكم", "اهلا", "اهلا وسهلا", "صباح الخير", "مساء الخير",
+                "hello", "hi", "hey"
+            ).any(text::contains) ->
                 brain.observeHandGesture("wave", 0.96f)
-            listOf("سعيد", "سعيدة", "فرحان", "فرحانة", "happy").any { text.contains(it) } ->
+
+            listOf(
+                "سعيد", "سعيده", "فرحان", "فرحانه", "افرح", "فرح", "happy", "happiness"
+            ).any(text::contains) ->
                 brain.observeFacialEmotion("happy", 0.96f)
-            listOf("حزين", "حزينة", "زعلان", "sad").any { text.contains(it) } ->
+
+            listOf(
+                "حزين", "حزينه", "زعلان", "زعلانه", "حزن", "sad", "sadness"
+            ).any(text::contains) ->
                 brain.observeFacialEmotion("sad", 0.90f)
-            listOf("غاضب", "غضبان", "معصب", "angry").any { text.contains(it) } ->
+
+            listOf(
+                "غاضب", "غضبان", "معصب", "معصبه", "منزعج", "منزعجه", "غضب", "angry", "anger"
+            ).any(text::contains) ->
                 brain.observeFacialEmotion("angry", 0.90f)
-            listOf("خائف", "خايف", "خائفة", "scared").any { text.contains(it) } ->
+
+            listOf(
+                "خائف", "خايف", "خايفه", "خوف", "مرعوب", "مرعوبه", "scared", "fear"
+            ).any(text::contains) ->
                 brain.observeFacialEmotion("fearful", 0.90f)
-            listOf("مندهش", "مفاجأة", "surprised").any { text.contains(it) } ->
+
+            listOf(
+                "مندهش", "مندهشه", "مفاجاه", "دهشه", "surprised", "surprise"
+            ).any(text::contains) ->
                 brain.observeFacialEmotion("surprised", 0.90f)
-            listOf("ما هذا", "ما ترين", "ماذا ترين", "what is this", "what do you see").any { text.contains(it) } -> {
+
+            listOf(
+                "ماذا ترين", "ما ترين", "ماذا تشاهدين", "ماذا يوجد امامك",
+                "ما الذي امامك", "صفي ما ترين", "وش تشوفين", "ايش تشوفين",
+                "ما هذا", "وش هذا", "ايش هذا", "what is this", "what do you see",
+                "describe what you see"
+            ).any(text::contains) -> {
                 val visualLabel = lastMeaningfulLabel
-                if (visualLabel != null && now - lastMeaningfulLabelAt in 0L..12_000L)
+                if (visualLabel != null && now - lastMeaningfulLabelAt in 0L..12_000L) {
                     brain.observe(visualLabel, 0.90f, 1)
-                else brain.touched(false, now)
+                } else {
+                    brain.observe("unknown", 0.44f, 0)
+                }
             }
-            listOf("توقفي", "اسكتي", "لا تتكلمي", "stop talking", "be quiet").any { text.contains(it) } ->
+
+            listOf(
+                "انظري الي", "شوفي هنا", "التفتي الي", "hello eve", "hey eve",
+                "look at me", "come here"
+            ).any(text::contains) ->
+                brain.observeHandGesture("wave", 0.92f)
+
+            listOf(
+                "استكشفي", "استكشفي المكان", "انظري حولك", "دوري حولك",
+                "ابحثي حولك", "explore", "look around", "scan the room"
+            ).any(text::contains) ->
+                brain.cameraSwitched(activeCameraLens.name)
+
+            listOf(
+                "ما اسمك", "من انت", "من انتي", "من تكونين", "who are you", "what is your name"
+            ).any(text::contains) ->
+                brain.observeHandGesture("wave", 0.84f)
+
+            listOf(
+                "توقفي", "اسكتي", "لا تتكلمي", "لا تتحدثي", "اصمتي",
+                "stop talking", "be quiet"
+            ).any(text::contains) ->
                 brain.observeFacialEmotion("neutral", 0.90f)
+
             else -> {
+                // Don't invent understanding or react to every unrelated sentence.
                 Log.i("EVE_AUDIO", "UNMAPPED_UTTERANCE text=$text")
-                brain.touched(false, now)
+                null
             }
         }
-        react(decision, playSound = decision.playSound)
+
+        if (decision != null) react(decision, playSound = decision.playSound)
+    }
+
+    /** Normalize common Arabic orthography so local ASR output matches command phrases reliably. */
+    private fun normalizeArabicSpeech(rawText: String): String {
+        return rawText.trim()
+            .lowercase(Locale.ROOT)
+            .replace(Regex("[\\u064B-\\u065F\\u0670]"), "")
+            .replace('أ', 'ا')
+            .replace('إ', 'ا')
+            .replace('آ', 'ا')
+            .replace('ى', 'ي')
+            .replace('ة', 'ه')
+            .replace(Regex("[^\\p{L}\\p{N}\\s]"), " ")
+            .replace(Regex("\\s+"), " ")
+            .trim()
     }
 
     private fun handleCameraStatusTap() {
