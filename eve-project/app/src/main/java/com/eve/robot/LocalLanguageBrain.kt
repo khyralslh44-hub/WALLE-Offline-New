@@ -578,7 +578,7 @@ Rules: this app runs offline. You are the language component of a robot whose de
          * The stock bundle template concatenates role + content as strings, which fails when
          * the runtime supplies content as a sequence of {type: text, text: ...} parts.
          */
-        private const val QWEN2_COMPATIBLE_CHAT_TEMPLATE = """
+        private val QWEN2_COMPATIBLE_CHAT_TEMPLATE = """
 {%- macro format_content(content) -%}
 {%- if content is string -%}
 {{- content -}}
