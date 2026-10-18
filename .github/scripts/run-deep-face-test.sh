@@ -154,13 +154,19 @@ if [ ! -s "$TEST_APK" ]; then
   exit 6
 fi
 
-SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
-AAPT="$(find "$SDK_ROOT/build-tools" -type f -name aapt -print 2>/dev/null | sort -V | tail -n 1)"
+SDK_ROOT="${ANDROID_HOME:-}"
+if [ -z "$SDK_ROOT" ]; then
+  SDK_ROOT="${ANDROID_SDK_ROOT:-}"
+fi
+if [ -z "$SDK_ROOT" ]; then
+  SDK_ROOT="/usr/local/lib/android/sdk"
+fi
+AAPT=$(find "$SDK_ROOT/build-tools" -type f -name aapt -print 2>/dev/null | sort -V | tail -n 1)
 if [ -z "$AAPT" ]; then
   echo "FAIL: Android aapt was not found; cannot identify instrumentation package." | tee -a "$RESULT_DIR/environment.txt"
   exit 7
 fi
-TEST_PACKAGE="$("$AAPT" dump badging "$TEST_APK" | sed -n "s/^package: name='\\([^']*\\)'.*/\\1/p" | head -n 1)"
+TEST_PACKAGE=$("$AAPT" dump badging "$TEST_APK" | sed -n "s/^package: name='\\([^']*\\)'.*/\\1/p" | head -n 1)
 if [ -z "$TEST_PACKAGE" ]; then
   echo "FAIL: could not read instrumentation APK package name." | tee -a "$RESULT_DIR/environment.txt"
   exit 8
