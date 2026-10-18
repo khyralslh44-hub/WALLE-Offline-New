@@ -1380,9 +1380,15 @@ class MainActivity : ComponentActivity() {
     private fun localLanguageContext(): LocalLlmContext {
         val relationship = getSharedPreferences("eve_relationship", MODE_PRIVATE)
         val label = lastMeaningfulLabel
+        val observationAge = if (lastMeaningfulLabelAt > 0L) {
+            (SystemClock.elapsedRealtime() - lastMeaningfulLabelAt).coerceAtLeast(0L)
+        } else {
+            Long.MAX_VALUE
+        }
         return LocalLlmContext(
             latestVisionLabel = label,
             visionConfidence = lastMeaningfulConfidence,
+            visionObservationAgeMs = observationAge,
             sightingCount = label?.let(memory::sightings) ?: 0,
             learnedAffinity = label?.let(memory::learnedAffinity) ?: 0f,
             currentMood = relationship.getString("lastMood", EveMood.NEUTRAL.name) ?: EveMood.NEUTRAL.name,
