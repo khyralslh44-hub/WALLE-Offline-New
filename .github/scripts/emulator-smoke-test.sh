@@ -123,7 +123,15 @@ if [ "$SPEECH_READY" != true ]; then
   echo "FAIL: bundled offline Arabic speech model did not reach listening state within 5 minutes." | tee -a "$RESULTS_DIR/result.txt"
   exit 1
 fi
-echo "PASS: bundled Arabic speech model loaded and microphone recognizer started with network disabled." | tee -a "$RESULTS_DIR/result.txt"
+# SpeechService starts the recorder on its own thread; allow startup errors to surface before passing.
+sleep 8
+timeout 12s adb logcat -d -v threadtime > "$RESULTS_DIR/logcat-speech-startup-final.txt" 2>/dev/null || true
+if grep -E "OFFLINE_SPEECH_AUDIO_ERROR|OFFLINE_SPEECH_FAILED" "$RESULTS_DIR/logcat-speech-startup-final.txt" >/dev/null; then
+  grep -E "OFFLINE_SPEECH|EVE_AUDIO|FATAL EXCEPTION" "$RESULTS_DIR/logcat-speech-startup-final.txt" | tail -80 || true
+  echo "FAIL: the bundled speech model loaded but microphone capture failed." | tee -a "$RESULTS_DIR/result.txt"
+  exit 1
+fi
+echo "PASS: bundled Arabic speech model loaded, microphone startup produced no local-recognition errors, and network is disabled." | tee -a "$RESULTS_DIR/result.txt"
 
 # Android 10 can show a one-time immersive-mode teaching overlay above the app.
 # Dismiss that system overlay before asserting the app's UI hierarchy.
