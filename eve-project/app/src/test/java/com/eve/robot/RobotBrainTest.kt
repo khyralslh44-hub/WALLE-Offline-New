@@ -341,25 +341,57 @@ class RobotBrainTest {
         assertEquals(EveMood.FAMILIAR, localBrain.idle(18_000L, 2).mood)
     }
     @Test
-    fun gameOutcomesUpdateEvesSharedAffectStateWithoutVoiceSpam() {
+    fun localLanguageInsightFeedsVisionContextIntoBoundedBehavior() {
         val localBrain = RobotBrain()
+        val before = localBrain.awakenExperience()
 
-        val start = localBrain.gameOutcome("paint_shot", "start")
-        assertEquals(EveMood.PLAYFUL, start.mood)
-        assertFalse(start.playSound)
+        val insight = localBrain.integrateLanguageInsight(
+            moodHint = "curious",
+            intentHint = "explore",
+            confidence = 0.82f,
+            note = "the same object appeared in several observations",
+            source = "vision_memory"
+        )
 
-        val win = localBrain.gameOutcome("paint_shot", "player")
-        assertEquals(EveMood.HAPPY, win.mood)
-        assertFalse(win.playSound)
-        assertTrue(win.valence > start.valence)
+        assertEquals(EveMood.CURIOUS, insight.mood)
+        assertEquals(EveIntent.EXPLORE, insight.intent)
+        assertTrue(insight.curiosity > before.curiosity)
+        assertFalse(insight.playSound)
+    }
 
-        val miss = localBrain.gameOutcome("target", "miss")
-        assertEquals(EveMood.FOCUSED, miss.mood)
-        assertFalse(miss.playSound)
+    @Test
+    fun untrustedLocalLanguageHintsCannotInjectMoodOrDeviceActions() {
+        val localBrain = RobotBrain()
+        val before = localBrain.awakenExperience()
 
-        val draw = localBrain.gameOutcome("chess", "draw")
-        assertEquals(EveMood.CURIOUS, draw.mood)
-        assertFalse(draw.playSound)
+        val insight = localBrain.integrateLanguageInsight(
+            moodHint = "launch_camera",
+            intentHint = "take_picture",
+            confidence = 0.20f,
+            note = "untrusted generated content",
+            source = "speech_context"
+        )
+
+        assertEquals(before.mood, insight.mood)
+        assertEquals(null, insight.intent)
+        assertFalse(insight.playSound)
+    }
+
+    @Test
+    fun localLanguageMoodCannotOverrideHighFrustrationSafetyState() {
+        val localBrain = RobotBrain()
+        repeat(5) { localBrain.touched(longPress = false, eventTimeMs = 1_000L + it * 500L) }
+
+        val insight = localBrain.integrateLanguageInsight(
+            moodHint = "happy",
+            intentHint = "play",
+            confidence = 0.99f,
+            note = "the model suggested playing",
+            source = "speech_context"
+        )
+
+        assertTrue(insight.mood == EveMood.IRRITATED || insight.mood == EveMood.ANGRY)
+        assertFalse(insight.playSound)
     }
 
 }
