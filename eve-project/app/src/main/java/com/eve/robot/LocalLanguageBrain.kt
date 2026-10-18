@@ -90,6 +90,16 @@ class LocalLanguageBrain(
     val currentState: LocalLlmState
         get() = state
 
+    fun refreshStatus() {
+        if (closed.get()) return
+        val currentState = state
+        val currentProgress = lastProgress.coerceAtLeast(0)
+        val currentMessage = lastStatusMessage.ifBlank { "الدماغ اللغوي المحلي لم يبدأ بعد." }
+        main.post {
+            if (!closed.get()) statusListener(currentState, currentProgress, currentMessage)
+        }
+    }
+
     fun start() {
         if (closed.get()) return
         registerNetworkCallback()
@@ -133,7 +143,8 @@ class LocalLanguageBrain(
                                     topK = 24,
                                     topP = 0.88,
                                     temperature = 0.35
-                                )
+                                ),
+                                maxOutputToken = MAX_OUTPUT_TOKENS
                             )
                         )
                         engine = newEngine
@@ -157,7 +168,13 @@ class LocalLanguageBrain(
                         } else {
                             LocalLlmState.ERROR
                         }
-                        lastRetryAt = System.currentTimeMillis() + RETRY_DELAY_MS
+                        // No timer is needed while waiting for Wi-Fi: the network callback and
+                        // activity resume must be allowed to begin the first download immediately.
+                        lastRetryAt = if (state == LocalLlmState.WAITING_FOR_WIFI) {
+                            0L
+                        } else {
+                            System.currentTimeMillis() + RETRY_DELAY_MS
+                        }
                         val message = error.message.orEmpty().take(180).ifBlank { "تعذر تهيئة الدماغ المحلي." }
                         publish(
                             state,
@@ -224,11 +241,13 @@ class LocalLanguageBrain(
                 try {
                     if (closed.get()) throw IllegalStateException("تم إغلاق النموذج المحلي.")
                     val activeConversation = conversation ?: throw IllegalStateException("لا توجد محادثة محلية نشطة.")
-                    val response = activeConversation.sendMessage(prompt, maxOutputToken = maxOutputTokens)
-                    val parsed = parseResponse(response.text.orEmpty(), maxOutputTokens)
+                    // LiteRT-LM 0.18 exposes maxOutputToken in ConversationConfig, not sendMessage.
+                    val response = activeConversation.sendMessage(prompt)
+                    val responseText = response.text.orEmpty()
+                    val parsed = parseResponse(responseText, maxOutputTokens)
                     Log.i(
                         TAG,
-                        "LOCAL_LLM_INFERENCE_OK chars=${response.text.length} mood=${parsed.moodHint ?: "none"} " +
+                        "LOCAL_LLM_INFERENCE_OK chars=${responseText.length} mood=${parsed.moodHint ?: "none"} " +
                             "intent=${parsed.intentHint ?: "none"}"
                     )
                     deliver(callback, Result.success(parsed))
@@ -434,7 +453,9 @@ Rules: this app runs offline. You are the language component of a robot whose de
                 digest.update(buffer, 0, count)
             }
         }
-        val actual = digest.digest().joinToString("") { "%02x".format(it) }
+        val actual = digest.digest().joinToString("") { byte ->
+            "%02x".format(Locale.ROOT, byte.toInt() and 0xff)
+        }
         if (!actual.equals(MODEL_SHA256, ignoreCase = true)) {
             modelFile.delete()
             partialFile.delete()
@@ -472,9 +493,10 @@ Rules: this app runs offline. You are the language component of a robot whose de
     }
 
     private fun publish(nextState: LocalLlmState, percent: Int, message: String) {
-        state = nextState
         val safePercent = percent.coerceIn(0, 100)
-        if (lastStatusMessage == message && lastProgress == safePercent && nextState == state) return
+        val changed = state != nextState || lastStatusMessage != message || lastProgress != safePercent
+        state = nextState
+        if (!changed) return
         lastStatusMessage = message
         lastProgress = safePercent
         main.post {
@@ -522,6 +544,7 @@ Rules: this app runs offline. You are the language component of a robot whose de
         private const val READ_TIMEOUT_MS = 75_000
         private const val RETRY_DELAY_MS = 30_000L
         private const val MAX_REPLY_CHARS = 650
+        private const val MAX_OUTPUT_TOKENS = 160
         private val ALLOWED_MOODS = setOf(
             "neutral", "curious", "happy", "concerned", "focused", "playful", "sleepy", "irritated", "none"
         )
