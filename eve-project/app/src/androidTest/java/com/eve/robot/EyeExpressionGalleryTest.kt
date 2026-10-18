@@ -68,7 +68,7 @@ class EyeExpressionGalleryTest {
         GlyphCase(EyeSilhouette.FURIOUS, "FURIOUS", decision(EveMood.ANGRY, "angry", arousal = 0.85f, frustration = 0.85f)),
         GlyphCase(EyeSilhouette.SCARED, "SCARED", decision(EveMood.CONCERNED, "fearful", valence = -0.50f, arousal = 0.86f)),
         GlyphCase(EyeSilhouette.AWE, "AWE", decision(EveMood.SURPRISED, "surprised", valence = 0.85f)),
-        GlyphCase(EyeSilhouette.PLAYFUL, "PLAYFUL", decision(EveMood.PLAYFUL, valence = 0.7f)),
+        GlyphCase(EyeSilhouette.PLAYFUL, "PLAYFUL", decision(EveMood.PLAYFUL, valence = 0.40f)),
         GlyphCase(EyeSilhouette.SOFT, "WARM / SOFT", decision(EveMood.FAMILIAR, valence = 0.25f))
     )
 
