@@ -38,7 +38,8 @@ data class LocalLlmContext(
     val moodReason: String = "",
     val personality: EvePersonality = EvePersonality(),
     val recentObservations: List<String> = emptyList(),
-    val recentDialogues: List<String> = emptyList()
+    val recentDialogues: List<String> = emptyList(),
+    val recentReflections: List<String> = emptyList()
 )
 
 data class LocalLlmResult(
@@ -251,6 +252,7 @@ class LocalLanguageBrain(
         } else "0.00"
         val observations = context.recentObservations.take(5).joinToString("؛ ").ifBlank { "لا توجد ملاحظات سابقة" }
         val dialogues = context.recentDialogues.take(3).joinToString("\n").ifBlank { "لا توجد محادثات محفوظة" }
+        val reflections = context.recentReflections.take(3).joinToString("؛ ").ifBlank { "لا توجد استنتاجات بصرية محفوظة" }
         val reason = context.moodReason.take(180).replace("\n", " ")
         val user = userText.trim().take(500).ifBlank { "لا يوجد كلام جديد من المستخدم" }
         val personality = "الدفء=${context.personality.warmth}; الفضول=${context.personality.curiosityBias}; " +
@@ -274,6 +276,7 @@ PERSISTENT_PERSONALITY=$personality
 RECENT_LOCAL_VISUAL_MEMORY=$observations
 RECENT_LOCAL_DIALOGUE_MEMORY:
 $dialogues
+RECENT_LOCAL_REFLECTIONS=$reflections
 USER_UTTERANCE=$user
 
 Return exactly one JSON object, without Markdown:
