@@ -396,13 +396,25 @@ class MainActivity : ComponentActivity() {
         lastSpeechAt = now
         Log.i("EVE_AUDIO", "RECOGNIZED source=$source text=$text")
 
-        // Camera changes are actions, not spoken responses; EVE never reads Arabic text aloud.
+        // Respect a quiet request immediately: settle the eyes without answering with a tone.
+        if (listOf(
+                "توقفي", "اسكتي", "لا تتكلمي", "لا تتحدثي", "اصمتي",
+                "stop talking", "be quiet"
+            ).any(text::contains)
+        ) {
+            react(brain.observeFacialEmotion("neutral", 0.90f), playSound = false)
+            Log.i("EVE_AUDIO", "SPEECH_RESPONSE_SUPPRESSED reason=quiet_command")
+            return
+        }
+
+        // Camera changes are actions; acknowledge them with a brief nonverbal character cue.
         if (listOf(
                 "بدلي الكاميرا", "غيري الكاميرا", "بدل الكاميرا", "غير الكاميرا",
                 "switch camera", "change camera", "flip camera"
             ).any(text::contains)
         ) {
             switchCamera()
+            voice.respondToSpeech(EveMood.CURIOUS, text)
             return
         }
 
@@ -476,13 +488,27 @@ class MainActivity : ComponentActivity() {
                 brain.observeFacialEmotion("neutral", 0.90f)
 
             else -> {
-                // Don't invent understanding or react to every unrelated sentence.
-                Log.i("EVE_AUDIO", "UNMAPPED_UTTERANCE text=$text")
-                null
+                // A recognized full sentence still deserves a nonverbal acknowledgement.
+                // This is an attentive reaction, not a claim that EVE understood its meaning.
+                val addressedToEve = listOf(
+                    "ايف", "يا ايف", "ايفي", "يا روبوت", "eve", "hey eve", "hello eve"
+                ).any(text::contains)
+                val wordCount = text.split(Regex("\\s+")).count { it.isNotBlank() }
+                if (addressedToEve || wordCount >= 2) {
+                    brain.respondToSpeech(text, addressedToEve)
+                } else {
+                    Log.i("EVE_AUDIO", "UNMAPPED_SHORT_UTTERANCE text=$text")
+                    null
+                }
             }
         }
 
-        if (decision != null) react(decision, playSound = decision.playSound)
+        if (decision != null) {
+            // Every accepted utterance changes the face and receives one short, varied vocal cue.
+            // The dedicated voice path applies its own cooldown and never speaks Arabic words.
+            react(decision, playSound = false)
+            voice.respondToSpeech(decision.mood, text)
+        }
     }
 
     /** Normalize common Arabic orthography so local ASR output matches command phrases reliably. */
