@@ -530,12 +530,10 @@ class RobotGamesActivity : ComponentActivity() {
         }
         when (result) { "player" -> rpsScoreHuman++; "robot" -> rpsScoreEve++ }
         saveResult("rps", result)
-        val note = when (result) {
-            "player" -> "فزت بهذه الجولة. سأعيد تحليل اختياراتك."
-            "robot" -> if (playerRpsHistory.size >= 4) "توقعت حركتك الأكثر تكرارًا!" else "هذه الجولة لي. كانت قراءة أولية."
-            else -> "تعادلنا. سأحتاج إشارة أخرى لأقرأ نمطك."
-        }
-        renderRps("اخترت ${labels[player]}؛ اخترت ${labels[robot]}. $note")
+        reactWithEve("rps", result)
+        val detail = "اخترت ${labels[player]}؛ اخترت ${labels[robot]}. " +
+            if (playerRpsHistory.size >= 4) "سجلّ اختياراتك يساعدني على توقع النمط." else "ما زلت أجمع إشارات عن أسلوب لعبك."
+        renderRps(generateGameReply("rps", result, detail, rpsScoreEve, rpsRound))
     }
 
     // ------------------------------------------------------------------ Chess
@@ -693,15 +691,13 @@ class RobotGamesActivity : ComponentActivity() {
         if (game != Game.PAINT_SHOT || paintShotFinished) return
         paintShotRound = result.shotNumber
         if (result.hit) paintShotScore++
-        paintShotMessage = when {
-            result.hit -> listOf(
-                "💦 إصابة مباشرة! إيف تحتفل معك.",
-                "🎯 تصويب ممتاز! الهدف أصيب بطلقة الطلاء.",
-                "✨ بانغ! إصابة دقيقة. حاول الحفاظ على السلسلة."
-            )[paintShotScore % 3]
-            else -> "💨 أخطأت! الهدف يتحرّك باستمرار—تابعه وصوّب مجددًا."
-        }
-        reactWithEve("paint_shot", if (result.hit) "success" else "miss")
+        val outcome = if (result.hit) "success" else "miss"
+        reactWithEve("paint_shot", outcome)
+        paintShotMessage = generateGameReply(
+            "paint_shot", outcome,
+            if (result.hit) "الهدف أصيب بطلقة الطلاء." else "الهدف يتحرك؛ جرّب توقيتًا مختلفًا.",
+            paintShotScore, paintShotRound
+        )
         android.util.Log.i(
             "EVE_PAINT_SHOT",
             "shot=${paintShotRound} hit=${result.hit} score=${paintShotScore}/${paintShotRound}"
