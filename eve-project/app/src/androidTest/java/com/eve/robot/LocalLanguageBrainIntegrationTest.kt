@@ -22,14 +22,15 @@ import java.util.concurrent.atomic.AtomicReference
 /**
  * End-to-end proof for the generative language model (not the rule-based dialogue fallback).
  *
- * On a fresh emulator this test downloads the pinned LiteRT-LM model on an unmetered,
- * validated connection, verifies its SHA-256 through LocalLanguageBrain, and obtains a
- * real generated reply. It then disables emulator networking, closes the first engine,
- * opens a new engine from the persisted app-private model file, and generates another reply.
+ * The dedicated workflow downloads the pinned LiteRT-LM model on the build runner, verifies its
+ * SHA-256, then stages it in the app-private data directory with the same integrity metadata
+ * used by LocalLanguageBrain. This avoids making the test result depend on slow emulator
+ * downloads while still exercising the real native LiteRT-LM engine and model weights.
  *
- * The ordinary offline vision suite runs with networking disabled. In that environment this
- * test skips only when no verified Qwen model was previously installed; the dedicated workflow
- * requires the LOCAL_LLM_OFFLINE_RESTART_PASS marker and therefore cannot report a false pass.
+ * This test requires the emulator network to be disabled before first inference. It runs one
+ * generation, closes the engine, opens a fresh engine from the persisted local weights, and
+ * runs a second generation while still offline. The ordinary vision suite skips this test if
+ * no verified model has been staged; the dedicated workflow requires the success marker.
  */
 @RunWith(AndroidJUnit4::class)
 class LocalLanguageBrainIntegrationTest {
@@ -46,11 +47,13 @@ class LocalLanguageBrainIntegrationTest {
             modelFile.length() >= MIN_MODEL_BYTES &&
             modelPrefs.getString("verifiedModelSha256", null) == MODEL_SHA256 &&
             modelPrefs.getLong("verifiedModelBytes", -1L) == modelFile.length()
-        val unmeteredNetwork = hasValidatedUnmeteredNetwork(context)
-
         assumeTrue(
-            "No previously verified Qwen model and no validated unmetered network; use the dedicated online-then-offline workflow.",
-            verifiedOnDisk || unmeteredNetwork
+            "No verified Qwen model was staged; use the dedicated local-LLM verification workflow.",
+            verifiedOnDisk
+        )
+        assertFalse(
+            "The dedicated local-LLM test must start with network connectivity disabled.",
+            hasValidatedNetwork(context)
         )
 
         val firstStatus = AtomicReference("startup")
@@ -65,11 +68,11 @@ class LocalLanguageBrainIntegrationTest {
             val first = awaitReply(
                 firstBrain,
                 "أجب بالعربية بجملة قصيرة: كم يساوي اثنان زائد اثنين؟",
-                "online/setup inference"
+                "first offline inference"
             )
             firstReply = first.replyArabic
             assertTrue("First generated reply was empty: $first", first.replyArabic.isNotBlank())
-            Log.i(TAG, "LOCAL_LLM_FIRST_INFERENCE_PASS chars=${first.replyArabic.length}")
+            Log.i(TAG, "LOCAL_LLM_FIRST_INFERENCE_PASS chars=${first.replyArabic.length} internetValidated=${hasValidatedNetwork(context)}")
         } finally {
             firstBrain.close()
         }
