@@ -62,7 +62,7 @@ class RobotFaceRenderingTest {
             spec("Blink high", EveMood.NEUTRAL, EyeSilhouette.BLINK_HIGH, reason = "blink high", arousal = 0.10f),
             spec("Happy", EveMood.HAPPY, EyeSilhouette.SMILE, reason = "happy", valence = 0.25f, arousal = 0.75f),
             spec("Glee", EveMood.HAPPY, EyeSilhouette.GLEE, reason = "happy", valence = 0.85f, arousal = 0.85f),
-            spec("Blink low", EveMood.NEUTRAL, EyeSilhouette.BLINK_LOW, reason = "blink low"),
+            spec("Blink low", EveMood.NEUTRAL, EyeSilhouette.BLINK_LOW, reason = "blink low", fatigue = 0.80f),
             spec("Sad down", EveMood.CONCERNED, EyeSilhouette.SAD_DOWN, reason = "sad down", valence = -0.70f, fatigue = 0.70f),
             spec("Sad up", EveMood.CONCERNED, EyeSilhouette.SAD_UP, reason = "sad up", valence = -0.70f, fatigue = 0.10f),
             spec("Worried", EveMood.CONCERNED, EyeSilhouette.WORRIED, reason = "worry", valence = 0.08f, arousal = 0.65f),
