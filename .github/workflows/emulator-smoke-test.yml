@@ -186,7 +186,7 @@ jobs:
           profile: pixel_2
           # Explicitly expose both virtual lenses; otherwise the AOSP emulator may only
           # provide the rear camera and the camera-switch test cannot exercise FRONT.
-          emulator-options: -no-window -no-audio -no-boot-anim -camera-back emulated -camera-front emulated
+          emulator-options: -no-window -no-boot-anim -camera-back emulated -camera-front emulated
           script: bash "$GITHUB_WORKSPACE/.github/scripts/emulator-smoke-test.sh"
         env:
           TEST_API_LEVEL: ${{ matrix.api-level }}
