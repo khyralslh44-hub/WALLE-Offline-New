@@ -102,23 +102,25 @@ jobs:
 
       - name: Run logic tests and build debug APK
         run: |
-          "$RUNNER_TEMP/gradle-8.9/bin/gradle"             --no-daemon --stacktrace -p eve-project             testDebugUnitTest assembleDebug
+          "$RUNNER_TEMP/gradle-8.9/bin/gradle"             --no-daemon --stacktrace -p eve-project             testDebugUnitTest assembleDebug assembleRelease
 
 
       - name: Verify APK signatures for installer compatibility
         shell: bash
         run: |
           set -euo pipefail
-          APK="eve-project/app/build/outputs/apk/debug/app-debug.apk"
           SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
           APKSIGNER="$SDK_ROOT/build-tools/35.0.0/apksigner"
           test -x "$APKSIGNER"
-          OUTPUT="$("$APKSIGNER" verify --verbose "$APK")"
-          printf '%s\n' "$OUTPUT"
-          # minSdk is 26, so v1/JAR signing is not required for supported devices.
-          # Verify the modern signing schemes supported by Android 7+ instead.
-          grep -Fq 'Verified using v2 scheme (APK Signature Scheme v2): true' <<< "$OUTPUT"
-          grep -Fq 'Verified using v3 scheme (APK Signature Scheme v3): true' <<< "$OUTPUT"
+          for APK in \
+            "eve-project/app/build/outputs/apk/debug/app-debug.apk" \
+            "eve-project/app/build/outputs/apk/release/app-release.apk"; do
+            test -s "$APK"
+            OUTPUT="$("$APKSIGNER" verify --verbose "$APK")"
+            printf '%s\n' "$OUTPUT"
+            grep -Fq 'Verified using v2 scheme (APK Signature Scheme v2): true' <<< "$OUTPUT"
+            grep -Fq 'Verified using v3 scheme (APK Signature Scheme v3): true' <<< "$OUTPUT"
+          done
 
       - name: Upload unit-test XML and HTML reports
         if: always()
@@ -139,6 +141,14 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: Upload compact Redmi 12 ARM64 APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: WALL-E-APK-Redmi12
+          path: eve-project/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Publish direct-install APK release
         if: ${{ github.ref == 'refs/heads/main' }}
         uses: softprops/action-gh-release@v2
@@ -149,7 +159,7 @@ jobs:
             Direct-install APK built by GitHub Actions.
             Source commit: ${{ github.sha }}
             Core camera labeling, facial-expression inference, gesture recognition, and behavior logic are designed to run on-device.
-          files: eve-project/app/build/outputs/apk/debug/app-debug.apk
+          files: eve-project/app/build/outputs/apk/release/app-release.apk
           generate_release_notes: false
           make_latest: true
         env:
