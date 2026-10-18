@@ -53,6 +53,9 @@ class MainActivity : ComponentActivity() {
     private lateinit var brain: RobotBrain
     private lateinit var memory: EveMemory
     private lateinit var voice: RobotVoice
+    private lateinit var localLanguageBrain: LocalLanguageBrain
+    private val lastLocalLlmVisionAt = AtomicLong(0L)
+    @Volatile private var lastLocalLlmVisionLabel = ""
     private var offlineArabicSpeech: OfflineArabicSpeech? = null
     private var lastSpeechText = ""
     private var lastSpeechAt = 0L
@@ -315,6 +318,10 @@ class MainActivity : ComponentActivity() {
         memory = EveMemory(applicationContext)
         brain = RobotBrain(memory.learnedPersonality())
         voice = RobotVoice()
+        localLanguageBrain = LocalLanguageBrain(applicationContext) { state, percent, message ->
+            handleLocalLanguageStatus(state, percent, message)
+        }
+        localLanguageBrain.start()
         initializeHandGestureRecognizer()
         requestOfflineSpeechPermission()
 
@@ -559,7 +566,8 @@ class MainActivity : ComponentActivity() {
                 ).any(text::contains)
                 val wordCount = text.split(Regex("\\s+")).count { it.isNotBlank() }
                 if (addressedToEve || wordCount >= 2) {
-                    brain.respondToSpeech(text, addressedToEve)
+                    requestLocalLanguageReply(text, addressedToEve)
+                    null
                 } else {
                     Log.i("EVE_AUDIO", "UNMAPPED_SHORT_UTTERANCE text=$text")
                     null
@@ -649,6 +657,7 @@ class MainActivity : ComponentActivity() {
             main.postDelayed(idleLoop, 5200L)
         }
         if (::face.isInitialized && hasCameraPermission() && !cameraStarted) startCamera()
+        if (::localLanguageBrain.isInitialized) localLanguageBrain.ensureReady()
     }
 
     override fun onStop() {
@@ -946,6 +955,7 @@ class MainActivity : ComponentActivity() {
                         "affinity=$affinity mood=${decision.mood}"
                 )
                 react(decision, decision.playSound && isMeaningfulLabel(label))
+                maybeReflectWithLocalLanguage(label, best.confidence, sightings)
                 maybeAskFromCuriosity(label, best.confidence, sightings)
             }
             .addOnFailureListener(mainExecutor) { error ->
@@ -1310,6 +1320,178 @@ class MainActivity : ComponentActivity() {
         )
     }
 
+    /**
+     * Shows brief setup/inference status in the existing top chip; it does not add an app button.
+     * During model download the chip remains visible with progress and the camera stays usable.
+     */
+    private fun handleLocalLanguageStatus(state: LocalLlmState, percent: Int, detail: String) {
+        if (isFinishing || isDestroyed || !::cameraStatus.isInitialized) return
+        when (state) {
+            LocalLlmState.READY -> {
+                Log.i("EVE_LLM", "STATUS ready=true onDevice=true")
+                if (cameraStarted) {
+                    showCameraStatus(
+                        if (activeCameraLens == CameraLens.FRONT) "الكاميرا الأمامية تعمل" else "الكاميرا الخلفية تعمل",
+                        active = true
+                    )
+                } else {
+                    cameraStatus.text = "الدماغ المحلي جاهز"
+                    cameraStatus.contentDescription = detail
+                    cameraStatus.visibility = View.VISIBLE
+                    cameraStatus.alpha = 1f
+                }
+            }
+            LocalLlmState.WAITING_FOR_WIFI -> {
+                showLocalBrainChip("الدماغ المحلي ينتظر Wi‑Fi", detail, 0xFFFFD180.toInt())
+            }
+            LocalLlmState.DOWNLOADING -> {
+                showLocalBrainChip("تنزيل الدماغ المحلي $percent%", detail, 0xFFFFD180.toInt())
+            }
+            LocalLlmState.LOADING -> {
+                showLocalBrainChip("تشغيل الدماغ المحلي…", detail, 0xFFB3E5FC.toInt())
+            }
+            LocalLlmState.ERROR -> {
+                showLocalBrainChip("الدماغ المحلي غير جاهز", detail, 0xFFFFAB91.toInt())
+            }
+        }
+    }
+
+    private fun showLocalBrainChip(label: String, description: String, textColor: Int) {
+        if (!::cameraStatus.isInitialized) return
+        main.removeCallbacks(hideCameraStatus)
+        cameraStatus.animate().cancel()
+        cameraStatus.alpha = 1f
+        cameraStatus.visibility = View.VISIBLE
+        cameraStatus.text = label
+        cameraStatus.contentDescription = description
+        cameraStatus.setTextColor(textColor)
+        cameraStatus.background = GradientDrawable().apply {
+            setColor(0xE6071015.toInt())
+            cornerRadius = dp(16).toFloat()
+            setStroke(dp(1), 0x667D8B92)
+        }
+    }
+
+    private fun localLanguageContext(): LocalLlmContext {
+        val relationship = getSharedPreferences("eve_relationship", MODE_PRIVATE)
+        val label = lastMeaningfulLabel
+        return LocalLlmContext(
+            latestVisionLabel = label,
+            visionConfidence = lastMeaningfulConfidence,
+            sightingCount = label?.let(memory::sightings) ?: 0,
+            learnedAffinity = label?.let(memory::learnedAffinity) ?: 0f,
+            currentMood = relationship.getString("lastMood", EveMood.NEUTRAL.name) ?: EveMood.NEUTRAL.name,
+            moodReason = relationship.getString("lastMoodReason", "").orEmpty(),
+            personality = memory.learnedPersonality(),
+            recentObservations = memory.recentVisualMemories(5),
+            recentDialogues = memory.recentDialogues(3),
+            recentReflections = memory.recentReflections(3)
+        )
+    }
+
+    /** Handles open-ended speech with a real on-device LLM after deterministic commands are checked. */
+    private fun requestLocalLanguageReply(text: String, addressedToEve: Boolean) {
+        val baseline = brain.respondToSpeech(text, addressedToEve)
+        react(baseline, playSound = false)
+        if (!::localLanguageBrain.isInitialized || !localLanguageBrain.isReady) {
+            showDialogueText(
+                "أجهّز الدماغ اللغوي المحلي. أول تشغيل يحتاج تنزيل النموذج مرة واحدة عبر Wi‑Fi؛ بعد ذلك تعمل الإجابات دون إنترنت.",
+                durationMs = 6500L
+            )
+            voice.respondToSpeech(baseline.mood, text)
+            Log.i("EVE_LLM", "USER_REPLY_DEFERRED reason=model_not_ready")
+            return
+        }
+
+        localLanguageBrain.answerUser(text, localLanguageContext()) { outcome ->
+            if (isFinishing || isDestroyed) return@answerUser
+            val answer = outcome.getOrNull()
+            if (answer == null) {
+                val fallback = brain.respondToSpeech(text, addressedToEve)
+                react(fallback, playSound = false)
+                showDialogueText(
+                    "تعذّر إكمال الرد المحلي الآن. ما زلت أستطيع الرؤية والتفاعل، ويمكنك إعادة السؤال بعد لحظة.",
+                    durationMs = 6000L
+                )
+                voice.respondToSpeech(fallback.mood, text)
+                Log.w("EVE_LLM", "USER_REPLY_FAILED; kept deterministic perception/behavior fallback", outcome.exceptionOrNull())
+                return@answerUser
+            }
+
+            answer.reflectionArabic.takeIf { it.isNotBlank() }?.let(memory::rememberReflection)
+            val suggestion = brain.integrateLanguageInsight(
+                moodHint = answer.moodHint,
+                intentHint = answer.intentHint,
+                confidence = answer.confidence,
+                note = answer.reflectionArabic,
+                source = "speech_context"
+            )
+            val reply = answer.replyArabic.trim().take(650)
+            if (reply.isNotBlank()) {
+                memory.rememberDialogue(text, reply)
+                showDialogueText(reply, durationMs = 7600L)
+                Log.i(
+                    "EVE_LLM",
+                    "USER_REPLY_OK localOnly=true mood=${suggestion.mood} intent=${suggestion.intent} " +
+                        "vision=${lastMeaningfulLabel ?: "none"} memories=${memory.recentVisualMemories(3).size}"
+                )
+            } else {
+                showDialogueText(
+                    "فهمت أن هناك شيئًا يستحق الانتباه، لكنني لم أستطع صياغة رد موثوق هذه المرة.",
+                    durationMs = 5600L
+                )
+                Log.w("EVE_LLM", "USER_REPLY_EMPTY; model output had no usable Arabic reply")
+            }
+            react(suggestion, playSound = false)
+            voice.respondToSpeech(suggestion.mood, text)
+        }
+    }
+
+    /**
+     * The language model receives trusted metadata from the local vision stack and short local
+     * memories. It never gets raw frames and never generates a spoken line on each camera frame.
+     */
+    private fun maybeReflectWithLocalLanguage(label: String, confidence: Float, sightings: Int) {
+        if (!::localLanguageBrain.isInitialized || !localLanguageBrain.isReady) return
+        if (!confidence.isFinite() || confidence < 0.84f) return
+        if (!isMeaningfulLabel(label) && !isCuriosityWorthyLabel(label)) return
+        val now = SystemClock.elapsedRealtime()
+        val previous = lastLocalLlmVisionAt.get()
+        if (now - previous < 90_000L) return
+        if (!lastLocalLlmVisionAt.compareAndSet(previous, now)) return
+        lastLocalLlmVisionLabel = label
+
+        localLanguageBrain.reflectOnObservation(localLanguageContext()) { outcome ->
+            if (isFinishing || isDestroyed) return@reflectOnObservation
+            val insight = outcome.getOrNull() ?: run {
+                Log.w("EVE_LLM", "VISION_REFLECTION_FAILED label=$label", outcome.exceptionOrNull())
+                return@reflectOnObservation
+            }
+            // Discard stale reasoning if a clearly different scene has replaced the evidence.
+            if (lastMeaningfulLabel != label ||
+                SystemClock.elapsedRealtime() - lastMeaningfulLabelAt !in 0L..90_000L
+            ) {
+                Log.i("EVE_LLM", "VISION_REFLECTION_DROPPED reason=stale_context label=$label")
+                return@reflectOnObservation
+            }
+            val reflection = insight.reflectionArabic.ifBlank { insight.replyArabic }.trim().take(240)
+            if (reflection.isNotBlank()) memory.rememberReflection(reflection)
+            val suggestion = brain.integrateLanguageInsight(
+                moodHint = insight.moodHint,
+                intentHint = insight.intentHint,
+                confidence = insight.confidence,
+                note = reflection,
+                source = "vision_memory"
+            )
+            react(suggestion, playSound = false)
+            Log.i(
+                "EVE_LLM",
+                "VISION_REFLECTION_OK label=$label classifierConfidence=$confidence sightings=$sightings " +
+                    "languageConfidence=${insight.confidence} mood=${suggestion.mood} intent=${suggestion.intent}"
+            )
+        }
+    }
+
     private fun showDialogueText(text: String, durationMs: Long = 5200L) {
         if (isFinishing || isDestroyed || !::dialogueBubble.isInitialized || text.isBlank()) return
         main.removeCallbacks(hideDialogue)
@@ -1365,6 +1547,7 @@ class MainActivity : ComponentActivity() {
             try { gestureExecutor.shutdownNow() } catch (_: Exception) { }
         }
         if (::voice.isInitialized) voice.close()
+        if (::localLanguageBrain.isInitialized) localLanguageBrain.close()
         super.onDestroy()
     }
 }
