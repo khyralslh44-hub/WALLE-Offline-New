@@ -209,6 +209,52 @@ class RobotBrain(personality: EvePersonality = EvePersonality()) {
         return snapshot(mood, "recognized hand signal: $safeSignal", canVocalize)
     }
 
+    /**
+     * A complete offline-recognized utterance is a social cue, even when it is not a command.
+     * We respond with gaze/affect, not spoken words or a claim that the sentence was understood.
+     */
+    @Synchronized
+    fun respondToSpeech(utterance: String, addressedToEve: Boolean = false): EveDecision {
+        val text = utterance.trim().lowercase()
+        if (text.isBlank()) {
+            return snapshot(EveMood.NEUTRAL, "empty speech input", false)
+        }
+
+        val isQuestion = listOf(
+            "ماذا", "ما هذا", "كيف", "لماذا", "اين", "أين", "متى", "من", "هل",
+            "what", "how", "why", "where", "when", "who", "which"
+        ).any(text::contains) || text.endsWith("?")
+
+        fatigue = (fatigue - 0.04f).coerceAtLeast(0f)
+        if (addressedToEve) {
+            valence = (valence + 0.07f * personality.warmth).coerceAtMost(0.88f)
+            familiarity = (familiarity + 0.025f).coerceAtMost(0.90f)
+            arousal = (arousal * 0.55f + 0.45f * 0.61f).coerceIn(0.25f, 0.80f)
+        } else {
+            arousal = (arousal * 0.62f + 0.38f * 0.53f).coerceIn(0.20f, 0.78f)
+        }
+
+        val mood = when {
+            isQuestion -> {
+                curiosity = (curiosity + 0.14f * personality.curiosityBias).coerceAtMost(1f)
+                EveMood.CURIOUS
+            }
+            addressedToEve && personality.playfulness >= 0.58f && valence >= 0.20f -> {
+                curiosity = (curiosity + 0.07f).coerceAtMost(1f)
+                EveMood.PLAYFUL
+            }
+            addressedToEve -> {
+                curiosity = (curiosity + 0.09f).coerceAtMost(1f)
+                EveMood.CURIOUS
+            }
+            else -> {
+                curiosity = (curiosity + 0.045f * personality.curiosityBias).coerceAtMost(0.94f)
+                if (arousal >= 0.66f) EveMood.FOCUSED else EveMood.CURIOUS
+            }
+        }
+        return snapshot(mood, if (isQuestion) "heard a question; curious nonverbal response" else "heard speech; attentive nonverbal response", false)
+    }
+
     @Synchronized
     fun observe(label: String, confidence: Float, sightings: Int, learnedAffinity: Float = 0f): EveDecision {
         val item = label.trim().lowercase()
