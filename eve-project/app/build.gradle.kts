@@ -46,6 +46,9 @@ dependencies {
     implementation("com.google.mlkit:image-labeling:17.0.7")
     implementation("com.google.mlkit:face-detection:16.1.7")
     implementation("org.tensorflow:tensorflow-lite:2.16.1")
+    // All Arabic speech recognition runs locally against the bundled Vosk model; no cloud STT.
+    implementation("net.java.dev.jna:jna:5.18.1@aar")
+    implementation("com.alphacephei:vosk-android:0.3.75@aar")
     // Offline hand-sign recognition: model is pinned/downloaded during the build and packaged locally.
     implementation("com.google.mediapipe:tasks-vision:1.0.0")
     testImplementation("junit:junit:4.13.2")
