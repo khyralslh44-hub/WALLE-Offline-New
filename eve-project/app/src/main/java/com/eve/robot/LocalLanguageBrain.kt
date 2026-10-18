@@ -32,6 +32,8 @@ enum class LocalLlmState { WAITING_FOR_WIFI, DOWNLOADING, LOADING, READY, ERROR 
 data class LocalLlmContext(
     val latestVisionLabel: String? = null,
     val visionConfidence: Float = 0f,
+    /** Age of the latest visual label; stale labels remain in memory but are not current evidence. */
+    val visionObservationAgeMs: Long = Long.MAX_VALUE,
     val sightingCount: Int = 0,
     val learnedAffinity: Float = 0f,
     val currentMood: String = "NEUTRAL",
@@ -268,9 +270,13 @@ class LocalLanguageBrain(
     }
 
     private fun buildPrompt(mode: String, userText: String, context: LocalLlmContext): String {
-        val label = context.latestVisionLabel?.take(64) ?: "none"
-        val confidence = if (context.visionConfidence.isFinite()) {
-            String.format(Locale.ROOT, "%.2f", context.visionConfidence.coerceIn(0f, 1f))
+        val latestConfidence = context.visionConfidence.takeIf { it.isFinite() }
+            ?.coerceIn(0f, 1f) ?: 0f
+        val hasFreshVisualEvidence = context.visionObservationAgeMs in 0L..12_000L &&
+            context.latestVisionLabel != null && latestConfidence >= 0.45f
+        val label = if (hasFreshVisualEvidence) context.latestVisionLabel.orEmpty().take(64) else "none"
+        val confidence = if (hasFreshVisualEvidence) {
+            String.format(Locale.ROOT, "%.2f", latestConfidence)
         } else "0.00"
         val observations = context.recentObservations.take(5).joinToString("؛ ").ifBlank { "لا توجد ملاحظات سابقة" }
         val dialogues = context.recentDialogues.take(3).joinToString("\n").ifBlank { "لا توجد محادثات محفوظة" }
@@ -290,6 +296,8 @@ TASK: $task
 
 LATEST_ON_DEVICE_VISION_LABEL=$label
 VISION_CONFIDENCE=$confidence
+CURRENT_OBSERVATION_AGE_MS=${context.visionObservationAgeMs.coerceAtLeast(0L)}
+CURRENT_OBSERVATION_FRESH=$hasFreshVisualEvidence
 SIGHTING_COUNT=${context.sightingCount.coerceIn(0, 100000)}
 LEARNED_AFFINITY=${context.learnedAffinity.takeIf { it.isFinite() }?.coerceIn(-1f, 1f) ?: 0f}
 CURRENT_ROBOT_MOOD=${context.currentMood.take(32)}
@@ -304,7 +312,7 @@ USER_UTTERANCE=$user
 Return exactly one JSON object, without Markdown:
 {"reply_ar":"short Arabic reply or empty","reflection_ar":"one short internal Arabic note","mood":"neutral|curious|happy|concerned|focused|playful|sleepy|irritated|none","intent":"observe|explore|connect|play|focus|rest|regulate|none","confidence":0.0}
 
-Rules: this app runs offline. You are the language component of a robot whose deterministic behavior engine remains in charge. Use the supplied memory as context, never invent memories. Image-label output is only a probable category, not proof of identity. Never claim to recognize the identity of a person or know their private inner feelings from a label. When vision confidence is weak or label is generic, explicitly remain uncertain. Choose only the allowed mood and intent values. Never instruct the app to change cameras, access files, or perform an external action.
+Rules: this app runs offline. You are the language component of a robot whose deterministic behavior engine remains in charge. Use the supplied memory as context, never invent memories. An observation counts as current evidence only when CURRENT_OBSERVATION_FRESH=true; if false, say you do not have a fresh visual observation and never present an old memory as what is in front of the camera now. Image-label output is only a probable category, not proof of identity. Never claim to recognize the identity of a person or know their private inner feelings from a label. When vision confidence is weak or label is generic, explicitly remain uncertain. Choose only the allowed mood and intent values. Never instruct the app to change cameras, access files, or perform an external action.
         """.trimIndent()
     }
 
