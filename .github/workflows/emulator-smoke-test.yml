@@ -137,6 +137,19 @@ jobs:
           test "$ACTUAL_GESTURE" = "$EXPECTED_GESTURE"
           echo "PASS: pinned hand-gesture model verified."
           sha256sum "$GESTURE_MODEL" | tee "$RUNNER_TEMP/gesture-model-sha256.txt"
+          OBJECT_MODEL="eve-project/app/src/main/assets/efficientdet_lite0.tflite"
+          curl --fail --location --retry 3 --connect-timeout 20 --max-time 180 \
+            "https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float32/1/efficientdet_lite0.tflite" \
+            --output "$OBJECT_MODEL"
+          EXPECTED_OBJECT_SHA256="40338edf5ec70d43e318b0a716a84d4564cd1802759a7a07170c7e43796dbf58"
+          ACTUAL_OBJECT_SHA256="$(sha256sum "$OBJECT_MODEL" | awk '{print $1}')"
+          ACTUAL_OBJECT_BYTES="$(stat -c '%s' "$OBJECT_MODEL")"
+          if [ "$ACTUAL_OBJECT_SHA256" != "$EXPECTED_OBJECT_SHA256" ] || [ "$ACTUAL_OBJECT_BYTES" -ne 13836895 ]; then
+            echo "FAIL: EfficientDet-Lite0 object model digest/size mismatch."
+            exit 1
+          fi
+          sha256sum "$OBJECT_MODEL" | tee "$RUNNER_TEMP/object-detector-sha256.txt"
+          echo "PASS: pinned EfficientDet-Lite0 model verified."
           GESTURE_FIXTURE="eve-project/app/src/androidTest/assets/gesture_thumb_up.jpg"
           mkdir -p "$(dirname "$GESTURE_FIXTURE")"
           curl --fail --location --retry 3 \
