@@ -34,3 +34,15 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+
+## Qwen2-0.5B-Instruct LiteRT-LM language model
+
+The offline language model distributed in the production APK is the LiteRT-LM conversion
+of Qwen/Qwen2-0.5B-Instruct, supplied by the litert-community/Qwen2-0.5B-Instruct repository:
+https://huggingface.co/litert-community/Qwen2-0.5B-Instruct
+
+The model repository declares the weights licensed under Apache License 2.0. The production
+APK includes the upstream license as the asset `qwen2_model_license.txt`.
+The model weights are verified in CI against SHA-256
+`0f01cc004b8eb62b92ba6be85ed05a248ba0d2f78af94c4949b313eccfb4c157`.
