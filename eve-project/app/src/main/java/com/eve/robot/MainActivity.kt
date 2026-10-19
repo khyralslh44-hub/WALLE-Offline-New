@@ -59,6 +59,8 @@ class MainActivity : ComponentActivity() {
     private var offlineArabicSpeech: OfflineArabicSpeech? = null
     private var lastSpeechText = ""
     private var lastSpeechAt = 0L
+    // Follow-up statements belong to the same short conversation; unrelated ambient speech does not.
+    private var lastConversationalExchangeAt = 0L
     private lateinit var cameraStatus: TextView
     private lateinit var dialogueBubble: TextView
     private val hideDialogue = Runnable {
@@ -473,8 +475,13 @@ class MainActivity : ComponentActivity() {
             "ايف", "يا ايف", "ايفي", "يا روبوت", "eve", "hey eve", "hello eve"
         ).any(text::contains)
         val wordCount = text.split(Regex("\\s+")).count { it.isNotBlank() }
-        val conversationalTurn = OfflineEveResponder.isQuestion(text) ||
-            wordCount >= 3 || (addressedToEve && wordCount >= 2)
+        val isQuestion = OfflineEveResponder.isQuestion(text)
+        val activeConversation = lastConversationalExchangeAt > 0L &&
+            now - lastConversationalExchangeAt in 0L..90_000L
+        // A direct question is answered even if a family member has not used the wake name.
+        // Non-question statements are followed only when EVE is addressed or a conversation is active.
+        val conversationalTurn = isQuestion || addressedToEve ||
+            (wordCount >= 3 && activeConversation)
 
         // Once the real on-device LLM is ready, send open-ended questions and complete thoughts
         // to it before canned FAQ matching. This preserves multi-turn context and visual memory.
@@ -502,6 +509,7 @@ class MainActivity : ComponentActivity() {
             showDialogueText(offlineAnswer.text, durationMs = 7200L)
             voice.respondToSpeech(answerDecision.mood, text)
             Log.i("EVE_DIALOGUE", "ANSWER topic=" + offlineAnswer.topic + " mood=" + answerDecision.mood + " local=true")
+            lastConversationalExchangeAt = now
             return
         }
 
@@ -1396,8 +1404,8 @@ class MainActivity : ComponentActivity() {
     private fun isUsableCuriosityQuestion(value: String): Boolean {
         val text = value.trim().take(180)
         if (text.length !in 12..180) return false
-        if (text.any { it == '{' || it == '}' || it == '\\n' }) return false
-        if (text.none { it in '\\u0600'..'\\u06FF' }) return false
+        if (text.any { it == '{' || it == '}' || it == '\n' }) return false
+        if (text.none { it in '\u0600'..'\u06FF' }) return false
         val questionSignals = listOf("؟", "?", "هل", "ما ", "ماذا", "كيف", "لماذا", "أتساءل", "اتساءل", "يمكننا", "نختبر")
         return questionSignals.any(text::contains)
     }
@@ -1479,6 +1487,7 @@ class MainActivity : ComponentActivity() {
 
     /** Handles open-ended speech with a real on-device LLM after deterministic commands are checked. */
     private fun requestLocalLanguageReply(text: String, addressedToEve: Boolean) {
+        lastConversationalExchangeAt = SystemClock.elapsedRealtime()
         val baseline = brain.respondToSpeech(text, addressedToEve)
         react(baseline, playSound = false)
         if (!::localLanguageBrain.isInitialized || !localLanguageBrain.isReady) {
