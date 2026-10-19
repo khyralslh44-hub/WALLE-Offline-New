@@ -9,11 +9,14 @@ android {
     namespace = "com.eve.robot"
     compileSdk = 35
 
-    // Keep model containers uncompressed in the APK for predictable AssetManager streaming.
-    // The pinned Qwen weights are large (~647 MB); the production APK embeds them so first
-    // launch can install them locally without a network download.
+    // Keep ZIP containers uncompressed where the app expects archive bytes directly.
+    // The Qwen .litertlm model remains fully bundled and byte-for-byte identical, but is
+    // DEFLATE-compressed inside the APK. LocalLanguageBrain uses AssetManager.open() to
+    // stream-extract it to app-private storage before verifying its SHA-256 and loading it
+    // from a normal file path; it does not use openFd()/mmap on the packaged asset.
+    // This reduces transfer/package size without dropping or changing any model/component.
     androidResources {
-        noCompress += listOf("zip", "litertlm")
+        noCompress += listOf("zip")
     }
 
     // Include legacy JAR (v1) signing as well as modern APK signing so OEM installers
