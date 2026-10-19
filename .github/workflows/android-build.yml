@@ -80,6 +80,27 @@ jobs:
           fi
           ls -lh "$MODEL"
 
+      - name: Download and pin offline COCO object detector
+        shell: bash
+        run: |
+          set -euo pipefail
+          MODEL="eve-project/app/src/main/assets/efficientdet_lite0.tflite"
+          mkdir -p "$(dirname "$MODEL")"
+          curl --fail --location --retry 3 --connect-timeout 20 --max-time 180 \
+            "https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float32/1/efficientdet_lite0.tflite" \
+            --output "$MODEL"
+          EXPECTED_SHA256="40338edf5ec70d43e318b0a716a84d4564cd1802759a7a07170c7e43796dbf58"
+          ACTUAL_SHA256="$(sha256sum "$MODEL" | awk '{print $1}')"
+          ACTUAL_BYTES="$(stat -c '%s' "$MODEL")"
+          echo "EfficientDet-Lite0 SHA-256: $ACTUAL_SHA256"
+          echo "EfficientDet-Lite0 bytes: $ACTUAL_BYTES"
+          if [ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ] || [ "$ACTUAL_BYTES" -ne 13836895 ]; then
+            echo "FAIL: object detector did not match the pinned official model."
+            exit 1
+          fi
+          sha256sum "$MODEL" | tee "$RUNNER_TEMP/object-detector-sha256.txt"
+          echo "PASS: pinned EfficientDet-Lite0 model verified for offline object detection."
+
       - name: Download and pin offline hand-gesture model
         shell: bash
         run: |
