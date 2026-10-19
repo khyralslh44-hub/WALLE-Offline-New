@@ -96,6 +96,45 @@ jobs:
           fi
           ls -lh "$MODEL"
 
+      - name: Bundle the pinned Qwen language model for offline first launch
+        shell: bash
+        run: |
+          set -euo pipefail
+          ASSETS="eve-project/app/src/main/assets"
+          MODEL="$ASSETS/Qwen2_0.5B_Instruct.litertlm"
+          mkdir -p "$ASSETS"
+          curl --fail --location --retry 4 --retry-delay 3 --connect-timeout 30 --max-time 1200 \
+            "https://huggingface.co/litert-community/Qwen2-0.5B-Instruct/resolve/main/Qwen2_0.5B_Instruct.litertlm" \
+            --output "$MODEL"
+          EXPECTED="0f01cc004b8eb62b92ba6be85ed05a248ba0d2f78af94c4949b313eccfb4c157"
+          ACTUAL="$(sha256sum "$MODEL" | awk '{print $1}')"
+          BYTES="$(stat -c '%s' "$MODEL")"
+          echo "Bundled Qwen SHA-256: $ACTUAL"
+          echo "Bundled Qwen bytes: $BYTES"
+          if [ "$ACTUAL" != "$EXPECTED" ] || [ "$BYTES" -lt 500000000 ]; then
+            echo "FAIL: Qwen weights failed pinned digest/size verification."
+            exit 1
+          fi
+          sha256sum "$MODEL" | tee "$RUNNER_TEMP/qwen-model-sha256.txt"
+
+          # Include the upstream Apache-2.0 license with the redistributed weights.
+          curl --fail --location --retry 3 --connect-timeout 20 --max-time 120 \
+            "https://huggingface.co/Qwen/Qwen2-0.5B-Instruct/resolve/main/LICENSE" \
+            --output "$ASSETS/qwen2_model_license.txt"
+          grep -Fq "Apache License" "$ASSETS/qwen2_model_license.txt"
+          cp eve-project/THIRD_PARTY_NOTICES.md "$ASSETS/THIRD_PARTY_NOTICES.txt"
+          cat >> "$ASSETS/THIRD_PARTY_NOTICES.txt" <<'NOTICE'
+
+          ## Qwen2-0.5B-Instruct language model
+
+          The bundled Qwen2_0.5B_Instruct.litertlm weights are the LiteRT-LM conversion
+          of Qwen/Qwen2-0.5B-Instruct from litert-community/Qwen2-0.5B-Instruct.
+          The upstream model is licensed under Apache License 2.0; the full license is
+          included in qwen2_model_license.txt in this APK's assets.
+          NOTICE
+          ls -lh "$MODEL" "$ASSETS/qwen2_model_license.txt"
+          echo "PASS: pinned Qwen weights and license are embedded for offline first launch."
+
       - name: Bundle fully offline Arabic speech recognition model
         shell: bash
         run: bash .github/scripts/fetch-arabic-vosk-model.sh
@@ -139,6 +178,7 @@ jobs:
           name: WALL-E-APK
           path: eve-project/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+          compression-level: 0
           retention-days: 14
 
       - name: Upload compact Redmi 12 ARM64 APK
@@ -147,6 +187,7 @@ jobs:
           name: WALL-E-APK-Redmi12
           path: eve-project/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
+          compression-level: 0
           retention-days: 14
 
       - name: Publish direct-install APK release
