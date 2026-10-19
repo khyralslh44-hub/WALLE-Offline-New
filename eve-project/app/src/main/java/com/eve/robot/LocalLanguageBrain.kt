@@ -58,10 +58,11 @@ data class LocalLlmResult(
 /**
  * A real generative language model running on the phone through LiteRT-LM.
  *
- * The 647 MB model is fetched only once, on an unmetered internet connection, then retained
- * in app-private storage. Inference is local; prompts, camera labels, and replies are not
- * sent to a remote service. Vision evidence is supplied as on-device classifier metadata,
- * not as raw camera images.
+ * The official release APK bundles the pinned 647 MB Qwen model in its assets. On first launch,
+ * weights are copied to app-private storage and SHA-256 verified; this needs no runtime network.
+ * A Wi-Fi fallback remains only for developer/test APKs built without the optional model asset.
+ * Inference is local; prompts, labels, and replies are not sent to a remote service. Vision
+ * evidence is supplied as on-device classifier metadata, not as raw camera images.
  */
 class LocalLanguageBrain(
     context: Context,
@@ -480,19 +481,93 @@ class LocalLanguageBrain(
         if (free < MIN_FREE_STORAGE_BYTES) {
             throw IllegalStateException("يلزم توفير 750 ميغابايت على الأقل من المساحة الحرة لتثبيت الدماغ المحلي.")
         }
+
+        // Product APKs embed this exact model in assets, so first-run setup works with Wi-Fi off.
+        // Only small developer/test builds which omit the optional asset use the legacy Wi-Fi path.
+        if (extractBundledModelIfPresent()) {
+            verifyModelHash()
+            prefs.edit()
+                .putString(KEY_VERIFIED_SHA, MODEL_SHA256)
+                .putLong(KEY_MODEL_BYTES, modelFile.length())
+                .apply()
+            Log.i(
+                TAG,
+                "LOCAL_LLM_MODEL_VERIFIED source=apk_asset bytes=${modelFile.length()} sha256=$MODEL_SHA256"
+            )
+            return modelFile
+        }
+
         if (!hasUnmeteredInternet()) {
             publish(
                 LocalLlmState.WAITING_FOR_WIFI,
                 0,
-                "اتصل بشبكة Wi‑Fi لتنزيل الدماغ المحلي مرة واحدة (~647 ميغابايت)"
+                "هذا الإصدار التجريبي لا يتضمن أوزان النموذج؛ أعد بناء نسخة APK المدمجة لتعمل دون إنترنت من أول تشغيل."
             )
-            throw IllegalStateException("يلزم اتصال Wi‑Fi لأول تنزيل فقط؛ بعدها يعمل الدماغ دون إنترنت.")
+            throw IllegalStateException(
+                "ملف النموذج غير موجود ضمن أصول التطبيق التجريبي، ولا يوجد اتصال Wi-Fi لتنزيله."
+            )
         }
         downloadModel()
         verifyModelHash()
-        prefs.edit().putString(KEY_VERIFIED_SHA, MODEL_SHA256).putLong(KEY_MODEL_BYTES, modelFile.length()).apply()
-        Log.i(TAG, "LOCAL_LLM_MODEL_VERIFIED bytes=${modelFile.length()} sha256=$MODEL_SHA256")
+        prefs.edit()
+            .putString(KEY_VERIFIED_SHA, MODEL_SHA256)
+            .putLong(KEY_MODEL_BYTES, modelFile.length())
+            .apply()
+        Log.i(TAG, "LOCAL_LLM_MODEL_VERIFIED source=wifi_fallback bytes=${modelFile.length()} sha256=$MODEL_SHA256")
         return modelFile
+    }
+
+    /** Copy the release APK's pinned model asset to the filesystem path LiteRT-LM loads from. */
+    private fun extractBundledModelIfPresent(): Boolean {
+        val asset = try {
+            appContext.assets.open(MODEL_FILE_NAME)
+        } catch (_: java.io.FileNotFoundException) {
+            return false
+        }
+
+        if (partialFile.exists()) partialFile.delete()
+        publish(LocalLlmState.LOADING, 0, "تهيئة الدماغ اللغوي المضمّن دون إنترنت…")
+        val buffer = ByteArray(1024 * 1024)
+        var copied = 0L
+        var lastReported = -1
+        try {
+            BufferedInputStream(asset).use { input ->
+                FileOutputStream(partialFile).use { output ->
+                    while (true) {
+                        if (closed.get() || Thread.currentThread().isInterrupted) {
+                            throw InterruptedException("أُوقفت تهيئة النموذج المضمّن.")
+                        }
+                        val count = input.read(buffer)
+                        if (count < 0) break
+                        output.write(buffer, 0, count)
+                        copied += count
+                        val percent = ((copied * 100L) / APPROX_MODEL_BYTES).toInt().coerceIn(0, 99)
+                        if (percent >= lastReported + 2 || percent == 99) {
+                            lastReported = percent
+                            publish(
+                                LocalLlmState.LOADING,
+                                percent,
+                                "تهيئة النموذج اللغوي المضمّن $percent% • لا يحتاج إنترنت"
+                            )
+                        }
+                    }
+                    output.fd.sync()
+                }
+            }
+            if (!partialFile.isFile || partialFile.length() < MIN_MODEL_BYTES) {
+                throw IllegalStateException("ملف النموذج المضمّن ناقص أو تالف.")
+            }
+            if (modelFile.exists() && !modelFile.delete()) {
+                throw IllegalStateException("تعذر استبدال نسخة الدماغ المحلي.")
+            }
+            if (!partialFile.renameTo(modelFile)) {
+                throw IllegalStateException("تعذر حفظ النموذج المضمّن في مساحة التطبيق.")
+            }
+            return true
+        } catch (error: Exception) {
+            partialFile.delete()
+            throw error
+        }
     }
 
     private fun isVerifiedModelOnDisk(): Boolean {
