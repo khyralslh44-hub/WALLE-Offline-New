@@ -13,7 +13,7 @@ MODEL_SHA256="0f01cc004b8eb62b92ba6be85ed05a248ba0d2f78af94c4949b313eccfb4c157"
 mkdir -p "$RESULT_DIR"
 
 echo "EVE real local language-model verification" | tee "$RESULT_DIR/environment.txt"
-echo "Expected: verify Qwen weights, stage them privately, disable network, generate a reply, close the engine, reload from private storage, generate a second reply offline." | tee -a "$RESULT_DIR/environment.txt"
+echo "Expected: verify Qwen weights inside the APK, disable network before first launch, extract from APK assets, generate a reply, close the engine, reload from private storage, and generate again offline." | tee -a "$RESULT_DIR/environment.txt"
 
 for APK in "$APP_APK" "$TEST_APK"; do
   if [ ! -s "$APK" ]; then
@@ -35,11 +35,13 @@ if [ "$MODEL_BYTES" -lt 500000000 ]; then
   echo "FAIL: Qwen model weights are unexpectedly small ($MODEL_BYTES bytes)." | tee -a "$RESULT_DIR/environment.txt"
   exit 5
 fi
-printf "<?xml version='1.0' encoding='utf-8' standalone='yes' ?><map><string name=\"verifiedModelSha256\">%s</string><long name=\"verifiedModelBytes\" value=\"%s\" /></map>" \
-  "$MODEL_SHA256" "$MODEL_BYTES" > "$RUNNER_TEMP/eve_local_llm.xml"
-echo "PASS: host model file SHA-256 verified; bytes=$MODEL_BYTES." | tee -a "$RESULT_DIR/environment.txt"
+echo "PASS: host Qwen model SHA-256 verified; bytes=$MODEL_BYTES." | tee -a "$RESULT_DIR/environment.txt"
 sha256sum "$MODEL_FILE" | tee "$RESULT_DIR/qwen-model-sha256.txt"
-
+if ! unzip -Z1 "$APP_APK" | grep -Fxq "assets/Qwen2_0.5B_Instruct.litertlm"; then
+  echo "FAIL: install APK does not contain the pinned Qwen model asset." | tee -a "$RESULT_DIR/environment.txt"
+  exit 13
+fi
+echo "PASS: install APK contains the verified Qwen model asset." | tee -a "$RESULT_DIR/environment.txt"
 timeout 90s adb wait-for-device
 BOOT_COMPLETE="$(timeout 20s adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
 if [ "$BOOT_COMPLETE" != "1" ]; then
@@ -52,24 +54,14 @@ cat "$RESULT_DIR/install-app.txt"
 timeout 240s adb install -r "$TEST_APK" > "$RESULT_DIR/install-test.txt" 2>&1
 cat "$RESULT_DIR/install-test.txt"
 
-echo "Pushing model file ($MODEL_BYTES bytes) to the emulator." | tee -a "$RESULT_DIR/environment.txt"
-timeout 360s adb push "$MODEL_FILE" /data/local/tmp/Qwen2_0.5B_Instruct.litertlm \
-  > "$RESULT_DIR/push-model.txt" 2>&1
-cat "$RESULT_DIR/push-model.txt"
-timeout 30s adb push "$RUNNER_TEMP/eve_local_llm.xml" /data/local/tmp/eve_local_llm.xml \
-  > "$RESULT_DIR/push-model-prefs.txt" 2>&1
-cat "$RESULT_DIR/push-model-prefs.txt"
-
-STAGE_COMMAND='mkdir -p files/local-language-brain shared_prefs && cp /data/local/tmp/Qwen2_0.5B_Instruct.litertlm files/local-language-brain/Qwen2_0.5B_Instruct.litertlm && cp /data/local/tmp/eve_local_llm.xml shared_prefs/eve_local_llm.xml && chmod 600 shared_prefs/eve_local_llm.xml'
-if ! timeout 180s adb shell "run-as com.eve.robot sh -c '$STAGE_COMMAND'" > "$RESULT_DIR/stage-model-in-app.txt" 2>&1; then
-  cat "$RESULT_DIR/stage-model-in-app.txt"
-  echo "FAIL: could not stage model and verification metadata in app-private storage." | tee -a "$RESULT_DIR/environment.txt"
+# The app must extract weights from APK assets; do not push or pre-stage the model.
+# This proves first-launch initialization can occur with Wi-Fi and mobile data disabled.
+PRIVATE_MODEL_STATE="$(timeout 30s adb shell run-as com.eve.robot sh -c 'if [ -f files/local-language-brain/Qwen2_0.5B_Instruct.litertlm ]; then echo present; else echo absent; fi' 2>/dev/null | tr -d '\\r' || true)"
+if [ "$PRIVATE_MODEL_STATE" != "absent" ]; then
+  echo "FAIL: test emulator already had a private model; cannot prove APK-asset extraction." | tee -a "$RESULT_DIR/environment.txt"
   exit 7
 fi
-cat "$RESULT_DIR/stage-model-in-app.txt"
-timeout 30s adb shell "run-as com.eve.robot sh -c 'wc -c < files/local-language-brain/Qwen2_0.5B_Instruct.litertlm; cat shared_prefs/eve_local_llm.xml'" \
-  > "$RESULT_DIR/app-private-model-check.txt" 2>&1 || true
-cat "$RESULT_DIR/app-private-model-check.txt"
+echo "PASS: no model exists in app-private storage before first-run asset extraction." | tee -a "$RESULT_DIR/environment.txt"
 
 # Disconnect before first inference: no remote fallback is available to the model under test.
 timeout 20s adb shell svc wifi disable >/dev/null 2>&1 || true
