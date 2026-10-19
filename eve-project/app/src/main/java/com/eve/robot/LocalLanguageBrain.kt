@@ -280,99 +280,49 @@ class LocalLanguageBrain(
             deliver(callback, Result.failure(IllegalStateException("النموذج المحلي مشغول بطلب سابق.")))
             return
         }
+
         try {
+            // LiteRT-LM's synchronous call is deliberately run on the dedicated worker thread,
+            // never on the UI thread. This avoids a hung streaming callback leaving the dialogue
+            // latch unresolved on affected Android/LiteRT-LM combinations.
             worker.execute {
-                val settled = AtomicBoolean(false)
-                val responseText = StringBuilder()
-                val chunkCount = java.util.concurrent.atomic.AtomicInteger(0)
-                val inferenceStartedAt = SystemClock.elapsedRealtime()
-
-                fun finishInference(result: Result<LocalLlmResult>) {
-                    if (!settled.compareAndSet(false, true)) return
-                    generating.set(false)
-                    deliver(callback, result)
-                }
-
+                val startedAt = SystemClock.elapsedRealtime()
                 try {
                     if (closed.get()) throw IllegalStateException("تم إغلاق النموذج المحلي.")
                     val activeConversation = conversation
                         ?: throw IllegalStateException("لا توجد محادثة محلية نشطة.")
                     val outputCap = maxOutputTokens.coerceIn(12, MAX_OUTPUT_TOKENS)
+                    Log.i(TAG, "LOCAL_LLM_INFERENCE_START promptChars=${prompt.length} outputCap=$outputCap mode=sync-worker")
+
+                    val response = activeConversation.sendMessage(prompt)
+                    val nativeElapsed = SystemClock.elapsedRealtime() - startedAt
+                    val responseText = response.contents.contents
+                        .filterIsInstance<com.google.ai.edge.litertlm.Content.Text>()
+                        .joinToString(separator = "") { it.text }
+                        .trim()
+
+                    if (responseText.isBlank()) {
+                        throw IllegalStateException("أكمل النموذج المحلي التوليد دون نص.")
+                    }
+
+                    val parsed = parseResponse(responseText, outputCap)
                     Log.i(
                         TAG,
-                        "LOCAL_LLM_INFERENCE_START promptChars=${prompt.length} outputCap=$outputCap modeAsync=true"
+                        "LOCAL_LLM_INFERENCE_OK nativeElapsedMs=$nativeElapsed " +
+                            "totalElapsedMs=${SystemClock.elapsedRealtime() - startedAt} " +
+                            "chars=${responseText.length} mood=${parsed.moodHint ?: "none"} " +
+                            "intent=${parsed.intentHint ?: "none"}"
                     )
-
-                    // Async generation avoids holding this worker until the native model finishes.
-                    // Collect streamed text chunks and complete only after LiteRT-LM signals onDone.
-                    activeConversation.sendMessageAsync(
-                        prompt,
-                        object : MessageCallback {
-                            override fun onMessage(message: Message) {
-                                val chunk = message.contents.contents
-                                    .filterIsInstance<com.google.ai.edge.litertlm.Content.Text>()
-                                    .joinToString(separator = "") { it.text }
-                                val count = chunkCount.incrementAndGet()
-                                if (chunk.isNotEmpty()) {
-                                    synchronized(responseText) {
-                                        val remaining = MAX_RESPONSE_BUFFER_CHARS - responseText.length
-                                        if (remaining > 0) responseText.append(chunk.take(remaining))
-                                    }
-                                }
-                                if (count == 1 || count % 16 == 0) {
-                                    val currentChars = synchronized(responseText) { responseText.length }
-                                    Log.i(TAG, "LOCAL_LLM_STREAM chunks=$count chars=$currentChars")
-                                }
-                            }
-
-                            override fun onDone() {
-                                try {
-                                    val completedText = synchronized(responseText) {
-                                        responseText.toString().trim()
-                                    }
-                                    val elapsed = SystemClock.elapsedRealtime() - inferenceStartedAt
-                                    if (completedText.isBlank()) {
-                                        Log.e(
-                                            TAG,
-                                            "LOCAL_LLM_INFERENCE_EMPTY elapsedMs=$elapsed chunks=${chunkCount.get()}"
-                                        )
-                                        finishInference(
-                                            Result.failure(
-                                                IllegalStateException("النموذج المحلي أكمل التوليد دون نص.")
-                                            )
-                                        )
-                                        return
-                                    }
-
-                                    val parsed = parseResponse(completedText, outputCap)
-                                    Log.i(
-                                        TAG,
-                                        "LOCAL_LLM_INFERENCE_OK elapsedMs=$elapsed chunks=${chunkCount.get()} " +
-                                            "chars=${completedText.length} mood=${parsed.moodHint ?: "none"} " +
-                                            "intent=${parsed.intentHint ?: "none"}"
-                                    )
-                                    finishInference(Result.success(parsed))
-                                } catch (error: Exception) {
-                                    Log.e(TAG, "LOCAL_LLM_PARSE_FAILED", error)
-                                    finishInference(Result.failure(error))
-                                }
-                            }
-
-                            override fun onError(throwable: Throwable) {
-                                Log.e(
-                                    TAG,
-                                    "LOCAL_LLM_INFERENCE_FAILED elapsedMs=${SystemClock.elapsedRealtime() - inferenceStartedAt} " +
-                                        "chunks=${chunkCount.get()}",
-                                    throwable
-                                )
-                                finishInference(Result.failure(throwable))
-                            }
-                        },
-                        maxOutputToken = maxOutputTokens.coerceIn(12, MAX_OUTPUT_TOKENS)
-                    )
+                    deliver(callback, Result.success(parsed))
                 } catch (error: Exception) {
-                    Log.e(TAG, "LOCAL_LLM_ASYNC_START_FAILED", error)
-                    finishInference(Result.failure(error))
+                    Log.e(
+                        TAG,
+                        "LOCAL_LLM_INFERENCE_FAILED elapsedMs=${SystemClock.elapsedRealtime() - startedAt}",
+                        error
+                    )
+                    deliver(callback, Result.failure(error))
+                } finally {
+                    generating.set(false)
                 }
             }
         } catch (error: Exception) {
@@ -382,50 +332,35 @@ class LocalLanguageBrain(
     }
 
     private fun buildPrompt(mode: String, userText: String, context: LocalLlmContext): String {
-        val latestConfidence = context.visionConfidence.takeIf { it.isFinite() }
+        val confidence = context.visionConfidence.takeIf { it.isFinite() }
             ?.coerceIn(0f, 1f) ?: 0f
-        val hasFreshVisualEvidence = context.visionObservationAgeMs in 0L..12_000L &&
-            context.latestVisionLabel != null && latestConfidence >= 0.45f
-        val label = if (hasFreshVisualEvidence) context.latestVisionLabel.orEmpty().take(48) else "none"
-        val confidence = if (hasFreshVisualEvidence) {
-            String.format(Locale.ROOT, "%.2f", latestConfidence)
-        } else "0.00"
-        val observations = context.recentObservations.take(3).joinToString("؛ ").take(180)
-            .ifBlank { "لا توجد ملاحظات" }
-        val dialogues = context.recentDialogues.take(2).joinToString("\n").take(220)
-            .ifBlank { "لا توجد محادثات" }
-        val reflections = context.recentReflections.take(2).joinToString("؛ ").take(140)
-            .ifBlank { "لا توجد استنتاجات" }
-        val reason = context.moodReason.take(72).replace("\n", " ")
-        val user = userText.trim().take(280).ifBlank { "لا يوجد كلام جديد" }
-        val personality = "warmth=${context.personality.warmth}; curiosity=${context.personality.curiosityBias}; " +
-            "play=${context.personality.playfulness}; patience=${context.personality.patience}"
+        val freshVision = context.visionObservationAgeMs in 0L..12_000L &&
+            !context.latestVisionLabel.isNullOrBlank() && confidence >= 0.45f
+        val label = if (freshVision) context.latestVisionLabel.orEmpty().take(36) else "none"
+        val mood = context.currentMood.take(18)
+        val reason = context.moodReason.replace("\\n", " ").take(44)
+        val memory = context.recentObservations.take(2).joinToString("؛ ").take(90)
+        val dialogue = context.recentDialogues.takeLast(1).joinToString(" ").take(120)
+        val reflection = context.recentReflections.take(1).joinToString("؛ ").take(70)
+        val user = userText.trim().take(220).ifBlank { "لا يوجد كلام جديد" }
+        val personality = "warmth=${context.personality.warmth}; curiosity=${context.personality.curiosityBias}; play=${context.personality.playfulness}"
         val task = when (mode) {
-            "USER" ->
-                "أجب بالعربية الطبيعية وباختصار مفيد، وكأنك شخصية رفيقة لها أسلوبها. تابعي آخر ما قاله المستخدم وما تتذكرينه من الحوار؛ لا تبدئي من الصفر إذا كان الكلام امتدادًا لسابقه. لا تصفي المشهد إلا إذا كانت الرؤية حديثة وموثوقة."
-            "CURIOSITY" ->
-                "صوغي سؤال فضول عربيًا واحدًا فقط، قصيرًا وطبيعيًا، منطلقًا من التصنيف البصري الحديث وذاكرة الحوار والشخصية. اجعليه محددًا وغير مكرر، ولا تدّعي معرفة هوية شخص أو تفاصيل لا يثبتها التصنيف."
-            else ->
-                "استنتجي ملاحظة داخلية قصيرة. اجعلي reply_ar فارغًا ولا تخاطبي المستخدم."
+            "USER" -> "أجب بالعربية الطبيعية باختصار، مع مراعاة سياق الحوار. لا تصف المشهد إذا لم تكن الرؤية حديثة وموثوقة."
+            "CURIOSITY" -> "اسأل سؤال فضول عربيًا واحدًا قصيرًا عن التصنيف المرئي الحديث فقط؛ لا تخمّن الهوية أو التفاصيل."
+            else -> "اكتب ملاحظة داخلية قصيرة؛ يجب أن يكون reply_ar فارغًا وألا تخاطب المستخدم."
         }
         return """
 MODE=$mode
 TASK=$task
-VISION=$label
-VISION_CONFIDENCE=$confidence
-VISION_FRESH=$hasFreshVisualEvidence
-VISION_AGE_MS=${context.visionObservationAgeMs.coerceAtLeast(0L)}
-SIGHTINGS=${context.sightingCount.coerceIn(0, 100000)}
-AFFINITY=${context.learnedAffinity.takeIf { it.isFinite() }?.coerceIn(-1f, 1f) ?: 0f}
-MOOD=${context.currentMood.take(24)} ($reason)
-PERSONALITY=$personality
-MEMORY=$observations
-DIALOGUE=$dialogues
-REFLECTIONS=$reflections
+VISION=$label; confidence=$confidence; fresh=$freshVision; ageMs=${context.visionObservationAgeMs.coerceAtLeast(0L)}
+MOOD=$mood ($reason); personality=$personality
+MEMORY=$memory
+CHAT=$dialogue
+REFLECTION=$reflection
 USER=$user
-Return ONLY this JSON schema:
-{"reply_ar":"short Arabic reply or empty","reflection_ar":"short or empty","mood":"neutral|curious|happy|concerned|focused|playful|sleepy|irritated|none","intent":"observe|explore|connect|play|focus|rest|regulate|none","confidence":0.0}
-Rules: if VISION_FRESH=false, do not describe what is currently in view. Labels are uncertain categories, not identity or proof of private feelings. Never invent memory, claim consciousness, or request external actions. The Kotlin behavior engine validates hints. If MODE=OBSERVATION, reply_ar must be empty. If MODE=CURIOSITY, reply_ar must contain exactly one brief Arabic question related to the current high-confidence label and its context; do not ask for a name or identity from a generic person label, do not repeat the fallback question word-for-word unless necessary, and do not invent visual details.
+Return ONLY compact JSON:
+{"reply_ar":"","reflection_ar":"","mood":"neutral|curious|happy|concerned|focused|playful|sleepy|irritated|none","intent":"observe|explore|connect|play|focus|rest|regulate|none","confidence":0.0}
+Rules: never invent memory or visual facts; if fresh=false do not describe the scene; do not claim consciousness/actions. CURIOSITY requires one brief Arabic question tied to fresh vision. OBSERVATION requires empty reply_ar.
         """.trimIndent()
     }
 
@@ -668,7 +603,7 @@ Rules: if VISION_FRESH=false, do not describe what is currently in view. Labels 
         private const val READ_TIMEOUT_MS = 75_000
         private const val RETRY_DELAY_MS = 30_000L
         private const val MAX_REPLY_CHARS = 650
-        private const val MAX_OUTPUT_TOKENS = 64
+        private const val MAX_OUTPUT_TOKENS = 48
         private const val MAX_RESPONSE_BUFFER_CHARS = 8_000
         /**
          * Qwen2 chat format adapted for LiteRT-LM 0.18 typed content.
