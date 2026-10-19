@@ -224,10 +224,32 @@ if ! install_apk "instrumentation APK" "$TEST_APK" "$RESULT_DIR/install-test-apk
 fi
 timeout 10s adb logcat -c >/dev/null 2>&1 || true
 
+# Keep the face/gesture suite independent from the separate 647 MB Qwen model test.
+# This workflow intentionally does not bundle Qwen weights; running every instrumentation
+# class here would make unrelated LocalLanguageBrainIntegrationTest fail before it can test.
+# Run the four offline perception/rendering classes explicitly and keep one combined report.
 INSTRUMENTATION_EXIT=0
-timeout 600s adb shell am instrument -w -r "$TEST_PACKAGE/androidx.test.runner.AndroidJUnitRunner" \
-  > "$RESULT_DIR/instrumentation-output.txt" 2>&1 || INSTRUMENTATION_EXIT=$?
-cat "$RESULT_DIR/instrumentation-output.txt"
+: > "$RESULT_DIR/instrumentation-output.txt"
+FACE_TEST_CLASSES=(
+  "com.eve.robot.FaceVisionIntegrationTest"
+  "com.eve.robot.HandGestureIntegrationTest"
+  "com.eve.robot.RobotFaceRenderingTest"
+  "com.eve.robot.EveGeneratedNotificationDeliveryTest"
+)
+for TEST_CLASS in "${FACE_TEST_CLASSES[@]}"; do
+  TEST_BASENAME="${TEST_CLASS##*.}"
+  CLASS_OUTPUT="$RESULT_DIR/instrumentation-$TEST_BASENAME.txt"
+  CLASS_EXIT=0
+  echo "===== RUNNING $TEST_CLASS =====" | tee -a "$RESULT_DIR/instrumentation-output.txt"
+  timeout 600s adb shell am instrument -w -r -e class "$TEST_CLASS" \
+    "$TEST_PACKAGE/androidx.test.runner.AndroidJUnitRunner" \
+    > "$CLASS_OUTPUT" 2>&1 || CLASS_EXIT=$?
+  cat "$CLASS_OUTPUT" | tee -a "$RESULT_DIR/instrumentation-output.txt"
+  if [ "$CLASS_EXIT" -ne 0 ] || grep -E "FAILURES!!!|INSTRUMENTATION_FAILED|INSTRUMENTATION_STATUS_CODE: -2" "$CLASS_OUTPUT" >/dev/null; then
+    echo "FAIL: instrumentation class $TEST_CLASS failed (exit=$CLASS_EXIT)." | tee -a "$RESULT_DIR/environment.txt"
+    INSTRUMENTATION_EXIT=1
+  fi
+done
 
 # The instrumentation test writes the contact sheet into app-internal filesDir and
 # duplicates it to app-specific external storage as a fallback for some API 29 run-as quirks.
