@@ -11,7 +11,6 @@ import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
-import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
@@ -20,17 +19,9 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 
 /**
- * End-to-end proof for the generative language model (not the rule-based dialogue fallback).
- *
- * The dedicated workflow downloads the pinned LiteRT-LM model on the build runner, verifies its
- * SHA-256, then stages it in the app-private data directory with the same integrity metadata
- * used by LocalLanguageBrain. This avoids making the test result depend on slow emulator
- * downloads while still exercising the real native LiteRT-LM engine and model weights.
- *
- * This test requires the emulator network to be disabled before first inference. It runs one
- * generation, closes the engine, opens a fresh engine from the persisted local weights, and
- * runs a second generation while still offline. The ordinary vision suite skips this test if
- * no verified model has been staged; the dedicated workflow requires the success marker.
+ * End-to-end proof that the packaged Qwen asset can be extracted, hash-verified, and used on
+ * first launch with the emulator network disabled. A second engine is then opened from private
+ * storage and generates again offline to verify persistence and true local inference.
  */
 @RunWith(AndroidJUnit4::class)
 class LocalLanguageBrainIntegrationTest {
@@ -47,12 +38,17 @@ class LocalLanguageBrainIntegrationTest {
             modelFile.length() >= MIN_MODEL_BYTES &&
             modelPrefs.getString("verifiedModelSha256", null) == MODEL_SHA256 &&
             modelPrefs.getLong("verifiedModelBytes", -1L) == modelFile.length()
-        assumeTrue(
-            "No verified Qwen model was staged; use the dedicated local-LLM verification workflow.",
-            verifiedOnDisk
+        val bundledAssetAvailable = try {
+            context.assets.open("Qwen2_0.5B_Instruct.litertlm").use { it.read() >= 0 }
+        } catch (_: java.io.FileNotFoundException) {
+            false
+        }
+        assertTrue(
+            "Expected the pinned Qwen weights in APK assets or already verified app-private storage.",
+            verifiedOnDisk || bundledAssetAvailable
         )
         assertFalse(
-            "The dedicated local-LLM test must start with network connectivity disabled.",
+            "The packaged-model test must start with network connectivity disabled.",
             hasValidatedNetwork(context)
         )
 
