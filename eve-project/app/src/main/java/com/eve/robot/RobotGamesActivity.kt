@@ -34,6 +34,7 @@ class RobotGamesActivity : ComponentActivity() {
     private val prefs by lazy { getSharedPreferences("eve_games", MODE_PRIVATE) }
     private val gameMemory by lazy { EveMemory(applicationContext) }
     private lateinit var gameBrain: RobotBrain
+    private lateinit var robotVoice: RobotVoice
     private var eveGameFace: RobotFaceView? = null
     private var gameDialogueView: TextView? = null
     private var gameSessionId = 0L
@@ -120,6 +121,7 @@ class RobotGamesActivity : ComponentActivity() {
         val scroll = ScrollView(this).apply { addView(root) }
         setContentView(scroll)
         gameBrain = RobotBrain(EveMemory(applicationContext).learnedPersonality())
+        robotVoice = RobotVoice()
         eveGameFace = RobotFaceView(this).apply {
             isClickable = false
             isFocusable = false
@@ -148,6 +150,7 @@ class RobotGamesActivity : ComponentActivity() {
         gameDialogueView = null
         eveGameFace?.stopAnimation()
         eveGameFace = null
+        if (::robotVoice.isInitialized) robotVoice.close()
         super.onDestroy()
     }
 
@@ -376,6 +379,16 @@ class RobotGamesActivity : ComponentActivity() {
         latestGameDecision = decision
         eveGameFace?.setExpression(decision, SystemClock.uptimeMillis())
         android.util.Log.i("EVE_GAME", "game=$gameName outcome=$outcome mood=${decision.mood} reason=${decision.reason}")
+        if (::robotVoice.isInitialized) {
+            val cue = when (outcome.lowercase()) {
+                "start" -> "game_start"
+                "player", "success", "win" -> "game_win"
+                "robot", "miss", "loss" -> "game_loss"
+                "draw" -> "game_draw"
+                else -> "game_event"
+            }
+            robotVoice.playGameCue(cue)
+        }
         if (outcome == "start") {
             requestModelGameComment(
                 gameName, outcome,
@@ -816,8 +829,10 @@ class RobotGamesActivity : ComponentActivity() {
         if (from == null) {
             if (board[square] != '.' && board[square].isUpperCase()) {
                 chessSelected = square
+                robotVoice.playGameCue("chess_select")
                 renderChess("اخترت ${squareName(square)}. المس مربعًا أخضر للحركة.")
             } else {
+                robotVoice.playGameCue("chess_invalid")
                 renderChess("اختر قطعة بيضاء أولًا.")
             }
             return
@@ -825,6 +840,7 @@ class RobotGamesActivity : ComponentActivity() {
 
         if (from == square) {
             chessSelected = null
+            robotVoice.playGameCue("chess_select")
             renderChess("ألغيت اختيار القطعة.")
             return
         }
@@ -833,16 +849,26 @@ class RobotGamesActivity : ComponentActivity() {
         // treated as a capture destination and is checked against the engine's legal moves.
         if (board[square] != '.' && board[square].isUpperCase()) {
             chessSelected = square
+            robotVoice.playGameCue("chess_select")
             renderChess("اخترت ${squareName(square)}. المس مربعًا أخضر للحركة.")
             return
         }
 
         val move = chess.legalMoves(from).firstOrNull { it.to == square }
         if (move == null) {
+            robotVoice.playGameCue("chess_invalid")
             renderChess("هذه الحركة غير قانونية؛ جرّب مربعًا أخضر.")
             return
         }
+        val playerCapture = board[move.to] != '.' ||
+            (board[move.from].uppercaseChar() == 'P' && move.to == chess.position.enPassant)
         chess.play(move)
+        when {
+            chess.isCheckmate() -> robotVoice.playGameCue("chess_win")
+            chess.isCheck() -> robotVoice.playGameCue("chess_check")
+            playerCapture -> robotVoice.playGameCue("chess_capture")
+            else -> robotVoice.playGameCue("chess_move")
+        }
         chessSelected = null
         when {
             chess.isCheckmate() -> {
@@ -860,7 +886,17 @@ class RobotGamesActivity : ComponentActivity() {
                     if (game != Game.CHESS || chessFinished || isFinishing) return@postDelayed
                     val robotMove = chess.robotMove(difficulty)
                     if (robotMove == null) { chessFinished = true; saveResult("chess", if (chess.isCheck()) "player" else "draw"); renderChess("انتهت المباراة."); return@postDelayed }
+                    val boardBeforeRobotMove = chess.position.board
+                    val robotCapture = boardBeforeRobotMove[robotMove.to] != '.' ||
+                        (boardBeforeRobotMove[robotMove.from].lowercaseChar() == 'p' &&
+                            robotMove.to == chess.position.enPassant)
                     chess.play(robotMove)
+                    when {
+                        chess.isCheckmate() -> robotVoice.playGameCue("chess_loss")
+                        chess.isCheck() -> robotVoice.playGameCue("chess_check")
+                        robotCapture -> robotVoice.playGameCue("chess_capture")
+                        else -> robotVoice.playGameCue("chess_robot_move")
+                    }
                     chessThinking = false
                     when {
                         chess.isCheckmate() -> { chessFinished = true; saveResult("chess", "robot"); renderChess("كش مات. فزت هذه المرة؛ لن أنسى هذه الخطة.") }
