@@ -56,7 +56,7 @@ cat "$RESULT_DIR/install-test.txt"
 
 # The app must extract weights from APK assets; do not push or pre-stage the model.
 # This proves first-launch initialization can occur with Wi-Fi and mobile data disabled.
-PRIVATE_MODEL_STATE="$(timeout 30s adb shell run-as com.eve.robot sh -c 'if [ -f files/local-language-brain/Qwen2_0.5B_Instruct.litertlm ]; then echo present; else echo absent; fi' 2>/dev/null | tr -d '\\r' || true)"
+PRIVATE_MODEL_STATE="$(timeout 30s adb shell run-as com.eve.robot sh -c 'if [ -f files/local-language-brain/Qwen2_0.5B_Instruct.litertlm ]; then echo present; else echo absent; fi' 2>/dev/null | tr -d '\r' || true)"
 if [ "$PRIVATE_MODEL_STATE" != "absent" ]; then
   echo "FAIL: test emulator already had a private model; cannot prove APK-asset extraction." | tee -a "$RESULT_DIR/environment.txt"
   exit 7
