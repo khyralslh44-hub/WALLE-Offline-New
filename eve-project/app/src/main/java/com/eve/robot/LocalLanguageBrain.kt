@@ -199,7 +199,10 @@ class LocalLanguageBrain(
                     )
                 } catch (error: Exception) {
                     if (!closed.get()) {
-                        state = if (!hasUnmeteredInternet() && !isVerifiedModelOnDisk()) {
+                        // Only a truly absent bundled model should be reported as a Wi-Fi requirement.
+                        // Low RAM, disk-space, asset-extraction, and LiteRT-LM errors must stay ERROR;
+                        // otherwise a real startup defect is hidden behind a misleading Wi-Fi message.
+                        state = if (error is OfflineModelAssetUnavailable) {
                             LocalLlmState.WAITING_FOR_WIFI
                         } else {
                             LocalLlmState.ERROR
@@ -472,6 +475,9 @@ class LocalLanguageBrain(
         )
     }
 
+    /** Distinguishes a missing optional model asset from real initialization/runtime faults. */
+    private class OfflineModelAssetUnavailable(message: String) : IllegalStateException(message)
+
     private fun ensureModelFile(): File {
         if (!modelDirectory.exists() && !modelDirectory.mkdirs()) {
             throw IllegalStateException("تعذر إنشاء مساحة تخزين الدماغ المحلي.")
@@ -503,7 +509,7 @@ class LocalLanguageBrain(
                 0,
                 "هذا الإصدار التجريبي لا يتضمن أوزان النموذج؛ أعد بناء نسخة APK المدمجة لتعمل دون إنترنت من أول تشغيل."
             )
-            throw IllegalStateException(
+            throw OfflineModelAssetUnavailable(
                 "ملف النموذج غير موجود ضمن أصول التطبيق التجريبي، ولا يوجد اتصال Wi-Fi لتنزيله."
             )
         }
