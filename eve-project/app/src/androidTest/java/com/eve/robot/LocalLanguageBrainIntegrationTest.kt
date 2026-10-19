@@ -144,16 +144,29 @@ class LocalLanguageBrainIntegrationTest {
         status: AtomicReference<String>,
         timeoutMs: Long
     ) {
-        val deadline = SystemClock.elapsedRealtime() + timeoutMs
+        val startedAt = SystemClock.elapsedRealtime()
+        val deadline = startedAt + timeoutMs
         while (!brain.isReady && SystemClock.elapsedRealtime() < deadline) {
-            if (brain.currentState == LocalLlmState.ERROR) {
-                throw AssertionError("Local Qwen engine failed to initialize: ${status.get()}")
+            val elapsedMs = SystemClock.elapsedRealtime() - startedAt
+            val currentState = brain.currentState
+            val lastStatus = status.get()
+
+            if (currentState == LocalLlmState.ERROR) {
+                throw AssertionError("Local Qwen engine failed to initialize: $lastStatus")
             }
-            if (brain.currentState == LocalLlmState.WAITING_FOR_WIFI &&
+
+            // WAITING_FOR_WIFI is the object's initial enum value before its worker thread runs.
+            // Do not fail on that placeholder during the first seconds of startup. Only fail when
+            // the worker has published a real WAITING_FOR_WIFI status after giving APK extraction
+            // time to begin; this avoids racing the model worker and falsely reporting missing weights.
+            val explicitWifiWait = lastStatus.startsWith("WAITING_FOR_WIFI")
+            if (elapsedMs >= INITIAL_STARTUP_GRACE_MS &&
+                currentState == LocalLlmState.WAITING_FOR_WIFI &&
+                explicitWifiWait &&
                 !hasValidatedUnmeteredNetwork(InstrumentationRegistry.getInstrumentation().targetContext) &&
                 !hasVerifiedModel(InstrumentationRegistry.getInstrumentation().targetContext)
             ) {
-                throw AssertionError("Local Qwen needs an unmetered connection for first setup: ${status.get()}")
+                throw AssertionError("Local Qwen needs an unmetered connection for first setup: $lastStatus")
             }
             SystemClock.sleep(1_000L)
         }
@@ -228,6 +241,7 @@ class LocalLanguageBrainIntegrationTest {
         private const val TAG = "EVE_LLM_TEST"
         private const val MODEL_SHA256 = "0f01cc004b8eb62b92ba6be85ed05a248ba0d2f78af94c4949b313eccfb4c157"
         private const val MIN_MODEL_BYTES = 500_000_000L
+        private const val INITIAL_STARTUP_GRACE_MS = 12_000L
         private const val INITIALIZE_TIMEOUT_MS = 20L * 60L * 1000L
         private const val OFFLINE_RELOAD_TIMEOUT_MS = 5L * 60L * 1000L
         private const val INFERENCE_TIMEOUT_MS = 10L * 60L * 1000L
