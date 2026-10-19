@@ -52,6 +52,17 @@ if [ ! -s "$GITHUB_WORKSPACE/eve-project/app/src/main/assets/eve_emotion_model.t
   echo "FAIL: bundled emotion model is missing." | tee -a "$RESULT_DIR/environment.txt"
   exit 3
 fi
+if [ ! -s "$GITHUB_WORKSPACE/eve-project/app/src/main/assets/efficientdet_lite0.tflite" ]; then
+  echo "FAIL: bundled offline object detector model is missing." | tee -a "$RESULT_DIR/environment.txt"
+  exit 18
+fi
+EXPECTED_OBJECT_SHA256="40338edf5ec70d43e318b0a716a84d4564cd1802759a7a07170c7e43796dbf58"
+ACTUAL_OBJECT_SHA256="$(sha256sum "$GITHUB_WORKSPACE/eve-project/app/src/main/assets/efficientdet_lite0.tflite" | awk '{print $1}')"
+if [ "$ACTUAL_OBJECT_SHA256" != "$EXPECTED_OBJECT_SHA256" ]; then
+  echo "FAIL: offline object detector model SHA-256 mismatch: $ACTUAL_OBJECT_SHA256" | tee -a "$RESULT_DIR/environment.txt"
+  exit 19
+fi
+echo "PASS: pinned EfficientDet-Lite0 model verified." | tee -a "$RESULT_DIR/environment.txt"
 if [ ! -s "$GITHUB_WORKSPACE/eve-project/app/src/main/assets/gesture_recognizer.task" ]; then
   echo "FAIL: bundled offline hand-gesture model is missing." | tee -a "$RESULT_DIR/environment.txt"
   exit 15
@@ -232,6 +243,7 @@ INSTRUMENTATION_EXIT=0
 : > "$RESULT_DIR/instrumentation-output.txt"
 FACE_TEST_CLASSES=(
   "com.eve.robot.FaceVisionIntegrationTest"
+  "com.eve.robot.ObjectVisionIntegrationTest"
   "com.eve.robot.HandGestureIntegrationTest"
   "com.eve.robot.RobotFaceRenderingTest"
   "com.eve.robot.EveGeneratedNotificationDeliveryTest"
