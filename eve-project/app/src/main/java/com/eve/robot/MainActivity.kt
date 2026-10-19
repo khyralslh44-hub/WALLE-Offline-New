@@ -81,6 +81,18 @@ class MainActivity : ComponentActivity() {
     private val emotionExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     // Recognizer creation, inference and release all occur on this one worker.
     private val gestureExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+    // EfficientDet is initialized/inferred on its own worker so the camera/UI threads stay responsive.
+    private val objectExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+    @Volatile private var localObjectDetector: EveLocalObjectDetector? = null
+    @Volatile private var objectDetectorReady = false
+    private val objectInferenceRunning = AtomicBoolean(false)
+    private val lastObjectInferenceAt = AtomicLong(0L)
+    private val lastObjectDiagnosticAt = AtomicLong(0L)
+    private val objectLabelMemoryAt = mutableMapOf<String, Long>()
+    private val objectLabelReactionAt = mutableMapOf<String, Long>()
+    @Volatile private var lastObjectLabel = ""
+    @Volatile private var lastObjectLabelConfidence = 0f
+    @Volatile private var lastObjectLabelAt = 0L
     @Volatile private var handGestureRecognizer: GestureRecognizer? = null
     @Volatile private var handGestureReady = false
     private val handGestureInferenceRunning = AtomicBoolean(false)
@@ -333,6 +345,7 @@ class MainActivity : ComponentActivity() {
         }
         localLanguageBrain.start()
         initializeHandGestureRecognizer()
+        initializeOfflineObjectDetector()
         requestOfflineSpeechPermission()
 
         face.setOnTouchListener { _, event ->
@@ -1040,20 +1053,30 @@ class MainActivity : ComponentActivity() {
             return
         }
 
-        // This bitmap is independent of ImageProxy memory. It lets the local FER classifier
-        // crop a detected face, while the ML Kit tasks continue using the original camera image.
-        val bitmapNeeded = (emotionClassifier.isReady && !ferInferenceRunning.get()) ||
+        // Run the detector on a throttled cadence: named object boxes are more useful than
+        // generic whole-image guesses, and a single in-flight guard prevents CPU queues.
+        val requestObjectDetection = objectDetectorReady &&
+            now - lastObjectInferenceAt.get() >= objectDetectionIntervalMs &&
+            objectInferenceRunning.compareAndSet(false, true)
+        if (requestObjectDetection) lastObjectInferenceAt.set(now)
+
+        // This RGB bitmap is independent of ImageProxy memory and is shared read-only with
+        // object detection, local facial-expression inference, and hand-gesture inference.
+        val bitmapNeeded = requestObjectDetection ||
+            (emotionClassifier.isReady && !ferInferenceRunning.get()) ||
             (handGestureReady && !handGestureInferenceRunning.get())
         val frameBitmap = if (bitmapNeeded) {
             try {
                 imageProxyToUprightBitmap(proxy)
             } catch (error: Exception) {
-                Log.w("EVE_FER", "Could not convert camera YUV frame for the local emotion model.", error)
+                Log.w("EVE_FER", "Could not convert camera YUV frame for local on-device models.", error)
                 null
             }
         } else {
             null
         }
+        if (requestObjectDetection && frameBitmap == null) objectInferenceRunning.set(false)
+        val runObjectDetection = requestObjectDetection && frameBitmap != null
 
         val input = InputImage.fromMediaImage(mediaImage, proxy.imageInfo.rotationDegrees)
         val labelsTask = labeler.process(input)
@@ -1072,17 +1095,23 @@ class MainActivity : ComponentActivity() {
                     return@addOnSuccessListener
                 }
                 lastLabelAt[label] = elapsed
-                val sightings = memory.remember(label)
                 if (isVisualNoiseLabel(label)) {
-                    // Keep the sighting counter for diagnostics, but texture/background labels
-                    // must not overwrite an intentional face expression (for example after a touch).
+                    // A generic whole-image guess such as "pattern" is not object understanding.
+                    // Do not count it as a sighting, change the mood, or overwrite fresh evidence.
                     Log.i(
                         "EVE",
-                        "VISION label=$label confidence=${best.confidence} sightings=$sightings " +
-                            "affinity=${memory.learnedAffinity(label)} mood=UNCHANGED ignored=visual_noise"
+                        "VISION label=$label confidence=${best.confidence} mood=UNCHANGED ignored=visual_noise"
                     )
                     return@addOnSuccessListener
                 }
+                if (!isMeaningfulLabel(label) && !isCuriosityWorthyLabel(label)) {
+                    Log.i(
+                        "EVE",
+                        "VISION label=$label confidence=${best.confidence} mood=UNCHANGED ignored=unsupported_generic_label"
+                    )
+                    return@addOnSuccessListener
+                }
+                val sightings = memory.remember(label)
                 if (best.confidence >= 0.80f &&
                     (isMeaningfulLabel(label) || isCuriosityWorthyLabel(label))
                 ) {
@@ -1123,7 +1152,9 @@ class MainActivity : ComponentActivity() {
         // A 2-of-3 temporal vote prevents a single blink/blurred frame from changing the character.
         val runHandGesture = frameBitmap != null && handGestureReady &&
             handGestureInferenceRunning.compareAndSet(false, true)
-        val pendingFrameConsumers = AtomicLong(if (runHandGesture) 3L else 2L)
+        val pendingFrameConsumers = AtomicLong(
+            2L + (if (runHandGesture) 1L else 0L) + (if (runObjectDetection) 1L else 0L)
+        )
         fun finishFrameConsumer() {
             if (pendingFrameConsumers.decrementAndGet() == 0L) {
                 try { frameBitmap?.recycle() } catch (_: Exception) { }
@@ -1134,6 +1165,29 @@ class MainActivity : ComponentActivity() {
         // Release the frame only after image labels are done and the face listener has finished
         // cropping the image. Inference then owns its independent crop bitmap.
         labelsTask.addOnCompleteListener(mainExecutor) { finishFrameConsumer() }
+
+        if (runObjectDetection && frameBitmap != null) {
+            val objectBitmap = frameBitmap
+            try {
+                objectExecutor.execute {
+                    try {
+                        val observations = localObjectDetector?.detect(objectBitmap).orEmpty()
+                        main.post {
+                            if (!isFinishing && !isDestroyed) applyObjectObservations(observations)
+                        }
+                    } catch (error: Exception) {
+                        Log.w("EVE_OBJECTS", "Object detection failed for a live camera frame.", error)
+                    } finally {
+                        objectInferenceRunning.set(false)
+                        finishFrameConsumer()
+                    }
+                }
+            } catch (error: Exception) {
+                objectInferenceRunning.set(false)
+                finishFrameConsumer()
+                Log.e("EVE_OBJECTS", "Could not queue live object detection.", error)
+            }
+        }
 
         if (runHandGesture && frameBitmap != null) {
             val gestureBitmap = frameBitmap
@@ -1408,10 +1462,100 @@ class MainActivity : ComponentActivity() {
         react(decision, decision.playSound)
     }
 
+    private fun initializeOfflineObjectDetector() {
+        try {
+            objectExecutor.execute {
+                val candidate = EveLocalObjectDetector(applicationContext)
+                if (candidate.isReady) {
+                    localObjectDetector = candidate
+                    objectDetectorReady = true
+                    Log.i("EVE_OBJECTS", "OBJECT_DETECTOR_AVAILABLE model=efficientdet_lite0.tflite offline=true")
+                } else {
+                    Log.e("EVE_OBJECTS", "OBJECT_DETECTOR_UNAVAILABLE; generic image labels will not be treated as object recognition.")
+                }
+            }
+        } catch (error: Exception) {
+            objectDetectorReady = false
+            Log.e("EVE_OBJECTS", "Could not start local object detector worker.", error)
+        }
+    }
+
+    private fun applyObjectObservations(objects: List<EveVisualObject>) {
+        if (isFinishing || isDestroyed) return
+        val now = SystemClock.elapsedRealtime()
+        val best = objects.asSequence()
+            .filter { it.confidence >= objectObservationMinConfidence }
+            .filterNot { isVisualNoiseLabel(it.label) }
+            .filterNot { it.label.isBlank() || it.label == "???" }
+            // Prefer clear, larger boxes if two classes have almost the same confidence.
+            .maxByOrNull { it.confidence * (0.85f + 0.15f * it.areaFraction.coerceIn(0f, 1f)) }
+        if (best == null) {
+            val previous = lastObjectDiagnosticAt.get()
+            if (now - previous >= 6000L && lastObjectDiagnosticAt.compareAndSet(previous, now)) {
+                Log.i("EVE_OBJECTS", "OBJECT_DETECTION_NO_CLEAR_OBJECT; no mood guess made")
+            }
+            return
+        }
+
+        val label = best.label.trim().lowercase(Locale.ROOT).replace(Regex("\\s+"), " ")
+        val previousLabel = lastObjectLabel
+        val changed = previousLabel != label
+        lastObjectLabel = label
+        lastObjectLabelConfidence = best.confidence
+        lastObjectLabelAt = now
+
+        // Keep the latest real visual evidence for "what do you see?" answers. Do not store
+        // camera pixels or identity; save only the category, score, and a count.
+        val lastMemoryAt = objectLabelMemoryAt[label] ?: 0L
+        val sightings = if (lastMemoryAt == 0L || now - lastMemoryAt >= objectLabelMemoryIntervalMs) {
+            objectLabelMemoryAt[label] = now
+            memory.remember(label)
+        } else {
+            memory.sightings(label)
+        }
+        lastMeaningfulLabel = label
+        lastMeaningfulLabelAt = now
+        lastMeaningfulConfidence = best.confidence
+        getSharedPreferences("eve_relationship", MODE_PRIVATE).edit()
+            .putString("lastObservationLabel", label)
+            .putFloat("lastObservationConfidence", best.confidence)
+            .putInt("lastObservationCount", sightings)
+            .putLong("lastObservationAt", System.currentTimeMillis())
+            .putString("lastObservationSource", "efficientdet_lite0")
+            .apply()
+
+        Log.i(
+            "EVE_OBJECTS",
+            "OBJECT_DETECTED label=" + label +
+                " confidence=" + String.format(Locale.ROOT, "%.3f", best.confidence) +
+                " area=" + String.format(Locale.ROOT, "%.3f", best.areaFraction) +
+                " sightings=" + sightings + " changed=" + changed +
+                " source=efficientdet_lite0 offline=true"
+        )
+
+        val lastReactionAt = objectLabelReactionAt[label] ?: 0L
+        val shouldReact = changed || lastReactionAt == 0L ||
+            now - lastReactionAt >= objectReactionCooldownMs
+        if (!shouldReact) return
+        objectLabelReactionAt[label] = now
+        val decision = brain.observe(label, best.confidence, sightings, memory.learnedAffinity(label))
+        react(decision, playSound = decision.playSound && isMeaningfulLabel(label))
+        if (best.confidence >= 0.82f) {
+            val askedOrQueued = maybeAskFromCuriosity(label, best.confidence, sightings)
+            if (!askedOrQueued && changed) maybeReflectWithLocalLanguage(label, best.confidence, sightings)
+        }
+    }
+
+    private val objectDetectionIntervalMs = 1400L
+    private val objectObservationMinConfidence = 0.52f
+    private val objectLabelMemoryIntervalMs = 9_000L
+    private val objectReactionCooldownMs = 8_000L
+
     private fun isVisualNoiseLabel(label: String): Boolean =
-        label.trim().lowercase() in setOf(
+        label.trim().lowercase(Locale.ROOT) in setOf(
             "pattern", "texture", "background", "wall", "floor", "ceiling",
-            "line", "geometry", "grid", "tile", "color", "colour", "design"
+            "line", "geometry", "grid", "tile", "color", "colour", "design",
+            "lighting", "shadow", "unknown", "???"
         )
 
     private fun isMeaningfulLabel(label: String): Boolean =
@@ -1760,6 +1904,14 @@ class MainActivity : ComponentActivity() {
         try { labeler.close() } catch (_: Exception) { }
         try { faceDetector.close() } catch (_: Exception) { }
         cameraExecutor.shutdown()
+        try {
+            objectExecutor.execute {
+                try { localObjectDetector?.close() } catch (_: Exception) { }
+                localObjectDetector = null
+                objectDetectorReady = false
+            }
+        } catch (_: Exception) { }
+        objectExecutor.shutdown()
         if (emotionClassifierDelegate.isInitialized()) {
             try {
                 emotionExecutor.execute { emotionClassifier.close() }
