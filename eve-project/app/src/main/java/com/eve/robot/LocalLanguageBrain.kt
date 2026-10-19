@@ -150,10 +150,15 @@ class LocalLanguageBrain(
                         )
                     }
 
+                    // LiteRT-LM 0.18.0 supports an explicit CPU thread count.
+                    // Bound it to 1..4 so the 4-core emulator can make progress without
+                    // creating an oversized worker pool on mid-range phones such as Redmi 12.
+                    val cpuThreads = Runtime.getRuntime().availableProcessors().coerceIn(1, 4)
+                    Log.i(TAG, "LOCAL_LLM_BACKEND_CPU threads=$cpuThreads availableProcessors=${Runtime.getRuntime().availableProcessors()}")
                     val newEngine = Engine(
                         EngineConfig(
                             modelPath = file.absolutePath,
-                            backend = Backend.CPU(),
+                            backend = Backend.CPU(threadCount = cpuThreads),
                             cacheDir = engineCacheDirectory.absolutePath
                         )
                     )
