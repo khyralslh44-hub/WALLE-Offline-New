@@ -1576,9 +1576,17 @@ class MainActivity : ComponentActivity() {
             "turtle", "butterfly", "person", "people", "human", "face", "man", "woman",
             "child", "boy", "girl", "plant", "flower", "tree", "leaf", "grass", "garden",
             "cactus", "phone", "mobile phone", "cell phone", "smartphone", "laptop",
-            "computer", "keyboard", "book", "cup", "bottle", "car", "bicycle", "toy",
-            "clock", "camera", "headphones", "remote control", "shoe", "umbrella",
-            "bag", "backpack", "glasses", "watch"
+            "computer", "keyboard", "mouse", "monitor", "tv", "tv monitor", "book", "cup",
+            "bottle", "car", "bicycle", "motorcycle", "bus", "truck", "train", "airplane", "boat",
+            "chair", "couch", "dining table", "table", "bed", "toilet", "potted plant",
+            "toy", "clock", "camera", "headphones", "remote", "remote control", "microwave",
+            "oven", "toaster", "sink", "refrigerator", "vase", "scissors", "teddy bear",
+            "hair drier", "toothbrush", "shoe", "umbrella", "bag", "backpack", "handbag",
+            "suitcase", "glasses", "watch", "sports ball", "skateboard", "tennis racket",
+            "baseball bat", "baseball glove", "traffic light", "stop sign", "parking meter",
+            "fire hydrant", "bench", "spoon", "fork", "knife", "bowl", "broccoli", "carrot",
+            "hot dog", "donut", "pizza", "apple", "banana", "orange", "cake", "cow", "sheep",
+            "elephant", "bear", "zebra", "giraffe"
         ).any(value::contains) && !isVisualNoiseLabel(value)
     }
 
