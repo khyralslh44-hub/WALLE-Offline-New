@@ -30,6 +30,14 @@ class EveLocalObjectDetector(context: Context) : Closeable {
         const val DEFAULT_SCORE_THRESHOLD = 0.42f
         private const val TAG = "EVE_OBJECTS"
         private const val MAX_RESULTS = 5
+        private val NON_OBJECT_LABELS = setOf(
+            "pattern", "texture", "background", "wall", "floor", "ceiling",
+            "line", "geometry", "grid", "tile", "color", "colour", "lighting",
+            "shadow", "unknown", "???"
+        )
+
+        fun isSceneNoiseLabel(label: String): Boolean =
+            label.trim().lowercase(Locale.ROOT).replace('_', ' ') in NON_OBJECT_LABELS
     }
 
     private val detector: ObjectDetector? = try {
@@ -68,7 +76,7 @@ class EveLocalObjectDetector(context: Context) : Closeable {
                     .replace('_', ' ')
                     .replace(Regex("\\s+"), " ")
                 val score = category.score()
-                if (label.isBlank() || label == "???" || !score.isFinite() ||
+                if (label.isBlank() || isSceneNoiseLabel(label) || !score.isFinite() ||
                     score < DEFAULT_SCORE_THRESHOLD
                 ) {
                     return@mapNotNull null
