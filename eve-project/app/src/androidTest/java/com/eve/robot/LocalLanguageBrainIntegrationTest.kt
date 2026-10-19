@@ -67,8 +67,9 @@ class LocalLanguageBrainIntegrationTest {
             awaitReady(firstBrain, firstStatus, INITIALIZE_TIMEOUT_MS)
             val first = awaitReply(
                 firstBrain,
-                "أجب بالعربية بجملة قصيرة: كم يساوي اثنان زائد اثنين؟",
-                "first offline inference"
+                "أجب بجملة عربية قصيرة: ٢+٢؟",
+                "first offline inference",
+                maxOutputTokens = 12
             )
             firstReply = first.replyArabic
             assertTrue("First generated reply was empty: $first", first.replyArabic.isNotBlank())
@@ -95,8 +96,9 @@ class LocalLanguageBrainIntegrationTest {
             awaitReady(offlineBrain, offlineStatus, OFFLINE_RELOAD_TIMEOUT_MS)
             val second = awaitReply(
                 offlineBrain,
-                "أجب بالعربية بجملة قصيرة: اذكر لون السماء في يوم صافٍ، ولا تستخدم معلومات من الكاميرا.",
-                "offline cold-reload inference"
+                "أجب بكلمة عربية واحدة: لون السماء الصافية؟",
+                "offline cold-reload inference",
+                maxOutputTokens = 12
             )
             assertTrue("Offline generated reply was empty: $second", second.replyArabic.isNotBlank())
             assertNotNull("The first generated answer should be retained for diagnostics.", firstReply)
@@ -168,11 +170,12 @@ class LocalLanguageBrainIntegrationTest {
     private fun awaitReply(
         brain: LocalLanguageBrain,
         prompt: String,
-        phase: String
+        phase: String,
+        maxOutputTokens: Int = 12
     ): LocalLlmResult {
         val latch = CountDownLatch(1)
         val result = AtomicReference<Result<LocalLlmResult>?>(null)
-        brain.answerUser(prompt, LocalLlmContext()) {
+        brain.answerUser(prompt, LocalLlmContext(), maxOutputTokens = maxOutputTokens) {
             result.set(it)
             latch.countDown()
         }
