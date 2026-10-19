@@ -136,13 +136,61 @@ if ! grep -Fxq "Success" <<< "$CLEAR_OUTPUT"; then
 fi
 echo "PASS: app-private data was cleared before the first-run test." | tee -a "$RESULT_DIR/environment.txt"
 
-# Disable every network path before inspecting or initializing the local model.
-# No Wi-Fi fallback can satisfy this test; the Qwen weights must come from APK assets.
+# Disable network access at the emulator interface level, not just Wi-Fi/mobile radios.
+# AOSP emulators keep a virtual Ethernet network active in airplane mode, so radio toggles
+# alone do not prove offline operation. Try root adbd, reconnect, and bring every non-loopback
+# interface down before the first app launch. If the image refuses root, fail closed rather
+# than silently counting a still-connected emulator as an offline pass.
+NETWORK_ISOLATION_MODE="radio-only-fallback"
+if timeout 30s adb root > "$RESULT_DIR/adb-root.txt" 2>&1; then
+  cat "$RESULT_DIR/adb-root.txt" | tee -a "$RESULT_DIR/environment.txt"
+  if wait_for_android_ready; then
+    DEVICE_IDENTITY="$(timeout 15s adb shell id 2>/dev/null | tr -d '\\r' || true)"
+    echo "Device shell identity after adb root: $DEVICE_IDENTITY" | tee -a "$RESULT_DIR/environment.txt"
+    if grep -q "uid=0(root)" <<< "$DEVICE_IDENTITY"; then
+      if timeout 45s adb shell '
+        set +e
+        for path in /sys/class/net/*; do
+          iface="${path##*/}"
+          [ "$iface" = "lo" ] && continue
+          ip link set dev "$iface" down >/dev/null 2>&1 || true
+        done
+        ip route flush default >/dev/null 2>&1 || true
+        echo "--- interfaces after network isolation ---"
+        ip -o link show
+        echo "--- routes after network isolation ---"
+        ip route show
+      ' > "$RESULT_DIR/network-interface-isolation.txt" 2>&1; then
+        cat "$RESULT_DIR/network-interface-isolation.txt" | tee -a "$RESULT_DIR/environment.txt"
+        NETWORK_ISOLATION_MODE="root-interface-shutdown"
+      else
+        echo "WARN: root adbd succeeded but interface shutdown command failed." | tee -a "$RESULT_DIR/environment.txt"
+      fi
+    else
+      echo "WARN: adb root did not yield uid 0; cannot shut down emulator Ethernet." | tee -a "$RESULT_DIR/environment.txt"
+    fi
+  else
+    echo "WARN: Android did not reconnect after adb root." | tee -a "$RESULT_DIR/environment.txt"
+  fi
+else
+  cat "$RESULT_DIR/adb-root.txt" | tee -a "$RESULT_DIR/environment.txt"
+  echo "WARN: emulator image refuses adb root; attempting radio-only isolation, which may leave virtual Ethernet active." | tee -a "$RESULT_DIR/environment.txt"
+fi
+
 timeout 20s adb shell svc wifi disable >/dev/null 2>&1 || true
 timeout 20s adb shell svc data disable >/dev/null 2>&1 || true
 timeout 20s adb shell settings put global airplane_mode_on 1 >/dev/null 2>&1 || true
 timeout 20s adb shell am broadcast -a android.intent.action.AIRPLANE_MODE --ez state true >/dev/null 2>&1 || true
-sleep 6
+timeout 20s adb shell cmd connectivity airplane-mode enable >/dev/null 2>&1 || true
+sleep 8
+{
+  echo "Network isolation mode: $NETWORK_ISOLATION_MODE"
+  timeout 15s adb shell ip route show 2>&1 || true
+  timeout 15s adb shell dumpsys connectivity 2>&1 | grep -E "Active default network|VALIDATED|NetworkAgentInfo|Ethernet|CONNECTED" | head -60 || true
+} | tee "$RESULT_DIR/network-after-disable.txt"
+
+# Keep the test strict: a green result is impossible while Android still advertises an
+# Internet-validated network, even if the bundled model is expected to avoid all networking.
 
 if timeout 30s adb shell run-as com.eve.robot ls files/local-language-brain/Qwen2_0.5B_Instruct.litertlm >/dev/null 2>&1; then
   PRIVATE_MODEL_STATE="present"
