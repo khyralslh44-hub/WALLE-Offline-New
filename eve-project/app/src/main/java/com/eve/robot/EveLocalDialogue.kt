@@ -72,12 +72,18 @@ object EveCuriosityEngine {
 
     private val INTERESTING_OBJECTS = setOf(
         "phone", "mobile phone", "cell phone", "smartphone", "laptop", "computer", "keyboard",
-        "book", "cup", "bottle", "car", "bicycle", "toy", "clock", "camera", "headphones",
-        "remote control", "shoe", "umbrella", "bag", "backpack", "glasses", "watch"
+        "mouse", "monitor", "tv", "tv monitor", "book", "cup", "bottle", "car", "bicycle",
+        "motorcycle", "bus", "truck", "train", "airplane", "boat", "chair", "couch",
+        "dining table", "table", "bed", "toilet", "potted plant", "toy", "clock", "camera",
+        "headphones", "remote", "remote control", "microwave", "oven", "toaster", "sink",
+        "refrigerator", "vase", "scissors", "teddy bear", "hair drier", "toothbrush",
+        "shoe", "umbrella", "bag", "backpack", "glasses", "watch", "suitcase", "handbag",
+        "sports ball", "skateboard", "tennis racket", "baseball bat", "baseball glove",
+        "traffic light", "stop sign", "bench", "fire hydrant", "parking meter"
     )
     private val NOISE_LABELS = setOf(
         "pattern", "texture", "background", "wall", "floor", "ceiling", "line", "geometry",
-        "grid", "tile", "color", "colour", "design", "lighting", "shadow"
+        "grid", "tile", "color", "colour", "design", "lighting", "shadow", "unknown", "???"
     )
     private fun arabicLabel(label: String): String = when (label) {
         "animal" -> "حيوان"; "cat", "kitten" -> "قطة"; "dog", "puppy" -> "كلب"
@@ -115,7 +121,11 @@ object OfflineEveResponder {
                 "what is this", "what do you see", "describe what you see", "what is in front of you")) {
             val label = latestLabel?.trim()?.lowercase(Locale.ROOT)?.takeIf {
                 observationAgeMs in 0L..FRESH_OBSERVATION_MS && latestConfidence.isFinite() &&
-                    latestConfidence >= 0.80f && it !in setOf("pattern", "texture", "background", "wall", "floor", "ceiling")
+                    latestConfidence >= 0.52f && it !in setOf(
+                    "pattern", "texture", "background", "wall", "floor", "ceiling", "line",
+                    "geometry", "grid", "tile", "color", "colour", "design", "lighting", "shadow",
+                    "unknown", "???"
+                )
             }
             return if (label == null) EveOfflineAnswer(
                 "لا أملك تصنيفًا بصريًا موثوقًا الآن. سأنتظر مشهدًا أوضح بدل أن أخمّن.",
@@ -154,7 +164,27 @@ object OfflineEveResponder {
         "face" -> "وجهًا"; "man" -> "رجلًا"; "woman" -> "امرأة"; "child", "boy", "girl" -> "طفلًا"
         "laptop" -> "حاسوبًا محمولًا"; "computer" -> "حاسوبًا"
         "phone", "mobile phone", "cell phone", "smartphone" -> "هاتفًا"
-        "book" -> "كتابًا"; "cup" -> "كوبًا"; "bottle" -> "زجاجةً"; "car" -> "سيارةً"; "bicycle" -> "دراجةً"
+        "mouse" -> "فأرة حاسوب"
+        "keyboard" -> "لوحة مفاتيح"
+        "monitor", "tv", "tv monitor" -> "شاشة"
+        "book" -> "كتابًا"; "cup" -> "كوبًا"; "bottle" -> "زجاجةً"
+        "car" -> "سيارةً"; "bicycle" -> "دراجةً"; "motorcycle" -> "دراجة نارية"
+        "bus" -> "حافلة"; "truck" -> "شاحنة"; "train" -> "قطار"; "airplane" -> "طائرة"; "boat" -> "قارب"
+        "chair" -> "كرسي"; "couch" -> "أريكة"; "dining table", "table" -> "طاولة"
+        "bed" -> "سرير"; "toilet" -> "مرحاض"; "potted plant" -> "نبات في أصيص"
+        "microwave" -> "ميكروويف"; "oven" -> "فرن"; "toaster" -> "محمصة خبز"; "sink" -> "حوض"
+        "refrigerator" -> "ثلاجة"; "vase" -> "مزهرية"; "scissors" -> "مقص"
+        "teddy bear" -> "دب محشو"; "hair drier" -> "مجفف شعر"; "toothbrush" -> "فرشاة أسنان"
+        "suitcase" -> "حقيبة سفر"; "handbag" -> "حقيبة يد"; "sports ball" -> "كرة"
+        "skateboard" -> "لوح تزلج"; "tennis racket" -> "مضرب تنس"
+        "baseball bat" -> "مضرب بيسبول"; "baseball glove" -> "قفاز بيسبول"
+        "traffic light" -> "إشارة مرور"; "stop sign" -> "علامة توقف"; "bench" -> "مقعد"
+        "fire hydrant" -> "صنبور إطفاء"; "parking meter" -> "عداد موقف سيارات"
+        "spoon" -> "ملعقة"; "fork" -> "شوكة"; "knife" -> "سكين"; "bowl" -> "وعاء"
+        "broccoli" -> "بروكلي"; "carrot" -> "جزرة"; "hot dog" -> "هوت دوغ"; "donut" -> "دونات"
+        "cake" -> "كعكة"; "pizza" -> "بيتزا"; "orange" -> "برتقالة"; "apple" -> "تفاحة"; "banana" -> "موزة"
+        "dog" -> "كلب"; "cat" -> "قطة"; "bird" -> "طائر"; "horse" -> "حصان"; "cow" -> "بقرة"
+        "sheep" -> "خروف"; "elephant" -> "فيل"; "bear" -> "دب"; "zebra" -> "حمار وحشي"; "giraffe" -> "زرافة"
         else -> label
     }
 }
