@@ -64,12 +64,13 @@ class ObjectVisionIntegrationTest {
     }
 
     @Test
-    fun noiseLabelsDoNotBecomeObjectDetections() {
+    fun genericTextureAndBackgroundLabelsAreRejected() {
         val noise = setOf("pattern", "texture", "background", "wall", "floor", "ceiling", "???")
-        // The integration output is restricted to model-provided object detections, not ML Kit's
-        // generic whole-image labels; this test guards the classifier's post-filtering policy.
-        assertTrue(noise.all { label ->
-            EveLocalObjectDetector.DEFAULT_SCORE_THRESHOLD in 0f..1f && label.isNotBlank()
-        })
+        assertTrue(
+            "Generic scene/texture labels must not be promoted into detected objects.",
+            noise.all(EveLocalObjectDetector::isSceneNoiseLabel)
+        )
+        assertFalse(EveLocalObjectDetector.isSceneNoiseLabel("person"))
+        assertFalse(EveLocalObjectDetector.isSceneNoiseLabel("cup"))
     }
 }
