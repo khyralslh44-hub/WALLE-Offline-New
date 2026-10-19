@@ -22,6 +22,8 @@ class RobotVoice {
     private val executor = Executors.newSingleThreadExecutor()
     private val lastPlayed = AtomicLong(0L)
     private val reactionVariant = AtomicInteger(0)
+    private val lastTouchCueAt = AtomicLong(0L)
+    private val lastGameCueAt = AtomicLong(0L)
     @Volatile private var lastMood: EveMood? = null
     @Volatile private var closed = false
 
@@ -70,6 +72,110 @@ class RobotVoice {
             )
         } catch (_: Exception) {
             Log.w("EVE_VOICE", "Speech-response audio executor is not available.")
+        }
+    }
+
+    /**
+     * A deliberate touch gets a gentle acknowledgement, not only long-presses or moods
+     * that happened to request sound. A separate cooldown keeps repeated taps quiet.
+     */
+    fun acknowledgeTouch(mood: EveMood, held: Boolean) {
+        if (closed) return
+        val now = SystemClock.elapsedRealtime()
+        val previous = lastTouchCueAt.get()
+        val cooldown = if (held) 950L else 800L
+        if (previous != 0L && now - previous < cooldown) return
+        if (!lastTouchCueAt.compareAndSet(previous, now)) return
+        val variant = reactionVariant.getAndIncrement() and 0x3
+        try {
+            executor.execute { play(mood, variant = variant, conversational = true) }
+            Log.i("EVE_VOICE", "TOUCH_CUE_QUEUED mood=$mood held=$held variant=$variant")
+        } catch (error: Exception) {
+            Log.w("EVE_VOICE", "Touch cue could not be queued.", error)
+        }
+    }
+
+    /**
+     * Short tactile audio cues for local games. These use generated PCM and need no network.
+     */
+    fun playGameCue(event: String) {
+        if (closed) return
+        val now = SystemClock.elapsedRealtime()
+        val previous = lastGameCueAt.get()
+        if (previous != 0L && now - previous < 100L) return
+        if (!lastGameCueAt.compareAndSet(previous, now)) return
+        val safeEvent = event.lowercase().filter { it.isLetterOrDigit() || it == '_' }
+            .take(28).ifBlank { "game_move" }
+        try {
+            executor.execute { playGameSound(safeEvent) }
+        } catch (error: Exception) {
+            Log.w("EVE_VOICE", "Game sound could not be queued: $safeEvent", error)
+        }
+    }
+
+    private fun playGameSound(event: String) {
+        if (closed) return
+        val rate = 24_000
+        val capture = event.contains("capture") || event.contains("check") || event.contains("win")
+        val durationMs = when {
+            event.contains("select") -> 55
+            capture -> 145
+            event.contains("start") -> 125
+            else -> 92
+        }
+        val frequency = when {
+            event.contains("invalid") -> 300.0
+            event.contains("capture") -> 470.0
+            event.contains("check") -> 760.0
+            event.contains("select") -> 920.0
+            event.contains("start") -> 610.0
+            else -> 680.0
+        }
+        val count = rate * durationMs / 1000
+        val pcm = ShortArray(count)
+        for (i in pcm.indices) {
+            val t = i.toDouble() / rate
+            val attack = (t / 0.003).coerceIn(0.0, 1.0)
+            val decay = exp(-t * if (capture) 25.0 else 38.0)
+            val fundamental = sin(2.0 * PI * frequency * t)
+            val overtone = sin(2.0 * PI * frequency * 2.13 * t) * 0.18
+            val sample = (fundamental + overtone) * attack * decay * 0.32
+            pcm[i] = (sample * Short.MAX_VALUE)
+                .toInt().coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
+        }
+
+        var track: AudioTrack? = null
+        try {
+            track = AudioTrack.Builder()
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_GAME)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .build()
+                )
+                .setAudioFormat(
+                    AudioFormat.Builder()
+                        .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                        .setSampleRate(rate)
+                        .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                        .build()
+                )
+                .setBufferSizeInBytes(pcm.size * 2)
+                .setTransferMode(AudioTrack.MODE_STATIC)
+                .build()
+            val written = track.write(pcm, 0, pcm.size, AudioTrack.WRITE_BLOCKING)
+            if (written == pcm.size && !closed) {
+                track.setVolume(0.78f)
+                track.play()
+                Log.i("EVE_GAME_SOUND", "PLAYBACK_STARTED event=$event samples=$count state=${track.playState}")
+                Thread.sleep(durationMs + 35L)
+            } else {
+                Log.e("EVE_GAME_SOUND", "PLAYBACK_NOT_STARTED event=$event written=$written expected=${pcm.size}")
+            }
+        } catch (error: Exception) {
+            Log.e("EVE_GAME_SOUND", "PLAYBACK_FAILED event=$event", error)
+        } finally {
+            try { track?.release() } catch (_: Exception) { }
         }
     }
 
@@ -192,7 +298,7 @@ class RobotVoice {
             val normalized = if (weightSum > 0.0) sample / weightSum else 0.0
             // A tiny slow shimmer avoids a sterile beep without creating a bird-like warble.
             val shimmer = 1.0 + 0.0015 * sin(2.0 * PI * 2.2 * p)
-            pcm[i] = (normalized * envelope * shimmer * 0.13 * Short.MAX_VALUE)
+            pcm[i] = (normalized * envelope * shimmer * 0.38 * Short.MAX_VALUE)
                 .toInt().coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
         }
 
@@ -219,7 +325,7 @@ class RobotVoice {
             val written = track.write(pcm, 0, pcm.size, AudioTrack.WRITE_BLOCKING)
             if (written == pcm.size && !closed) {
                 // Gentle source gain; media volume buttons remain the master volume control.
-                track.setVolume(0.22f)
+                track.setVolume(0.76f)
                 track.play()
                 Log.i("EVE_VOICE", "PLAYBACK_STARTED mood=$mood variant=$variant conversational=$conversational samples=$sampleCount state=${track.playState}")
                 Thread.sleep(profile.durationMs + 100L)
