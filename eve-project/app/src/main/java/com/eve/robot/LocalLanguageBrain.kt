@@ -228,11 +228,12 @@ class LocalLanguageBrain(
     fun answerUser(
         userText: String,
         context: LocalLlmContext,
+        maxOutputTokens: Int = 32,
         callback: (Result<LocalLlmResult>) -> Unit
     ) {
         runInference(
             buildPrompt("USER", userText, context),
-            maxOutputTokens = 144,
+            maxOutputTokens = maxOutputTokens.coerceIn(12, MAX_OUTPUT_TOKENS),
             callback = callback
         )
     }
@@ -270,7 +271,7 @@ class LocalLanguageBrain(
         )
         runInference(
             buildPrompt("GAME", gameEvent, gameContext),
-            maxOutputTokens = 48,
+            maxOutputTokens = 24,
             callback = callback
         )
     }
@@ -292,7 +293,7 @@ class LocalLanguageBrain(
         )
         runInference(
             buildPrompt("CURIOSITY", fallbackQuestion, groundedContext),
-            maxOutputTokens = 112,
+            maxOutputTokens = 24,
             callback = callback
         )
     }
@@ -304,7 +305,7 @@ class LocalLanguageBrain(
     ) {
         runInference(
             buildPrompt("OBSERVATION", "", context),
-            maxOutputTokens = 96,
+            maxOutputTokens = 24,
             callback = callback
         )
     }
@@ -337,7 +338,10 @@ class LocalLanguageBrain(
                     val outputCap = maxOutputTokens.coerceIn(12, MAX_OUTPUT_TOKENS)
                     Log.i(TAG, "LOCAL_LLM_INFERENCE_START promptChars=${prompt.length} outputCap=$outputCap mode=sync-worker")
 
-                    val response = activeConversation.sendMessage(prompt)
+                    val response = activeConversation.sendMessage(
+                        prompt,
+                        maxOutputToken = outputCap
+                    )
                     val nativeElapsed = SystemClock.elapsedRealtime() - startedAt
                     val responseText = response.contents.contents
                         .filterIsInstance<com.google.ai.edge.litertlm.Content.Text>()
@@ -381,30 +385,29 @@ class LocalLanguageBrain(
             !context.latestVisionLabel.isNullOrBlank() && confidence >= 0.45f
         val label = if (freshVision) context.latestVisionLabel.orEmpty().take(36) else "none"
         val mood = context.currentMood.take(18)
-        val reason = context.moodReason.replace("\\n", " ").take(44)
-        val memory = context.recentObservations.take(2).joinToString("؛ ").take(90)
-        val dialogue = context.recentDialogues.takeLast(1).joinToString(" ").take(120)
-        val reflection = context.recentReflections.take(1).joinToString("؛ ").take(70)
-        val user = userText.trim().take(220).ifBlank { "لا يوجد كلام جديد" }
-        val personality = "warmth=${context.personality.warmth}; curiosity=${context.personality.curiosityBias}; play=${context.personality.playfulness}"
+        val memory = context.recentObservations.take(1).joinToString("؛ ").take(55)
+        val dialogue = context.recentDialogues.takeLast(1).joinToString(" ").take(65)
+        val reflection = context.recentReflections.take(1).joinToString("؛ ").take(45)
+        val user = userText.trim().take(160).ifBlank { "لا يوجد كلام جديد" }
+        val personality = "warmth=\${context.personality.warmth}; curiosity=\${context.personality.curiosityBias}; play=\${context.personality.playfulness}"
         val task = when (mode) {
-            "USER" -> "أجب بالعربية الطبيعية باختصار، مع مراعاة سياق الحوار. لا تصف المشهد إذا لم تكن الرؤية حديثة وموثوقة."
-            "CURIOSITY" -> "اسأل سؤال فضول عربيًا واحدًا قصيرًا عن التصنيف المرئي الحديث فقط؛ لا تخمّن الهوية أو التفاصيل."
-            "GAME" -> "علّق بالعربية في جملة أو جملتين على حدث اللعبة والنتيجة المذكورة فقط. أظهر شخصية إيف التنافسية المرحة، ويمكنك اقتراح تعديل عام للأسلوب. لا تخترع حركة أو نتيجة أو نقاطًا، ولا تدّع أنك اخترت نقلة قانونية."
-            else -> "اكتب ملاحظة داخلية قصيرة؛ يجب أن يكون reply_ar فارغًا وألا تخاطب المستخدم."
+            "USER" -> "أجب بالعربية باختصار. لا تخترع حقائق بصرية."
+            "CURIOSITY" -> "اسأل سؤالًا عربيًا واحدًا عن الرؤية الحديثة فقط."
+            "GAME" -> "علّق باختصار على نتيجة اللعبة المقدمة فقط؛ لا تخترع نقاطًا أو أفعالًا."
+            else -> "اكتب تأملًا داخليًا قصيرًا واجعل reply_ar فارغًا."
         }
+        // Short mobile prompts reduce prefill latency on a CPU-only phone.
         return """
 MODE=$mode
 TASK=$task
-VISION=$label; confidence=$confidence; fresh=$freshVision; ageMs=${context.visionObservationAgeMs.coerceAtLeast(0L)}
-MOOD=$mood ($reason); personality=$personality
-MEMORY=$memory
+VISION=$label; c=$confidence; fresh=$freshVision
+MOOD=$mood; traits=$personality
+MEM=$memory
 CHAT=$dialogue
-REFLECTION=$reflection
+REF=$reflection
 USER=$user
-Return ONLY compact JSON:
-{"reply_ar":"","reflection_ar":"","mood":"neutral|curious|happy|concerned|focused|playful|sleepy|irritated|none","intent":"observe|explore|connect|play|focus|rest|regulate|none","confidence":0.0}
-Rules: never invent memory or visual facts; if fresh=false do not describe the scene; do not claim consciousness/actions. CURIOSITY requires one brief Arabic question tied to fresh vision. OBSERVATION requires empty reply_ar. GAME must stick to the supplied game event, outcome, score, and details; if a score is unavailable, do not guess it. GAME may suggest a style/intent but must not claim to execute a move.
+JSON only: {"reply_ar":"","reflection_ar":"","mood":"neutral|curious|happy|concerned|focused|playful|sleepy|irritated|none","intent":"observe|explore|connect|play|focus|rest|regulate|none","confidence":0}
+No invented facts. If fresh=false, do not describe a scene. OBSERVATION requires empty reply_ar. GAME uses supplied outcome only.
         """.trimIndent()
     }
 
@@ -692,7 +695,7 @@ Rules: never invent memory or visual facts; if fresh=false do not describe the s
             "observe", "explore", "connect", "play", "focus", "rest", "regulate", "none"
         )
         private const val SYSTEM_INSTRUCTION = """
-You are the local language component of EVE, a small companion robot. Speak concise, natural Arabic in a warm character voice, but do not claim consciousness. Use the supplied current visual classifier labels and local memory carefully. They are uncertain categories, not ground truth, not face identity, and not proof of a person's internal emotions. Never fabricate sensory details. Return the JSON format requested in every user prompt and choose only its allowed fields. The deterministic Kotlin behaviour engine validates your suggestions; do not claim to have executed actions.
-"""
+You are EVE's local Arabic companion. Reply briefly and warmly. Vision labels are uncertain, not facts or identity. Never invent observations or memories, and never claim consciousness or completed actions. Return only the requested JSON.
+        """
     }
 }
