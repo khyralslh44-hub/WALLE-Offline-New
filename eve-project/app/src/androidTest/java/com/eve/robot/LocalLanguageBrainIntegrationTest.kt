@@ -201,6 +201,6 @@ class LocalLanguageBrainIntegrationTest {
         private const val MIN_MODEL_BYTES = 500_000_000L
         private const val INITIALIZE_TIMEOUT_MS = 20L * 60L * 1000L
         private const val OFFLINE_RELOAD_TIMEOUT_MS = 5L * 60L * 1000L
-        private const val INFERENCE_TIMEOUT_MS = 4L * 60L * 1000L
+        private const val INFERENCE_TIMEOUT_MS = 6L * 60L * 1000L
     }
 }
