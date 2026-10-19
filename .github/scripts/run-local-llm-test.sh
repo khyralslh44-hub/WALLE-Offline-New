@@ -69,21 +69,37 @@ cat "$RESULT_DIR/install-app.txt"
 timeout 240s adb install -r "$TEST_APK" > "$RESULT_DIR/install-test.txt" 2>&1
 cat "$RESULT_DIR/install-test.txt"
 
-# The app must extract weights from APK assets; do not push or pre-stage the model.
-# This proves first-launch initialization can occur with Wi-Fi and mobile data disabled.
-PRIVATE_MODEL_STATE="$(timeout 30s adb shell run-as com.eve.robot sh -c 'if [ -f files/local-language-brain/Qwen2_0.5B_Instruct.litertlm ]; then echo present; else echo absent; fi' 2>/dev/null | tr -d '\r' || true)"
-if [ "$PRIVATE_MODEL_STATE" != "absent" ]; then
-  echo "FAIL: test emulator already had a private model; cannot prove APK-asset extraction." | tee -a "$RESULT_DIR/environment.txt"
-  exit 7
+# Ensure a truly clean first launch: install/update can leave old app-private files if an
+# emulator image or instrumentation setup reuses app data. pm clear force-stops the package
+# and erases all of its private model/cache/preferences before the first-run assertion.
+CLEAR_OUTPUT="$(timeout 30s adb shell pm clear com.eve.robot 2>&1 | tr -d '\r' || true)"
+echo "pm clear output: $CLEAR_OUTPUT" | tee -a "$RESULT_DIR/environment.txt"
+if ! grep -Fxq "Success" <<< "$CLEAR_OUTPUT"; then
+  echo "FAIL: could not reset com.eve.robot app data before first-run model extraction." | tee -a "$RESULT_DIR/environment.txt"
+  exit 15
 fi
-echo "PASS: no model exists in app-private storage before first-run asset extraction." | tee -a "$RESULT_DIR/environment.txt"
+echo "PASS: app-private data was cleared before the first-run test." | tee -a "$RESULT_DIR/environment.txt"
 
-# Disconnect before first inference: no remote fallback is available to the model under test.
+# Disable every network path before inspecting or initializing the local model.
+# No Wi-Fi fallback can satisfy this test; the Qwen weights must come from APK assets.
 timeout 20s adb shell svc wifi disable >/dev/null 2>&1 || true
 timeout 20s adb shell svc data disable >/dev/null 2>&1 || true
 timeout 20s adb shell settings put global airplane_mode_on 1 >/dev/null 2>&1 || true
 timeout 20s adb shell am broadcast -a android.intent.action.AIRPLANE_MODE --ez state true >/dev/null 2>&1 || true
 sleep 6
+
+if timeout 30s adb shell run-as com.eve.robot ls files/local-language-brain/Qwen2_0.5B_Instruct.litertlm >/dev/null 2>&1; then
+  PRIVATE_MODEL_STATE="present"
+else
+  PRIVATE_MODEL_STATE="absent"
+fi
+echo "Private model before first launch: $PRIVATE_MODEL_STATE" | tee -a "$RESULT_DIR/environment.txt"
+if [ "$PRIVATE_MODEL_STATE" != "absent" ]; then
+  echo "FAIL: app-private model still exists after pm clear; cannot prove APK-asset extraction." | tee -a "$RESULT_DIR/environment.txt"
+  exit 7
+fi
+echo "PASS: no model exists in app-private storage and networking is disabled before first-run asset extraction." | tee -a "$RESULT_DIR/environment.txt"
+
 timeout 15s adb logcat -c >/dev/null 2>&1 || true
 
 SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
