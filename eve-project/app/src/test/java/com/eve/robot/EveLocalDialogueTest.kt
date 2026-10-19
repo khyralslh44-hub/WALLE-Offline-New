@@ -73,6 +73,27 @@ class EveLocalDialogueTest {
         assertFalse(stale.text.contains("أرى قطة"))
     }
 
+    @Test fun freshMediumConfidenceObjectDetectionCanAnswerWhatDoYouSee() {
+        // EfficientDet returns a bounded object score; the answer should use a fresh, named
+        // object detection at its production threshold, not require a near-perfect score.
+        val answer = OfflineEveResponder.answer(
+            "ماذا ترين", "cup", 0.61f, 900L
+        )
+        assertNotNull(answer)
+        assertEquals("current_visual_label", answer!!.topic)
+        assertTrue(answer.text.contains("كوب"))
+        assertTrue(answer.text.contains("قد يخطئ"))
+    }
+
+    @Test fun genericImageTextureLabelNeverGetsDescribedAsAnObject() {
+        val answer = OfflineEveResponder.answer(
+            "ماذا ترين", "pattern", 0.99f, 400L
+        )
+        assertNotNull(answer)
+        assertEquals("uncertain_vision", answer!!.topic)
+        assertFalse(answer.text.contains("أرى pattern"))
+    }
+
     @Test fun knownOfflineCapabilityQuestionGetsHonestLocalAnswer() {
         val answer = OfflineEveResponder.answer(
             "هل تعملين بدون انترنت", null, 0f, Long.MAX_VALUE
