@@ -457,8 +457,33 @@ class MainActivity : ComponentActivity() {
             return
         }
 
-        // Direct questions get a short, honest local answer and a matching eye expression.
-        // Unknown questions receive a clear limitation; EVE never fabricates a fact offline.
+        // Explicit device actions are handled before language generation so the model
+        // cannot turn a camera-switch request into ordinary chat.
+        if (listOf(
+                "بدلي الكاميرا", "غيري الكاميرا", "بدل الكاميرا", "غير الكاميرا",
+                "switch camera", "change camera", "flip camera"
+            ).any(text::contains)
+        ) {
+            switchCamera()
+            voice.respondToSpeech(EveMood.CURIOUS, text)
+            return
+        }
+
+        val addressedToEve = listOf(
+            "ايف", "يا ايف", "ايفي", "يا روبوت", "eve", "hey eve", "hello eve"
+        ).any(text::contains)
+        val wordCount = text.split(Regex("\\s+")).count { it.isNotBlank() }
+        val conversationalTurn = OfflineEveResponder.isQuestion(text) ||
+            wordCount >= 3 || (addressedToEve && wordCount >= 2)
+
+        // Once the real on-device LLM is ready, send open-ended questions and complete thoughts
+        // to it before canned FAQ matching. This preserves multi-turn context and visual memory.
+        if (conversationalTurn && ::localLanguageBrain.isInitialized && localLanguageBrain.isReady) {
+            requestLocalLanguageReply(text, addressedToEve)
+            return
+        }
+
+        // During first model setup or low-memory fallback, use only narrow grounded local answers.
         val currentVisualAge = if (lastMeaningfulLabelAt > 0L) now - lastMeaningfulLabelAt else Long.MAX_VALUE
         val offlineAnswer = OfflineEveResponder.answer(
             rawQuestion = text,
@@ -477,17 +502,6 @@ class MainActivity : ComponentActivity() {
             showDialogueText(offlineAnswer.text, durationMs = 7200L)
             voice.respondToSpeech(answerDecision.mood, text)
             Log.i("EVE_DIALOGUE", "ANSWER topic=" + offlineAnswer.topic + " mood=" + answerDecision.mood + " local=true")
-            return
-        }
-
-        // Camera changes are actions; acknowledge them with a brief nonverbal character cue.
-        if (listOf(
-                "بدلي الكاميرا", "غيري الكاميرا", "بدل الكاميرا", "غير الكاميرا",
-                "switch camera", "change camera", "flip camera"
-            ).any(text::contains)
-        ) {
-            switchCamera()
-            voice.respondToSpeech(EveMood.CURIOUS, text)
             return
         }
 
@@ -960,8 +974,10 @@ class MainActivity : ComponentActivity() {
                         "affinity=$affinity mood=${decision.mood}"
                 )
                 react(decision, decision.playSound && isMeaningfulLabel(label))
-                maybeReflectWithLocalLanguage(label, best.confidence, sightings)
-                maybeAskFromCuriosity(label, best.confidence, sightings)
+                // Curiosity questions take priority over silent reflections: the local LLM can
+                // only execute one generation at a time, so never start two requests for one frame.
+                val askedOrQueued = maybeAskFromCuriosity(label, best.confidence, sightings)
+                if (!askedOrQueued) maybeReflectWithLocalLanguage(label, best.confidence, sightings)
             }
             .addOnFailureListener(mainExecutor) { error ->
                 Log.w("EVE", "Offline image labeling frame failed.", error)
@@ -1286,11 +1302,11 @@ class MainActivity : ComponentActivity() {
         ).any(value::contains) && !isVisualNoiseLabel(value)
     }
 
-    private fun maybeAskFromCuriosity(label: String, confidence: Float, sightings: Int) {
-        if (isFinishing || isDestroyed || !::dialogueBubble.isInitialized) return
+    private fun maybeAskFromCuriosity(label: String, confidence: Float, sightings: Int): Boolean {
+        if (isFinishing || isDestroyed || !::dialogueBubble.isInitialized) return false
         val preferences = getSharedPreferences("eve_curiosity", MODE_PRIVATE)
         val safeKey = label.trim().lowercase(Locale.ROOT).filter { it.isLetterOrDigit() }.take(48)
-        if (safeKey.isBlank()) return
+        if (safeKey.isBlank()) return false
         val now = System.currentTimeMillis()
         val lastAny = preferences.getLong("last_question_at", 0L)
         val lastForLabel = preferences.getLong("label_question_at:" + safeKey, 0L)
@@ -1305,24 +1321,85 @@ class MainActivity : ComponentActivity() {
             lastLabelQuestionAtMs = lastForLabel,
             previousQuestionCount = countForLabel,
             nowMs = now
-        ) ?: return
+        ) ?: return false
 
-        preferences.edit()
-            .putLong("last_question_at", now)
-            .putLong("label_question_at:" + safeKey, now)
-            .putInt("label_question_count:" + safeKey, countForLabel + 1)
-            .putString("last_question_label", label)
-            .putString("last_question_text", thought.text)
-            .apply()
+        val fallback = thought.text
+        val baselineDecision = brain.selfGeneratedCuriosity(label, confidence, sightings)
 
-        val decision = brain.selfGeneratedCuriosity(label, confidence, sightings)
-        react(decision, playSound = false)
-        showDialogueText(thought.text, durationMs = 6100L)
-        Log.i(
-            "EVE_CURIOSITY",
-            "SELF_QUESTION label=" + label + " confidence=" + confidence + " sightings=" + sightings +
-                " interest=" + thought.interest + " reason=" + thought.reason + " trait=" + learned.curiosityBias
-        )
+        fun publishQuestion(questionRaw: String, llmResult: LocalLlmResult?) {
+            if (isFinishing || isDestroyed) return
+            val question = questionRaw.trim().take(180).let {
+                if (it.endsWith("؟") || it.endsWith("?")) it else "$it؟"
+            }
+            val publishedAt = System.currentTimeMillis()
+            preferences.edit()
+                .putLong("last_question_at", publishedAt)
+                .putLong("label_question_at:" + safeKey, publishedAt)
+                .putInt("label_question_count:" + safeKey, countForLabel + 1)
+                .putString("last_question_label", label)
+                .putString("last_question_text", question)
+                .apply()
+
+            llmResult?.reflectionArabic?.takeIf { it.isNotBlank() }?.let(memory::rememberReflection)
+            val decision = if (llmResult != null) {
+                brain.integrateLanguageInsight(
+                    moodHint = llmResult.moodHint,
+                    intentHint = llmResult.intentHint,
+                    confidence = llmResult.confidence,
+                    note = llmResult.reflectionArabic,
+                    source = "visual_curiosity"
+                )
+            } else {
+                baselineDecision
+            }
+            // Preserve that EVE herself asked this question so the next LLM turn can follow it.
+            memory.rememberDialogue("ملاحظة بصرية حديثة: $label", question)
+            react(decision, playSound = false)
+            showDialogueText(question, durationMs = 7600L)
+            val questionSource = if (llmResult != null) "local_llm" else "grounded_fallback"
+            Log.i(
+                "EVE_CURIOSITY",
+                "SELF_QUESTION label=" + label + " confidence=" + confidence + " sightings=" + sightings +
+                    " interest=" + thought.interest + " source=" + questionSource +
+                    " reason=" + thought.reason + " trait=" + learned.curiosityBias
+            )
+        }
+
+        if (::localLanguageBrain.isInitialized && localLanguageBrain.isReady) {
+            localLanguageBrain.askFromCuriosity(
+                context = localLanguageContext(),
+                label = label,
+                confidence = confidence,
+                sightings = sightings,
+                fallbackQuestion = fallback
+            ) { outcome ->
+                if (isFinishing || isDestroyed) return@askFromCuriosity
+                val candidate = outcome.getOrNull()
+                val generated = candidate?.replyArabic?.trim()?.takeIf(::isUsableCuriosityQuestion)
+                if (generated != null) {
+                    publishQuestion(generated, candidate)
+                } else {
+                    Log.w(
+                        "EVE_CURIOSITY",
+                        "LLM_QUESTION_FALLBACK label=$label reason=" +
+                            (outcome.exceptionOrNull()?.message ?: "empty or malformed question")
+                    )
+                    publishQuestion(fallback, null)
+                }
+            }
+        } else {
+            publishQuestion(fallback, null)
+        }
+        return true
+    }
+
+    private fun isUsableCuriosityQuestion(value: String): Boolean {
+        val text = value.trim().take(180)
+        if (text.length !in 12..180) return false
+        if (text.any { it == '{' || it == '}' || it == '\\n' }) return false
+        if (text.none { it in '\\u0600'..'\\u06FF' }) return false
+        val questionSignals = listOf("؟", "?", "هل", "ما ", "ماذا", "كيف", "لماذا", "أتساءل", "اتساءل", "يمكننا", "نختبر")
+        return questionSignals.any(text::contains)
     }
 
     /**
