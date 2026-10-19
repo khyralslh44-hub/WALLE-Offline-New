@@ -16,7 +16,8 @@ android {
     // from a normal file path; it does not use openFd()/mmap on the packaged asset.
     // This reduces transfer/package size without dropping or changing any model/component.
     androidResources {
-        noCompress += listOf("zip")
+        // MediaPipe ObjectDetector loads its TFLite model from AssetManager by asset path.
+        noCompress += listOf("zip", "tflite")
     }
 
     // Include legacy JAR (v1) signing as well as modern APK signing so OEM installers
