@@ -57,7 +57,11 @@ class MainActivity : ComponentActivity() {
     private lateinit var localLanguageBrain: LocalLanguageBrain
     private val lastLocalLlmVisionAt = AtomicLong(0L)
     @Volatile private var lastLocalLlmVisionLabel = ""
+    @Volatile private var currentLocalLlmState = LocalLlmState.WAITING_FOR_WIFI
+    @Volatile private var currentLocalLlmPercent = 0
+    @Volatile private var currentLocalLlmDetail = "لم تكتمل تهيئة الدماغ اللغوي"
     private var offlineArabicSpeech: OfflineArabicSpeech? = null
+    @Volatile private var offlineSpeechStatus = "OFFLINE_SPEECH_NOT_STARTED"
     private var lastSpeechText = ""
     private var lastSpeechAt = 0L
     // Follow-up statements belong to the same short conversation; unrelated ambient speech does not.
@@ -197,7 +201,10 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) startOfflineSpeechListening()
-        else Log.i("EVE_AUDIO", "Microphone permission declined; offline listening disabled.")
+        else {
+            offlineSpeechStatus = "MICROPHONE_PERMISSION_DENIED"
+            Log.i("EVE_AUDIO", "Microphone permission declined; offline listening disabled.")
+        }
         requestNotificationPermissionIfNeeded()
     }
 
@@ -382,8 +389,10 @@ class MainActivity : ComponentActivity() {
                                 "curiosity=${learnedPersonality.curiosityBias} " +
                                 "playfulness=${learnedPersonality.playfulness} patience=${learnedPersonality.patience}"
                         )
-                        // A hold comforts/reinforces; it does not unexpectedly open a game.
-                        react(touchDecision, longPress && touchDecision.playSound)
+                        // Both a tap and a gentle hold receive a local character cue; the cue
+                        // has its own cooldown so quick repeated touches do not become noise.
+                        react(touchDecision, playSound = false)
+                        voice.acknowledgeTouch(touchDecision.mood, held = longPress)
                         true
                     }
                 }
@@ -434,6 +443,7 @@ class MainActivity : ComponentActivity() {
                 }
             },
             onStatus = { status ->
+                offlineSpeechStatus = status
                 Log.i("EVE_AUDIO", status)
             }
         )
@@ -709,10 +719,30 @@ class MainActivity : ComponentActivity() {
     private fun handleCameraStatusTap() {
         if (hasCameraPermission()) {
             if (!cameraStarted) startCamera()
-            else android.widget.Toast.makeText(
-                this,
-                if (activeCameraLens == CameraLens.FRONT) "الكاميرا الأمامية تعمل" else "الكاميرا الخلفية تعمل",
-                android.widget.Toast.LENGTH_SHORT
+            val cameraLine = if (!cameraStarted) {
+                "الكاميرا قيد التشغيل"
+            } else if (activeCameraLens == CameraLens.FRONT) {
+                "الكاميرا الأمامية تعمل"
+            } else {
+                "الكاميرا الخلفية تعمل"
+            }
+            val brainLine = when (currentLocalLlmState) {
+                LocalLlmState.READY -> "الدماغ اللغوي المحلي: جاهز دون إنترنت"
+                LocalLlmState.DOWNLOADING -> "الدماغ اللغوي: تنزيل $currentLocalLlmPercent%"
+                LocalLlmState.LOADING -> "الدماغ اللغوي: جارٍ التهيئة"
+                LocalLlmState.WAITING_FOR_WIFI -> "الدماغ اللغوي: ينتظر اتصال Wi-Fi"
+                LocalLlmState.ERROR -> "الدماغ اللغوي غير جاهز: $currentLocalLlmDetail"
+            }
+            val micLine = when {
+                offlineSpeechStatus.contains("OFFLINE_SPEECH_LISTENING") -> "الميكروفون: يستمع بالعربية محليًا"
+                offlineSpeechStatus.contains("FAILED") || offlineSpeechStatus.contains("ERROR") ->
+                    "الميكروفون: تعذّر تشغيل التعرف المحلي"
+                offlineSpeechStatus == "MICROPHONE_PERMISSION_DENIED" ->
+                    "الميكروفون: الإذن مرفوض"
+                else -> "الميكروفون: $offlineSpeechStatus"
+            }
+            android.widget.Toast.makeText(
+                this, "$cameraLine\n$brainLine\n$micLine", android.widget.Toast.LENGTH_LONG
             ).show()
             return
         }
@@ -863,22 +893,36 @@ class MainActivity : ComponentActivity() {
         cameraStatus.animate().cancel()
         cameraStatus.alpha = 1f
         cameraStatus.visibility = View.VISIBLE
-        val lensLabel = when {
-            message.contains("الأمامية") -> "أمامية"
-            message.contains("الخلفية") -> "خلفية"
+        val cameraDescription = when {
+            message.contains("الأمامية") -> "الكاميرا الأمامية"
+            message.contains("الخلفية") -> "الكاميرا الخلفية"
             else -> message
         }
-        // Show the active lens briefly for diagnostics, then leave only the robot eyes on screen.
-        cameraStatus.text = if (active) "●  $lensLabel  •  انقر مرتين للتبديل" else "●  $lensLabel"
-        cameraStatus.contentDescription = if (active) "الكاميرا $lensLabel تعمل. انقر مرتين للتبديل."
-            else lensLabel
-        cameraStatus.setTextColor(if (active) 0xFF8FFFC0.toInt() else 0xFFFFD180.toInt())
+        val brainDescription = when (currentLocalLlmState) {
+            LocalLlmState.READY -> "الدماغ جاهز"
+            LocalLlmState.DOWNLOADING -> "تنزيل الدماغ $currentLocalLlmPercent%"
+            LocalLlmState.LOADING -> "تهيئة الدماغ اللغوي…"
+            LocalLlmState.WAITING_FOR_WIFI -> "الدماغ ينتظر Wi-Fi"
+            LocalLlmState.ERROR -> "خطأ في الدماغ اللغوي"
+        }
+        val shown = "$cameraDescription • $brainDescription"
+        // Do not hide a missing/failed brain behind the normal camera status.
+        cameraStatus.text = if (active) "●  $shown • انقر مرتين للتبديل" else "●  $shown"
+        cameraStatus.contentDescription = "$shown. حالة الميكروفون: $offlineSpeechStatus. انقر لعرض التشخيص."
+        cameraStatus.setTextColor(
+            if (currentLocalLlmState == LocalLlmState.ERROR ||
+                currentLocalLlmState == LocalLlmState.WAITING_FOR_WIFI
+            ) 0xFFFFD180.toInt() else if (active) 0xFF8FFFC0.toInt() else 0xFFE6FFFF.toInt()
+        )
         cameraStatus.background = GradientDrawable().apply {
             setColor(0x9907151C.toInt())
+            val healthy = active && currentLocalLlmState == LocalLlmState.READY
+            setStroke(dp(1), if (healthy) 0x6637F5A1 else 0x667D8B92)
             cornerRadius = dp(16).toFloat()
-            setStroke(dp(1), if (active) 0x6637F5A1 else 0x667D8B92)
         }
-        if (active) main.postDelayed(hideCameraStatus, 1800L)
+        if (active && currentLocalLlmState == LocalLlmState.READY) {
+            main.postDelayed(hideCameraStatus, 3200L)
+        }
     }
 
     private fun hasCameraPermission(): Boolean =
@@ -1499,21 +1543,25 @@ class MainActivity : ComponentActivity() {
      * During model download the chip remains visible with progress and the camera stays usable.
      */
     private fun handleLocalLanguageStatus(state: LocalLlmState, percent: Int, detail: String) {
+        currentLocalLlmState = state
+        currentLocalLlmPercent = percent.coerceIn(0, 100)
+        currentLocalLlmDetail = detail
         if (isFinishing || isDestroyed || !::cameraStatus.isInitialized) return
         when (state) {
             LocalLlmState.READY -> {
                 Log.i("EVE_LLM", "STATUS ready=true onDevice=true")
-                if (cameraStarted) {
-                    showCameraStatus(
-                        if (activeCameraLens == CameraLens.FRONT) "الكاميرا الأمامية تعمل" else "الكاميرا الخلفية تعمل",
-                        active = true
-                    )
-                } else {
-                    cameraStatus.text = "الدماغ المحلي جاهز"
-                    cameraStatus.contentDescription = detail
-                    cameraStatus.visibility = View.VISIBLE
-                    cameraStatus.alpha = 1f
-                }
+                showCameraStatus(
+                    if (cameraStarted && activeCameraLens == CameraLens.FRONT) {
+                        "الكاميرا الأمامية تعمل"
+                    } else if (cameraStarted) {
+                        "الكاميرا الخلفية تعمل"
+                    } else {
+                        "الدماغ المحلي جاهز"
+                    },
+                    active = cameraStarted
+                )
+                cameraStatus.contentDescription =
+                    "الدماغ اللغوي المحلي جاهز ويعمل دون إنترنت. حالة الميكروفون: $offlineSpeechStatus"
             }
             LocalLlmState.WAITING_FOR_WIFI -> {
                 showLocalBrainChip("الدماغ المحلي ينتظر Wi‑Fi", detail, 0xFFFFD180.toInt())
@@ -1576,7 +1624,7 @@ class MainActivity : ComponentActivity() {
         react(baseline, playSound = false)
         if (!::localLanguageBrain.isInitialized || !localLanguageBrain.isReady) {
             showDialogueText(
-                "أجهّز الدماغ اللغوي المحلي. أول تشغيل يحتاج تنزيل النموذج مرة واحدة عبر Wi‑Fi؛ بعد ذلك تعمل الإجابات دون إنترنت.",
+                "الدماغ اللغوي المحلي ليس جاهزًا بعد. انتظر حتى تظهر حالة «الدماغ جاهز» أعلى الشاشة ثم أعد السؤال.",
                 durationMs = 6500L
             )
             voice.respondToSpeech(baseline.mood, text)
