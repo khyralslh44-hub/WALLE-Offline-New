@@ -383,34 +383,56 @@ class LocalLanguageBrain(
             ?.coerceIn(0f, 1f) ?: 0f
         val freshVision = context.visionObservationAgeMs in 0L..12_000L &&
             !context.latestVisionLabel.isNullOrBlank() && confidence >= 0.45f
-        val label = if (freshVision) context.latestVisionLabel.orEmpty().take(36) else "none"
-        val mood = context.currentMood.take(18)
-        val memory = context.recentObservations.take(1).joinToString("؛ ").take(55)
-        val dialogue = context.recentDialogues.takeLast(1).joinToString(" ").take(65)
-        val reflection = context.recentReflections.take(1).joinToString("؛ ").take(45)
-        val user = userText.trim().take(160).ifBlank { "لا يوجد كلام جديد" }
-        val personality = "warmth=\${context.personality.warmth}; curiosity=\${context.personality.curiosityBias}; play=\${context.personality.playfulness}"
-        val task = when (mode) {
-            "USER" -> "أجب بالعربية باختصار. لا تخترع حقائق بصرية."
-            "CURIOSITY" -> "اسأل سؤالًا عربيًا واحدًا عن الرؤية الحديثة فقط."
-            "GAME" -> "علّق باختصار على نتيجة اللعبة المقدمة فقط؛ لا تخترع نقاطًا أو أفعالًا."
-            else -> "اكتب تأملًا داخليًا قصيرًا واجعل reply_ar فارغًا."
-        }
-        // Short mobile prompts reduce prefill latency on a CPU-only phone.
-        return """
-MODE=$mode
-TASK=$task
-VISION=$label; c=$confidence; fresh=$freshVision
-MOOD=$mood; traits=$personality
-MEM=$memory
-CHAT=$dialogue
-REF=$reflection
-USER=$user
-JSON only: {"reply_ar":"","reflection_ar":"","mood":"neutral|curious|happy|concerned|focused|playful|sleepy|irritated|none","intent":"observe|explore|connect|play|focus|rest|regulate|none","confidence":0}
-No invented facts. If fresh=false, do not describe a scene. OBSERVATION requires empty reply_ar. GAME uses supplied outcome only.
-        """.trimIndent()
-    }
+        val user = userText.trim().replace(Regex("\\s+"), " ").take(120)
+            .ifBlank { "لا يوجد كلام جديد" }
 
+        val task = when (mode) {
+            "USER" -> "Answer briefly in Arabic."
+            "CURIOSITY" -> "Ask one Arabic question about fresh vision only."
+            "GAME" -> "Comment only on the supplied game outcome."
+            else -> "Write a brief reflection; reply_ar must be empty."
+        }
+
+        // Token-budgeted prompt packing: do not send empty memory/chat/reflection fields.
+        // This reduces cold-prefill work on phone CPUs while preserving the same model,
+        // production response schema, grounded-vision rules, and inference code path.
+        val fields = ArrayList<String>(10)
+        fields += "MODE=$mode"
+        fields += "TASK=$task"
+        fields += "MOOD=${context.currentMood.trim().take(14).ifBlank { "NEUTRAL" }}"
+        if (freshVision) {
+            fields += "VISION=${context.latestVisionLabel.orEmpty().trim().take(28)};C=${(confidence * 100).toInt()}"
+        }
+        context.recentObservations.lastOrNull()?.trim()?.takeIf { it.isNotBlank() }?.let {
+            fields += "MEM=${it.take(48)}"
+        }
+        context.recentDialogues.lastOrNull()?.trim()?.takeIf { it.isNotBlank() }?.let {
+            fields += "CHAT=${it.take(56)}"
+        }
+        context.recentReflections.lastOrNull()?.trim()?.takeIf { it.isNotBlank() }?.let {
+            fields += "REF=${it.take(40)}"
+        }
+        if (context.moodReason.isNotBlank() && context.moodReason != mode) {
+            fields += "WHY=${context.moodReason.trim().take(40)}"
+        }
+
+        val p = context.personality
+        if (kotlin.math.abs(p.warmth - 0.76f) > 0.02f ||
+            kotlin.math.abs(p.curiosityBias - 0.72f) > 0.02f ||
+            kotlin.math.abs(p.playfulness - 0.62f) > 0.02f
+        ) {
+            fields += "P=w:${"%.1f".format(Locale.ROOT, p.warmth)};c:${"%.1f".format(Locale.ROOT, p.curiosityBias)};play:${"%.1f".format(Locale.ROOT, p.playfulness)}"
+        }
+        fields += "USER=$user"
+        fields += "JSON only: {\\"reply_ar\\":\\"\\",\\"reflection_ar\\":\\"\\",\\"mood\\":\\"neutral|curious|happy|concerned|focused|playful|sleepy|irritated|none\\",\\"intent\\":\\"observe|explore|connect|play|focus|rest|regulate|none\\",\\"confidence\\":0}"
+        fields += when (mode) {
+            "OBSERVATION" -> "Never invent facts. OBSERVATION reply_ar empty."
+            "GAME" -> "Never invent score or events; follow the outcome only."
+            else -> "Never invent observations or memories. If fresh vision is absent, do not describe a scene."
+        }
+
+        return fields.joinToString("\\n")
+    }
     private fun parseResponse(raw: String, maxOutputTokens: Int): LocalLlmResult {
         val safeRaw = raw.trim().take(1200)
         val jsonCandidate = safeRaw.indexOf('{').let { start ->
@@ -695,7 +717,7 @@ No invented facts. If fresh=false, do not describe a scene. OBSERVATION requires
             "observe", "explore", "connect", "play", "focus", "rest", "regulate", "none"
         )
         private const val SYSTEM_INSTRUCTION = """
-You are EVE's local Arabic companion. Reply briefly and warmly. Vision labels are uncertain, not facts or identity. Never invent observations or memories, and never claim consciousness or completed actions. Return only the requested JSON.
+أنت إيف، رفيقة محلية بالعربية. أجيبي بإيجاز ولطف وبصيغة JSON فقط. تصنيفات الرؤية احتمالات وليست حقائق أو هويات. لا تختلقي مشاهد أو ذكريات، ولا تدّعي الوعي أو أفعالًا لم تحدث.
         """
     }
 }
