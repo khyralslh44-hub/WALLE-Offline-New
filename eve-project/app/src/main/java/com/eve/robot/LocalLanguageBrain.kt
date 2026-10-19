@@ -230,6 +230,28 @@ class LocalLanguageBrain(
         )
     }
 
+    /** Lets the local LLM create one contextual question about a novel, high-confidence observation. */
+    fun askFromCuriosity(
+        context: LocalLlmContext,
+        label: String,
+        confidence: Float,
+        sightings: Int,
+        fallbackQuestion: String,
+        callback: (Result<LocalLlmResult>) -> Unit
+    ) {
+        val groundedContext = context.copy(
+            latestVisionLabel = label.trim().take(48),
+            visionConfidence = confidence.coerceIn(0f, 1f),
+            visionObservationAgeMs = 0L,
+            sightingCount = sightings.coerceIn(0, 100_000)
+        )
+        runInference(
+            buildPrompt("CURIOSITY", fallbackQuestion, groundedContext),
+            maxOutputTokens = 112,
+            callback = callback
+        )
+    }
+
     /** Periodically lets the LLM reason over fresh visual labels and saved experience, without speaking. */
     fun reflectOnObservation(
         context: LocalLlmContext,
@@ -312,10 +334,13 @@ class LocalLanguageBrain(
         val user = userText.trim().take(280).ifBlank { "لا يوجد كلام جديد" }
         val personality = "warmth=${context.personality.warmth}; curiosity=${context.personality.curiosityBias}; " +
             "play=${context.personality.playfulness}; patience=${context.personality.patience}"
-        val task = if (mode == "USER") {
-            "أجب بالعربية باختصار. لا تصف المشهد إلا إذا كانت الرؤية حديثة وموثوقة."
-        } else {
-            "استنتج ملاحظة داخلية قصيرة. اجعل reply_ar فارغًا ولا تخاطب المستخدم."
+        val task = when (mode) {
+            "USER" ->
+                "أجب بالعربية الطبيعية وباختصار مفيد، وكأنك شخصية رفيقة لها أسلوبها. تابعي آخر ما قاله المستخدم وما تتذكرينه من الحوار؛ لا تبدئي من الصفر إذا كان الكلام امتدادًا لسابقه. لا تصفي المشهد إلا إذا كانت الرؤية حديثة وموثوقة."
+            "CURIOSITY" ->
+                "صوغي سؤال فضول عربيًا واحدًا فقط، قصيرًا وطبيعيًا، منطلقًا من التصنيف البصري الحديث وذاكرة الحوار والشخصية. اجعليه محددًا وغير مكرر، ولا تدّعي معرفة هوية شخص أو تفاصيل لا يثبتها التصنيف."
+            else ->
+                "استنتجي ملاحظة داخلية قصيرة. اجعلي reply_ar فارغًا ولا تخاطبي المستخدم."
         }
         return """
 MODE=$mode
@@ -334,7 +359,7 @@ REFLECTIONS=$reflections
 USER=$user
 Return ONLY this JSON schema:
 {"reply_ar":"short Arabic reply or empty","reflection_ar":"short or empty","mood":"neutral|curious|happy|concerned|focused|playful|sleepy|irritated|none","intent":"observe|explore|connect|play|focus|rest|regulate|none","confidence":0.0}
-Rules: if VISION_FRESH=false, do not describe what is currently in view. Labels are uncertain categories, not identity or proof of private feelings. Never invent memory, claim consciousness, or request external actions. The Kotlin behavior engine validates hints. If MODE=OBSERVATION, reply_ar must be empty.
+Rules: if VISION_FRESH=false, do not describe what is currently in view. Labels are uncertain categories, not identity or proof of private feelings. Never invent memory, claim consciousness, or request external actions. The Kotlin behavior engine validates hints. If MODE=OBSERVATION, reply_ar must be empty. If MODE=CURIOSITY, reply_ar must contain exactly one brief Arabic question related to the current high-confidence label and its context; do not ask for a name or identity from a generic person label, do not repeat the fallback question word-for-word unless necessary, and do not invent visual details.
         """.trimIndent()
     }
 
