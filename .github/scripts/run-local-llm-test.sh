@@ -57,17 +57,73 @@ if [ "$PACKAGED_MODEL_SHA256" != "$MODEL_SHA256" ]; then
   exit 14
 fi
 echo "PASS: install APK contains the pinned Qwen asset with the expected SHA-256." | tee -a "$RESULT_DIR/environment.txt"
-timeout 90s adb wait-for-device
-BOOT_COMPLETE="$(timeout 20s adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
-if [ "$BOOT_COMPLETE" != "1" ]; then
-  echo "FAIL: Android emulator was not boot-complete." | tee -a "$RESULT_DIR/environment.txt"
+# Emulator startup occasionally drops the ADB daemon after a long boot. A single
+# adb wait-for-device then exits the whole script under set -e before the model test begins.
+# Reconnect explicitly and wait for both Android boot and Package Manager readiness.
+wait_for_android_ready() {
+  local attempt boot_try boot_complete package_state
+  for attempt in $(seq 1 5); do
+    echo "Checking ADB and Android Package Manager (attempt $attempt/5)." | tee -a "$RESULT_DIR/environment.txt"
+    adb start-server >/dev/null 2>&1 || true
+    if timeout 45s adb wait-for-device; then
+      for boot_try in $(seq 1 75); do
+        boot_complete="$(timeout 8s adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
+        if [ "$boot_complete" = "1" ]; then
+          package_state="$(timeout 8s adb shell service check package 2>/dev/null || true)"
+          if grep -qi "found" <<< "$package_state" &&
+             timeout 8s adb shell pm list packages 2>/dev/null | grep -q '^package:'; then
+            echo "PASS: ADB, Android boot and Package Manager are ready." | tee -a "$RESULT_DIR/environment.txt"
+            return 0
+          fi
+        fi
+        if [ "$boot_try" -eq 1 ] || [ $((boot_try % 15)) -eq 0 ]; then
+          echo "Waiting for boot/package service ($boot_try/75); sys.boot_completed=$boot_complete." | tee -a "$RESULT_DIR/environment.txt"
+        fi
+        sleep 2
+      done
+    fi
+    echo "WARN: ADB/package service did not stabilize on attempt $attempt; restarting ADB." | tee -a "$RESULT_DIR/environment.txt"
+    timeout 15s adb devices -l >> "$RESULT_DIR/environment.txt" 2>&1 || true
+    adb kill-server >/dev/null 2>&1 || true
+    sleep 2
+    adb start-server >/dev/null 2>&1 || true
+    sleep 2
+  done
+  echo "FAIL: unable to restore ADB and Package Manager after five attempts." | tee -a "$RESULT_DIR/environment.txt"
+  timeout 15s adb devices -l >> "$RESULT_DIR/environment.txt" 2>&1 || true
+  timeout 15s adb logcat -d -v threadtime > "$RESULT_DIR/adb-recovery-logcat.txt" 2>&1 || true
+  return 1
+}
+
+install_apk_with_retry() {
+  local label="$1" apk="$2" output="$3" attempt
+  for attempt in $(seq 1 3); do
+    wait_for_android_ready || return 1
+    echo "Installing $label (attempt $attempt/3)." | tee -a "$RESULT_DIR/environment.txt"
+    if timeout 360s adb install -r "$apk" > "$output" 2>&1 && grep -Fq "Success" "$output"; then
+      cat "$output"
+      return 0
+    fi
+    cat "$output" 2>/dev/null || true
+    if [ "$attempt" -lt 3 ]; then
+      adb kill-server >/dev/null 2>&1 || true
+      sleep 2
+      adb start-server >/dev/null 2>&1 || true
+    fi
+  done
+  echo "FAIL: could not install $label after three recoverable attempts." | tee -a "$RESULT_DIR/environment.txt"
+  return 1
+}
+
+if ! wait_for_android_ready; then
   exit 6
 fi
-
-timeout 240s adb install -r "$APP_APK" > "$RESULT_DIR/install-app.txt" 2>&1
-cat "$RESULT_DIR/install-app.txt"
-timeout 240s adb install -r "$TEST_APK" > "$RESULT_DIR/install-test.txt" 2>&1
-cat "$RESULT_DIR/install-test.txt"
+if ! install_apk_with_retry "production APK" "$APP_APK" "$RESULT_DIR/install-app.txt"; then
+  exit 16
+fi
+if ! install_apk_with_retry "instrumentation APK" "$TEST_APK" "$RESULT_DIR/install-test.txt"; then
+  exit 17
+fi
 
 # Ensure a truly clean first launch: install/update can leave old app-private files if an
 # emulator image or instrumentation setup reuses app data. pm clear force-stops the package
