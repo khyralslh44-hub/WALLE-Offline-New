@@ -159,6 +159,9 @@ class LocalLanguageBrain(
                         EngineConfig(
                             modelPath = file.absolutePath,
                             backend = Backend.CPU(threadCount = cpuThreads),
+                            // This app keeps compact prompts and at most 48 output tokens;
+                            // bounding KV-cache capacity avoids reserving a huge model-default context.
+                            maxNumTokens = 768,
                             cacheDir = engineCacheDirectory.absolutePath
                         )
                     )
