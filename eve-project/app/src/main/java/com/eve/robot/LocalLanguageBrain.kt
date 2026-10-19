@@ -424,14 +424,14 @@ class LocalLanguageBrain(
             fields += "P=w:${"%.1f".format(Locale.ROOT, p.warmth)};c:${"%.1f".format(Locale.ROOT, p.curiosityBias)};play:${"%.1f".format(Locale.ROOT, p.playfulness)}"
         }
         fields += "USER=$user"
-        fields += "JSON only: {\\"reply_ar\\":\\"\\",\\"reflection_ar\\":\\"\\",\\"mood\\":\\"neutral|curious|happy|concerned|focused|playful|sleepy|irritated|none\\",\\"intent\\":\\"observe|explore|connect|play|focus|rest|regulate|none\\",\\"confidence\\":0}"
+        fields += """JSON only: {"reply_ar":"","reflection_ar":"","mood":"neutral|curious|happy|concerned|focused|playful|sleepy|irritated|none","intent":"observe|explore|connect|play|focus|rest|regulate|none","confidence":0}"""
         fields += when (mode) {
             "OBSERVATION" -> "Never invent facts. OBSERVATION reply_ar empty."
             "GAME" -> "Never invent score or events; follow the outcome only."
             else -> "Never invent observations or memories. If fresh vision is absent, do not describe a scene."
         }
 
-        return fields.joinToString("\\n")
+        return fields.joinToString("\n")
     }
     private fun parseResponse(raw: String, maxOutputTokens: Int): LocalLlmResult {
         val safeRaw = raw.trim().take(1200)
