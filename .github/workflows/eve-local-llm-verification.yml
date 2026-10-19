@@ -57,21 +57,7 @@ jobs:
             --output "$RUNNER_TEMP/gradle-8.9-bin.zip"
           unzip -q "$RUNNER_TEMP/gradle-8.9-bin.zip" -d "$RUNNER_TEMP"
 
-      - name: Build app and the dedicated language-model instrumentation APK
-        shell: bash
-        run: |
-          set -euo pipefail
-          # LocalLanguageBrain downloads the pinned Qwen .litertlm file to app-private
-          # storage at runtime. No 647 MB language weight is packed into this install APK.
-          "$RUNNER_TEMP/gradle-8.9/bin/gradle" --no-daemon --stacktrace -p eve-project \
-            testDebugUnitTest assembleDebug assembleDebugAndroidTest
-          test -s eve-project/app/build/outputs/apk/debug/app-debug.apk
-          test -s eve-project/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
-          sha256sum eve-project/app/build/outputs/apk/debug/app-debug.apk \
-                    eve-project/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk \
-            | tee "$RUNNER_TEMP/eve-llm-apk-sha256.txt"
-
-      - name: Download and verify the pinned Qwen model weights on the runner
+      - name: Bundle and verify Qwen weights before building the app
         shell: bash
         run: |
           set -euo pipefail
@@ -89,7 +75,37 @@ jobs:
             exit 1
           fi
           sha256sum "$MODEL" | tee "$RUNNER_TEMP/qwen-model-sha256.txt"
-          echo "PASS: verified the exact Qwen2-0.5B-Instruct .litertlm weights."
+          ASSETS="eve-project/app/src/main/assets"
+          mkdir -p "$ASSETS"
+          cp "$MODEL" "$ASSETS/Qwen2_0.5B_Instruct.litertlm"
+          curl --fail --location --retry 3 --connect-timeout 20 --max-time 120 \
+            "https://huggingface.co/Qwen/Qwen2-0.5B-Instruct/resolve/main/LICENSE" \
+            --output "$ASSETS/qwen2_model_license.txt"
+          grep -Fq "Apache License" "$ASSETS/qwen2_model_license.txt"
+          cp eve-project/THIRD_PARTY_NOTICES.md "$ASSETS/THIRD_PARTY_NOTICES.txt"
+          cat >> "$ASSETS/THIRD_PARTY_NOTICES.txt" <<'NOTICE'
+
+          ## Qwen2-0.5B-Instruct language model
+
+          The bundled Qwen2_0.5B_Instruct.litertlm weights are the LiteRT-LM conversion
+          of Qwen/Qwen2-0.5B-Instruct from litert-community/Qwen2-0.5B-Instruct.
+          The upstream model is licensed under Apache License 2.0; the full license is
+          included in qwen2_model_license.txt in this APK's assets.
+          NOTICE
+          echo "PASS: Qwen weights verified and copied into APK assets before compilation."
+
+      - name: Build app and the dedicated language-model instrumentation APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The pinned Qwen weights are embedded in the APK assets for offline first-run setup.
+          "$RUNNER_TEMP/gradle-8.9/bin/gradle" --no-daemon --stacktrace -p eve-project \
+            testDebugUnitTest assembleDebug assembleDebugAndroidTest
+          test -s eve-project/app/build/outputs/apk/debug/app-debug.apk
+          test -s eve-project/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+          sha256sum eve-project/app/build/outputs/apk/debug/app-debug.apk \
+                    eve-project/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk \
+            | tee "$RUNNER_TEMP/eve-llm-apk-sha256.txt"
 
       - name: Run real local model test on Android API 29
         uses: reactivecircus/android-emulator-runner@v2
