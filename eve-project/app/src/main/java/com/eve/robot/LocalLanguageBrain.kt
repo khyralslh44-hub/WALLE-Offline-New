@@ -16,6 +16,8 @@ import com.google.ai.edge.litertlm.Conversation
 import com.google.ai.edge.litertlm.ConversationConfig
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
+import com.google.ai.edge.litertlm.Message
+import com.google.ai.edge.litertlm.MessageCallback
 import com.google.ai.edge.litertlm.SamplerConfig
 import org.json.JSONObject
 import java.io.BufferedInputStream
@@ -280,33 +282,97 @@ class LocalLanguageBrain(
         }
         try {
             worker.execute {
+                val settled = AtomicBoolean(false)
+                val responseText = StringBuilder()
+                val chunkCount = java.util.concurrent.atomic.AtomicInteger(0)
+                val inferenceStartedAt = SystemClock.elapsedRealtime()
+
+                fun finishInference(result: Result<LocalLlmResult>) {
+                    if (!settled.compareAndSet(false, true)) return
+                    generating.set(false)
+                    deliver(callback, result)
+                }
+
                 try {
                     if (closed.get()) throw IllegalStateException("تم إغلاق النموذج المحلي.")
-                    val activeConversation = conversation ?: throw IllegalStateException("لا توجد محادثة محلية نشطة.")
-                    // LiteRT-LM 0.18 exposes maxOutputToken in ConversationConfig, not sendMessage.
-                    // Record native-call timing because CPU inference can be slow on x86 CI emulators.
-                    val inferenceStartedAt = SystemClock.elapsedRealtime()
-                    Log.i(TAG, "LOCAL_LLM_INFERENCE_START promptChars=${prompt.length} outputCap=$MAX_OUTPUT_TOKENS")
-                    val response = activeConversation.sendMessage(prompt)
-                    val nativeElapsed = SystemClock.elapsedRealtime() - inferenceStartedAt
-                    Log.i(TAG, "LOCAL_LLM_NATIVE_RETURN elapsedMs=$nativeElapsed")
-                    // LiteRT-LM 0.18 returns a Message whose text segments live in contents.
-                    val responseText = response.contents.contents
-                        .filterIsInstance<com.google.ai.edge.litertlm.Content.Text>()
-                        .joinToString(separator = "") { it.text }
-                    val parsed = parseResponse(responseText, maxOutputTokens)
+                    val activeConversation = conversation
+                        ?: throw IllegalStateException("لا توجد محادثة محلية نشطة.")
+                    val outputCap = maxOutputTokens.coerceIn(12, MAX_OUTPUT_TOKENS)
                     Log.i(
                         TAG,
-                        "LOCAL_LLM_INFERENCE_OK elapsedMs=${SystemClock.elapsedRealtime() - inferenceStartedAt} " +
-                            "chars=${responseText.length} mood=${parsed.moodHint ?: "none"} " +
-                            "intent=${parsed.intentHint ?: "none"}"
+                        "LOCAL_LLM_INFERENCE_START promptChars=${prompt.length} outputCap=$outputCap modeAsync=true"
                     )
-                    deliver(callback, Result.success(parsed))
+
+                    // Async generation avoids holding this worker until the native model finishes.
+                    // Collect streamed text chunks and complete only after LiteRT-LM signals onDone.
+                    activeConversation.sendMessageAsync(
+                        prompt,
+                        object : MessageCallback {
+                            override fun onMessage(message: Message) {
+                                val chunk = message.contents.contents
+                                    .filterIsInstance<com.google.ai.edge.litertlm.Content.Text>()
+                                    .joinToString(separator = "") { it.text }
+                                val count = chunkCount.incrementAndGet()
+                                if (chunk.isNotEmpty()) {
+                                    synchronized(responseText) {
+                                        val remaining = MAX_RESPONSE_BUFFER_CHARS - responseText.length
+                                        if (remaining > 0) responseText.append(chunk.take(remaining))
+                                    }
+                                }
+                                if (count == 1 || count % 16 == 0) {
+                                    val currentChars = synchronized(responseText) { responseText.length }
+                                    Log.i(TAG, "LOCAL_LLM_STREAM chunks=$count chars=$currentChars")
+                                }
+                            }
+
+                            override fun onDone() {
+                                try {
+                                    val completedText = synchronized(responseText) {
+                                        responseText.toString().trim()
+                                    }
+                                    val elapsed = SystemClock.elapsedRealtime() - inferenceStartedAt
+                                    if (completedText.isBlank()) {
+                                        Log.e(
+                                            TAG,
+                                            "LOCAL_LLM_INFERENCE_EMPTY elapsedMs=$elapsed chunks=${chunkCount.get()}"
+                                        )
+                                        finishInference(
+                                            Result.failure(
+                                                IllegalStateException("النموذج المحلي أكمل التوليد دون نص.")
+                                            )
+                                        )
+                                        return
+                                    }
+
+                                    val parsed = parseResponse(completedText, outputCap)
+                                    Log.i(
+                                        TAG,
+                                        "LOCAL_LLM_INFERENCE_OK elapsedMs=$elapsed chunks=${chunkCount.get()} " +
+                                            "chars=${completedText.length} mood=${parsed.moodHint ?: "none"} " +
+                                            "intent=${parsed.intentHint ?: "none"}"
+                                    )
+                                    finishInference(Result.success(parsed))
+                                } catch (error: Exception) {
+                                    Log.e(TAG, "LOCAL_LLM_PARSE_FAILED", error)
+                                    finishInference(Result.failure(error))
+                                }
+                            }
+
+                            override fun onError(throwable: Throwable) {
+                                Log.e(
+                                    TAG,
+                                    "LOCAL_LLM_INFERENCE_FAILED elapsedMs=${SystemClock.elapsedRealtime() - inferenceStartedAt} " +
+                                        "chunks=${chunkCount.get()}",
+                                    throwable
+                                )
+                                finishInference(Result.failure(throwable))
+                            }
+                        },
+                        maxOutputToken = maxOutputTokens.coerceIn(12, MAX_OUTPUT_TOKENS)
+                    )
                 } catch (error: Exception) {
-                    Log.e(TAG, "LOCAL_LLM_INFERENCE_FAILED", error)
-                    deliver(callback, Result.failure(error))
-                } finally {
-                    generating.set(false)
+                    Log.e(TAG, "LOCAL_LLM_ASYNC_START_FAILED", error)
+                    finishInference(Result.failure(error))
                 }
             }
         } catch (error: Exception) {
@@ -603,6 +669,7 @@ Rules: if VISION_FRESH=false, do not describe what is currently in view. Labels 
         private const val RETRY_DELAY_MS = 30_000L
         private const val MAX_REPLY_CHARS = 650
         private const val MAX_OUTPUT_TOKENS = 64
+        private const val MAX_RESPONSE_BUFFER_CHARS = 8_000
         /**
          * Qwen2 chat format adapted for LiteRT-LM 0.18 typed content.
          * The stock bundle template concatenates role + content as strings, which fails when
