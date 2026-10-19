@@ -11,6 +11,8 @@ on:
       - 'eve-project/app/src/main/AndroidManifest.xml'
       - '.github/scripts/run-local-llm-test.sh'
       - '.github/workflows/eve-local-llm-verification.yml'
+      - '.github/workflows/android-build.yml'
+      - '.github/workflows/emulator-smoke-test.yml'
 
 permissions:
   contents: read
