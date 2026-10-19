@@ -43,6 +43,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import java.util.Locale
+import java.util.UUID
 
 /**
  * EVE face experience: camera labeling and behavior operate locally while the activity is open.
@@ -439,6 +440,78 @@ class MainActivity : ComponentActivity() {
         offlineArabicSpeech?.start()
     }
 
+    /**
+     * Quick, in-app proof that the installed LiteRT-LM conversation actually generated output.
+     * A new nonce is created on every run; only the real LocalLanguageBrain inference callback
+     * can pass by returning that exact nonce. No hard-coded/offline FAQ response can pass this path.
+     */
+    private fun runLocalLlmSelfTest() {
+        if (isFinishing || isDestroyed) return
+        if (!::localLanguageBrain.isInitialized) {
+            showDialogueText("اختبار النموذج غير متاح: لم تتم تهيئة الدماغ المحلي.", durationMs = 6500L)
+            Log.e("EVE_LLM", "LOCAL_LLM_SELF_TEST_FAIL reason=not_initialized")
+            return
+        }
+        if (!localLanguageBrain.isReady) {
+            localLanguageBrain.ensureReady()
+            showDialogueText(
+                "النموذج اللغوي ليس جاهزًا بعد. انتظر حتى تظهر حالة الجاهزية ثم قل: اختبري النموذج.",
+                durationMs = 7000L
+            )
+            Log.i(
+                "EVE_LLM",
+                "LOCAL_LLM_SELF_TEST_DEFERRED state=${localLanguageBrain.currentState}"
+            )
+            return
+        }
+
+        val nonce = "EVE-" + UUID.randomUUID().toString()
+            .replace("-", "").take(7).uppercase(Locale.ROOT)
+        val challenge = "اختبار تشخيصي: أدرجي الرمز حرفيًا داخل reply_ar دون تغييره: $nonce"
+        Log.i("EVE_LLM", "LOCAL_LLM_SELF_TEST_START nonce=$nonce state=${localLanguageBrain.currentState}")
+        showDialogueText("أتحقق الآن من التوليد اللغوي الحقيقي على الهاتف…", durationMs = 9000L)
+
+        localLanguageBrain.answerUser(challenge, localLanguageContext(), maxOutputTokens = 24) { outcome ->
+            if (isFinishing || isDestroyed) return@answerUser
+            val answer = outcome.getOrNull()
+            if (answer == null) {
+                showDialogueText(
+                    "لم ينجح الاختبار: لم يكتمل توليد النموذج المحلي. راجع حالة الدماغ ثم أعد المحاولة.",
+                    durationMs = 8500L
+                )
+                Log.e(
+                    "EVE_LLM",
+                    "LOCAL_LLM_SELF_TEST_FAIL reason=inference_error nonce=$nonce",
+                    outcome.exceptionOrNull()
+                )
+                return@answerUser
+            }
+
+            val reply = answer.replyArabic.trim()
+            val passed = reply.contains(nonce, ignoreCase = true)
+            if (passed) {
+                showDialogueText(
+                    "نجح الاختبار ✓ النموذج اللغوي ولّد ردًا جديدًا يتضمن الرمز $nonce. التوليد محلي على الهاتف.",
+                    durationMs = 9500L
+                )
+                Log.i(
+                    "EVE_LLM",
+                    "LOCAL_LLM_SELF_TEST_PASS nonce=$nonce localOnly=true " +
+                        "replyChars=${reply.length} model=Qwen2-0.5B-Instruct"
+                )
+            } else {
+                showDialogueText(
+                    "وصل رد من المسار المحلي، لكنه لم يجتز تحدّي الرمز. لن أعتبر النموذج متحققًا حتى ينجح الاختبار.",
+                    durationMs = 9000L
+                )
+                Log.w(
+                    "EVE_LLM",
+                    "LOCAL_LLM_SELF_TEST_FAIL reason=nonce_not_returned nonce=$nonce replyChars=${reply.length}"
+                )
+            }
+        }
+    }
+
     private fun handleRecognizedSpeech(rawText: String, source: String) {
         val text = normalizeArabicSpeech(rawText)
         if (text.isBlank()) return
@@ -468,6 +541,17 @@ class MainActivity : ComponentActivity() {
         ) {
             switchCamera()
             voice.respondToSpeech(EveMood.CURIOUS, text)
+            return
+        }
+
+        // Hidden voice diagnostic: prove the local LLM generated a fresh, unpredictable token.
+        // It runs before canned answers and never accepts a deterministic fallback as a pass.
+        if (listOf(
+                "اختبار النموذج", "اختبري النموذج", "فحص النموذج",
+                "اختبار الدماغ", "اختبري دماغك", "اختبار اللغه", "اختبار الذكاء الاصطناعي"
+            ).any(text::contains)
+        ) {
+            runLocalLlmSelfTest()
             return
         }
 
