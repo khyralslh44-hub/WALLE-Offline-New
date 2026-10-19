@@ -497,37 +497,6 @@ PY
 read -r CHESS_X CHESS_Y <<< "$CHESS_MENU"
 adb shell input tap "$CHESS_X" "$CHESS_Y"
 sleep 2
-# A white pawn at e2 is the fifth pawn from the left in the standard starting position.
-read -r E2_X E2_Y CELL_H <<< "$(python3 - "$RESULTS_DIR" <<'PY'
-import re, sys, subprocess
-from pathlib import Path
-import xml.etree.ElementTree as ET
-out = sys.argv[1]
-subprocess.run("true", shell=True, check=True)
-xml = Path(out) / "chess-board-e2.xml"
-# The caller captures the hierarchy just before this parser runs.
-if not xml.exists():
-    raise SystemExit("FAIL: chess-board hierarchy missing.")
-root = ET.parse(xml).getroot()
-pawns = []
-for node in root.iter("node"):
-    if (node.attrib.get("text", "") or "").strip() != "♙":
-        continue
-    m = re.fullmatch(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", node.attrib.get("bounds", ""))
-    if m:
-        x1,y1,x2,y2=map(int,m.groups())
-        pawns.append(((x1+x2)//2,(y1+y2)//2,y2-y1))
-pawns.sort(key=lambda item:item[0])
-if len(pawns) < 8:
-    raise SystemExit(f"FAIL: expected eight white pawns, found {len(pawns)}.")
-x,y,h=pawns[4]
-print(x,y,h)
-PY
-)" || {
-  echo "FAIL: could not locate the e2 pawn."
-  exit 1
-}
-
 # Dump the current chess board and calculate the e2 pawn bounds from actual UI coordinates.
 timeout 15s adb shell uiautomator dump /sdcard/eve-chess-board.xml > "$RESULTS_DIR/chess-board-dump.txt" 2>&1 || true
 timeout 15s adb pull /sdcard/eve-chess-board.xml "$RESULTS_DIR/chess-board-e2.xml" >/dev/null 2>&1 || true
