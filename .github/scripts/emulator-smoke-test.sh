@@ -454,7 +454,146 @@ if ! grep -F "EVE_VOICE: PLAYBACK_STARTED mood=HAPPY" "$RESULTS_DIR/logcat.txt" 
   grep -F "EVE_VOICE:" "$RESULTS_DIR/logcat.txt" | tail -20 || true
   exit 1
 fi
-echo "PASS: one soft synthesized mood tone was submitted to Android AudioTrack after deliberate touch." | tee -a "$RESULTS_DIR/result.txt"
+echo "PASS: one synthesized mood tone was submitted to Android AudioTrack after deliberate touch." | tee -a "$RESULTS_DIR/result.txt"
+
+# Exercise the actual offline chess UI and verify that selecting a piece, making a legal
+# move, and receiving the robot's reply all submit audible PCM effects to AudioTrack.
+adb logcat -c
+timeout 20s adb shell am start -W -n "$PACKAGE/.RobotGamesActivity" > "$RESULTS_DIR/game-room-launch.txt" 2>&1 || {
+  echo "FAIL: offline game room did not launch."
+  cat "$RESULTS_DIR/game-room-launch.txt"
+  exit 1
+}
+cat "$RESULTS_DIR/game-room-launch.txt"
+grep -F "Status: ok" "$RESULTS_DIR/game-room-launch.txt" >/dev/null || {
+  echo "FAIL: Android did not foreground the offline game room."
+  exit 1
+}
+sleep 2
+timeout 15s adb shell uiautomator dump /sdcard/eve-game-menu.xml > "$RESULTS_DIR/game-menu-dump.txt" 2>&1 || true
+timeout 15s adb pull /sdcard/eve-game-menu.xml "$RESULTS_DIR/game-menu.xml" >/dev/null 2>&1 || true
+CHESS_MENU="$(python3 - "$RESULTS_DIR/game-menu.xml" <<'PY'
+import re, sys
+from pathlib import Path
+import xml.etree.ElementTree as ET
+p = Path(sys.argv[1])
+if not p.exists():
+    raise SystemExit("FAIL: game menu hierarchy is missing.")
+root = ET.parse(p).getroot()
+for node in root.iter("node"):
+    if "الشطرنج" in (node.attrib.get("text", "") or ""):
+        m = re.fullmatch(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", node.attrib.get("bounds", ""))
+        if m:
+            x1, y1, x2, y2 = map(int, m.groups())
+            print((x1+x2)//2, (y1+y2)//2)
+            break
+else:
+    raise SystemExit("FAIL: chess menu item was not exposed by UIAutomator.")
+PY
+)" || {
+  echo "FAIL: could not locate the chess menu action."
+  exit 1
+}
+read -r CHESS_X CHESS_Y <<< "$CHESS_MENU"
+adb shell input tap "$CHESS_X" "$CHESS_Y"
+sleep 2
+# A white pawn at e2 is the fifth pawn from the left in the standard starting position.
+read -r E2_X E2_Y CELL_H <<< "$(python3 - "$RESULTS_DIR" <<'PY'
+import re, sys, subprocess
+from pathlib import Path
+import xml.etree.ElementTree as ET
+out = sys.argv[1]
+subprocess.run("true", shell=True, check=True)
+xml = Path(out) / "chess-board-e2.xml"
+# The caller captures the hierarchy just before this parser runs.
+if not xml.exists():
+    raise SystemExit("FAIL: chess-board hierarchy missing.")
+root = ET.parse(xml).getroot()
+pawns = []
+for node in root.iter("node"):
+    if (node.attrib.get("text", "") or "").strip() != "♙":
+        continue
+    m = re.fullmatch(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", node.attrib.get("bounds", ""))
+    if m:
+        x1,y1,x2,y2=map(int,m.groups())
+        pawns.append(((x1+x2)//2,(y1+y2)//2,y2-y1))
+pawns.sort(key=lambda item:item[0])
+if len(pawns) < 8:
+    raise SystemExit(f"FAIL: expected eight white pawns, found {len(pawns)}.")
+x,y,h=pawns[4]
+print(x,y,h)
+PY
+)" || {
+  echo "FAIL: could not locate the e2 pawn."
+  exit 1
+}
+
+# Dump the current chess board and calculate the e2 pawn bounds from actual UI coordinates.
+timeout 15s adb shell uiautomator dump /sdcard/eve-chess-board.xml > "$RESULTS_DIR/chess-board-dump.txt" 2>&1 || true
+timeout 15s adb pull /sdcard/eve-chess-board.xml "$RESULTS_DIR/chess-board-e2.xml" >/dev/null 2>&1 || true
+read -r E2_X E2_Y CELL_H <<< "$(python3 - "$RESULTS_DIR/chess-board-e2.xml" <<'PY'
+import re, sys
+from pathlib import Path
+import xml.etree.ElementTree as ET
+root=ET.parse(Path(sys.argv[1])).getroot()
+pawns=[]
+for node in root.iter("node"):
+    if (node.attrib.get("text", "") or "").strip() != "♙":
+        continue
+    m=re.fullmatch(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]",node.attrib.get("bounds",""))
+    if m:
+        x1,y1,x2,y2=map(int,m.groups())
+        pawns.append(((x1+x2)//2,(y1+y2)//2,y2-y1))
+pawns.sort(key=lambda item:item[0])
+if len(pawns)<8:
+    raise SystemExit(f"FAIL: expected eight white pawns, found {len(pawns)}.")
+print(*pawns[4])
+PY
+)" || {
+  echo "FAIL: could not locate the e2 pawn in the chess board."
+  exit 1
+}
+echo "Selecting e2 at ($E2_X,$E2_Y)." | tee -a "$RESULTS_DIR/result.txt"
+adb shell input tap "$E2_X" "$E2_Y"
+sleep 1
+# Re-dump after selection because the status text can change the board's vertical position.
+timeout 15s adb shell uiautomator dump /sdcard/eve-chess-selected.xml > "$RESULTS_DIR/chess-selected-dump.txt" 2>&1 || true
+timeout 15s adb pull /sdcard/eve-chess-selected.xml "$RESULTS_DIR/chess-selected.xml" >/dev/null 2>&1 || true
+read -r E2_X E2_Y CELL_H <<< "$(python3 - "$RESULTS_DIR/chess-selected.xml" <<'PY'
+import re, sys
+from pathlib import Path
+import xml.etree.ElementTree as ET
+root=ET.parse(Path(sys.argv[1])).getroot()
+pawns=[]
+for node in root.iter("node"):
+    if (node.attrib.get("text", "") or "").strip() != "♙":
+        continue
+    m=re.fullmatch(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]",node.attrib.get("bounds",""))
+    if m:
+        x1,y1,x2,y2=map(int,m.groups())
+        pawns.append(((x1+x2)//2,(y1+y2)//2,y2-y1))
+pawns.sort(key=lambda item:item[0])
+if len(pawns)<8:
+    raise SystemExit(f"FAIL: expected eight white pawns after selection, found {len(pawns)}.")
+print(*pawns[4])
+PY
+)" || {
+  echo "FAIL: could not locate e2 after selecting a piece."
+  exit 1
+}
+E4_Y=$((E2_Y - CELL_H * 2))
+echo "Moving e2 to e4 at ($E2_X,$E4_Y)." | tee -a "$RESULTS_DIR/result.txt"
+adb shell input tap "$E2_X" "$E4_Y"
+sleep 3
+adb logcat -d -v threadtime > "$RESULTS_DIR/game-chess-logcat.txt"
+for marker in "PLAYBACK_STARTED event=chess_select" "PLAYBACK_STARTED event=chess_move" "PLAYBACK_STARTED event=chess_robot_move"; do
+  if ! grep -F "$marker" "$RESULTS_DIR/game-chess-logcat.txt" >/dev/null; then
+    echo "FAIL: actual chess interaction did not produce audio marker: $marker"
+    grep -E "EVE_GAME_SOUND|EVE_GAME|chessThinking|FATAL EXCEPTION" "$RESULTS_DIR/game-chess-logcat.txt" | tail -80 || true
+    exit 1
+  fi
+  echo "PASS: chess audio $marker" | tee -a "$RESULTS_DIR/result.txt"
+done
 
 # Force-stop/relaunch; assert persistence only when the live camera returned a label.
 timeout 20s adb shell am force-stop "$PACKAGE" >/dev/null 2>&1 || true
