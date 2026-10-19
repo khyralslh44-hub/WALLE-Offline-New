@@ -456,19 +456,16 @@ if ! grep -F "EVE_VOICE: PLAYBACK_STARTED mood=HAPPY" "$RESULTS_DIR/logcat.txt" 
 fi
 echo "PASS: one synthesized mood tone was submitted to Android AudioTrack after deliberate touch." | tee -a "$RESULTS_DIR/result.txt"
 
-# Exercise the actual offline chess UI and verify that selecting a piece, making a legal
-# move, and receiving the robot's reply all submit audible PCM effects to AudioTrack.
+# Exercise the actual offline chess UI through the same hidden, button-free gesture
+# users invoke on the live face: double-tap an eye to reveal the status chip, then hold the
+# status chip to open the game room. Android correctly blocks shell-launching non-exported Activities.
 adb logcat -c
-timeout 20s adb shell am start -W -n "$PACKAGE/.RobotGamesActivity" > "$RESULTS_DIR/game-room-launch.txt" 2>&1 || {
-  echo "FAIL: offline game room did not launch."
-  cat "$RESULTS_DIR/game-room-launch.txt"
-  exit 1
-}
-cat "$RESULTS_DIR/game-room-launch.txt"
-grep -F "Status: ok" "$RESULTS_DIR/game-room-launch.txt" >/dev/null || {
-  echo "FAIL: Android did not foreground the offline game room."
-  exit 1
-}
+echo "Opening the game room using the in-app hidden status-chip gesture." | tee -a "$RESULTS_DIR/result.txt"
+adb shell "input tap $X $Y; sleep 0.35; input tap $X $Y"
+sleep 0.4
+TOP_X=$((WIDTH / 2))
+TOP_Y=$((HEIGHT / 20))
+adb shell input swipe "$TOP_X" "$TOP_Y" "$TOP_X" "$TOP_Y" 900
 sleep 2
 timeout 15s adb shell uiautomator dump /sdcard/eve-game-menu.xml > "$RESULTS_DIR/game-menu-dump.txt" 2>&1 || true
 timeout 15s adb pull /sdcard/eve-game-menu.xml "$RESULTS_DIR/game-menu.xml" >/dev/null 2>&1 || true
