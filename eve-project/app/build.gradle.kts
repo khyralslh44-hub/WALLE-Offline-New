@@ -9,9 +9,11 @@ android {
     namespace = "com.eve.robot"
     compileSdk = 35
 
-    // The Arabic Vosk model is already ZIP-compressed; store it as-is in the APK.
+    // Keep model containers uncompressed in the APK for predictable AssetManager streaming.
+    // The pinned Qwen weights are large (~647 MB); the production APK embeds them so first
+    // launch can install them locally without a network download.
     androidResources {
-        noCompress += "zip"
+        noCompress += listOf("zip", "litertlm")
     }
 
     // Include legacy JAR (v1) signing as well as modern APK signing so OEM installers
