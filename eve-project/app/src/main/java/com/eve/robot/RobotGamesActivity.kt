@@ -32,8 +32,15 @@ class RobotGamesActivity : ComponentActivity() {
     private var xoDifficulty = 2
     private var statusText = "سأحاول التكيّف مع أسلوبك بدل تكرار الحركة نفسها."
     private val prefs by lazy { getSharedPreferences("eve_games", MODE_PRIVATE) }
+    private val gameMemory by lazy { EveMemory(applicationContext) }
     private lateinit var gameBrain: RobotBrain
     private var eveGameFace: RobotFaceView? = null
+    private var gameDialogueView: TextView? = null
+    private var gameSessionId = 0L
+    private var gameLlmRequestSerial = 0L
+    private var lastGameLlmRequestAt = 0L
+    private var modelGameIntent = "play"
+    private var latestGameDecision: EveDecision? = null
 
     private enum class Game { MENU, XO, RPS, CHESS, TARGET, PAINT_SHOT, MEMORY, REFLEX }
 
@@ -137,6 +144,8 @@ class RobotGamesActivity : ComponentActivity() {
 
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
+        gameLlmRequestSerial++
+        gameDialogueView = null
         eveGameFace?.stopAnimation()
         eveGameFace = null
         super.onDestroy()
@@ -197,13 +206,116 @@ class RobotGamesActivity : ComponentActivity() {
         }
         labels.addView(text("E V E  •  ساحة التحدّي", 11f, cyan, true))
         labels.addView(text(title, 22f, ivory, true))
-        labels.addView(text(subtitle, 12f, muted))
+        gameDialogueView = text(subtitle, 12f, muted)
+        labels.addView(gameDialogueView)
         row.addView(labels, LinearLayout.LayoutParams(0, -2, 1f))
         root.addView(row, LinearLayout.LayoutParams(-1, -2))
         addSpace(8)
     }
 
-    // Offline procedural dialogue composed from current game event, mood and score.
+    private fun beginGameSession() {
+        gameSessionId++
+        gameLlmRequestSerial++
+        gameDialogueView = null
+    }
+
+    /** Use the shared local Qwen engine for contextual game commentary and bounded style hints. */
+    private fun requestModelGameComment(
+        gameName: String,
+        outcome: String,
+        detail: String = "",
+        playerScore: Int? = null,
+        eveScore: Int? = null,
+        round: Int? = null,
+        force: Boolean = false
+    ) {
+        val model = LocalLanguageBrain.currentInstance()
+        if (model == null) {
+            android.util.Log.i("EVE_GAME_LLM", "COMMENT_FALLBACK reason=model_instance_unavailable game=$gameName")
+            return
+        }
+        if (!model.isReady) {
+            model.ensureReady()
+            android.util.Log.i("EVE_GAME_LLM", "COMMENT_FALLBACK reason=model_not_ready game=$gameName")
+            return
+        }
+        val now = SystemClock.elapsedRealtime()
+        if (!force && now - lastGameLlmRequestAt < 5_000L) {
+            android.util.Log.d("EVE_GAME_LLM", "COMMENT_THROTTLED game=$gameName outcome=$outcome")
+            return
+        }
+        lastGameLlmRequestAt = now
+        val requestId = ++gameLlmRequestSerial
+        val sessionAtRequest = gameSessionId
+        val gameAtRequest = game
+        val decision = latestGameDecision
+        val history = prefs.getString("recent_game_results", "").orEmpty()
+            .split("\\n").filter { it.isNotBlank() }.takeLast(3)
+        val context = LocalLlmContext(
+            latestVisionLabel = null,
+            visionConfidence = 0f,
+            visionObservationAgeMs = Long.MAX_VALUE,
+            currentMood = decision?.mood?.name ?: EveMood.NEUTRAL.name,
+            moodReason = decision?.reason.orEmpty().take(90),
+            personality = gameMemory.learnedPersonality(),
+            recentObservations = emptyList(),
+            recentDialogues = gameMemory.recentDialogues(3),
+            recentReflections = gameMemory.recentReflections(2)
+        )
+        model.commentOnGame(
+            gameName = gameName,
+            outcome = outcome,
+            detail = detail,
+            playerScore = playerScore,
+            eveScore = eveScore,
+            round = round,
+            difficulty = difficulty,
+            recentResults = history,
+            context = context
+        ) { result ->
+            if (isFinishing || isDestroyed || requestId != gameLlmRequestSerial ||
+                sessionAtRequest != gameSessionId || gameAtRequest != game
+            ) return@commentOnGame
+
+            val generated = result.getOrNull()
+            val reply = generated?.replyArabic?.trim()?.take(320).orEmpty()
+            if (generated == null || reply.isBlank()) {
+                android.util.Log.w(
+                    "EVE_GAME_LLM",
+                    "COMMENT_FAILED game=$gameName outcome=$outcome; kept immediate local fallback",
+                    result.exceptionOrNull()
+                )
+                return@commentOnGame
+            }
+            generated.intentHint?.takeIf {
+                it in setOf("play", "focus", "observe", "explore", "connect", "rest", "regulate")
+            }?.let { modelGameIntent = it }
+            val languageDecision = gameBrain.integrateLanguageInsight(
+                moodHint = generated.moodHint,
+                intentHint = generated.intentHint,
+                confidence = generated.confidence,
+                note = generated.reflectionArabic.ifBlank { "game event $gameName/$outcome" },
+                source = "game_$gameName"
+            )
+            latestGameDecision = languageDecision
+            eveGameFace?.setExpression(languageDecision, SystemClock.uptimeMillis())
+            gameDialogueView?.text = reply
+            prefs.edit()
+                .putString("last_game_reply", reply)
+                .putLong("last_game_reply_at", System.currentTimeMillis())
+                .putString("last_game_reply_game", gameName)
+                .putString("last_game_reply_outcome", outcome)
+                .putString("last_game_reply_source", "local_qwen")
+                .apply()
+            android.util.Log.i(
+                "EVE_GAME_LLM",
+                "COMMENT_OK source=local_qwen game=$gameName outcome=$outcome " +
+                    "mood=${languageDecision.mood} intent=$modelGameIntent chars=${reply.length}"
+            )
+        }
+    }
+
+    // Procedural dialogue is the immediate fallback while Qwen downloads, is busy, or errors.
     private var lastGeneratedGameReply = ""
     private var generatedReplyCount = 0
 
@@ -238,15 +350,78 @@ class RobotGamesActivity : ComponentActivity() {
         lastGeneratedGameReply = reply
         prefs.edit().putString("last_game_reply", reply).putLong("last_game_reply_at", System.currentTimeMillis()).putString("last_game_reply_game", gameName).putString("last_game_reply_outcome", outcome).apply()
         android.util.Log.i("EVE_GAME_DIALOGUE", "game=" + gameName + " outcome=" + outcome + " mood=" + mood + " reply=" + reply)
+        val shouldAskModel = when (gameName) {
+            "rps" -> round != null && round > 0 && round % 4 == 0
+            "paint_shot" -> round == 1 || round == 5
+            else -> false
+        }
+        if (shouldAskModel) {
+            requestModelGameComment(
+                gameName = gameName,
+                outcome = outcome,
+                detail = detail,
+                playerScore = if (gameName == "rps") rpsScoreHuman else score,
+                eveScore = if (gameName == "rps") rpsScoreEve else null,
+                round = round,
+                force = false
+            )
+        }
         return reply
     }
 
-    /** Feed game events into EVE's local affect engine and render the matching eye expression. */
+    /** Game events update the affect engine; starts and final results invoke the local LLM. */
     private fun reactWithEve(gameName: String, outcome: String) {
         if (!::gameBrain.isInitialized) return
         val decision = gameBrain.gameOutcome(gameName, outcome)
+        latestGameDecision = decision
         eveGameFace?.setExpression(decision, SystemClock.uptimeMillis())
         android.util.Log.i("EVE_GAME", "game=$gameName outcome=$outcome mood=${decision.mood} reason=${decision.reason}")
+        if (outcome == "start") {
+            requestModelGameComment(
+                gameName, outcome,
+                "بدأت مباراة جديدة. اختر أسلوبًا عامًا مناسبًا ولا تقترح نقلة محددة.",
+                playerScore = 0, eveScore = 0, round = 0, force = true
+            )
+            return
+        }
+        val terminal = when (game) {
+            Game.XO -> xoFinished
+            Game.CHESS -> chessFinished
+            Game.PAINT_SHOT -> paintShotFinished
+            Game.TARGET -> targetFinished
+            Game.MEMORY -> memoryFinished
+            Game.REFLEX -> reflexFinished
+            Game.RPS, Game.MENU -> false
+        }
+        if (terminal && game != Game.RPS) {
+            val humanScore = when (game) {
+                Game.PAINT_SHOT -> paintShotScore
+                Game.TARGET -> targetScore
+                Game.MEMORY -> memoryLevel
+                Game.REFLEX -> reflexHits
+                else -> null
+            }
+            val eveScore = when (game) {
+                Game.PAINT_SHOT -> paintShotRound - paintShotScore
+                Game.TARGET -> targetRound - targetScore
+                Game.MEMORY -> 0
+                Game.REFLEX -> reflexRound - reflexHits
+                else -> null
+            }
+            requestModelGameComment(
+                gameName, outcome,
+                "انتهت المباراة. أعط تعليقًا مرتبطًا بالنتيجة الفعلية والمعلومات المتاحة فقط.",
+                playerScore = humanScore,
+                eveScore = eveScore,
+                round = when (game) {
+                    Game.PAINT_SHOT -> paintShotRound
+                    Game.TARGET -> targetRound
+                    Game.REFLEX -> reflexRound
+                    else -> null
+                },
+                force = true
+            )
+        }
     }
 
     private fun addWideButton(label: String, action: () -> Unit, accent: Boolean = false) {
@@ -256,6 +431,7 @@ class RobotGamesActivity : ComponentActivity() {
     }
 
     private fun showMenu() {
+        beginGameSession()
         game = Game.MENU
         handler.removeCallbacksAndMessages(null)
         root.removeAllViews()
@@ -285,6 +461,10 @@ class RobotGamesActivity : ComponentActivity() {
 
     private fun saveResult(name: String, result: String) {
         EveNotificationScheduler.recordGameResult(this, name, result)
+        val historyLine = name + ":" + result
+        val history = prefs.getString("recent_game_results", "").orEmpty()
+            .split("\\n").filter { it.isNotBlank() }
+        prefs.edit().putString("recent_game_results", (history + historyLine).takeLast(8).joinToString("\\n")).apply()
         reactWithEve(name, result)
         val ratingKey = "rating:" + name
         val old = prefs.getInt(ratingKey, 1000)
@@ -330,6 +510,7 @@ class RobotGamesActivity : ComponentActivity() {
 
     // ------------------------------------------------------------------ Tic-tac-toe
     private fun startXo() {
+        beginGameSession()
         game = Game.XO
         xoDifficulty = prefs.getInt("difficulty:xo", 2).coerceIn(1, 3)
         reactWithEve("xo", "start")
@@ -459,7 +640,15 @@ class RobotGamesActivity : ComponentActivity() {
                 }
                 val tier = scoredMoves.maxOf { outcomeTier(it.second) }
                 val candidates = scoredMoves.filter { outcomeTier(it.second) == tier }
-                candidates[random.nextInt(candidates.size)].first
+                // The validated focus/observe hint changes tie-breaking only; minimax still
+                // determines safe candidates and legal board state.
+                if (modelGameIntent in setOf("focus", "observe")) {
+                    val bestWithinTier = candidates.maxOf { it.second }
+                    val tactical = candidates.filter { it.second == bestWithinTier }
+                    tactical[random.nextInt(tactical.size)].first
+                } else {
+                    candidates[random.nextInt(candidates.size)].first
+                }
             }
             else -> {
                 // Hard mode picks the best minimax score (fastest win / slowest loss).
@@ -493,6 +682,7 @@ class RobotGamesActivity : ComponentActivity() {
 
     // ------------------------------------------------------------------ Rock / Paper / Scissors
     private fun startRps() {
+        beginGameSession()
         game = Game.RPS
         reactWithEve("rps", "start")
         playerRpsHistory.clear()
@@ -536,8 +726,21 @@ class RobotGamesActivity : ComponentActivity() {
         val frequencies = (0..2).map { move -> playerRpsHistory.count { it == move } }
         val common = frequencies.maxOrNull() ?: 0
         val mostUsed = (0..2).filter { frequencies[it] == common }
-        val robot = if (playerRpsHistory.size >= 3 && mostUsed.size == 1) (mostUsed[0] + 1) % 3
-                    else random.nextInt(3)
+        val leastUsedCount = frequencies.minOrNull() ?: 0
+        val leastUsed = (0..2).filter { frequencies[it] == leastUsedCount }
+        val inferredCounter = if (playerRpsHistory.size >= 3 && mostUsed.size == 1) (mostUsed[0] + 1) % 3 else null
+        val robot = when (modelGameIntent) {
+            "focus", "observe" -> inferredCounter ?: random.nextInt(3)
+            "explore" -> {
+                val lessSeenPlayerChoice = leastUsed[random.nextInt(leastUsed.size)]
+                (lessSeenPlayerChoice + 1) % 3
+            }
+            "play", "connect", "rest", "regulate" -> {
+                if (playerRpsHistory.size >= 6 && mostUsed.size == 1) inferredCounter!!
+                else random.nextInt(3)
+            }
+            else -> inferredCounter ?: random.nextInt(3)
+        }
         playerRpsHistory.add(player)
         if (playerRpsHistory.size > 24) playerRpsHistory.removeAt(0)
         prefs.edit().putString("rps:move_history", playerRpsHistory.joinToString(",")).apply()
@@ -558,6 +761,7 @@ class RobotGamesActivity : ComponentActivity() {
 
     // ------------------------------------------------------------------ Chess
     private fun startChess() {
+        beginGameSession()
         game = Game.CHESS
         reactWithEve("chess", "start")
         chess.reset()
@@ -675,6 +879,7 @@ class RobotGamesActivity : ComponentActivity() {
     // On a phone, each tap is the virtual "bang": the player must hit a moving target.
     // All projectiles and scoring are drawn locally; no camera or network is required.
     private fun startPaintShot() {
+        beginGameSession()
         // Vision-first mode uses the live camera scene and virtual projectiles. The arena remains
         // available as a touch fallback, but is no longer the only aiming method.
         startActivity(Intent(this, CameraShotActivity::class.java).putExtra("eve_camera_game", "paint_shot"))
@@ -746,6 +951,7 @@ class RobotGamesActivity : ComponentActivity() {
 
     // ------------------------------------------------------------------ Target practice
     private fun startTarget() {
+        beginGameSession()
         targetMoveTask?.let(handler::removeCallbacks)
         game = Game.TARGET
         targetScore = 0
@@ -840,6 +1046,7 @@ class RobotGamesActivity : ComponentActivity() {
 
     // ------------------------------------------------------------------ Pattern memory
     private fun startMemory() {
+        beginGameSession()
         game = Game.MEMORY
         reactWithEve("memory", "start")
         sequence.clear()
@@ -941,6 +1148,7 @@ class RobotGamesActivity : ComponentActivity() {
 
     // ------------------------------------------------------------------ Reflex duel
     private fun startReflex() {
+        beginGameSession()
         game = Game.REFLEX
         reflexGameStarted = false
         reflexReady = false

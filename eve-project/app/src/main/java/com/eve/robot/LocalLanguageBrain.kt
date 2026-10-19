@@ -89,6 +89,11 @@ class LocalLanguageBrain(
     @Volatile private var lastRetryAt = 0L
     @Volatile private var networkCallback: ConnectivityManager.NetworkCallback? = null
 
+    init {
+        // MainActivity owns the single heavy model instance; the game room reuses it.
+        activeInstance = this
+    }
+
     val isReady: Boolean
         get() = state == LocalLlmState.READY && conversation != null
 
@@ -232,6 +237,44 @@ class LocalLanguageBrain(
         )
     }
 
+    /** Generate an Arabic comment grounded in a real local game result. */
+    fun commentOnGame(
+        gameName: String,
+        outcome: String,
+        detail: String,
+        playerScore: Int?,
+        eveScore: Int?,
+        round: Int?,
+        difficulty: Int,
+        recentResults: List<String>,
+        context: LocalLlmContext,
+        callback: (Result<LocalLlmResult>) -> Unit
+    ) {
+        fun safe(value: String, limit: Int) = value.replace(Regex("\\s+"), " ").trim().take(limit)
+        val scorePlayer = playerScore?.coerceIn(0, 100_000)?.toString() ?: "غير متاح"
+        val scoreEve = eveScore?.coerceIn(0, 100_000)?.toString() ?: "غير متاح"
+        val history = recentResults.takeLast(3).joinToString("؛ ") { safe(it, 48) }.take(45)
+        val gameEvent = (
+            "اللعبة=" + safe(gameName, 24) + "؛ الحدث=" + safe(outcome, 24) +
+                "؛ النتيجة: اللاعب " + scorePlayer + "، إيف " + scoreEve +
+                "؛ الجولة=" + (round?.coerceIn(0, 100_000)?.toString() ?: "غير متاح") +
+                "؛ الصعوبة=" + difficulty.coerceIn(1, 3) +
+                "؛ التفاصيل=" + safe(detail, 72) + "؛ نتائج سابقة=" + history
+            ).take(220)
+        val gameContext = context.copy(
+            latestVisionLabel = null,
+            visionConfidence = 0f,
+            visionObservationAgeMs = Long.MAX_VALUE,
+            recentObservations = emptyList(),
+            recentDialogues = (context.recentDialogues + "سياق لعبة سابق: " + history).takeLast(3)
+        )
+        runInference(
+            buildPrompt("GAME", gameEvent, gameContext),
+            maxOutputTokens = 48,
+            callback = callback
+        )
+    }
+
     /** Lets the local LLM create one contextual question about a novel, high-confidence observation. */
     fun askFromCuriosity(
         context: LocalLlmContext,
@@ -347,6 +390,7 @@ class LocalLanguageBrain(
         val task = when (mode) {
             "USER" -> "أجب بالعربية الطبيعية باختصار، مع مراعاة سياق الحوار. لا تصف المشهد إذا لم تكن الرؤية حديثة وموثوقة."
             "CURIOSITY" -> "اسأل سؤال فضول عربيًا واحدًا قصيرًا عن التصنيف المرئي الحديث فقط؛ لا تخمّن الهوية أو التفاصيل."
+            "GAME" -> "علّق بالعربية في جملة أو جملتين على حدث اللعبة والنتيجة المذكورة فقط. أظهر شخصية إيف التنافسية المرحة، ويمكنك اقتراح تعديل عام للأسلوب. لا تخترع حركة أو نتيجة أو نقاطًا، ولا تدّع أنك اخترت نقلة قانونية."
             else -> "اكتب ملاحظة داخلية قصيرة؛ يجب أن يكون reply_ar فارغًا وألا تخاطب المستخدم."
         }
         return """
@@ -360,7 +404,7 @@ REFLECTION=$reflection
 USER=$user
 Return ONLY compact JSON:
 {"reply_ar":"","reflection_ar":"","mood":"neutral|curious|happy|concerned|focused|playful|sleepy|irritated|none","intent":"observe|explore|connect|play|focus|rest|regulate|none","confidence":0.0}
-Rules: never invent memory or visual facts; if fresh=false do not describe the scene; do not claim consciousness/actions. CURIOSITY requires one brief Arabic question tied to fresh vision. OBSERVATION requires empty reply_ar.
+Rules: never invent memory or visual facts; if fresh=false do not describe the scene; do not claim consciousness/actions. CURIOSITY requires one brief Arabic question tied to fresh vision. OBSERVATION requires empty reply_ar. GAME must stick to the supplied game event, outcome, score, and details; if a score is unavailable, do not guess it. GAME may suggest a style/intent but must not claim to execute a move.
         """.trimIndent()
     }
 
@@ -571,6 +615,7 @@ Rules: never invent memory or visual facts; if fresh=false do not describe the s
 
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
+        if (activeInstance === this) activeInstance = null
         try { networkCallback?.let(connectivity::unregisterNetworkCallback) } catch (_: Exception) { }
         networkCallback = null
         try {
@@ -587,6 +632,9 @@ Rules: never invent memory or visual facts; if fresh=false do not describe the s
     }
 
     companion object {
+        @Volatile private var activeInstance: LocalLanguageBrain? = null
+        fun currentInstance(): LocalLanguageBrain? = activeInstance?.takeUnless { it.closed.get() }
+
         private const val TAG = "EVE_LLM"
         private const val MODEL_URL =
             "https://huggingface.co/litert-community/Qwen2-0.5B-Instruct/resolve/main/Qwen2_0.5B_Instruct.litertlm"

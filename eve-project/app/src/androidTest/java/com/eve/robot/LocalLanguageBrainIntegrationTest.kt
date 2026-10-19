@@ -106,9 +106,39 @@ class LocalLanguageBrainIntegrationTest {
                     "backend=CPU verifiedBytes=${modelFile.length()} firstChars=${firstReply.length} " +
                     "secondChars=${second.replyArabic.length} internetValidated=false"
             )
+            val gameComment = awaitGameComment(offlineBrain)
+            assertTrue("Offline Qwen game comment was empty: $gameComment", gameComment.replyArabic.isNotBlank())
+            Log.i(
+                TAG,
+                "LOCAL_LLM_GAME_COMMENT_PASS source=local_qwen chars=${gameComment.replyArabic.length} " +
+                    "mood=${gameComment.moodHint ?: "none"} intent=${gameComment.intentHint ?: "none"} internetValidated=false"
+            )
         } finally {
             offlineBrain.close()
         }
+    }
+
+    private fun awaitGameComment(brain: LocalLanguageBrain): LocalLlmResult {
+        val latch = CountDownLatch(1)
+        val result = AtomicReference<Result<LocalLlmResult>?>(null)
+        brain.commentOnGame(
+            gameName = "إكس-أو",
+            outcome = "player",
+            detail = "فاز اللاعب في المباراة الحالية؛ إيف خسرت هذه الجولة.",
+            playerScore = 1,
+            eveScore = 0,
+            round = 9,
+            difficulty = 2,
+            recentResults = listOf("xo:draw", "chess:robot"),
+            context = LocalLlmContext(currentMood = "PLAYFUL", moodReason = "game result")
+        ) {
+            result.set(it)
+            latch.countDown()
+        }
+        assertTrue("Timed out waiting for an offline game comment.", latch.await(INFERENCE_TIMEOUT_MS, TimeUnit.MILLISECONDS))
+        val outcome = result.get()
+        assertNotNull("The game comment callback returned no result container.", outcome)
+        return outcome!!.getOrElse { throw AssertionError("Offline game comment failed.", it) }
     }
 
     private fun awaitReady(
