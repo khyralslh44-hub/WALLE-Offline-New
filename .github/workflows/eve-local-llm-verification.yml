@@ -126,10 +126,13 @@ jobs:
           echo "PASS: APK contains the pinned Qwen asset (SHA-256 verified)."
           sha256sum "$APP_APK" "$TEST_APK" | tee "$RUNNER_TEMP/eve-llm-apk-sha256.txt"
 
-      - name: Run real local model test on Android API 29
+      - name: Run real local model test on Android API 35
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 29
+          # API 35 is already installed and verified by the preceding SDK step. Keep the
+          # long 647 MB inference test off the flaky API 29 platform download path; the
+          # separate emulator smoke workflow still checks compatibility on API 29.
+          api-level: 35
           target: default
           arch: x86_64
           profile: pixel_2
@@ -151,6 +154,5 @@ jobs:
             eve-project/app/build/reports/tests/testDebugUnitTest/**
             eve-project/app/build/test-results/testDebugUnitTest/**
             eve-project/app/build/reports/androidTests/connected/**
-            eve-project/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: warn
           retention-days: 14
