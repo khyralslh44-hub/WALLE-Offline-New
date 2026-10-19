@@ -194,6 +194,20 @@ jobs:
           TEST_APK="$GITHUB_WORKSPACE/eve-project/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk"
           test -s "$LOCAL_APK"
           test -s "$TEST_APK"
+          # Fail fast with clear evidence if the large offline model was omitted by Gradle.
+          unzip -Z1 "$LOCAL_APK" > "$RUNNER_TEMP/eve-api35-app-apk-entries.txt"
+          if ! grep -Fxq "assets/Qwen2_0.5B_Instruct.litertlm" "$RUNNER_TEMP/eve-api35-app-apk-entries.txt"; then
+            echo "FAIL: API 35 local app APK is missing Qwen model weights."
+            grep -Fi "Qwen2_0.5B_Instruct" "$RUNNER_TEMP/eve-api35-app-apk-entries.txt" || true
+            exit 21
+          fi
+          PACKAGED_SHA256="$(unzip -p "$LOCAL_APK" assets/Qwen2_0.5B_Instruct.litertlm | sha256sum | awk '{print $1}')"
+          EXPECTED_SHA256="0f01cc004b8eb62b92ba6be85ed05a248ba0d2f78af94c4949b313eccfb4c157"
+          if [ "$PACKAGED_SHA256" != "$EXPECTED_SHA256" ]; then
+            echo "FAIL: API 35 local app APK Qwen digest mismatch: $PACKAGED_SHA256"
+            exit 22
+          fi
+          echo "PASS: API 35 APK contains the pinned Qwen asset (SHA-256 verified)."
           echo "APK_PATH=$LOCAL_APK" >> "$GITHUB_ENV"
           echo "TEST_APK_PATH=$TEST_APK" >> "$GITHUB_ENV"
           echo "SOURCE_RUN_ID=local-$GITHUB_RUN_ID" >> "$GITHUB_ENV"

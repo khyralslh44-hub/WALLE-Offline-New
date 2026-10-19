@@ -18,8 +18,10 @@ permissions:
   contents: read
 
 concurrency:
-  group: eve-local-llm-verification-${{ github.ref }}
-  cancel-in-progress: true
+  # Keep each expensive 647 MB model-inference run tied to its exact source revision.
+  # New commits must not silently cancel an in-progress diagnostic run.
+  group: eve-local-llm-verification-${{ github.ref }}-${{ github.sha }}
+  cancel-in-progress: false
 
 jobs:
   local-llm-offline:
@@ -103,11 +105,26 @@ jobs:
           # The pinned Qwen weights are embedded in the APK assets for offline first-run setup.
           "$RUNNER_TEMP/gradle-8.9/bin/gradle" --no-daemon --stacktrace -p eve-project \
             testDebugUnitTest assembleDebug assembleDebugAndroidTest
-          test -s eve-project/app/build/outputs/apk/debug/app-debug.apk
-          test -s eve-project/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
-          sha256sum eve-project/app/build/outputs/apk/debug/app-debug.apk \
-                    eve-project/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk \
-            | tee "$RUNNER_TEMP/eve-llm-apk-sha256.txt"
+          APP_APK="eve-project/app/build/outputs/apk/debug/app-debug.apk"
+          TEST_APK="eve-project/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk"
+          test -s "$APP_APK"
+          test -s "$TEST_APK"
+          # Verify the exact output APK before spending 20+ minutes booting the emulator.
+          # Persist ZIP entries first to avoid pipefail/SIGPIPE false negatives from grep -q.
+          unzip -Z1 "$APP_APK" > "$RUNNER_TEMP/eve-app-apk-entries.txt"
+          if ! grep -Fxq "assets/Qwen2_0.5B_Instruct.litertlm" "$RUNNER_TEMP/eve-app-apk-entries.txt"; then
+            echo "FAIL: build output app-debug.apk is missing the Qwen asset."
+            grep -Fi "Qwen2_0.5B_Instruct" "$RUNNER_TEMP/eve-app-apk-entries.txt" || true
+            exit 21
+          fi
+          PACKAGED_SHA256="$(unzip -p "$APP_APK" assets/Qwen2_0.5B_Instruct.litertlm | sha256sum | awk '{print $1}')"
+          EXPECTED_SHA256="0f01cc004b8eb62b92ba6be85ed05a248ba0d2f78af94c4949b313eccfb4c157"
+          if [ "$PACKAGED_SHA256" != "$EXPECTED_SHA256" ]; then
+            echo "FAIL: APK Qwen model digest mismatch: $PACKAGED_SHA256"
+            exit 22
+          fi
+          echo "PASS: APK contains the pinned Qwen asset (SHA-256 verified)."
+          sha256sum "$APP_APK" "$TEST_APK" | tee "$RUNNER_TEMP/eve-llm-apk-sha256.txt"
 
       - name: Run real local model test on Android API 29
         uses: reactivecircus/android-emulator-runner@v2

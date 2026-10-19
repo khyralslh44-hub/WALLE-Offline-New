@@ -37,11 +37,26 @@ if [ "$MODEL_BYTES" -lt 500000000 ]; then
 fi
 echo "PASS: host Qwen model SHA-256 verified; bytes=$MODEL_BYTES." | tee -a "$RESULT_DIR/environment.txt"
 sha256sum "$MODEL_FILE" | tee "$RESULT_DIR/qwen-model-sha256.txt"
-if ! unzip -Z1 "$APP_APK" | grep -Fxq "assets/Qwen2_0.5B_Instruct.litertlm"; then
-  echo "FAIL: install APK does not contain the pinned Qwen model asset." | tee -a "$RESULT_DIR/environment.txt"
+# Save the full ZIP directory first. Do not pipe unzip directly into grep -q:
+# with pipefail enabled, grep may close early and make unzip report SIGPIPE as a false "missing asset".
+APK_ENTRIES="$RESULT_DIR/app-apk-entries.txt"
+if ! unzip -Z1 "$APP_APK" > "$APK_ENTRIES"; then
+  echo "FAIL: could not read the install APK ZIP directory." | tee -a "$RESULT_DIR/environment.txt"
   exit 13
 fi
-echo "PASS: install APK contains the verified Qwen model asset." | tee -a "$RESULT_DIR/environment.txt"
+if ! grep -Fxq "assets/Qwen2_0.5B_Instruct.litertlm" "$APK_ENTRIES"; then
+  echo "FAIL: install APK really does not contain the pinned Qwen model asset." | tee -a "$RESULT_DIR/environment.txt"
+  echo "APK size: $(stat -c '%s' "$APP_APK") bytes" | tee -a "$RESULT_DIR/environment.txt"
+  echo "Related entries:" | tee -a "$RESULT_DIR/environment.txt"
+  grep -Fi "Qwen2_0.5B_Instruct" "$APK_ENTRIES" | tee -a "$RESULT_DIR/environment.txt" || true
+  exit 13
+fi
+PACKAGED_MODEL_SHA256="$(unzip -p "$APP_APK" assets/Qwen2_0.5B_Instruct.litertlm | sha256sum | awk '{print $1}')"
+if [ "$PACKAGED_MODEL_SHA256" != "$MODEL_SHA256" ]; then
+  echo "FAIL: Qwen model inside install APK has wrong SHA-256: $PACKAGED_MODEL_SHA256" | tee -a "$RESULT_DIR/environment.txt"
+  exit 14
+fi
+echo "PASS: install APK contains the pinned Qwen asset with the expected SHA-256." | tee -a "$RESULT_DIR/environment.txt"
 timeout 90s adb wait-for-device
 BOOT_COMPLETE="$(timeout 20s adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
 if [ "$BOOT_COMPLETE" != "1" ]; then
