@@ -15,6 +15,8 @@ on:
       - '.github/scripts/emulator-smoke-test.sh'
       - '.github/scripts/run-deep-face-test.sh'
       - '.github/scripts/fetch-arabic-vosk-model.sh'
+      - '.github/scripts/run-local-llm-test.sh'
+      - '.github/workflows/eve-local-llm-verification.yml'
 
 permissions:
   contents: write
@@ -143,6 +145,29 @@ jobs:
         run: |
           "$RUNNER_TEMP/gradle-8.9/bin/gradle"             --no-daemon --stacktrace -p eve-project             testDebugUnitTest assembleDebug assembleRelease
 
+
+      - name: Verify the full language model is inside both installable APKs
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXPECTED="0f01cc004b8eb62b92ba6be85ed05a248ba0d2f78af94c4949b313eccfb4c157"
+          for APK in \
+            "eve-project/app/build/outputs/apk/debug/app-debug.apk" \
+            "eve-project/app/build/outputs/apk/release/app-release.apk"; do
+            test -s "$APK"
+            if ! unzip -Z1 "$APK" | grep -Fxq "assets/Qwen2_0.5B_Instruct.litertlm"; then
+              echo "FAIL: Qwen model asset is missing from $APK"
+              exit 1
+            fi
+            ACTUAL="$(unzip -p "$APK" assets/Qwen2_0.5B_Instruct.litertlm | sha256sum | awk '{print $1}')"
+            if [ "$ACTUAL" != "$EXPECTED" ]; then
+              echo "FAIL: packaged Qwen weights failed SHA-256 verification in $APK"
+              exit 1
+            fi
+            unzip -Z1 "$APK" | grep -Fxq "assets/qwen2_model_license.txt"
+            ls -lh "$APK"
+            echo "PASS: verified packaged Qwen weights and license in $APK"
+          done
 
       - name: Verify APK signatures for installer compatibility
         shell: bash
