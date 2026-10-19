@@ -154,6 +154,33 @@ jobs:
         shell: bash
         run: bash .github/scripts/fetch-arabic-vosk-model.sh
 
+      - name: Bundle and verify the pinned Qwen model for API 35 offline tests
+        if: ${{ matrix.api-level == 35 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ASSETS="eve-project/app/src/main/assets"
+          MODEL="$ASSETS/Qwen2_0.5B_Instruct.litertlm"
+          mkdir -p "$ASSETS"
+          curl --fail --location --retry 4 --retry-delay 3 --connect-timeout 30 --max-time 1200 \
+            "https://huggingface.co/litert-community/Qwen2-0.5B-Instruct/resolve/main/Qwen2_0.5B_Instruct.litertlm" \
+            --output "$MODEL"
+          EXPECTED="0f01cc004b8eb62b92ba6be85ed05a248ba0d2f78af94c4949b313eccfb4c157"
+          ACTUAL="$(sha256sum "$MODEL" | awk '{print $1}')"
+          BYTES="$(stat -c '%s' "$MODEL")"
+          echo "Qwen SHA-256: $ACTUAL"
+          echo "Qwen model bytes: $BYTES"
+          if [ "$ACTUAL" != "$EXPECTED" ] || [ "$BYTES" -lt 500000000 ]; then
+            echo "FAIL: Qwen weights failed pinned digest/size verification."
+            exit 1
+          fi
+          curl --fail --location --retry 3 --connect-timeout 20 --max-time 120 \
+            "https://huggingface.co/Qwen/Qwen2-0.5B-Instruct/resolve/main/LICENSE" \
+            --output "$ASSETS/qwen2_model_license.txt"
+          grep -Fq "Apache License" "$ASSETS/qwen2_model_license.txt"
+          cp eve-project/THIRD_PARTY_NOTICES.md "$ASSETS/THIRD_PARTY_NOTICES.txt"
+          echo "PASS: exact pinned Qwen weights and license are present before instrumentation APK build."
+
       - name: Build matching app and instrumentation APKs with the same signing key
         if: ${{ matrix.api-level == 35 }}
         shell: bash
