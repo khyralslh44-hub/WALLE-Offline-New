@@ -174,9 +174,9 @@ class EveEnvironmentUnderstanding(
         visualLight = visualLight,
         weatherConfidence = weatherConfidence,
         lightConfidence = lightConfidence,
-        clockPeriodArabic = when (localHour?.takeIf { it in 0..23 }) {
-            in 6..17 -> "وقت الجهاز ضمن النهار"
-            in 18..23, in 0..5 -> "وقت الجهاز ضمن الليل"
+        clockPeriodArabic = when {
+            localHour != null && localHour in 6..17 -> "وقت الجهاز ضمن النهار"
+            localHour != null && (localHour in 18..23 || localHour in 0..5) -> "وقت الجهاز ضمن الليل"
             else -> ""
         },
         summaryArabic = summary,
@@ -207,7 +207,13 @@ class EveEnvironmentUnderstanding(
 
     private fun score(labels: List<Pair<String, Float>>, terms: Set<String>): Float =
         labels.asSequence()
-            .filter { (label, _) -> terms.any { term -> label == term || label.contains(term) } }
+            .filter { (label, _) ->
+                terms.any { term ->
+                    // Match whole category words, not substrings such as "sun" in "sunglasses".
+                    label == term || label.startsWith("$term ") ||
+                        label.endsWith(" $term") || label.contains(" $term ")
+                }
+            }
             .maxOfOrNull { it.second }
             ?: 0f
 
