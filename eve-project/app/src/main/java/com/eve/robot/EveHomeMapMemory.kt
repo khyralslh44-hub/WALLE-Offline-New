@@ -49,7 +49,17 @@ class EveHomeMapMemory(
         room: EveRoomType,
         nowMs: Long
     ): EveHomeMapSnapshot? {
-        if (!pose.isFresh(nowMs) || !telemetry.isFresh(nowMs) || !telemetry.hasCompleteSafetySensors()) return null
+        if (
+            !pose.isFresh(nowMs) ||
+            !telemetry.isFresh(nowMs) ||
+            !telemetry.hasCompleteSafetySensors() ||
+            !telemetry.hasSafeFloorUnderBothCliffSensors() ||
+            !telemetry.motorsReady ||
+            telemetry.baseFault ||
+            telemetry.emergencyStopPressed ||
+            telemetry.bumperPressed ||
+            telemetry.batteryPercent <= EveRobotBaseProtocol.LOW_BATTERY_STOP_PERCENT
+        ) return null
         if (nowMs < lastObservedAtMs) return null
         lastObservedAtMs = nowMs
 
