@@ -61,9 +61,10 @@ class FaceIdentityIntegrationTest {
             val top = (box.top - padY).coerceIn(0, frame.height - 1)
             val right = (box.right + padX).coerceIn(left + 1, frame.width)
             val bottom = (box.bottom + padY).coerceIn(top + 1, frame.height)
-            crop = Bitmap.createBitmap(frame, left, top, right - left, bottom - top)
+            val faceCrop = Bitmap.createBitmap(frame, left, top, right - left, bottom - top)
+            crop = faceCrop
 
-            val selfSimilarity = matcher.similarity(crop, crop)
+            val selfSimilarity = matcher.similarity(faceCrop, faceCrop)
             assertTrue(
                 "MobileFaceNet must produce a high same-image similarity, got $selfSimilarity.",
                 selfSimilarity >= 0.98f
@@ -74,8 +75,8 @@ class FaceIdentityIntegrationTest {
                 relationArabic = "الصديق",
                 name = "اختبار وجه محلي"
             )
-            val profile = memory.enroll(person, crop)
-            val match = memory.recognize(crop, matcher)
+            val profile = memory.enroll(person, faceCrop)
+            val match = memory.recognize(faceCrop, matcher)
             assertNotNull("A newly enrolled local face should match the same face crop.", match)
             assertEquals(profile.id, match?.profile?.id)
             assertTrue("Stored JPEG reference fell below the identity threshold.", match!!.similarity >= 0.80f)
