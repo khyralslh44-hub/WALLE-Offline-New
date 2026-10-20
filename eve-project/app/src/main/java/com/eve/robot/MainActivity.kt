@@ -3074,10 +3074,13 @@ class MainActivity : ComponentActivity() {
             objectExecutor.execute {
                 try { localObjectDetector?.close() } catch (_: Exception) { }
                 try { localImageClassifier?.close() } catch (_: Exception) { }
+                try { poseLandmarker?.close() } catch (_: Exception) { }
                 localObjectDetector = null
                 localImageClassifier = null
+                poseLandmarker = null
                 objectDetectorReady = false
                 imageClassifierReady = false
+                poseLandmarkerReady = false
             }
         } catch (_: Exception) { }
         objectExecutor.shutdown()
