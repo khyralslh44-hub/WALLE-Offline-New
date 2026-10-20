@@ -1496,6 +1496,7 @@ class MainActivity : ComponentActivity() {
                     }
 
                     val crop = frameBitmap?.let { cropFaceBitmap(it, bestFace.boundingBox) }
+                    if (crop != null) processFaceIdentityCrop(crop, elapsed)
                     if (crop != null && emotionClassifier.isReady) {
                         if (!ferInferenceRunning.compareAndSet(false, true)) {
                             // Drop this frame rather than queueing stale work behind a slow inference.
@@ -1667,6 +1668,124 @@ class MainActivity : ComponentActivity() {
         } catch (error: Exception) {
             Log.w("EVE_FER", "Could not crop detected face bounds=$box frame=${frame.width}x${frame.height}.", error)
             null
+        }
+    }
+
+    /**
+     * Work is opt-in: no face template is stored until the user gives an explicit voice command.
+     * Matching happens off the camera/UI thread, compares only private enrolled references, and
+     * greets once per cooldown rather than speaking continuously for every frame.
+     */
+    private fun processFaceIdentityCrop(faceCrop: Bitmap, observedAt: Long) {
+        val request = pendingFaceEnrollment
+        val enrolling = request != null && observedAt <= pendingFaceEnrollmentExpiresAt
+        if (request != null && !enrolling) {
+            pendingFaceEnrollment = null
+            pendingFaceEnrollmentExpiresAt = 0L
+            main.post {
+                if (!isFinishing && !isDestroyed) {
+                    showDialogueText("انتهت مهلة حفظ الوجه؛ لم أحفظ وجهًا جديدًا.", durationMs = 5_000L)
+                }
+            }
+            return
+        }
+        if (!enrolling) {
+            if (!faceIdentityMemory.hasProfiles()) return
+            val previous = lastFaceIdentityCheckAt.get()
+            if (observedAt - previous < 2_800L || !lastFaceIdentityCheckAt.compareAndSet(previous, observedAt)) return
+        }
+        if (!faceIdentityWorkRunning.compareAndSet(false, true)) return
+        val owned = try {
+            faceCrop.copy(Bitmap.Config.ARGB_8888, false)
+        } catch (error: Exception) {
+            faceIdentityWorkRunning.set(false)
+            Log.w("EVE_PEOPLE", "Could not copy transient face crop for local matching.", error)
+            return
+        }
+        try {
+            faceIdentityExecutor.execute {
+                try {
+                    if (enrolling) {
+                        if (pendingFaceEnrollment != request ||
+                            SystemClock.elapsedRealtime() > pendingFaceEnrollmentExpiresAt
+                        ) return@execute
+                        // Loading the model first prevents claiming an enrolment when the model is absent.
+                        val matcher = faceIdentityMatcher ?: EveFaceIdentityMatcher(applicationContext)
+                            .also { faceIdentityMatcher = it }
+                        val profile = faceIdentityMemory.enroll(requireNotNull(request).person, owned)
+                        main.post {
+                            if (isFinishing || isDestroyed) return@post
+                            if (pendingFaceEnrollment == request) {
+                                pendingFaceEnrollment = null
+                                pendingFaceEnrollmentExpiresAt = 0L
+                                lastIdentityGreetingId = profile.id
+                                lastIdentityGreetingAt = SystemClock.elapsedRealtime()
+                                val decision = brain.observeKnownPerson(profile.relationArabic, isIntroduction = true)
+                                react(decision, playSound = false)
+                                showDialogueText(
+                                    "حفظت مرجع وجه ${profile.relationArabic} باسم ${profile.name} على هذا الهاتف. " +
+                                        "سأحاول التعرّف عليه عندما تكون الصورة واضحة.",
+                                    durationMs = 8_000L
+                                )
+                                Log.i(
+                                    "EVE_PEOPLE",
+                                    "FACE_PROFILE_ENROLLED id=${profile.id} relation=${profile.personKey} " +
+                                        "imageStoredLocally=true network=false"
+                                )
+                            }
+                        }
+                    } else {
+                        val matcher = faceIdentityMatcher ?: EveFaceIdentityMatcher(applicationContext)
+                            .also { faceIdentityMatcher = it }
+                        val match = faceIdentityMemory.recognize(owned, matcher) ?: return@execute
+                        val now = SystemClock.elapsedRealtime()
+                        val sameGreeting = lastIdentityGreetingId == match.profile.id
+                        if (sameGreeting && now - lastIdentityGreetingAt < 30_000L) return@execute
+                        main.post {
+                            if (isFinishing || isDestroyed) return@post
+                            val current = SystemClock.elapsedRealtime()
+                            val repeated = lastIdentityGreetingId == match.profile.id &&
+                                current - lastIdentityGreetingAt < 30_000L
+                            if (repeated) return@post
+                            lastIdentityGreetingId = match.profile.id
+                            lastIdentityGreetingAt = current
+                            val decision = brain.observeKnownPerson(
+                                match.profile.relationArabic,
+                                isIntroduction = false
+                            )
+                            react(decision, playSound = false)
+                            showDialogueText(
+                                "أهلًا ${match.profile.name}، أعتقد أنني تعرّفت عليك من الذاكرة المحلية.",
+                                durationMs = 5_500L
+                            )
+                            Log.i(
+                                "EVE_PEOPLE",
+                                "FACE_PROFILE_MATCH id=${match.profile.id} relation=${match.profile.personKey} " +
+                                    "similarity=${match.similarity} localOnly=true"
+                            )
+                        }
+                    }
+                } catch (error: Exception) {
+                    Log.e("EVE_PEOPLE", "Local face enrolment/matching failed; no identity was asserted.", error)
+                    main.post {
+                        if (!isFinishing && !isDestroyed && enrolling && pendingFaceEnrollment == request) {
+                            pendingFaceEnrollment = null
+                            pendingFaceEnrollmentExpiresAt = 0L
+                            showDialogueText(
+                                "لم أستطع حفظ مرجع الوجه؛ لم أسجل تعرّفًا غير مؤكد.",
+                                durationMs = 5_500L
+                            )
+                        }
+                    }
+                } finally {
+                    try { owned.recycle() } catch (_: Exception) { }
+                    faceIdentityWorkRunning.set(false)
+                }
+            }
+        } catch (error: Exception) {
+            try { owned.recycle() } catch (_: Exception) { }
+            faceIdentityWorkRunning.set(false)
+            Log.e("EVE_PEOPLE", "Could not queue local face matching.", error)
         }
     }
 
@@ -2633,6 +2752,13 @@ class MainActivity : ComponentActivity() {
         try { labeler.close() } catch (_: Exception) { }
         try { faceDetector.close() } catch (_: Exception) { }
         cameraExecutor.shutdown()
+        try {
+            faceIdentityExecutor.execute {
+                try { faceIdentityMatcher?.close() } catch (_: Exception) { }
+                faceIdentityMatcher = null
+            }
+        } catch (_: Exception) { }
+        faceIdentityExecutor.shutdown()
         try {
             objectExecutor.execute {
                 try { localObjectDetector?.close() } catch (_: Exception) { }
