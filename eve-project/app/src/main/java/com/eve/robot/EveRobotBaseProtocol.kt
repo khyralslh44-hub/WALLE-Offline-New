@@ -107,7 +107,8 @@ object EveRobotBaseProtocol {
         frame[3] = (sequence and 0xFF).toByte()
         frame[4] = command.leftPercent.toByte()
         frame[5] = command.rightPercent.toByte()
-        frame[6] = (command.leaseMs / 100).coerceIn(0, 5).toByte()
+        // Round up: flooring 250 ms to 200 ms would expire just before the 250 ms control tick.
+        frame[6] = ((command.leaseMs + 99) / 100).coerceIn(0, 5).toByte()
         frame[7] = xorChecksum(frame, 0, COMMAND_FRAME_BYTES - 1).toByte()
         return frame
     }
