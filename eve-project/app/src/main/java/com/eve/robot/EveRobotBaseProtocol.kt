@@ -14,11 +14,15 @@ object EveRobotBaseProtocol {
     const val SERVICE_UUID_TEXT = "6f8e0001-7d5b-4d7a-ae11-2e9b00000001"
     const val COMMAND_UUID_TEXT = "6f8e0002-7d5b-4d7a-ae11-2e9b00000001"
     const val TELEMETRY_UUID_TEXT = "6f8e0003-7d5b-4d7a-ae11-2e9b00000001"
+    const val POSE_UUID_TEXT = "6f8e0004-7d5b-4d7a-ae11-2e9b00000001"
 
     const val MAGIC: Int = 0xE7
     const val VERSION: Int = 1
     const val TELEMETRY_TYPE: Int = 0x80
     const val TELEMETRY_FRAME_BYTES: Int = 20
+    const val POSE_FRAME_BYTES: Int = 16
+    const val POSE_TYPE: Int = 0x81
+    const val POSE_VALID_FLAG: Int = 1 shl 0
     const val COMMAND_FRAME_BYTES: Int = 8
 
     const val FLAG_FRONT_VALID = 1 shl 0
@@ -52,6 +56,18 @@ object EveRobotBaseProtocol {
             require(rightPercent in -100..100)
             require(leaseMs in 0..500)
         }
+    }
+
+    data class Pose(
+        val sequence: Int,
+        val receivedAtMs: Long,
+        val xMm: Int,
+        val yMm: Int,
+        /** 0° points along +X; positive angles rotate counter-clockwise in the local map. */
+        val headingDegrees: Float
+    ) {
+        fun isFresh(nowMs: Long, maxAgeMs: Long = MAX_TELEMETRY_AGE_MS): Boolean =
+            receivedAtMs > 0L && nowMs >= receivedAtMs && nowMs - receivedAtMs <= maxAgeMs
     }
 
     data class Telemetry(
@@ -94,6 +110,34 @@ object EveRobotBaseProtocol {
         frame[6] = (command.leaseMs / 100).coerceIn(0, 5).toByte()
         frame[7] = xorChecksum(frame, 0, COMMAND_FRAME_BYTES - 1).toByte()
         return frame
+    }
+
+    /**
+     * Optional fused odometry pose from wheel encoders + IMU on the base. The origin is reset by
+     * the base firmware for each exploration session; raw phone pixels are never used as meters.
+     */
+    fun decodePose(frame: ByteArray, receivedAtMs: Long): Pose? {
+        if (frame.size != POSE_FRAME_BYTES) return null
+        if ((frame[0].toInt() and 0xFF) != MAGIC) return null
+        if ((frame[1].toInt() and 0xFF) != VERSION) return null
+        if ((frame[2].toInt() and 0xFF) != POSE_TYPE) return null
+        if ((frame[14].toInt() and POSE_VALID_FLAG) == 0) return null
+        if ((frame[15].toInt() and 0xFF) != xorChecksum(frame, 0, 15)) return null
+
+        val x = signedIntLe(frame, 4)
+        val y = signedIntLe(frame, 8)
+        val headingCentiDegrees = signedShortLe(frame, 12)
+        if (kotlin.math.abs(x.toLong()) > MAX_MAP_COORDINATE_MM ||
+            kotlin.math.abs(y.toLong()) > MAX_MAP_COORDINATE_MM ||
+            headingCentiDegrees !in -18_000..18_000
+        ) return null
+        return Pose(
+            sequence = frame[3].toInt() and 0xFF,
+            receivedAtMs = receivedAtMs,
+            xMm = x,
+            yMm = y,
+            headingDegrees = headingCentiDegrees / 100f
+        )
     }
 
     fun decodeTelemetry(frame: ByteArray, receivedAtMs: Long): Telemetry? {
@@ -143,8 +187,18 @@ object EveRobotBaseProtocol {
     private fun unsignedShortLe(frame: ByteArray, offset: Int): Int =
         (frame[offset].toInt() and 0xFF) or ((frame[offset + 1].toInt() and 0xFF) shl 8)
 
+    private fun signedShortLe(frame: ByteArray, offset: Int): Int =
+        unsignedShortLe(frame, offset).toShort().toInt()
+
+    private fun signedIntLe(frame: ByteArray, offset: Int): Int =
+        (frame[offset].toInt() and 0xFF) or
+            ((frame[offset + 1].toInt() and 0xFF) shl 8) or
+            ((frame[offset + 2].toInt() and 0xFF) shl 16) or
+            (frame[offset + 3].toInt() shl 24)
+
     const val INVALID_RANGE_MM = 0xFFFF
     const val MAX_SENSOR_RANGE_MM = 6000
+    const val MAX_MAP_COORDINATE_MM = 50_000_000L
     const val MAX_TELEMETRY_AGE_MS = 600L
     const val CLIFF_EDGE_DISTANCE_MM = 145
     const val LOW_BATTERY_STOP_PERCENT = 8
