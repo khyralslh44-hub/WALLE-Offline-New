@@ -122,8 +122,8 @@ class MainActivity : ComponentActivity() {
     private val faceCueSmoother = EveFaceCueSmoother(windowSize = 3, requiredVotes = 2)
     private val activityUnderstanding = EveActivityUnderstanding()
     private val environmentUnderstanding = EveEnvironmentUnderstanding()
-    private var activeHumanActivity = EveHumanActivity.UNKNOWN
-    private var lastHumanActivityAt = 0L
+    @Volatile private var activeHumanActivity = EveHumanActivity.UNKNOWN
+    @Volatile private var lastHumanActivityAt = 0L
     @Volatile private var latestActivitySummary = ""
     @Volatile private var latestEnvironmentSummary = ""
     @Volatile private var lastActivityObservationAt = 0L
@@ -1314,9 +1314,10 @@ class MainActivity : ComponentActivity() {
                 objectExecutor.execute {
                     try {
                         val categories = localImageClassifier?.classify(imageBitmap).orEmpty()
+                        val meanLuminance = estimateMeanLuminance(imageBitmap)
                         main.post {
                             if (!isFinishing && !isDestroyed) {
-                                applyImageClassifierObservations(categories)
+                                applyImageClassifierObservations(categories, meanLuminance)
                             }
                         }
                     } catch (error: Exception) {
@@ -1906,6 +1907,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private val sceneSummaryTtlMs = 15_000L
+    private val activitySummaryTtlMs = 12_000L
+    private val environmentSummaryTtlMs = 45_000L
 
     /** Combines spatial object boxes with broader ImageNet scene hypotheses, discarding stale evidence. */
     private fun refreshLatestSceneSummary(now: Long) {
@@ -1916,12 +1919,25 @@ class MainActivity : ComponentActivity() {
         if (lastImageClassifierSceneAt == 0L || now - lastImageClassifierSceneAt > sceneSummaryTtlMs) {
             latestImageClassifierSummary = ""
         }
-        val parts = listOf(latestObjectSummary, latestImageClassifierSummary)
-            .filter { it.isNotBlank() }
-        latestSceneSummary = parts.joinToString("؛ ").take(320)
+        if (lastActivityObservationAt == 0L || now - lastActivityObservationAt > activitySummaryTtlMs) {
+            latestActivitySummary = ""
+            activeHumanActivity = EveHumanActivity.UNKNOWN
+        }
+        if (lastEnvironmentObservationAt == 0L || now - lastEnvironmentObservationAt > environmentSummaryTtlMs) {
+            latestEnvironmentSummary = ""
+        }
+        val parts = listOf(
+            latestObjectSummary,
+            latestImageClassifierSummary,
+            latestActivitySummary,
+            latestEnvironmentSummary
+        ).filter { it.isNotBlank() }
+        latestSceneSummary = parts.joinToString("؛ ").take(520)
         lastSceneObservationAt = maxOf(
             if (latestObjectSummary.isNotBlank()) lastObjectSceneAt else 0L,
-            if (latestImageClassifierSummary.isNotBlank()) lastImageClassifierSceneAt else 0L
+            if (latestImageClassifierSummary.isNotBlank()) lastImageClassifierSceneAt else 0L,
+            if (latestActivitySummary.isNotBlank()) lastActivityObservationAt else 0L,
+            if (latestEnvironmentSummary.isNotBlank()) lastEnvironmentObservationAt else 0L
         )
     }
 
@@ -1929,9 +1945,31 @@ class MainActivity : ComponentActivity() {
      * The classifier is a fallback/broad taxonomy source, not a replacement for object boxes.
      * Its scores are explicitly presented as hypotheses; they never claim identity or certainty.
      */
-    private fun applyImageClassifierObservations(categories: List<EveImageClass>) {
+    private fun applyImageClassifierObservations(categories: List<EveImageClass>, meanLuminance: Float) {
         if (isFinishing || isDestroyed) return
         val now = SystemClock.elapsedRealtime()
+        val localHour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+        val environment = environmentUnderstanding.observe(
+            timestampMs = now,
+            candidates = categories,
+            meanLuminance = meanLuminance,
+            localHour = localHour
+        )
+        latestEnvironmentSummary = listOf(environment.summaryArabic, environment.clockPeriodArabic)
+            .filter { it.isNotBlank() }
+            .joinToString("؛ ")
+        lastEnvironmentObservationAt = now
+        refreshLatestSceneSummary(now)
+        if (now - lastEnvironmentDiagnosticAt >= 10_000L) {
+            lastEnvironmentDiagnosticAt = now
+            Log.i(
+                "EVE_ENV",
+                "ENVIRONMENT weather=${environment.weather} weatherConfidence=${environment.weatherConfidence} " +
+                    "light=${environment.visualLight} lightConfidence=${environment.lightConfidence} " +
+                    "clock=${environment.clockPeriodArabic.ifBlank { "unknown" }} " +
+                    "summary=${environment.summaryArabic.ifBlank { "no confident visual hypothesis" }} offline=true"
+            )
+        }
         val ranked = categories.asSequence()
             .filter { it.confidence >= imageClassificationMinConfidence }
             .filter { it.label.isNotBlank() && !isVisualNoiseLabel(it.label) }
