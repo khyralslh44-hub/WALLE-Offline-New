@@ -186,6 +186,31 @@ class EveRobotBaseProtocolTest {
         assertFalse(nav.decide(telemetry(left = null), 1_100L, true).movingAllowed)
     }
 
+    @Test fun mappedFrontierCanSteerOnlyTowardAConfirmedClearSide() {
+        val nav = EveBaseNavigator()
+        val telemetry = telemetry(left = 900, right = 800, front = 1_000)
+        val turn = nav.decide(
+            telemetry = telemetry,
+            nowMs = 1_100L,
+            autonomyEnabled = true,
+            preferredHeadingDegrees = 90f,
+            currentHeadingDegrees = 0f
+        )
+        assertTrue(turn.movingAllowed)
+        assertEquals("align toward unexplored mapped frontier", turn.reason)
+        assertTrue(turn.leftPercent < 0 && turn.rightPercent > 0)
+
+        val blocked = nav.decide(
+            telemetry = telemetry.copy(leftDistanceMm = 300),
+            nowMs = 1_200L,
+            autonomyEnabled = true,
+            preferredHeadingDegrees = 90f,
+            currentHeadingDegrees = 0f
+        )
+        assertFalse(blocked.movingAllowed)
+        assertTrue(blocked.reason.contains("side clearance"))
+    }
+
     @Test fun obstacleCausesMeasuredRetreatThenTurnRatherThanBlindForwardMotion() {
         val nav = EveBaseNavigator()
         val blocked = telemetry(front = 250, rear = 900, left = 900, right = 520)
