@@ -9,7 +9,6 @@ import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
-import android.bluetooth.BluetoothStatusCodes
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
@@ -281,15 +280,15 @@ class EveBleRobotBase(
                 } else {
                     BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
                 }
-                val result = if (Build.VERSION.SDK_INT >= 33) {
-                    callbackGatt.writeDescriptor(descriptor, value)
+                val writeStarted = if (Build.VERSION.SDK_INT >= 33) {
+                    callbackGatt.writeDescriptor(descriptor, value) == 0
                 } else {
                     @Suppress("DEPRECATION")
                     descriptor.value = value
                     @Suppress("DEPRECATION")
-                    if (callbackGatt.writeDescriptor(descriptor)) BluetoothStatusCodes.SUCCESS else BluetoothStatusCodes.ERROR_UNKNOWN
+                    callbackGatt.writeDescriptor(descriptor)
                 }
-                if (result != BluetoothStatusCodes.SUCCESS) {
+                if (!writeStarted) {
                     fail("تعذر تفعيل قناة بيانات الحساسات.")
                     callbackGatt.disconnect()
                 }
@@ -390,7 +389,7 @@ class EveBleRobotBase(
                     characteristic,
                     frame,
                     BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
-                ) == BluetoothStatusCodes.SUCCESS
+                ) == 0
             } else {
                 @Suppress("DEPRECATION")
                 characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
