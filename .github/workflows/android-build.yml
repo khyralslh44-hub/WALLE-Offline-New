@@ -127,7 +127,7 @@ jobs:
           MODEL="$ASSETS/Qwen3-1.7B_dynamic_wi4b32_afp32.litertlm"
           mkdir -p "$ASSETS"
           curl --fail --location --retry 4 --retry-delay 3 --connect-timeout 30 --max-time 1200 \
-            "https://huggingface.co/litert-community/Qwen3-1.7B/resolve/main/Qwen3-1.7B_dynamic_wi4b32_afp32.litertlm" \
+            "https://huggingface.co/litert-community/Qwen3-1.7B/resolve/d9b8a91/Qwen3-1.7B_dynamic_wi4b32_afp32.litertlm" \
             --output "$MODEL"
           EXPECTED="2eeffef7b51bc3e1225ea69fe7aa5f417397934b56a5b6c20cc068d6fd2c918b"
           ACTUAL="$(sha256sum "$MODEL" | awk '{print $1}')"
