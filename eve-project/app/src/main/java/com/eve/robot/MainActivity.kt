@@ -342,7 +342,7 @@ class MainActivity : ComponentActivity() {
         override fun run() {
             if (isFinishing || isDestroyed || !baseAutonomyRequested) return
             runBaseControlTick()
-            if (baseAutonomyRequested) main.postDelayed(this, BASE_CONTROL_TICK_MS)
+            if (baseAutonomyRequested) main.postDelayed(this, baseControlTickMs)
         }
     }
 
@@ -2246,6 +2246,7 @@ class MainActivity : ComponentActivity() {
     private val objectDetectionIntervalMs = 1400L
     private val baseControlTickMs = 250L
     private val roomSummaryTtlMs = 45_000L
+    private val baseSafetyNoticeCooldownMs = 5_000L
     private val imageClassificationIntervalMs = 4_500L
     private val poseInferenceIntervalMs = 2_200L
     private val imageClassificationMinConfidence = 0.10f
@@ -2408,7 +2409,7 @@ class MainActivity : ComponentActivity() {
         if (lastEnvironmentObservationAt == 0L || now - lastEnvironmentObservationAt > environmentSummaryTtlMs) {
             latestEnvironmentSummary = ""
         }
-        if (lastRoomObservationAt == 0L || now - lastRoomObservationAt > ROOM_SUMMARY_TTL_MS) {
+        if (lastRoomObservationAt == 0L || now - lastRoomObservationAt > roomSummaryTtlMs) {
             latestRoomSummary = ""
             latestRoomType = EveRoomType.UNKNOWN
         }
@@ -3312,7 +3313,7 @@ class MainActivity : ComponentActivity() {
                             reason = if (possibleDrop) "drop sensor safety stop" else "hardware fault stop"
                         )
                     )
-                    if (now - lastBaseSafetyNoticeAt >= BASE_SAFETY_NOTICE_COOLDOWN_MS) {
+                    if (now - lastBaseSafetyNoticeAt >= baseSafetyNoticeCooldownMs) {
                         lastBaseSafetyNoticeAt = now
                         showDialogueText(
                             if (possibleDrop) {
@@ -3456,7 +3457,7 @@ class MainActivity : ComponentActivity() {
                 decision.reason.contains("person detected") ||
                 decision.reason.contains("sensor unavailable")
             )
-        if (safetyWorthy && now - lastBaseSafetyNoticeAt >= BASE_SAFETY_NOTICE_COOLDOWN_MS) {
+        if (safetyWorthy && now - lastBaseSafetyNoticeAt >= baseSafetyNoticeCooldownMs) {
             lastBaseSafetyNoticeAt = now
             showDialogueText(
                 "أوقفت القاعدة احترازيًا: ${decision.reason}. سأنتظر بيانات آمنة وحديثة.",
