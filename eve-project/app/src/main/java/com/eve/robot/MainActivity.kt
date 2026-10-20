@@ -957,6 +957,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleCameraStatusTap() {
+        lastDirectUserActionAt = SystemClock.elapsedRealtime()
         if (hasCameraPermission()) {
             if (!cameraStarted) startCamera()
             val cameraLine = if (!cameraStarted) {
@@ -2943,7 +2944,12 @@ class MainActivity : ComponentActivity() {
      * The language model receives trusted metadata from the local vision stack and short local
      * memories. It never gets raw frames and never generates a spoken line on each camera frame.
      */
-    private fun maybeReflectWithLocalLanguage(label: String, confidence: Float, sightings: Int) {
+    private fun maybeReflectWithLocalLanguage(
+        label: String,
+        confidence: Float,
+        sightings: Int,
+        mindEvidenceKey: String? = null
+    ) {
         if (!::localLanguageBrain.isInitialized || !localLanguageBrain.isReady) return
         if (!confidence.isFinite() || confidence < 0.84f) return
         if (!isMeaningfulLabel(label) && !isCuriosityWorthyLabel(label)) return
@@ -2952,10 +2958,22 @@ class MainActivity : ComponentActivity() {
         if (now - previous < 90_000L) return
         if (!lastLocalLlmVisionAt.compareAndSet(previous, now)) return
         lastLocalLlmVisionLabel = label
+        lastAutonomyReflectionAt = now
 
         localLanguageBrain.reflectOnObservation(localLanguageContext()) { outcome ->
             if (isFinishing || isDestroyed) return@reflectOnObservation
             val insight = outcome.getOrNull() ?: run {
+                mindEvidenceKey?.let { key ->
+                    autonomousMind.recordFeedback(
+                        EveMindFeedback(
+                            EveMindGoal.REFLECT_ON_NEW_EVIDENCE,
+                            EveMindAction.REQUEST_LOCAL_REFLECTION,
+                            succeeded = false,
+                            note = key,
+                            atMs = SystemClock.elapsedRealtime()
+                        )
+                    )
+                }
                 Log.w("EVE_LLM", "VISION_REFLECTION_FAILED label=$label", outcome.exceptionOrNull())
                 return@reflectOnObservation
             }
@@ -2963,11 +2981,33 @@ class MainActivity : ComponentActivity() {
             if (lastMeaningfulLabel != label ||
                 SystemClock.elapsedRealtime() - lastMeaningfulLabelAt !in 0L..90_000L
             ) {
+                mindEvidenceKey?.let { key ->
+                    autonomousMind.recordFeedback(
+                        EveMindFeedback(
+                            EveMindGoal.REFLECT_ON_NEW_EVIDENCE,
+                            EveMindAction.REQUEST_LOCAL_REFLECTION,
+                            succeeded = false,
+                            note = key,
+                            atMs = SystemClock.elapsedRealtime()
+                        )
+                    )
+                }
                 Log.i("EVE_LLM", "VISION_REFLECTION_DROPPED reason=stale_context label=$label")
                 return@reflectOnObservation
             }
             val reflection = insight.reflectionArabic.ifBlank { insight.replyArabic }.trim().take(240)
             if (reflection.isNotBlank()) memory.rememberReflection(reflection)
+            mindEvidenceKey?.let { key ->
+                autonomousMind.recordFeedback(
+                    EveMindFeedback(
+                        EveMindGoal.REFLECT_ON_NEW_EVIDENCE,
+                        EveMindAction.REQUEST_LOCAL_REFLECTION,
+                        succeeded = insight.confidence >= 0.45f && reflection.isNotBlank(),
+                        note = key,
+                        atMs = SystemClock.elapsedRealtime()
+                    )
+                )
+            }
             val suggestion = brain.integrateLanguageInsight(
                 moodHint = insight.moodHint,
                 intentHint = insight.intentHint,
