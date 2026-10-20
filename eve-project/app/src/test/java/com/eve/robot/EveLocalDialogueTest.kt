@@ -21,7 +21,8 @@ class EveLocalDialogueTest {
         )
         assertNotNull(thought)
         assertTrue(thought!!.text.contains("قطة"))
-        assertTrue(thought.text.contains("أتساءل") || thought.text.contains("هل تعرف"))
+        assertTrue(thought.text.contains("؟"))
+        assertTrue(thought.text.length <= 70)
         assertEquals("cat", thought.label)
     }
 
