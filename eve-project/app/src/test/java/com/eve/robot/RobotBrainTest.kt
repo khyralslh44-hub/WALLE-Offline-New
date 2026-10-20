@@ -28,6 +28,19 @@ class RobotBrainTest {
         assertFalse(unavailable.playSound)
     }
 
+    @Test fun cautiousHumanActivityChangesAttentionWithoutSpeakingOrClaimingCertainty() {
+        val brain = RobotBrain()
+        val eating = brain.observeHumanActivity(EveHumanActivity.EATING_POSSIBLE, 0.68f)
+        assertEquals(EveMood.CURIOUS, eating.mood)
+        assertEquals(EveIntent.FOCUS, eating.intent)
+        assertTrue(!eating.playSound)
+        assertTrue(eating.reason.contains("cautious visual activity hypothesis"))
+
+        val uncertain = brain.observeHumanActivity(EveHumanActivity.UNKNOWN, 0f)
+        assertEquals(EveMood.NEUTRAL, uncertain.mood)
+        assertTrue(!uncertain.playSound)
+    }
+
     @Test fun offlineRecognizedQuestionTriggersCuriousNonverbalAffect() {
         val localBrain = RobotBrain()
         val before = localBrain.awakenExperience()
