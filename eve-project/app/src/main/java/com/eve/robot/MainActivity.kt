@@ -141,7 +141,14 @@ class MainActivity : ComponentActivity() {
     private val faceCueSmoother = EveFaceCueSmoother(windowSize = 3, requiredVotes = 2)
     private val activityUnderstanding = EveActivityUnderstanding()
     private val environmentUnderstanding = EveEnvironmentUnderstanding()
+    private val roomUnderstanding = EveRoomUnderstanding()
     private val autonomousMind = EveAutonomousMind()
+    private val robotBaseNavigator = EveBaseNavigator()
+    private lateinit var robotBaseLink: EveBleRobotBase
+    @Volatile private var baseAutonomyRequested = false
+    @Volatile private var pendingBaseAutonomyAfterPermission = false
+    @Volatile private var lastBaseDecisionReason = ""
+    @Volatile private var lastBaseSafetyNoticeAt = 0L
     @Volatile private var autonomousExplorationEnabled = false
     @Volatile private var lastDirectUserActionAt = SystemClock.elapsedRealtime()
     @Volatile private var lastAutonomyPlanSignature = ""
@@ -153,6 +160,9 @@ class MainActivity : ComponentActivity() {
     @Volatile private var lastHumanActivityAt = 0L
     @Volatile private var latestActivitySummary = ""
     @Volatile private var latestEnvironmentSummary = ""
+    @Volatile private var latestRoomSummary = ""
+    @Volatile private var latestRoomType = EveRoomType.UNKNOWN
+    @Volatile private var lastRoomObservationAt = 0L
     @Volatile private var lastActivityObservationAt = 0L
     @Volatile private var lastEnvironmentObservationAt = 0L
     @Volatile private var lastEnvironmentDiagnosticAt = 0L
@@ -296,6 +306,25 @@ class MainActivity : ComponentActivity() {
         Log.i("EVE_NOTIFY", "notification permission granted=$granted")
     }
 
+    private val baseBluetoothPermissionRequest = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { grants ->
+        val allowed = grants.isNotEmpty() && grants.values.all { it }
+        val shouldStartAutonomy = pendingBaseAutonomyAfterPermission
+        pendingBaseAutonomyAfterPermission = false
+        if (allowed && ::robotBaseLink.isInitialized) {
+            if (shouldStartAutonomy) baseAutonomyRequested = true
+            robotBaseLink.startScan()
+        } else {
+            baseAutonomyRequested = false
+            showDialogueText(
+                "لم أمنح أذونات Bluetooth؛ بقيت القاعدة متوقفة ولم أرسل أوامر حركة.",
+                durationMs = 6500L
+            )
+            Log.i("EVE_BASE", "BASE_PERMISSION_DENIED")
+        }
+    }
+
     private fun requestNotificationPermissionIfNeeded() {
         if (Build.VERSION.SDK_INT < 33) return
         if (ContextCompat.checkSelfPermission(
@@ -307,6 +336,14 @@ class MainActivity : ComponentActivity() {
         // Ask at most once from the foreground. Declining reminders never disables the face or games.
         prefs.edit().putBoolean("notificationPermissionAsked", true).apply()
         notificationPermissionRequest.launch(Manifest.permission.POST_NOTIFICATIONS)
+    }
+
+    private val baseControlLoop = object : Runnable {
+        override fun run() {
+            if (isFinishing || isDestroyed || !baseAutonomyRequested) return
+            runBaseControlTick()
+            if (baseAutonomyRequested) main.postDelayed(this, BASE_CONTROL_TICK_MS)
+        }
     }
 
     private val idleLoop = object : Runnable {
@@ -433,6 +470,7 @@ class MainActivity : ComponentActivity() {
         localLanguageBrain.start()
         initializeHandGestureRecognizer()
         initializeOfflineObjectDetector()
+        initializeRobotBaseLink()
 
         face.setOnTouchListener { _, event ->
             when (event.actionMasked) {
@@ -650,6 +688,64 @@ class MainActivity : ComponentActivity() {
         ) {
             react(brain.observeFacialEmotion("neutral", 0.90f), playSound = false)
             Log.i("EVE_AUDIO", "SPEECH_RESPONSE_SUPPRESSED reason=quiet_command")
+            return
+        }
+
+        // The optional mobile base is an explicit extension; no BLE scan or motor command runs at startup.
+        if (listOf(
+                "استكشفي المنزل بالقاعدة", "استكشاف المنزل بالقاعدة", "استكشفي بالقاعدة",
+                "ابدئي حركة القاعدة", "تحركي بالقاعدة", "ابدئي استكشاف المنزل"
+            ).any(text::contains)
+        ) {
+            requestRobotBaseConnection(enableAutonomy = true)
+            return
+        }
+        if (listOf(
+                "اتصلي بالقاعدة", "اتصل بالقاعدة", "ابحثي عن القاعدة", "ابحث عن القاعدة",
+                "اتصال بالقاعدة", "اتصال القاعدة", "اربط القاعدة", "bluetooth base"
+            ).any(text::contains)
+        ) {
+            requestRobotBaseConnection(enableAutonomy = false)
+            return
+        }
+        if (listOf(
+                "اوقفي القاعدة", "اوقف القاعدة", "ايقاف القاعدة", "توقفي عن الحركة",
+                "اوقفي حركة القاعدة", "اوقفي استكشاف المنزل", "stop robot base"
+            ).any(text::contains)
+        ) {
+            stopRobotBaseAutonomy("أوقفت القاعدة. ستبقى المحركات متوقفة.")
+            return
+        }
+        if (listOf("افصلي القاعدة", "قطع اتصال القاعدة", "افصل القاعدة").any(text::contains)) {
+            stopRobotBaseAutonomy("أوقفت الحركة.")
+            if (::robotBaseLink.isInitialized) robotBaseLink.disconnect()
+            showDialogueText("فصلت اتصال القاعدة. لن تتحرك حتى تطلبي الاتصال من جديد.", durationMs = 6500L)
+            return
+        }
+        if (listOf("استعادة الحركة", "اعيدي ضبط امان القاعدة", "اعيدي ضبط امان الروبوت").any(text::contains)) {
+            val nowForReset = SystemClock.elapsedRealtime()
+            val safe = ::robotBaseLink.isInitialized &&
+                robotBaseNavigator.clearSafetyLatch(robotBaseLink.latestTelemetry, nowForReset)
+            if (safe) {
+                baseAutonomyRequested = true
+                showDialogueText("قراءات الحساسات حديثة وآمنة؛ سأستأنف الحركة ببطء.", durationMs = 6000L)
+                startBaseControlLoop()
+            } else {
+                showDialogueText("لم أستأنف الحركة: ما زالت بعض قراءات الحافة أو العوائق غير آمنة أو قديمة.", durationMs = 7000L)
+            }
+            return
+        }
+        if (listOf("حالة القاعدة", "هل القاعدة متصلة", "حالة البلوتوث").any(text::contains)) {
+            val status = if (::robotBaseLink.isInitialized) robotBaseLink.lastDetail else "طبقة القاعدة لم تجهز بعد."
+            val movement = if (baseAutonomyRequested) "الاستكشاف مطلوب" else "المحركات متوقفة"
+            showDialogueText("$status $movement", durationMs = 7000L)
+            return
+        }
+        if (listOf("ما اسم الغرفة", "اي غرفة هذه", "اين نحن").any(text::contains)) {
+            showDialogueText(
+                latestRoomSummary.ifBlank { "لم تتوفر أدلة بصرية كافية لتحديد الغرفة بعد." },
+                durationMs = 7000L
+            )
             return
         }
 
@@ -1066,6 +1162,13 @@ class MainActivity : ComponentActivity() {
 
     override fun onPause() {
         main.removeCallbacks(idleLoop)
+        if (baseAutonomyRequested) {
+            // A backgrounded phone must not continue commanding wheel motion.
+            baseAutonomyRequested = false
+            main.removeCallbacks(baseControlLoop)
+            if (::robotBaseLink.isInitialized) robotBaseLink.stopMotors()
+            robotBaseNavigator.resetAvoidance()
+        }
         faceOrNull()?.stopAnimation()
         faceCueSmoother.reset()
         emotionSmoother.reset()
@@ -2303,18 +2406,24 @@ class MainActivity : ComponentActivity() {
         if (lastEnvironmentObservationAt == 0L || now - lastEnvironmentObservationAt > environmentSummaryTtlMs) {
             latestEnvironmentSummary = ""
         }
+        if (lastRoomObservationAt == 0L || now - lastRoomObservationAt > ROOM_SUMMARY_TTL_MS) {
+            latestRoomSummary = ""
+            latestRoomType = EveRoomType.UNKNOWN
+        }
         val parts = listOf(
             latestObjectSummary,
             latestImageClassifierSummary,
             latestActivitySummary,
-            latestEnvironmentSummary
+            latestEnvironmentSummary,
+            latestRoomSummary
         ).filter { it.isNotBlank() }
-        latestSceneSummary = parts.joinToString("؛ ").take(520)
+        latestSceneSummary = parts.joinToString("؛ ").take(600)
         lastSceneObservationAt = maxOf(
             if (latestObjectSummary.isNotBlank()) lastObjectSceneAt else 0L,
             if (latestImageClassifierSummary.isNotBlank()) lastImageClassifierSceneAt else 0L,
             if (latestActivitySummary.isNotBlank()) lastActivityObservationAt else 0L,
-            if (latestEnvironmentSummary.isNotBlank()) lastEnvironmentObservationAt else 0L
+            if (latestEnvironmentSummary.isNotBlank()) lastEnvironmentObservationAt else 0L,
+            if (latestRoomSummary.isNotBlank()) lastRoomObservationAt else 0L
         )
     }
 
@@ -2326,6 +2435,23 @@ class MainActivity : ComponentActivity() {
         if (isFinishing || isDestroyed) return
         val now = SystemClock.elapsedRealtime()
         val localHour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+        val freshObjectsForRoom = if (
+            lastObjectSceneAt > 0L && now - lastObjectSceneAt in 0L..3_000L
+        ) latestObjectLabels.map { it to 0.62f } else emptyList()
+        val room = roomUnderstanding.observe(
+            timestampMs = now,
+            candidates = categories.map { it.label to it.confidence } + freshObjectsForRoom
+        )
+        if (room.room != EveRoomType.UNKNOWN) {
+            latestRoomType = room.room
+            latestRoomSummary = room.explanationArabic
+            lastRoomObservationAt = now
+            Log.i(
+                "EVE_ROOM",
+                "ROOM_HYPOTHESIS room=${room.room} confidence=${room.confidence} " +
+                    "evidence=${room.evidence.joinToString("|")} offline=true"
+            )
+        }
         val environment = environmentUnderstanding.observe(
             timestampMs = now,
             candidates = categories,
@@ -3157,6 +3283,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         main.removeCallbacks(idleLoop)
+        main.removeCallbacks(baseControlLoop)
+        if (::robotBaseLink.isInitialized) robotBaseLink.close()
         main.removeCallbacks(hideDialogue)
         if (::dialogueBubble.isInitialized) dialogueBubble.animate().cancel()
         offlineArabicSpeech?.close()
