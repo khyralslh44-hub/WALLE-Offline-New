@@ -150,6 +150,7 @@ class MainActivity : ComponentActivity() {
     @Volatile private var pendingBaseAutonomyAfterPermission = false
     @Volatile private var lastBaseDecisionReason = ""
     @Volatile private var lastBaseSafetyNoticeAt = 0L
+    @Volatile private var lastHomeMapDiagnosticSignature = ""
     @Volatile private var autonomousExplorationEnabled = false
     @Volatile private var lastDirectUserActionAt = SystemClock.elapsedRealtime()
     @Volatile private var lastAutonomyPlanSignature = ""
@@ -3442,21 +3443,43 @@ class MainActivity : ComponentActivity() {
                 val freshRoom = if (
                     lastRoomObservationAt > 0L && now - lastRoomObservationAt in 0L..ROOM_SUMMARY_TTL_MS
                 ) latestRoomType else EveRoomType.UNKNOWN
-                homeMapMemory.observe(
+                val mapSnapshot = homeMapMemory.observe(
                     pose = pose!!,
                     telemetry = telemetry!!,
                     room = freshRoom,
                     nowMs = now
                 )
-                val frontierHeading = homeMapMemory.bestFrontierHeadingDegrees(pose, now)
-                robotBaseNavigator.decide(
-                    telemetry = telemetry,
-                    nowMs = now,
-                    autonomyEnabled = baseAutonomyRequested,
-                    personInPath = robotBasePersonInPath(now),
-                    preferredHeadingDegrees = frontierHeading,
-                    currentHeadingDegrees = pose.headingDegrees
-                )
+                if (mapSnapshot == null) {
+                    EveBaseMotionDecision(0, 0, 0, "home map rejected stale or unsafe base data", false)
+                } else {
+                    val frontierHeading = homeMapMemory.bestFrontierHeadingDegrees(pose, now)
+                    val mapSignature = "${mapSnapshot.knownCells}|${mapSnapshot.obstacleCells}|" +
+                        "${mapSnapshot.knownRooms.sortedBy { it.name }.joinToString(",")}|${mapSnapshot.currentRoom}"
+                    if (mapSignature != lastHomeMapDiagnosticSignature) {
+                        lastHomeMapDiagnosticSignature = mapSignature
+                        Log.i(
+                            "EVE_MAP",
+                            "HOME_MAP cells=${mapSnapshot.knownCells} free=${mapSnapshot.freeCells} " +
+                                "obstacles=${mapSnapshot.obstacleCells} namedRooms=${mapSnapshot.knownRooms} " +
+                                "currentRoom=${mapSnapshot.currentRoom} frontierHeading=${frontierHeading ?: "none"} " +
+                                "frame=local_odometry"
+                        )
+                    }
+                    if (frontierHeading == null) {
+                        // The map must never fall back to blind forward motion when it has no
+                        // reachable, unmapped frontier to target.
+                        EveBaseMotionDecision(0, 0, 0, "no safe unexplored frontier; stop and wait", false)
+                    } else {
+                        robotBaseNavigator.decide(
+                            telemetry = telemetry,
+                            nowMs = now,
+                            autonomyEnabled = baseAutonomyRequested,
+                            personInPath = robotBasePersonInPath(now),
+                            preferredHeadingDegrees = frontierHeading,
+                            currentHeadingDegrees = pose.headingDegrees
+                        )
+                    }
+                }
             }
         }
         val commandType = if (decision.movingAllowed) {
