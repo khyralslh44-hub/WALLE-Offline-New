@@ -1207,6 +1207,9 @@ class MainActivity : ComponentActivity() {
                 if (best.confidence < 0.58f || best.text.isBlank()) return@addOnSuccessListener
                 val label = best.text.trim().lowercase()
                 val elapsed = SystemClock.elapsedRealtime()
+                if (shouldSuppressConflictingAnimalLabel(label, elapsed, "mlkit_image_labeling")) {
+                    return@addOnSuccessListener
+                }
                 if (elapsed - (lastLabelAt[label] ?: 0L) < 2600L) return@addOnSuccessListener
                 if (elapsed - lastFaceSeenAt < 8000L && !isMeaningfulLabel(label)) {
                     Log.i("EVE", "VISION generic label suppressed during face interaction: $label")
@@ -1688,18 +1691,34 @@ class MainActivity : ComponentActivity() {
     private fun applyObjectObservations(objects: List<EveVisualObject>) {
         if (isFinishing || isDestroyed) return
         val now = SystemClock.elapsedRealtime()
-        // EfficientDet returns up to five object detections. Preserve the scene-level evidence
-        // for dialogue instead of throwing away every detection except the best single object.
-        val sceneObjects = objects.asSequence()
+        // Build labels from this inference only; do not let old dog detections justify a new guess.
+        val rawSceneObjects = objects.asSequence()
             .filter { it.confidence >= objectObservationMinConfidence }
             .filterNot { isVisualNoiseLabel(it.label) }
             .filterNot { it.label.isBlank() || it.label == "???" }
-            // Keep multiple people/objects of the same type when their locations differ.
             .sortedByDescending { it.confidence * (0.85f + 0.15f * it.areaFraction.coerceIn(0f, 1f)) }
             .take(5)
             .toList()
+        val rawObjectLabels = rawSceneObjects.map { EveSceneGeometry.normalizeLabel(it.label) }.toSet()
+        val sceneObjects = rawSceneObjects.filterNot { candidate ->
+            val suppress = EveVisionEvidencePolicy.shouldSuppressAnimalLabel(
+                label = candidate.label,
+                personFaceRecentlyDetected = isPersonFaceRecent(now),
+                freshObjectLabels = rawObjectLabels
+            )
+            if (suppress) {
+                Log.w(
+                    "EVE_VISION_POLICY",
+                    "SUPPRESSED_CONFLICTING_ANIMAL source=efficientdet_lite0 label=${candidate.label} " +
+                        "faceAgeMs=${(now - lastFaceSeenAt).coerceAtLeast(0L)} boxes=$rawObjectLabels"
+                )
+            }
+            suppress
+        }
+        // An empty current detector result must clear old animal labels so they cannot authorize
+        // a contradictory whole-image guess on the next frame.
+        latestObjectLabels = sceneObjects.map { EveSceneGeometry.normalizeLabel(it.label) }.toSet()
         if (sceneObjects.isNotEmpty()) {
-            latestObjectLabels = sceneObjects.map { EveSceneGeometry.normalizeLabel(it.label) }.toSet()
             latestObjectSummary = "أجسام محددة: " + sceneObjects.joinToString("؛ ") {
                 EveSceneGeometry.describe(
                     labelArabic = arabicVisualObjectName(it.label),
@@ -1716,6 +1735,8 @@ class MainActivity : ComponentActivity() {
                 "SCENE_SUMMARY objects=${sceneObjects.size} summary=${latestSceneSummary}"
             )
         } else {
+            latestObjectSummary = ""
+            lastObjectSceneAt = 0L
             refreshLatestSceneSummary(now)
         }
         val best = sceneObjects.maxByOrNull {
@@ -1972,9 +1993,27 @@ class MainActivity : ComponentActivity() {
                     "summary=${environment.summaryArabic.ifBlank { "no confident visual hypothesis" }} offline=true"
             )
         }
+        val recentObjectLabels = if (
+            lastObjectSceneAt > 0L && now - lastObjectSceneAt in 0L..2_500L
+        ) latestObjectLabels else emptySet()
         val ranked = categories.asSequence()
             .filter { it.confidence >= imageClassificationMinConfidence }
             .filter { it.label.isNotBlank() && !isVisualNoiseLabel(it.label) }
+            .filterNot { candidate ->
+                val suppress = EveVisionEvidencePolicy.shouldSuppressAnimalLabel(
+                    label = candidate.label,
+                    personFaceRecentlyDetected = isPersonFaceRecent(now),
+                    freshObjectLabels = recentObjectLabels
+                )
+                if (suppress) {
+                    Log.w(
+                        "EVE_VISION_POLICY",
+                        "SUPPRESSED_CONFLICTING_ANIMAL source=imagenet label=${candidate.label} " +
+                            "faceAgeMs=${(now - lastFaceSeenAt).coerceAtLeast(0L)} boxes=$recentObjectLabels"
+                    )
+                }
+                suppress
+            }
             .distinctBy { EveSceneGeometry.normalizeLabel(it.label) }
             .sortedByDescending { it.confidence }
             .take(5)
@@ -2107,6 +2146,29 @@ class MainActivity : ComponentActivity() {
             "toothbrush" -> "فرشاة أسنان"
             else -> rawLabel.trim().take(32)
         }
+    }
+
+    private fun isPersonFaceRecent(now: Long): Boolean =
+        lastFaceSeenAt > 0L && now - lastFaceSeenAt in 0L..3_000L
+
+    /** Never promote a scene-level animal guess over a recently confirmed face without box evidence. */
+    private fun shouldSuppressConflictingAnimalLabel(label: String, now: Long, source: String): Boolean {
+        val recentObjectLabels = if (
+            lastObjectSceneAt > 0L && now - lastObjectSceneAt in 0L..2_500L
+        ) latestObjectLabels else emptySet()
+        val suppress = EveVisionEvidencePolicy.shouldSuppressAnimalLabel(
+            label = label,
+            personFaceRecentlyDetected = isPersonFaceRecent(now),
+            freshObjectLabels = recentObjectLabels
+        )
+        if (suppress) {
+            Log.w(
+                "EVE_VISION_POLICY",
+                "SUPPRESSED_CONFLICTING_ANIMAL source=$source label=$label " +
+                    "faceAgeMs=${(now - lastFaceSeenAt).coerceAtLeast(0L)} boxes=$recentObjectLabels"
+            )
+        }
+        return suppress
     }
 
     private fun isVisualNoiseLabel(label: String): Boolean =
