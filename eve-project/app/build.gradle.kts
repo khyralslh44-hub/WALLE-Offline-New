@@ -9,15 +9,13 @@ android {
     namespace = "com.eve.robot"
     compileSdk = 35
 
-    // Keep ZIP containers uncompressed where the app expects archive bytes directly.
-    // The Qwen .litertlm model remains fully bundled and byte-for-byte identical, but is
-    // DEFLATE-compressed inside the APK. LocalLanguageBrain uses AssetManager.open() to
-    // stream-extract it to app-private storage before verifying its SHA-256 and loading it
-    // from a normal file path; it does not use openFd()/mmap on the packaged asset.
-    // This reduces transfer/package size without dropping or changing any model/component.
+    // Keep large binary model assets out of Gradle's DEFLATE pass. The pinned Qwen
+    // .litertlm and TFLite models are already compact binary formats, and the offline brain
+    // stream-extracts Qwen through AssetManager.open() before SHA-256 verification.
+    // Storing those bytes as-is avoids high heap use during release packaging while preserving
+    // every model byte and every offline feature. The Vosk model remains a ZIP asset.
     androidResources {
-        // MediaPipe ObjectDetector loads its TFLite model from AssetManager by asset path.
-        noCompress += listOf("zip", "tflite")
+        noCompress += listOf("zip", "tflite", "litertlm")
     }
 
     // Include legacy JAR (v1) signing as well as modern APK signing so OEM installers
