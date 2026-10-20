@@ -236,14 +236,14 @@ if grep -E "FAILURES!!!|INSTRUMENTATION_FAILED|INSTRUMENTATION_STATUS_CODE: -2" 
   echo "FAIL: Android instrumentation reported a test failure." | tee -a "$RESULT_DIR/environment.txt"
   exit 10
 fi
-for marker in LOCAL_LLM_FIRST_INFERENCE_PASS LOCAL_LLM_OFFLINE_RESTART_PASS; do
+for marker in LOCAL_LLM_FIRST_INFERENCE_PASS LOCAL_LLM_OFFLINE_RESTART_PASS LOCAL_LLM_GAME_COMMENT_PASS; do
   if ! grep -F "$marker" "$RESULT_DIR/instrumentation-output.txt" "$RESULT_DIR/logcat.txt" >/dev/null 2>&1; then
     echo "FAIL: required real-model inference marker missing: $marker" | tee -a "$RESULT_DIR/environment.txt"
     exit 11
   fi
   echo "PASS: $marker" | tee -a "$RESULT_DIR/environment.txt"
 done
-if ! grep -Eq 'OK \\([0-9]+ tests?\\)' "$RESULT_DIR/instrumentation-output.txt"; then
+if ! grep -Eq 'OK \([0-9]+ tests?\)' "$RESULT_DIR/instrumentation-output.txt"; then
   echo "FAIL: AndroidJUnitRunner did not report a completed passing test." | tee -a "$RESULT_DIR/environment.txt"
   exit 12
 fi
