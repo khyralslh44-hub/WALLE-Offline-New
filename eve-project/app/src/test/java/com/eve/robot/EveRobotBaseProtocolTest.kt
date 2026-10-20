@@ -101,6 +101,56 @@ class EveRobotBaseProtocolTest {
         assertEquals(EveRobotBaseProtocol.checksum(frame, 7), frame[7].toInt() and 0xFF)
     }
 
+    private fun poseFrame(
+        xMm: Int = 1_250,
+        yMm: Int = -750,
+        headingCentiDegrees: Int = 9_000,
+        flags: Int = EveRobotBaseProtocol.POSE_VALID_FLAG
+    ): ByteArray {
+        val result = ByteArray(EveRobotBaseProtocol.POSE_FRAME_BYTES)
+        result[0] = EveRobotBaseProtocol.MAGIC.toByte()
+        result[1] = EveRobotBaseProtocol.VERSION.toByte()
+        result[2] = EveRobotBaseProtocol.POSE_TYPE.toByte()
+        result[3] = 7
+        fun putInt(offset: Int, value: Int) {
+            result[offset] = (value and 0xFF).toByte()
+            result[offset + 1] = ((value shr 8) and 0xFF).toByte()
+            result[offset + 2] = ((value shr 16) and 0xFF).toByte()
+            result[offset + 3] = (value shr 24).toByte()
+        }
+        result[4] = (xMm and 0xFF).toByte()
+        result[5] = ((xMm shr 8) and 0xFF).toByte()
+        result[6] = ((xMm shr 16) and 0xFF).toByte()
+        result[7] = (xMm shr 24).toByte()
+        putInt(8, yMm)
+        result[12] = (headingCentiDegrees and 0xFF).toByte()
+        result[13] = ((headingCentiDegrees shr 8) and 0xFF).toByte()
+        result[14] = flags.toByte()
+        result[15] = EveRobotBaseProtocol.checksum(result, 15).toByte()
+        return result
+    }
+
+    @Test fun fusedPoseFrameDecodesSignedCoordinatesAndHeading() {
+        val pose = EveRobotBaseProtocol.decodePose(poseFrame(), 1_000L)
+        assertNotNull(pose)
+        assertEquals(1_250, pose!!.xMm)
+        assertEquals(-750, pose.yMm)
+        assertEquals(90f, pose.headingDegrees, 0.01f)
+        assertTrue(pose.isFresh(1_500L))
+        assertFalse(pose.isFresh(1_700L))
+    }
+
+    @Test fun invalidPoseFramesCannotFeedTheMap() {
+        assertNull(EveRobotBaseProtocol.decodePose(poseFrame().also { it[7] = 25 }, 1_000L))
+        assertNull(EveRobotBaseProtocol.decodePose(poseFrame(flags = 0), 1_000L))
+        assertNull(
+            EveRobotBaseProtocol.decodePose(
+                poseFrame(headingCentiDegrees = 22_000),
+                1_000L
+            )
+        )
+    }
+
     @Test fun navigatorMovesSlowlyOnlyWithFreshCompleteHealthySensors() {
         val nav = EveBaseNavigator()
         val decision = nav.decide(telemetry(), nowMs = 1_100L, autonomyEnabled = true)
