@@ -93,8 +93,9 @@ class EveAutonomousMind(
         val sceneFresh = context.sceneAgeMs in 0L..SCENE_FRESH_MS && context.sceneSummary.isNotBlank()
         val labelFresh = context.sceneAgeMs in 0L..SCENE_FRESH_MS &&
             context.latestLabel.isNotBlank() && confidence >= MIN_REFLECTION_CONFIDENCE
-        val evidenceKey = context.latestLabel.trim().lowercase() + "|" +
-            context.sceneSummary.trim().take(180)
+        val evidenceKey = (
+            context.latestLabel.trim().lowercase() + "|" + context.sceneSummary.trim().take(180)
+        ).take(180)
         val alreadyReflected = evidenceKey in reflectedEvidence
         val reflectionCooldownDone = context.lastReflectionAtMs <= 0L ||
             now - context.lastReflectionAtMs >= REFLECTION_COOLDOWN_MS
