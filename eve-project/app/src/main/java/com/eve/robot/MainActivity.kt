@@ -2244,6 +2244,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private val objectDetectionIntervalMs = 1400L
+    private val baseControlTickMs = 250L
+    private val roomSummaryTtlMs = 45_000L
     private val imageClassificationIntervalMs = 4_500L
     private val poseInferenceIntervalMs = 2_200L
     private val imageClassificationMinConfidence = 0.10f
@@ -3249,6 +3251,216 @@ class MainActivity : ComponentActivity() {
                 "EVE_LLM",
                 "VISION_REFLECTION_OK label=$label classifierConfidence=$confidence sightings=$sightings " +
                     "languageConfidence=${insight.confidence} mood=${suggestion.mood} intent=${suggestion.intent}"
+            )
+        }
+    }
+
+    private fun initializeRobotBaseLink() {
+        if (::robotBaseLink.isInitialized) return
+        robotBaseLink = EveBleRobotBase(applicationContext, object : EveBleRobotBase.Listener {
+            override fun onStateChanged(state: EveBaseLinkState, detail: String) {
+                Log.i("EVE_BASE", "BASE_LINK state=$state detail=$detail")
+                when (state) {
+                    EveBaseLinkState.READY -> {
+                        showDialogueText(
+                            "اتصلت بقاعدة متوافقة. سأنتظر بيانات الحساسات الحديثة، ولن أسمح بالحركة قبل فحصها.",
+                            durationMs = 7000L
+                        )
+                        if (baseAutonomyRequested) startBaseControlLoop()
+                    }
+                    EveBaseLinkState.ERROR -> {
+                        baseAutonomyRequested = false
+                        main.removeCallbacks(baseControlLoop)
+                        robotBaseNavigator.resetAvoidance()
+                        showDialogueText("$detail بقيت حركة القاعدة متوقفة.", durationMs = 8000L)
+                    }
+                    EveBaseLinkState.DISCONNECTED -> {
+                        if (baseAutonomyRequested) {
+                            baseAutonomyRequested = false
+                            main.removeCallbacks(baseControlLoop)
+                            robotBaseNavigator.resetAvoidance()
+                        }
+                        showDialogueText("$detail يجب أن توقف القاعدة محركاتها أيضًا عند فقد الاتصال.", durationMs = 7500L)
+                    }
+                    EveBaseLinkState.SCANNING,
+                    EveBaseLinkState.CONNECTING,
+                    EveBaseLinkState.CONFIGURING,
+                    EveBaseLinkState.WAITING_FOR_BLUETOOTH -> {
+                        showDialogueText(detail, durationMs = 6500L)
+                    }
+                }
+            }
+
+            override fun onTelemetry(telemetry: EveRobotBaseProtocol.Telemetry) {
+                val now = SystemClock.elapsedRealtime()
+                val possibleDrop =
+                    telemetry.leftCliffDistanceMm == null ||
+                        telemetry.rightCliffDistanceMm == null ||
+                        (telemetry.leftCliffDistanceMm ?: Int.MAX_VALUE) >= EveRobotBaseProtocol.CLIFF_EDGE_DISTANCE_MM ||
+                        (telemetry.rightCliffDistanceMm ?: Int.MAX_VALUE) >= EveRobotBaseProtocol.CLIFF_EDGE_DISTANCE_MM
+                val hardFault = telemetry.emergencyStopPressed || telemetry.baseFault
+                if (baseAutonomyRequested && (possibleDrop || hardFault)) {
+                    robotBaseNavigator.decide(
+                        telemetry = telemetry,
+                        nowMs = now,
+                        autonomyEnabled = true,
+                        personInPath = true
+                    )
+                    robotBaseLink.send(
+                        EveRobotBaseProtocol.MotorCommand(
+                            type = EveRobotBaseProtocol.CommandType.STOP,
+                            reason = if (possibleDrop) "drop sensor safety stop" else "hardware fault stop"
+                        )
+                    )
+                    if (now - lastBaseSafetyNoticeAt >= BASE_SAFETY_NOTICE_COOLDOWN_MS) {
+                        lastBaseSafetyNoticeAt = now
+                        showDialogueText(
+                            if (possibleDrop) {
+                                "رصدت احتمال حافة أو فقدت حساس الحافة. أوقفت الحركة حتى يتم فحص القاعدة واستعادة الأمان."
+                            } else {
+                                "زر إيقاف الطوارئ أو عطل القاعدة فعّال. الحركة ممنوعة حتى إصلاح السبب."
+                            },
+                            durationMs = 8000L
+                        )
+                    }
+                }
+            }
+        })
+    }
+
+    private fun requiredRobotBasePermissions(): Array<String> {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            arrayOf(
+                Manifest.permission.BLUETOOTH_SCAN,
+                Manifest.permission.BLUETOOTH_CONNECT
+            )
+        } else {
+            // Android 8–11 require foreground location permission for BLE scanning.
+            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
+    }
+
+    private fun hasRobotBasePermissions(): Boolean =
+        requiredRobotBasePermissions().all { permission ->
+            ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
+        }
+
+    private fun requestRobotBaseConnection(enableAutonomy: Boolean) {
+        if (!::robotBaseLink.isInitialized) {
+            showDialogueText("لم تجهز إضافة القاعدة بعد. أعيدي فتح التطبيق.", durationMs = 6000L)
+            return
+        }
+        if (enableAutonomy) {
+            baseAutonomyRequested = true
+        } else {
+            stopRobotBaseAutonomy("اتصال فقط: لم أفعّل حركة العجلات.")
+        }
+
+        if (!hasRobotBasePermissions()) {
+            pendingBaseAutonomyAfterPermission = enableAutonomy
+            baseBluetoothPermissionRequest.launch(requiredRobotBasePermissions())
+            return
+        }
+        pendingBaseAutonomyAfterPermission = false
+        if (robotBaseLink.state == EveBaseLinkState.READY) {
+            if (enableAutonomy) {
+                startBaseControlLoop()
+            } else {
+                showDialogueText("قاعدة إيف متصلة، لكن العجلات متوقفة. قولي «استكشفي المنزل بالقاعدة» لطلب الحركة.", durationMs = 7000L)
+            }
+            return
+        }
+        robotBaseLink.startScan()
+    }
+
+    private fun startBaseControlLoop() {
+        if (isFinishing || isDestroyed || !baseAutonomyRequested || !::robotBaseLink.isInitialized) return
+        if (robotBaseLink.state != EveBaseLinkState.READY) return
+        if (!hasCameraPermission()) {
+            robotBaseLink.stopMotors()
+            showDialogueText("لا أستطيع استكشاف المنزل بالقاعدة دون الكاميرا. أوقفت الحركة.", durationMs = 7000L)
+            return
+        }
+        // A phone mounted as the robot's head should use its rear/world camera as the forward view.
+        if (activeCameraLens != CameraLens.BACK) switchCamera()
+        main.removeCallbacks(baseControlLoop)
+        main.postDelayed(baseControlLoop, 700L)
+        Log.i("EVE_BASE", "BASE_AUTONOMY_REQUESTED camera=BACK pendingFreshSensors=true")
+    }
+
+    private fun stopRobotBaseAutonomy(message: String) {
+        baseAutonomyRequested = false
+        pendingBaseAutonomyAfterPermission = false
+        main.removeCallbacks(baseControlLoop)
+        robotBaseNavigator.resetAvoidance()
+        if (::robotBaseLink.isInitialized) robotBaseLink.stopMotors()
+        if (message.isNotBlank()) showDialogueText(message, durationMs = 6500L)
+        Log.i("EVE_BASE", "BASE_AUTONOMY_STOPPED")
+    }
+
+    private fun robotBasePersonInPath(now: Long): Boolean {
+        val freshFace = lastFaceSeenAt > 0L && now - lastFaceSeenAt in 0L..1_500L
+        val freshObjectFrame = lastObjectSceneAt > 0L && now - lastObjectSceneAt in 0L..2_200L
+        val personLabels = setOf("person", "people", "human", "man", "woman", "child", "boy", "girl")
+        val visiblePersonBox = freshObjectFrame &&
+            latestObjectLabels.any { EveSceneGeometry.normalizeLabel(it) in personLabels }
+        return freshFace || visiblePersonBox
+    }
+
+    private fun runBaseControlTick() {
+        if (!baseAutonomyRequested || !::robotBaseLink.isInitialized) return
+        if (robotBaseLink.state != EveBaseLinkState.READY) {
+            // The board firmware watchdog must brake if GATT disappears while the phone is unable to write STOP.
+            return
+        }
+        val now = SystemClock.elapsedRealtime()
+        val cameraReady = cameraStarted && activeCameraLens == CameraLens.BACK
+        val decision = if (!cameraReady) {
+            EveBaseMotionDecision(0, 0, 0, "rear camera is not ready", false)
+        } else {
+            robotBaseNavigator.decide(
+                telemetry = robotBaseLink.latestTelemetry,
+                nowMs = now,
+                autonomyEnabled = baseAutonomyRequested,
+                personInPath = robotBasePersonInPath(now)
+            )
+        }
+        val commandType = if (decision.movingAllowed) {
+            EveRobotBaseProtocol.CommandType.DRIVE
+        } else {
+            EveRobotBaseProtocol.CommandType.STOP
+        }
+        robotBaseLink.send(
+            EveRobotBaseProtocol.MotorCommand(
+                type = commandType,
+                leftPercent = decision.leftPercent,
+                rightPercent = decision.rightPercent,
+                leaseMs = decision.leaseMs,
+                reason = decision.reason
+            )
+        )
+        if (decision.reason != lastBaseDecisionReason) {
+            lastBaseDecisionReason = decision.reason
+            Log.i(
+                "EVE_BASE",
+                "BASE_NAV action=$commandType left=${decision.leftPercent} right=${decision.rightPercent} " +
+                    "reason=${decision.reason} telemetryAgeMs=${robotBaseLink.latestTelemetry?.let { now - it.receivedAtMs } ?: -1L}"
+            )
+        }
+        val safetyWorthy = !decision.movingAllowed && (
+            decision.reason.contains("cliff") ||
+                decision.reason.contains("safety latch") ||
+                decision.reason.contains("emergency") ||
+                decision.reason.contains("fault") ||
+                decision.reason.contains("bumper") ||
+                decision.reason.contains("person detected") ||
+                decision.reason.contains("sensor unavailable")
+            )
+        if (safetyWorthy && now - lastBaseSafetyNoticeAt >= BASE_SAFETY_NOTICE_COOLDOWN_MS) {
+            lastBaseSafetyNoticeAt = now
+            showDialogueText(
+                "أوقفت القاعدة احترازيًا: ${decision.reason}. سأنتظر بيانات آمنة وحديثة.",
+                durationMs = 7000L
             )
         }
     }
