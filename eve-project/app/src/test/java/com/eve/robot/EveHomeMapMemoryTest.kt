@@ -70,6 +70,7 @@ class EveHomeMapMemoryTest {
         assertNotNull(result)
         assertEquals(EveRoomType.KITCHEN, result!!.currentRoom)
         assertTrue(result.namedRoomCells > 0)
+        assertTrue(result.knownRooms.contains(EveRoomType.KITCHEN))
     }
 
     @Test fun movingThroughCoordinatesAddsExploredCellsAndCanChangeRoom() {
