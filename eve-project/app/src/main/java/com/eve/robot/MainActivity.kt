@@ -151,6 +151,7 @@ class MainActivity : ComponentActivity() {
     @Volatile private var lastBaseDecisionReason = ""
     @Volatile private var lastBaseSafetyNoticeAt = 0L
     @Volatile private var lastHomeMapDiagnosticSignature = ""
+    @Volatile private var lastBaseAnnouncedRoom = EveRoomType.UNKNOWN
     @Volatile private var autonomousExplorationEnabled = false
     @Volatile private var lastDirectUserActionAt = SystemClock.elapsedRealtime()
     @Volatile private var lastAutonomyPlanSignature = ""
@@ -3266,7 +3267,11 @@ class MainActivity : ComponentActivity() {
         robotBaseLink = EveBleRobotBase(applicationContext, object : EveBleRobotBase.Listener {
             override fun onStateChanged(state: EveBaseLinkState, detail: String) {
                 Log.i("EVE_BASE", "BASE_LINK state=$state detail=$detail")
-                if (state == EveBaseLinkState.SCANNING) homeMapMemory.reset()
+                if (state == EveBaseLinkState.SCANNING) {
+                    homeMapMemory.reset()
+                    lastHomeMapDiagnosticSignature = ""
+                    lastBaseAnnouncedRoom = EveRoomType.UNKNOWN
+                }
                 when (state) {
                     EveBaseLinkState.READY -> {
                         showDialogueText(
@@ -3463,6 +3468,30 @@ class MainActivity : ComponentActivity() {
                                 "obstacles=${mapSnapshot.obstacleCells} namedRooms=${mapSnapshot.knownRooms} " +
                                 "currentRoom=${mapSnapshot.currentRoom} frontierHeading=${frontierHeading ?: "none"} " +
                                 "frame=local_odometry"
+                        )
+                    }
+                    if (
+                        mapSnapshot.currentRoom != EveRoomType.UNKNOWN &&
+                        mapSnapshot.currentRoom != lastBaseAnnouncedRoom
+                    ) {
+                        lastBaseAnnouncedRoom = mapSnapshot.currentRoom
+                        val roomName = when (mapSnapshot.currentRoom) {
+                            EveRoomType.KITCHEN -> "المطبخ"
+                            EveRoomType.BEDROOM -> "غرفة النوم"
+                            EveRoomType.BATHROOM -> "الحمّام"
+                            EveRoomType.LIVING_ROOM -> "غرفة المعيشة"
+                            EveRoomType.DINING_AREA -> "منطقة الطعام"
+                            EveRoomType.OFFICE -> "المكتب"
+                            EveRoomType.HALLWAY -> "الممر"
+                            EveRoomType.UNKNOWN -> "منطقة غير معروفة"
+                        }
+                        showDialogueText(
+                            "تبدو هذه المنطقة $roomName من الأدلة البصرية؛ أضفتها إلى خريطتي المحلية كاحتمال، وليس كحقيقة مؤكدة.",
+                            durationMs = 6000L
+                        )
+                        Log.i(
+                            "EVE_MAP",
+                            "ROOM_TRANSITION room=${mapSnapshot.currentRoom} knownRooms=${mapSnapshot.knownRooms} confidence=visual_hypothesis"
                         )
                     }
                     if (frontierHeading == null) {
