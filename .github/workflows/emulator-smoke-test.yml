@@ -150,6 +150,20 @@ jobs:
           fi
           sha256sum "$OBJECT_MODEL" | tee "$RUNNER_TEMP/object-detector-sha256.txt"
           echo "PASS: pinned EfficientDet-Lite0 model verified."
+          FACE_IDENTITY_MODEL="eve-project/app/src/main/assets/MobileFaceNet.tflite"
+          FACE_IDENTITY_LICENSE="eve-project/app/src/main/assets/mobilefacenet_model_license.txt"
+          curl --fail --location --retry 3 --connect-timeout 20 --max-time 180 \
+            "https://raw.githubusercontent.com/syaringan357/Android-MobileFaceNet-MTCNN-FaceAntiSpoofing/d635649e711f5e16e6cd3dc06cbb329cd8d1d3b7/app/src/main/assets/MobileFaceNet.tflite" --output "$FACE_IDENTITY_MODEL"
+          EXPECTED_FACE_IDENTITY_MODEL="3249c511be86366d5d0a137dc6f4af321af28678"
+          ACTUAL_FACE_IDENTITY_MODEL="$(git hash-object "$FACE_IDENTITY_MODEL")"
+          if [ "$ACTUAL_FACE_IDENTITY_MODEL" != "$EXPECTED_FACE_IDENTITY_MODEL" ]; then
+            echo "FAIL: MobileFaceNet model SHA-1 mismatch: $ACTUAL_FACE_IDENTITY_MODEL"
+            exit 1
+          fi
+          curl --fail --location --retry 3 --connect-timeout 20 --max-time 90 \
+            "https://raw.githubusercontent.com/syaringan357/Android-MobileFaceNet-MTCNN-FaceAntiSpoofing/d635649e711f5e16e6cd3dc06cbb329cd8d1d3b7/LICENSE" --output "$FACE_IDENTITY_LICENSE"
+          grep -Fq "MIT License" "$FACE_IDENTITY_LICENSE"
+          echo "PASS: offline face-identity model and MIT license verified."
           GESTURE_FIXTURE="eve-project/app/src/androidTest/assets/gesture_thumb_up.jpg"
           mkdir -p "$(dirname "$GESTURE_FIXTURE")"
           curl --fail --location --retry 3 \
