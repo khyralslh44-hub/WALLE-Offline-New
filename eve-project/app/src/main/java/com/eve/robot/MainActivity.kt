@@ -658,7 +658,7 @@ class MainActivity : ComponentActivity() {
             val storedPerson = peopleMemory.rememberIntroduction(faceEnrollmentRequest.spokenIntroduction)
                 ?: faceEnrollmentRequest.person
             pendingFaceEnrollment = faceEnrollmentRequest.copy(person = storedPerson)
-            pendingFaceEnrollmentExpiresAt = now + FACE_ENROLLMENT_WINDOW_MS
+            pendingFaceEnrollmentExpiresAt = now + 60_000L
             val confirmation = "سأحاول حفظ مرجع وجه ${storedPerson.relationArabic} باسم ${storedPerson.name} محليًا على هذا الهاتف فقط. " +
                 "اجعل الوجه واضحًا أمام الكاميرا. قل «إلغاء حفظ الوجه» للإلغاء، واستأذن الشخص قبل الحفظ."
             showDialogueText(confirmation, durationMs = 8_000L)
