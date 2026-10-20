@@ -57,6 +57,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var brain: RobotBrain
     private lateinit var memory: EveMemory
     private lateinit var peopleMemory: EvePeopleMemory
+    private lateinit var faceIdentityMemory: EveFaceIdentityMemory
     private lateinit var voice: RobotVoice
     private lateinit var localLanguageBrain: LocalLanguageBrain
     private val lastLocalLlmVisionAt = AtomicLong(0L)
@@ -91,6 +92,14 @@ class MainActivity : ComponentActivity() {
     private val emotionExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     // Recognizer creation, inference and release all occur on this one worker.
     private val gestureExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+    private val faceIdentityExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+    @Volatile private var faceIdentityMatcher: EveFaceIdentityMatcher? = null
+    private val faceIdentityWorkRunning = AtomicBoolean(false)
+    private val lastFaceIdentityCheckAt = AtomicLong(0L)
+    @Volatile private var pendingFaceEnrollment: EveFaceEnrollmentRequest? = null
+    @Volatile private var pendingFaceEnrollmentExpiresAt = 0L
+    @Volatile private var lastIdentityGreetingId = ""
+    @Volatile private var lastIdentityGreetingAt = 0L
     // EfficientDet is initialized/inferred on its own worker so the camera/UI threads stay responsive.
     private val objectExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     @Volatile private var localObjectDetector: EveLocalObjectDetector? = null
@@ -379,6 +388,7 @@ class MainActivity : ComponentActivity() {
         setContentView(root)
         memory = EveMemory(applicationContext)
         peopleMemory = EvePeopleMemory(applicationContext)
+        faceIdentityMemory = EveFaceIdentityMemory(applicationContext)
         brain = RobotBrain(memory.learnedPersonality())
         voice = RobotVoice()
         localLanguageBrain = LocalLanguageBrain(applicationContext) { state, percent, message ->
@@ -628,8 +638,38 @@ class MainActivity : ComponentActivity() {
             return
         }
 
-        // Explicit spoken introductions update private on-device memory; this is name memory,
-        // not face identity recognition. Only user-supplied names are stored.
+        if (listOf("إلغاء حفظ الوجه", "الغاء حفظ الوجه", "ألغِ تذكر الوجه").any(text::contains)) {
+            pendingFaceEnrollment = null
+            pendingFaceEnrollmentExpiresAt = 0L
+            showDialogueText("ألغيت طلب حفظ الوجه. لم أحفظ مرجعًا جديدًا.", durationMs = 5_000L)
+            Log.i("EVE_PEOPLE", "FACE_ENROLLMENT_CANCELLED")
+            return
+        }
+        if (listOf("احذفي الوجوه المحفوظة", "امسحي الوجوه المحفوظة", "احذف الوجوه المحفوظة").any(text::contains)) {
+            faceIdentityMemory.deleteAll()
+            lastIdentityGreetingId = ""
+            showDialogueText("حذفت مراجع الوجوه المحفوظة من هذا الهاتف.", durationMs = 5_000L)
+            Log.i("EVE_PEOPLE", "FACE_PROFILES_DELETED")
+            return
+        }
+
+        val faceEnrollmentRequest = EveFaceEnrollmentParser.parse(text)
+        if (faceEnrollmentRequest != null) {
+            val storedPerson = peopleMemory.rememberIntroduction(faceEnrollmentRequest.spokenIntroduction)
+                ?: faceEnrollmentRequest.person
+            pendingFaceEnrollment = faceEnrollmentRequest.copy(person = storedPerson)
+            pendingFaceEnrollmentExpiresAt = now + FACE_ENROLLMENT_WINDOW_MS
+            val confirmation = "سأحاول حفظ مرجع وجه ${storedPerson.relationArabic} باسم ${storedPerson.name} محليًا على هذا الهاتف فقط. " +
+                "اجعل الوجه واضحًا أمام الكاميرا. قل «إلغاء حفظ الوجه» للإلغاء، واستأذن الشخص قبل الحفظ."
+            showDialogueText(confirmation, durationMs = 8_000L)
+            Log.i(
+                "EVE_PEOPLE",
+                "FACE_ENROLLMENT_REQUESTED relation=${storedPerson.key} nameLength=${storedPerson.name.length} localOnly=true"
+            )
+            return
+        }
+
+        // Spoken name memory is separate from optional, explicit face-reference enrolment.
         val introducedPerson = peopleMemory.rememberIntroduction(text)
         if (introducedPerson != null) {
             val confirmation = when (introducedPerson.key) {
