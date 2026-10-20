@@ -66,6 +66,12 @@ class MainActivity : ComponentActivity() {
     private var lastSpeechAt = 0L
     // Follow-up statements belong to the same short conversation; unrelated ambient speech does not.
     private var lastConversationalExchangeAt = 0L
+    private data class PendingLocalQuestion(
+        val text: String,
+        val addressedToEve: Boolean,
+        val queuedAtElapsed: Long
+    )
+    @Volatile private var pendingLocalQuestion: PendingLocalQuestion? = null
     private lateinit var cameraStatus: TextView
     private lateinit var dialogueBubble: TextView
     private val hideDialogue = Runnable {
@@ -216,6 +222,7 @@ class MainActivity : ComponentActivity() {
         else {
             offlineSpeechStatus = "MICROPHONE_PERMISSION_DENIED"
             Log.i("EVE_AUDIO", "Microphone permission declined; offline listening disabled.")
+            showCameraStatus("الميكروفون متوقف: الإذن غير ممنوح", active = false)
         }
         requestNotificationPermissionIfNeeded()
     }
@@ -346,7 +353,6 @@ class MainActivity : ComponentActivity() {
         localLanguageBrain.start()
         initializeHandGestureRecognizer()
         initializeOfflineObjectDetector()
-        requestOfflineSpeechPermission()
 
         face.setOnTouchListener { _, event ->
             when (event.actionMasked) {
@@ -458,6 +464,16 @@ class MainActivity : ComponentActivity() {
             onStatus = { status ->
                 offlineSpeechStatus = status
                 Log.i("EVE_AUDIO", status)
+                when {
+                    status.contains("OFFLINE_SPEECH_MODEL_LOADING") ->
+                        showCameraStatus("جارٍ تجهيز الاستماع العربي المحلي", active = cameraStarted)
+                    status.contains("OFFLINE_SPEECH_LISTENING") ->
+                        showCameraStatus("الميكروفون يستمع بالعربية دون إنترنت", active = cameraStarted)
+                    status.contains("MICROPHONE_PERMISSION_DENIED") ->
+                        showCameraStatus("الميكروفون متوقف: الإذن غير ممنوح", active = false)
+                    status.contains("FAILED") || status.contains("ERROR") ->
+                        showCameraStatus("تعذر تشغيل الاستماع العربي؛ انقر للتشخيص", active = false)
+                }
             }
         )
         offlineArabicSpeech?.start()
@@ -592,9 +608,15 @@ class MainActivity : ComponentActivity() {
 
         // Once the real on-device LLM is ready, send open-ended questions and complete thoughts
         // to it before canned FAQ matching. This preserves multi-turn context and visual memory.
-        if (conversationalTurn && ::localLanguageBrain.isInitialized && localLanguageBrain.isReady) {
-            requestLocalLanguageReply(text, addressedToEve)
-            return
+        if (conversationalTurn && ::localLanguageBrain.isInitialized) {
+            if (localLanguageBrain.isReady) {
+                requestLocalLanguageReply(text, addressedToEve)
+                return
+            }
+            if (isLocalLanguageBrainStarting()) {
+                queueLocalQuestion(text, addressedToEve, "recognized speech before model ready")
+                return
+            }
         }
 
         // During first model setup or low-memory fallback, use only narrow grounded local answers.
@@ -1714,9 +1736,19 @@ class MainActivity : ComponentActivity() {
                 )
                 cameraStatus.contentDescription =
                     "الدماغ اللغوي المحلي جاهز ويعمل دون إنترنت. حالة الميكروفون: $offlineSpeechStatus"
+                drainPendingLocalQuestionIfReady()
             }
             LocalLlmState.WAITING_FOR_WIFI -> {
-                showLocalBrainChip("الدماغ المحلي ينتظر Wi‑Fi", detail, 0xFFFFD180.toInt())
+                if (detail == "لم تكتمل تهيئة الدماغ اللغوي") {
+                    showLocalBrainChip("جارٍ بدء الدماغ المحلي…", "تهيئة أولية", 0xFFB3E5FC.toInt())
+                } else {
+                    val pending = pendingLocalQuestion
+                    if (pending != null) {
+                        pendingLocalQuestion = null
+                        showDialogueText("لا أستطيع معالجة السؤال دون تجهيز النموذج المحلي. تحقق من حالة الدماغ أعلى الشاشة.", durationMs = 7000L)
+                    }
+                    showLocalBrainChip("الدماغ المحلي ينتظر Wi‑Fi", detail, 0xFFFFD180.toInt())
+                }
             }
             LocalLlmState.DOWNLOADING -> {
                 showLocalBrainChip("تنزيل الدماغ المحلي $percent%", detail, 0xFFFFD180.toInt())
@@ -1725,6 +1757,10 @@ class MainActivity : ComponentActivity() {
                 showLocalBrainChip("تشغيل الدماغ المحلي…", detail, 0xFFB3E5FC.toInt())
             }
             LocalLlmState.ERROR -> {
+                if (pendingLocalQuestion != null) {
+                    pendingLocalQuestion = null
+                    showDialogueText("تعذر تشغيل الدماغ المحلي. لم أتمكن من الإجابة عن السؤال؛ انقر على حالة التشغيل للتفاصيل.", durationMs = 7500L)
+                }
                 showLocalBrainChip("الدماغ المحلي غير جاهز", detail, 0xFFFFAB91.toInt())
             }
         }
@@ -1769,18 +1805,54 @@ class MainActivity : ComponentActivity() {
         )
     }
 
+    private fun isLocalLanguageBrainStarting(): Boolean =
+        currentLocalLlmState == LocalLlmState.LOADING ||
+            currentLocalLlmState == LocalLlmState.DOWNLOADING ||
+            (currentLocalLlmState == LocalLlmState.WAITING_FOR_WIFI &&
+                currentLocalLlmDetail == "لم تكتمل تهيئة الدماغ اللغوي")
+
+    private fun queueLocalQuestion(text: String, addressedToEve: Boolean, reason: String) {
+        pendingLocalQuestion = PendingLocalQuestion(
+            text = text,
+            addressedToEve = addressedToEve,
+            queuedAtElapsed = SystemClock.elapsedRealtime()
+        )
+        showDialogueText("سمعتك. أجهّز الدماغ المحلي وسأجيب عندما يكتمل تشغيله…", durationMs = 8500L)
+        Log.i("EVE_LLM", "USER_REPLY_QUEUED reason=$reason chars=0")
+    }
+
+    private fun drainPendingLocalQuestionIfReady() {
+        if (isFinishing || isDestroyed || !::localLanguageBrain.isInitialized || !localLanguageBrain.isReady) return
+        val pending = pendingLocalQuestion ?: return
+        pendingLocalQuestion = null
+        val age = SystemClock.elapsedRealtime() - pending.queuedAtElapsed
+        if (age !in 0L..120_000L) {
+            Log.i("EVE_LLM", "USER_REPLY_QUEUE_EXPIRED ageMs=$age")
+            showDialogueText("اكتمل تشغيل الدماغ، لكن السؤال السابق انتهت صلاحيته. اسألني مرة أخرى.", durationMs = 6500L)
+            return
+        }
+        Log.i("EVE_LLM", "USER_REPLY_QUEUE_DRAIN ageMs=$age")
+        main.post {
+            if (!isFinishing && !isDestroyed) requestLocalLanguageReply(pending.text, pending.addressedToEve)
+        }
+    }
+
     /** Handles open-ended speech with a real on-device LLM after deterministic commands are checked. */
     private fun requestLocalLanguageReply(text: String, addressedToEve: Boolean) {
         lastConversationalExchangeAt = SystemClock.elapsedRealtime()
         val baseline = brain.respondToSpeech(text, addressedToEve)
         react(baseline, playSound = false)
         if (!::localLanguageBrain.isInitialized || !localLanguageBrain.isReady) {
-            showDialogueText(
-                "الدماغ اللغوي المحلي ليس جاهزًا بعد. انتظر حتى تظهر حالة «الدماغ جاهز» أعلى الشاشة ثم أعد السؤال.",
-                durationMs = 6500L
-            )
+            if (::localLanguageBrain.isInitialized && isLocalLanguageBrainStarting()) {
+                queueLocalQuestion(text, addressedToEve, "reply requested before model ready")
+            } else {
+                showDialogueText(
+                    "الدماغ اللغوي المحلي غير جاهز الآن. انقر على حالة التشغيل أعلى الشاشة لمعرفة السبب.",
+                    durationMs = 6500L
+                )
+                Log.i("EVE_LLM", "USER_REPLY_DEFERRED reason=model_not_ready state=$currentLocalLlmState detail=$currentLocalLlmDetail")
+            }
             voice.respondToSpeech(baseline.mood, text)
-            Log.i("EVE_LLM", "USER_REPLY_DEFERRED reason=model_not_ready")
             return
         }
 
