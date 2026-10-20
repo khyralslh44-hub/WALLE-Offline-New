@@ -2019,7 +2019,11 @@ class MainActivity : ComponentActivity() {
             .take(5)
             .toList()
         if (ranked.isEmpty()) {
-            Log.i("EVE_IMAGENET", "IMAGE_CLASSIFICATION_NO_CONFIDENT_CATEGORY")
+            // Do not leave an old, now-rejected animal guess in the live scene context.
+            latestImageClassifierSummary = ""
+            lastImageClassifierSceneAt = 0L
+            refreshLatestSceneSummary(now)
+            Log.i("EVE_IMAGENET", "IMAGE_CLASSIFICATION_NO_CONFIDENT_CATEGORY_AFTER_EVIDENCE_POLICY")
             return
         }
 
