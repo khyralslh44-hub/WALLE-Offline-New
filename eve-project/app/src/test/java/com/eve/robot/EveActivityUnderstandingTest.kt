@@ -46,6 +46,50 @@ class EveActivityUnderstandingTest {
         assertTrue(last.nextActionArabic.contains("لا تقاطع"))
     }
 
+    @Test fun repeatedHandToMouthWithFoodCanProduceOnlyACautiousHypothesisWhenMouthSignalIsUnavailable() {
+        val engine = EveActivityUnderstanding()
+        var last = EveActivityInterpretation(
+            EveHumanActivity.UNKNOWN, 0f, 0, 0, "", "", 0L
+        )
+        for (i in 0..8) {
+            val handNearMouth = i in setOf(1, 3, 5, 7)
+            last = engine.observe(
+                EveHumanFrameEvidence(
+                    timestampMs = i * 800L,
+                    personConfidence = 0.88f,
+                    handToMouthConfidence = if (handNearMouth) 0.86f else 0.08f,
+                    // Mouth geometry can be unavailable on a blurry or side-facing frame.
+                    mouthOpeningRatio = 0f,
+                    visibleObjectLabels = setOf("banana")
+                )
+            )
+        }
+        assertEquals(EveHumanActivity.EATING_POSSIBLE, last.activity)
+        assertTrue(last.confidence in 0.55f..0.82f)
+        assertTrue(last.explanationArabic.contains("احتمال فقط"))
+        assertTrue(last.nextActionArabic.contains("لا تقاطع"))
+    }
+
+    @Test fun aVisibleCupWithoutRepeatedHandToMouthEvidenceDoesNotImplyDrinking() {
+        val engine = EveActivityUnderstanding()
+        var last = EveActivityInterpretation(
+            EveHumanActivity.UNKNOWN, 0f, 0, 0, "", "", 0L
+        )
+        for (i in 0..8) {
+            last = engine.observe(
+                EveHumanFrameEvidence(
+                    timestampMs = i * 800L,
+                    personConfidence = 0.88f,
+                    handToMouthConfidence = 0.10f,
+                    mouthOpeningRatio = 0f,
+                    visibleObjectLabels = setOf("cup")
+                )
+            )
+        }
+        assertEquals(EveHumanActivity.UNKNOWN, last.activity)
+        assertEquals(0f, last.confidence)
+    }
+
     @Test fun repeatedMouthMotionWithoutFoodDoesNotClaimThatThePersonIsChewingGum() {
         val engine = EveActivityUnderstanding()
         val pattern = listOf(
