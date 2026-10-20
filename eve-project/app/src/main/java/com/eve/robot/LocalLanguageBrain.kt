@@ -63,7 +63,7 @@ data class LocalLlmResult(
 /**
  * A real generative language model running on the phone through LiteRT-LM.
  *
- * The official release APK bundles the pinned Qwen3-1.7B dynamic-INT4 model (~977 MB) in its assets. On first launch,
+ * The official release APK bundles the pinned Qwen3-0.6B dynamic-INT4 model (~977 MB) in its assets. On first launch,
  * weights are copied to app-private storage and SHA-256 verified; this needs no runtime network.
  * A Wi-Fi fallback remains only for developer/test APKs built without the optional model asset.
  * Inference is local; prompts, labels, and replies are not sent to a remote service. Vision
@@ -220,7 +220,7 @@ class LocalLanguageBrain(
                     publish(LocalLlmState.READY, 100, "الدماغ اللغوي المحلي جاهز ويعمل دون إنترنت")
                     Log.i(
                         TAG,
-                        "LOCAL_LLM_READY model=Qwen3-1.7B-INT4 localOnly=true modelBytes=${file.length()}"
+                        "LOCAL_LLM_READY model=Qwen3-0.6B-INT4 localOnly=true modelBytes=${file.length()}"
                     )
                 } catch (error: Exception) {
                     if (!closed.get()) {
@@ -244,7 +244,7 @@ class LocalLanguageBrain(
                             state,
                             0,
                             if (state == LocalLlmState.WAITING_FOR_WIFI) {
-                                "اتصل بشبكة Wi‑Fi لتنزيل الدماغ المحلي مرة واحدة (~647 ميغابايت)"
+                                "اتصل بشبكة Wi‑Fi لتنزيل الدماغ المحلي مرة واحدة (~329 ميغابايت)"
                             } else message
                         )
                         Log.e(TAG, "LOCAL_LLM_INIT_FAILED state=$state", error)
@@ -519,13 +519,16 @@ class LocalLanguageBrain(
         }
         if (isVerifiedModelOnDisk()) return modelFile
         // Remove the previous model first so an upgrade does not need both weights at once.
-        val legacyModel = File(modelDirectory, LEGACY_MODEL_FILE_NAME)
-        if (legacyModel.exists() && !legacyModel.delete()) {
-            Log.w(TAG, "Could not remove the superseded local Qwen2 model before upgrade.")
+        // Remove both older shipped models so an upgrade does not leave nearly a gigabyte behind.
+        for (legacyName in LEGACY_MODEL_FILE_NAMES) {
+            val legacyModel = File(modelDirectory, legacyName)
+            if (legacyModel.exists() && !legacyModel.delete()) {
+                Log.w(TAG, "Could not remove superseded local model: $legacyName")
+            }
         }
         val free = StatFs(modelDirectory.absolutePath).availableBytes
         if (free < MIN_FREE_STORAGE_BYTES) {
-            throw IllegalStateException("يلزم توفير نحو 1.05 غيغابايت من المساحة الحرة لتجهيز الدماغ اللغوي الجديد.")
+            throw IllegalStateException("يلزم توفير نحو 420 ميغابايت من المساحة الحرة لتجهيز الدماغ اللغوي الجديد.")
         }
 
         // Product APKs embed this exact model in assets, so first-run setup works with Wi-Fi off.
@@ -791,18 +794,18 @@ class LocalLanguageBrain(
 
         private const val TAG = "EVE_LLM"
         private const val MODEL_URL =
-            "https://huggingface.co/litert-community/Qwen3-1.7B/resolve/d9b8a91/Qwen3-1.7B_dynamic_wi4b32_afp32.litertlm"
-        private const val MODEL_FILE_NAME = "Qwen3-1.7B_dynamic_wi4b32_afp32.litertlm"
-        private const val LEGACY_MODEL_FILE_NAME = "Qwen2_0.5B_Instruct.litertlm"
+            "https://huggingface.co/litert-community/Qwen3-0.6B/resolve/a3c5d805ae362dff7f580bc25f2dfb9a5a7eaa76/Qwen3-0.6B_dynamic_wi4b32_afp32.litertlm"
+        private const val MODEL_FILE_NAME = "Qwen3-0.6B_dynamic_wi4b32_afp32.litertlm"
+        private val LEGACY_MODEL_FILE_NAMES = listOf("Qwen3-1.7B_dynamic_wi4b32_afp32.litertlm", "Qwen2_0.5B_Instruct.litertlm")
         private const val MODEL_SHA256 =
-            "2eeffef7b51bc3e1225ea69fe7aa5f417397934b56a5b6c20cc068d6fd2c918b"
+            "03e7da1eb1108b50dffaa9bb52cc7bcbad2eb0c66ca990267f480c1e545d2856"
         private const val KEY_VERIFIED_SHA = "verifiedModelSha256"
         private const val KEY_MODEL_BYTES = "verifiedModelBytes"
-        private const val APPROX_MODEL_BYTES = 977_000_000L
-        private const val MIN_MODEL_BYTES = 850_000_000L
-        private const val MIN_FREE_STORAGE_BYTES = 1_050_000_000L
-        private const val MIN_CPU_AVAILABLE_RAM_BYTES = 1_200_000_000L
-        private const val MIN_GPU_AVAILABLE_RAM_BYTES = 850_000_000L
+        private const val APPROX_MODEL_BYTES = 344_671_744L
+        private const val MIN_MODEL_BYTES = 300_000_000L
+        private const val MIN_FREE_STORAGE_BYTES = 420_000_000L
+        private const val MIN_CPU_AVAILABLE_RAM_BYTES = 1_000_000_000L
+        private const val MIN_GPU_AVAILABLE_RAM_BYTES = 300_000_000L
         private const val CONNECT_TIMEOUT_MS = 25_000
         private const val READ_TIMEOUT_MS = 75_000
         private const val RETRY_DELAY_MS = 30_000L

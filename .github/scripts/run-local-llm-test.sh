@@ -8,8 +8,8 @@ set -euo pipefail
 RESULT_DIR="$GITHUB_WORKSPACE/eve-llm-results"
 APP_APK="$GITHUB_WORKSPACE/eve-project/app/build/outputs/apk/debug/app-debug.apk"
 TEST_APK="$GITHUB_WORKSPACE/eve-project/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk"
-MODEL_FILE="$RUNNER_TEMP/Qwen3-1.7B_dynamic_wi4b32_afp32.litertlm"
-MODEL_SHA256="2eeffef7b51bc3e1225ea69fe7aa5f417397934b56a5b6c20cc068d6fd2c918b"
+MODEL_FILE="$RUNNER_TEMP/Qwen3-0.6B_dynamic_wi4b32_afp32.litertlm"
+MODEL_SHA256="03e7da1eb1108b50dffaa9bb52cc7bcbad2eb0c66ca990267f480c1e545d2856"
 mkdir -p "$RESULT_DIR"
 
 echo "EVE real local language-model verification" | tee "$RESULT_DIR/environment.txt"
@@ -31,7 +31,7 @@ if [ "$ACTUAL_MODEL_SHA256" != "$MODEL_SHA256" ]; then
   exit 4
 fi
 MODEL_BYTES="$(stat -c '%s' "$MODEL_FILE")"
-if [ "$MODEL_BYTES" -lt 900000000 ]; then
+if [ "$MODEL_BYTES" -lt 300000000 ]; then
   echo "FAIL: Qwen model weights are unexpectedly small ($MODEL_BYTES bytes)." | tee -a "$RESULT_DIR/environment.txt"
   exit 5
 fi
@@ -44,14 +44,14 @@ if ! unzip -Z1 "$APP_APK" > "$APK_ENTRIES"; then
   echo "FAIL: could not read the install APK ZIP directory." | tee -a "$RESULT_DIR/environment.txt"
   exit 13
 fi
-if ! grep -Fxq "assets/Qwen3-1.7B_dynamic_wi4b32_afp32.litertlm" "$APK_ENTRIES"; then
+if ! grep -Fxq "assets/Qwen3-0.6B_dynamic_wi4b32_afp32.litertlm" "$APK_ENTRIES"; then
   echo "FAIL: install APK really does not contain the pinned Qwen model asset." | tee -a "$RESULT_DIR/environment.txt"
   echo "APK size: $(stat -c '%s' "$APP_APK") bytes" | tee -a "$RESULT_DIR/environment.txt"
   echo "Related entries:" | tee -a "$RESULT_DIR/environment.txt"
-  grep -Fi "Qwen2_0.5B_Instruct" "$APK_ENTRIES" | tee -a "$RESULT_DIR/environment.txt" || true
+  grep -E 'Qwen3-1\.7B|Qwen2_0\.5B_Instruct' "$APK_ENTRIES" | tee -a "$RESULT_DIR/environment.txt" || true
   exit 13
 fi
-PACKAGED_MODEL_SHA256="$(unzip -p "$APP_APK" assets/Qwen3-1.7B_dynamic_wi4b32_afp32.litertlm | sha256sum | awk '{print $1}')"
+PACKAGED_MODEL_SHA256="$(unzip -p "$APP_APK" assets/Qwen3-0.6B_dynamic_wi4b32_afp32.litertlm | sha256sum | awk '{print $1}')"
 if [ "$PACKAGED_MODEL_SHA256" != "$MODEL_SHA256" ]; then
   echo "FAIL: Qwen model inside install APK has wrong SHA-256: $PACKAGED_MODEL_SHA256" | tee -a "$RESULT_DIR/environment.txt"
   exit 14
@@ -192,7 +192,7 @@ sleep 8
 # Keep the test strict: a green result is impossible while Android still advertises an
 # Internet-validated network, even if the bundled model is expected to avoid all networking.
 
-if timeout 30s adb shell run-as com.eve.robot ls files/local-language-brain/Qwen3-1.7B_dynamic_wi4b32_afp32.litertlm >/dev/null 2>&1; then
+if timeout 30s adb shell run-as com.eve.robot ls files/local-language-brain/Qwen3-0.6B_dynamic_wi4b32_afp32.litertlm >/dev/null 2>&1; then
   PRIVATE_MODEL_STATE="present"
 else
   PRIVATE_MODEL_STATE="absent"
@@ -248,4 +248,4 @@ if ! grep -Eq 'OK \\([0-9]+ tests?\\)' "$RESULT_DIR/instrumentation-output.txt";
   exit 12
 fi
 
-echo "PASS: pinned Qwen3-1.7B dynamic-INT4 was SHA-256 verified, loaded by the GPU-first LiteRT-LM runtime with CPU fallback, generated text offline, and generated text again after a fresh offline engine initialization." | tee -a "$RESULT_DIR/environment.txt"
+echo "PASS: pinned Qwen3-0.6B dynamic-INT4 was SHA-256 verified, loaded by the GPU-first LiteRT-LM runtime with CPU fallback, generated text offline, and generated text again after a fresh offline engine initialization." | tee -a "$RESULT_DIR/environment.txt"

@@ -235,7 +235,7 @@ if ! install_apk "instrumentation APK" "$TEST_APK" "$RESULT_DIR/install-test-apk
 fi
 timeout 10s adb logcat -c >/dev/null 2>&1 || true
 
-# Keep the face/gesture suite independent from the separate 647 MB Qwen model test.
+# Keep the face/gesture suite independent from the separate 329 MB Qwen model test.
 # This workflow intentionally does not bundle Qwen weights; running every instrumentation
 # class here would make unrelated LocalLanguageBrainIntegrationTest fail before it can test.
 # Run the four offline perception/rendering classes explicitly and keep one combined report.

@@ -18,7 +18,7 @@ permissions:
   contents: read
 
 concurrency:
-  # Keep each expensive 647 MB model-inference run tied to its exact source revision.
+  # Keep each expensive 329 MB model-inference run tied to its exact source revision.
   # New commits must not silently cancel an in-progress diagnostic run.
   group: eve-local-llm-verification-${{ github.ref }}-${{ github.sha }}
   cancel-in-progress: false
@@ -65,34 +65,34 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          MODEL="$RUNNER_TEMP/Qwen3-1.7B_dynamic_wi4b32_afp32.litertlm"
-          EXPECTED="2eeffef7b51bc3e1225ea69fe7aa5f417397934b56a5b6c20cc068d6fd2c918b"
+          MODEL="$RUNNER_TEMP/Qwen3-0.6B_dynamic_wi4b32_afp32.litertlm"
+          EXPECTED="03e7da1eb1108b50dffaa9bb52cc7bcbad2eb0c66ca990267f480c1e545d2856"
           curl --fail --location --retry 4 --retry-delay 3 --connect-timeout 30 --max-time 1200 \
-            "https://huggingface.co/litert-community/Qwen3-1.7B/resolve/d9b8a91/Qwen3-1.7B_dynamic_wi4b32_afp32.litertlm" \
+            "https://huggingface.co/litert-community/Qwen3-0.6B/resolve/a3c5d805ae362dff7f580bc25f2dfb9a5a7eaa76/Qwen3-0.6B_dynamic_wi4b32_afp32.litertlm" \
             --output "$MODEL"
           ACTUAL="$(sha256sum "$MODEL" | awk '{print $1}')"
           BYTES="$(stat -c '%s' "$MODEL")"
           echo "Qwen model SHA-256: $ACTUAL"
           echo "Qwen model bytes: $BYTES"
-          if [ "$ACTUAL" != "$EXPECTED" ] || [ "$BYTES" -lt 900000000 ]; then
+          if [ "$ACTUAL" != "$EXPECTED" ] || [ "$BYTES" -lt 300000000 ]; then
             echo "FAIL: pinned Qwen weights failed digest/size verification."
             exit 1
           fi
           sha256sum "$MODEL" | tee "$RUNNER_TEMP/qwen-model-sha256.txt"
           ASSETS="eve-project/app/src/main/assets"
           mkdir -p "$ASSETS"
-          cp "$MODEL" "$ASSETS/Qwen3-1.7B_dynamic_wi4b32_afp32.litertlm"
+          cp "$MODEL" "$ASSETS/Qwen3-0.6B_dynamic_wi4b32_afp32.litertlm"
           curl --fail --location --retry 3 --connect-timeout 20 --max-time 120 \
-            "https://huggingface.co/Qwen/Qwen3-1.7B/resolve/main/LICENSE" \
+            "https://huggingface.co/Qwen/Qwen3-0.6B/resolve/main/LICENSE" \
             --output "$ASSETS/qwen3_model_license.txt"
           grep -Fq "Apache License" "$ASSETS/qwen3_model_license.txt"
           cp eve-project/THIRD_PARTY_NOTICES.md "$ASSETS/THIRD_PARTY_NOTICES.txt"
           cat >> "$ASSETS/THIRD_PARTY_NOTICES.txt" <<'NOTICE'
 
-          ## Qwen3-1.7B language model
+          ## Qwen3-0.6B language model
 
-          The bundled Qwen3-1.7B_dynamic_wi4b32_afp32.litertlm weights are the LiteRT-LM conversion
-          of Qwen/Qwen3-1.7B from litert-community/Qwen3-1.7B.
+          The bundled Qwen3-0.6B_dynamic_wi4b32_afp32.litertlm weights are the LiteRT-LM conversion
+          of Qwen/Qwen3-0.6B from litert-community/Qwen3-0.6B.
           The upstream model is licensed under Apache License 2.0; the full license is
           included in qwen3_model_license.txt in this APK's assets.
           NOTICE
@@ -112,13 +112,13 @@ jobs:
           # Verify the exact output APK before spending 20+ minutes booting the emulator.
           # Persist ZIP entries first to avoid pipefail/SIGPIPE false negatives from grep -q.
           unzip -Z1 "$APP_APK" > "$RUNNER_TEMP/eve-app-apk-entries.txt"
-          if ! grep -Fxq "assets/Qwen3-1.7B_dynamic_wi4b32_afp32.litertlm" "$RUNNER_TEMP/eve-app-apk-entries.txt"; then
+          if ! grep -Fxq "assets/Qwen3-0.6B_dynamic_wi4b32_afp32.litertlm" "$RUNNER_TEMP/eve-app-apk-entries.txt"; then
             echo "FAIL: build output app-debug.apk is missing the Qwen asset."
-            grep -Fi "Qwen3-1.7B_dynamic_wi4b32_afp32" "$RUNNER_TEMP/eve-app-apk-entries.txt" || true
+            grep -Fi "Qwen3-0.6B_dynamic_wi4b32_afp32" "$RUNNER_TEMP/eve-app-apk-entries.txt" || true
             exit 21
           fi
-          PACKAGED_SHA256="$(unzip -p "$APP_APK" assets/Qwen3-1.7B_dynamic_wi4b32_afp32.litertlm | sha256sum | awk '{print $1}')"
-          EXPECTED_SHA256="2eeffef7b51bc3e1225ea69fe7aa5f417397934b56a5b6c20cc068d6fd2c918b"
+          PACKAGED_SHA256="$(unzip -p "$APP_APK" assets/Qwen3-0.6B_dynamic_wi4b32_afp32.litertlm | sha256sum | awk '{print $1}')"
+          EXPECTED_SHA256="03e7da1eb1108b50dffaa9bb52cc7bcbad2eb0c66ca990267f480c1e545d2856"
           if [ "$PACKAGED_SHA256" != "$EXPECTED_SHA256" ]; then
             echo "FAIL: APK Qwen model digest mismatch: $PACKAGED_SHA256"
             exit 22
@@ -130,7 +130,7 @@ jobs:
         uses: reactivecircus/android-emulator-runner@v2
         with:
           # API 35 is already installed and verified by the preceding SDK step. Keep the
-          # long 647 MB inference test off the flaky API 29 platform download path; the
+          # long 329 MB inference test off the flaky API 29 platform download path; the
           # separate emulator smoke workflow still checks compatibility on API 29.
           api-level: 35
           target: default
