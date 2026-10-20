@@ -3441,7 +3441,7 @@ class MainActivity : ComponentActivity() {
                 EveBaseMotionDecision(0, 0, 0, "base sensors are missing or stale", false)
             else -> {
                 val freshRoom = if (
-                    lastRoomObservationAt > 0L && now - lastRoomObservationAt in 0L..ROOM_SUMMARY_TTL_MS
+                    lastRoomObservationAt > 0L && now - lastRoomObservationAt in 0L..roomSummaryTtlMs
                 ) latestRoomType else EveRoomType.UNKNOWN
                 val mapSnapshot = homeMapMemory.observe(
                     pose = pose!!,
