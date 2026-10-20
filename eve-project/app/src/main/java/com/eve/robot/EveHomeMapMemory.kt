@@ -169,11 +169,14 @@ class EveHomeMapMemory(
             distance += (cellSizeMm / 2).coerceAtLeast(50)
         }
         if (range < MAX_RANGE_TO_MAP_MM && range > MIN_OBSTACLE_MAP_RANGE_MM) {
-            val obstacleDistance = (range - SENSOR_TO_OBSTACLE_OFFSET_MM).coerceAtLeast(0)
+            // Range sensor origin is inside the robot's footprint; never paint the robot's
+            // own pose cell as an obstacle for a very short range return.
+            val obstacleDistance = (range - SENSOR_TO_OBSTACLE_OFFSET_MM).coerceAtLeast(cellSizeMm)
             val x = pose.xMm + cos(radians) * obstacleDistance
             val y = pose.yMm + sin(radians) * obstacleDistance
             val cell = cellFor(x.toFloat(), y.toFloat())
-            updateOccupancy(cell, -1)
+            // Obstacle evidence outweighs free-ray evidence collected earlier in this same tick.
+            updateOccupancy(cell, -3)
             if (cell == activeFrontier) activeFrontier = null
         }
     }
@@ -181,7 +184,8 @@ class EveHomeMapMemory(
     private fun updateOccupancy(cell: Cell, evidence: Int) {
         val previous = occupancy[cell] ?: 0
         // Conflicting samples soften the estimate instead of permanently painting a cell occupied.
-        occupancy[cell] = (previous + evidence).coerceIn(-MAX_CELL_EVIDENCE, MAX_CELL_EVIDENCE)
+        val next = (previous + evidence).coerceIn(-MAX_CELL_EVIDENCE, MAX_CELL_EVIDENCE)
+        if (next == 0) occupancy.remove(cell) else occupancy[cell] = next
     }
 
     private fun cellFor(xMm: Float, yMm: Float) = Cell(
