@@ -92,8 +92,12 @@ class MainActivity : ComponentActivity() {
     private val objectExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     @Volatile private var localObjectDetector: EveLocalObjectDetector? = null
     @Volatile private var objectDetectorReady = false
+    @Volatile private var localImageClassifier: EveLocalImageClassifier? = null
+    @Volatile private var imageClassifierReady = false
     private val objectInferenceRunning = AtomicBoolean(false)
     private val lastObjectInferenceAt = AtomicLong(0L)
+    private val imageClassifierRunning = AtomicBoolean(false)
+    private val lastImageClassifierAt = AtomicLong(0L)
     private val lastObjectDiagnosticAt = AtomicLong(0L)
     private val objectLabelMemoryAt = mutableMapOf<String, Long>()
     private val objectLabelReactionAt = mutableMapOf<String, Long>()
@@ -148,6 +152,11 @@ class MainActivity : ComponentActivity() {
     private var lastMeaningfulLabelAt = 0L
     private var lastMeaningfulConfidence = 0f
     @Volatile private var latestSceneSummary = ""
+    @Volatile private var latestObjectSummary = ""
+    @Volatile private var latestImageClassifierSummary = ""
+    @Volatile private var lastObjectSceneAt = 0L
+    @Volatile private var lastImageClassifierSceneAt = 0L
+    private var latestObjectLabels: Set<String> = emptySet()
     @Volatile private var lastSceneObservationAt = 0L
 
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
@@ -1134,9 +1143,16 @@ class MainActivity : ComponentActivity() {
             objectInferenceRunning.compareAndSet(false, true)
         if (requestObjectDetection) lastObjectInferenceAt.set(now)
 
+        // A slower whole-image pass broadens category coverage beyond the COCO detector's
+        // object classes; single-flight scheduling prevents a backlog on mid-range phones.
+        val requestImageClassification = imageClassifierReady &&
+            now - lastImageClassifierAt.get() >= imageClassificationIntervalMs &&
+            imageClassifierRunning.compareAndSet(false, true)
+        if (requestImageClassification) lastImageClassifierAt.set(now)
+
         // This RGB bitmap is independent of ImageProxy memory and is shared read-only with
-        // object detection, local facial-expression inference, and hand-gesture inference.
-        val bitmapNeeded = requestObjectDetection ||
+        // object detection, broad image classification, facial-expression inference, and gestures.
+        val bitmapNeeded = requestObjectDetection || requestImageClassification ||
             (emotionClassifier.isReady && !ferInferenceRunning.get()) ||
             (handGestureReady && !handGestureInferenceRunning.get())
         val frameBitmap = if (bitmapNeeded) {
@@ -1150,7 +1166,9 @@ class MainActivity : ComponentActivity() {
             null
         }
         if (requestObjectDetection && frameBitmap == null) objectInferenceRunning.set(false)
+        if (requestImageClassification && frameBitmap == null) imageClassifierRunning.set(false)
         val runObjectDetection = requestObjectDetection && frameBitmap != null
+        val runImageClassification = requestImageClassification && frameBitmap != null
 
         val input = InputImage.fromMediaImage(mediaImage, proxy.imageInfo.rotationDegrees)
         val labelsTask = labeler.process(input)
@@ -1227,7 +1245,10 @@ class MainActivity : ComponentActivity() {
         val runHandGesture = frameBitmap != null && handGestureReady &&
             handGestureInferenceRunning.compareAndSet(false, true)
         val pendingFrameConsumers = AtomicLong(
-            2L + (if (runHandGesture) 1L else 0L) + (if (runObjectDetection) 1L else 0L)
+            2L +
+                (if (runHandGesture) 1L else 0L) +
+                (if (runObjectDetection) 1L else 0L) +
+                (if (runImageClassification) 1L else 0L)
         )
         fun finishFrameConsumer() {
             if (pendingFrameConsumers.decrementAndGet() == 0L) {
@@ -1260,6 +1281,31 @@ class MainActivity : ComponentActivity() {
                 objectInferenceRunning.set(false)
                 finishFrameConsumer()
                 Log.e("EVE_OBJECTS", "Could not queue live object detection.", error)
+            }
+        }
+
+        if (runImageClassification && frameBitmap != null) {
+            val imageBitmap = frameBitmap
+            try {
+                objectExecutor.execute {
+                    try {
+                        val categories = localImageClassifier?.classify(imageBitmap).orEmpty()
+                        main.post {
+                            if (!isFinishing && !isDestroyed) {
+                                applyImageClassifierObservations(categories)
+                            }
+                        }
+                    } catch (error: Exception) {
+                        Log.w("EVE_IMAGENET", "Whole-image classification failed for one frame.", error)
+                    } finally {
+                        imageClassifierRunning.set(false)
+                        finishFrameConsumer()
+                    }
+                }
+            } catch (error: Exception) {
+                imageClassifierRunning.set(false)
+                finishFrameConsumer()
+                Log.e("EVE_IMAGENET", "Could not queue image classifier inference.", error)
             }
         }
 
@@ -1539,18 +1585,43 @@ class MainActivity : ComponentActivity() {
     private fun initializeOfflineObjectDetector() {
         try {
             objectExecutor.execute {
-                val candidate = EveLocalObjectDetector(applicationContext)
-                if (candidate.isReady) {
-                    localObjectDetector = candidate
-                    objectDetectorReady = true
-                    Log.i("EVE_OBJECTS", "OBJECT_DETECTOR_AVAILABLE model=efficientdet_lite0.tflite offline=true")
-                } else {
-                    Log.e("EVE_OBJECTS", "OBJECT_DETECTOR_UNAVAILABLE; generic image labels will not be treated as object recognition.")
+                // Each model has its own failure boundary: a missing classifier asset must not
+                // disable the grounded detector, and a detector failure must not disable classification.
+                try {
+                    val candidate = EveLocalObjectDetector(applicationContext)
+                    if (candidate.isReady) {
+                        localObjectDetector = candidate
+                        objectDetectorReady = true
+                        Log.i("EVE_OBJECTS", "OBJECT_DETECTOR_AVAILABLE model=efficientdet_lite0.tflite offline=true")
+                    } else {
+                        Log.e("EVE_OBJECTS", "OBJECT_DETECTOR_UNAVAILABLE; generic image labels will not be treated as object recognition.")
+                    }
+                } catch (error: Exception) {
+                    objectDetectorReady = false
+                    Log.e("EVE_OBJECTS", "Could not initialize the object detector.", error)
+                }
+
+                try {
+                    val classifier = EveLocalImageClassifier(applicationContext)
+                    if (classifier.isReady) {
+                        localImageClassifier = classifier
+                        imageClassifierReady = true
+                        Log.i(
+                            "EVE_IMAGENET",
+                            "IMAGE_CLASSIFIER_AVAILABLE model=efficientnet_lite0_int8.tflite classes~1000 offline=true"
+                        )
+                    } else {
+                        Log.w("EVE_IMAGENET", "IMAGE_CLASSIFIER_UNAVAILABLE; COCO object detection remains active.")
+                    }
+                } catch (error: Exception) {
+                    imageClassifierReady = false
+                    Log.e("EVE_IMAGENET", "Could not initialize the broad image classifier.", error)
                 }
             }
         } catch (error: Exception) {
             objectDetectorReady = false
-            Log.e("EVE_OBJECTS", "Could not start local object detector worker.", error)
+            imageClassifierReady = false
+            Log.e("EVE_OBJECTS", "Could not start local vision worker.", error)
         }
     }
 
@@ -1563,16 +1634,29 @@ class MainActivity : ComponentActivity() {
             .filter { it.confidence >= objectObservationMinConfidence }
             .filterNot { isVisualNoiseLabel(it.label) }
             .filterNot { it.label.isBlank() || it.label == "???" }
-            .distinctBy { it.label.trim().lowercase(Locale.ROOT) }
+            // Keep multiple people/objects of the same type when their locations differ.
             .sortedByDescending { it.confidence * (0.85f + 0.15f * it.areaFraction.coerceIn(0f, 1f)) }
             .take(5)
             .toList()
         if (sceneObjects.isNotEmpty()) {
-            latestSceneSummary = "أرى في المشهد: " + sceneObjects.joinToString("، ") {
-                "${arabicVisualObjectName(it.label)} (ثقة ${(it.confidence * 100f).toInt()}٪)"
-            }.take(180)
-            lastSceneObservationAt = now
-            Log.i("EVE_SCENE", "SCENE_SUMMARY objects=${sceneObjects.size} summary=${latestSceneSummary}")
+            latestObjectLabels = sceneObjects.map { EveSceneGeometry.normalizeLabel(it.label) }.toSet()
+            latestObjectSummary = "أجسام محددة: " + sceneObjects.joinToString("؛ ") {
+                EveSceneGeometry.describe(
+                    labelArabic = arabicVisualObjectName(it.label),
+                    centerX = it.centerX,
+                    centerY = it.centerY,
+                    areaFraction = it.areaFraction,
+                    confidence = it.confidence
+                )
+            }.take(260)
+            lastObjectSceneAt = now
+            refreshLatestSceneSummary(now)
+            Log.i(
+                "EVE_SCENE",
+                "SCENE_SUMMARY objects=${sceneObjects.size} summary=${latestSceneSummary}"
+            )
+        } else {
+            refreshLatestSceneSummary(now)
         }
         val best = sceneObjects.maxByOrNull {
             it.confidence * (0.85f + 0.15f * it.areaFraction.coerceIn(0f, 1f))
@@ -1635,9 +1719,101 @@ class MainActivity : ComponentActivity() {
     }
 
     private val objectDetectionIntervalMs = 1400L
+    private val imageClassificationIntervalMs = 4_500L
+    private val imageClassificationMinConfidence = 0.10f
     private val objectObservationMinConfidence = 0.52f
     private val objectLabelMemoryIntervalMs = 9_000L
     private val objectReactionCooldownMs = 8_000L
+    private val sceneSummaryTtlMs = 15_000L
+
+    /** Combines spatial object boxes with broader ImageNet scene hypotheses, discarding stale evidence. */
+    private fun refreshLatestSceneSummary(now: Long) {
+        if (lastObjectSceneAt == 0L || now - lastObjectSceneAt > sceneSummaryTtlMs) {
+            latestObjectSummary = ""
+            latestObjectLabels = emptySet()
+        }
+        if (lastImageClassifierSceneAt == 0L || now - lastImageClassifierSceneAt > sceneSummaryTtlMs) {
+            latestImageClassifierSummary = ""
+        }
+        val parts = listOf(latestObjectSummary, latestImageClassifierSummary)
+            .filter { it.isNotBlank() }
+        latestSceneSummary = parts.joinToString("؛ ").take(320)
+        lastSceneObservationAt = maxOf(
+            if (latestObjectSummary.isNotBlank()) lastObjectSceneAt else 0L,
+            if (latestImageClassifierSummary.isNotBlank()) lastImageClassifierSceneAt else 0L
+        )
+    }
+
+    /**
+     * The classifier is a fallback/broad taxonomy source, not a replacement for object boxes.
+     * Its scores are explicitly presented as hypotheses; they never claim identity or certainty.
+     */
+    private fun applyImageClassifierObservations(categories: List<EveImageClass>) {
+        if (isFinishing || isDestroyed) return
+        val now = SystemClock.elapsedRealtime()
+        val ranked = categories.asSequence()
+            .filter { it.confidence >= imageClassificationMinConfidence }
+            .filter { it.label.isNotBlank() && !isVisualNoiseLabel(it.label) }
+            .distinctBy { EveSceneGeometry.normalizeLabel(it.label) }
+            .sortedByDescending { it.confidence }
+            .take(5)
+            .toList()
+        if (ranked.isEmpty()) {
+            Log.i("EVE_IMAGENET", "IMAGE_CLASSIFICATION_NO_CONFIDENT_CATEGORY")
+            return
+        }
+
+        val supplemental = ranked.filterNot { candidate ->
+            val name = EveSceneGeometry.normalizeLabel(candidate.label)
+            latestObjectLabels.any { objectName ->
+                name == objectName || name.contains(objectName) || objectName.contains(name)
+            }
+        }.take(3)
+        val sceneCandidates = (supplemental.ifEmpty { ranked.take(2) }).take(3)
+        latestImageClassifierSummary = "تخمينات تصنيف عامة للصورة: " +
+            sceneCandidates.joinToString("، ") {
+                "${it.label} (ثقة ${(it.confidence * 100f).toInt()}٪)"
+            }.take(180)
+        lastImageClassifierSceneAt = now
+        refreshLatestSceneSummary(now)
+
+        val best = ranked.first()
+        Log.i(
+            "EVE_IMAGENET",
+            "IMAGE_CLASSIFICATION_TOP labels=" +
+                ranked.take(3).joinToString("|") {
+                    "${it.label}:${String.format(Locale.ROOT, "%.3f", it.confidence)}"
+                } +
+                " spatialObjects=${latestObjectLabels.size} localOnly=true scene=${latestSceneSummary}"
+        )
+
+        // Only let the broad classifier initiate a behavioral reaction when there is no fresh
+        // box-based observation and the class is useful to EVE's vocabulary. Otherwise it enriches
+        // the scene context silently, avoiding a mood change for every ambiguous top-1 guess.
+        val freshBoxEvidence = lastObjectSceneAt > 0L && now - lastObjectSceneAt in 0L..5_000L
+        val label = EveSceneGeometry.normalizeLabel(best.label)
+        if (!freshBoxEvidence && best.confidence >= 0.28f &&
+            isCuriosityWorthyLabel(label) && label != lastMeaningfulLabel
+        ) {
+            val sightings = memory.remember(label)
+            lastMeaningfulLabel = label
+            lastMeaningfulLabelAt = now
+            lastMeaningfulConfidence = best.confidence
+            getSharedPreferences("eve_relationship", MODE_PRIVATE).edit()
+                .putString("lastObservationLabel", label)
+                .putFloat("lastObservationConfidence", best.confidence)
+                .putInt("lastObservationCount", sightings)
+                .putLong("lastObservationAt", System.currentTimeMillis())
+                .putString("lastObservationSource", "efficientnet_lite0_imagenet")
+                .apply()
+            val decision = brain.observe(label, best.confidence, sightings, memory.learnedAffinity(label))
+            react(decision, playSound = false)
+            val askedOrQueued = maybeAskFromCuriosity(label, best.confidence, sightings)
+            if (!askedOrQueued && best.confidence >= 0.45f) {
+                maybeReflectWithLocalLanguage(label, best.confidence, sightings)
+            }
+        }
+    }
 
     private fun arabicVisualObjectName(rawLabel: String): String {
         val label = rawLabel.trim().lowercase(Locale.ROOT).replace('_', ' ')
@@ -2133,8 +2309,11 @@ class MainActivity : ComponentActivity() {
         try {
             objectExecutor.execute {
                 try { localObjectDetector?.close() } catch (_: Exception) { }
+                try { localImageClassifier?.close() } catch (_: Exception) { }
                 localObjectDetector = null
+                localImageClassifier = null
                 objectDetectorReady = false
+                imageClassifierReady = false
             }
         } catch (_: Exception) { }
         objectExecutor.shutdown()
