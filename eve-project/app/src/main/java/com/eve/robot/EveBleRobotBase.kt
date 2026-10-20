@@ -243,6 +243,7 @@ class EveBleRobotBase(
                     gatt?.close()
                     gatt = null
                     commandCharacteristic = null
+                    commandWriteType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
                     telemetryCharacteristic = null
                     poseCharacteristic = null
                     latestTelemetry = null
