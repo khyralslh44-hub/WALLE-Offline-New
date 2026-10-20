@@ -46,7 +46,10 @@ data class LocalLlmContext(
     val recentObservations: List<String> = emptyList(),
     val recentDialogues: List<String> = emptyList(),
     val recentReflections: List<String> = emptyList(),
-    val knownPeople: String = ""
+    val knownPeople: String = "",
+    /** Short, recent object-detection scene summary; no raw camera frames are sent to the model. */
+    val latestSceneSummary: String = "",
+    val sceneObservationAgeMs: Long = Long.MAX_VALUE
 )
 
 data class LocalLlmResult(
@@ -301,7 +304,9 @@ class LocalLanguageBrain(
             visionConfidence = 0f,
             visionObservationAgeMs = Long.MAX_VALUE,
             recentObservations = emptyList(),
-            recentDialogues = (context.recentDialogues + "سياق لعبة سابق: " + history).takeLast(3)
+            recentDialogues = (context.recentDialogues + "سياق لعبة سابق: " + history).takeLast(3),
+            latestSceneSummary = "",
+            sceneObservationAgeMs = Long.MAX_VALUE
         )
         runInference(
             buildPrompt("GAME", gameEvent, gameContext),
@@ -417,6 +422,8 @@ class LocalLanguageBrain(
             ?.coerceIn(0f, 1f) ?: 0f
         val freshVision = context.visionObservationAgeMs in 0L..12_000L &&
             !context.latestVisionLabel.isNullOrBlank() && confidence >= 0.45f
+        val freshScene = context.sceneObservationAgeMs in 0L..10_000L &&
+            context.latestSceneSummary.isNotBlank()
         val user = userText.trim().replace(Regex("\\s+"), " ").take(120)
             .ifBlank { "لا يوجد كلام جديد" }
 
@@ -430,12 +437,15 @@ class LocalLanguageBrain(
         // Token-budgeted prompt packing: do not send empty memory/chat/reflection fields.
         // This reduces cold-prefill work on phone CPUs while preserving the same model,
         // production response schema, grounded-vision rules, and inference code path.
-        val fields = ArrayList<String>(10)
+        val fields = ArrayList<String>(12)
         fields += "MODE=$mode"
         fields += "TASK=$task"
         fields += "MOOD=${context.currentMood.trim().take(14).ifBlank { "NEUTRAL" }}"
         if (freshVision) {
             fields += "VISION=${context.latestVisionLabel.orEmpty().trim().take(28)};C=${(confidence * 100).toInt()}"
+        }
+        if (freshScene && mode != "GAME") {
+            fields += "SCENE=${context.latestSceneSummary.trim().take(180)}"
         }
         context.recentObservations.lastOrNull()?.trim()?.takeIf { it.isNotBlank() }?.let {
             fields += "MEM=${it.take(48)}"

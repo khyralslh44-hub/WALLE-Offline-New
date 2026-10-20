@@ -147,6 +147,8 @@ class MainActivity : ComponentActivity() {
     private var lastMeaningfulLabel: String? = null
     private var lastMeaningfulLabelAt = 0L
     private var lastMeaningfulConfidence = 0f
+    @Volatile private var latestSceneSummary = ""
+    @Volatile private var lastSceneObservationAt = 0L
 
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
         val action = event.actionMasked
@@ -644,7 +646,10 @@ class MainActivity : ComponentActivity() {
             latestConfidence = lastMeaningfulConfidence,
             observationAgeMs = currentVisualAge
         )
-        if (offlineAnswer != null && offlineAnswer.topic != "unknown_offline_question") {
+        if (offlineAnswer != null &&
+            offlineAnswer.topic != "unknown_offline_question" &&
+            offlineAnswer.topic != "current_visual_label"
+        ) {
             val speechState = brain.respondToSpeech(text, addressedToEve = true)
             val answerDecision = speechState.copy(
                 mood = offlineAnswer.mood,
@@ -1552,12 +1557,26 @@ class MainActivity : ComponentActivity() {
     private fun applyObjectObservations(objects: List<EveVisualObject>) {
         if (isFinishing || isDestroyed) return
         val now = SystemClock.elapsedRealtime()
-        val best = objects.asSequence()
+        // EfficientDet returns up to five object detections. Preserve the scene-level evidence
+        // for dialogue instead of throwing away every detection except the best single object.
+        val sceneObjects = objects.asSequence()
             .filter { it.confidence >= objectObservationMinConfidence }
             .filterNot { isVisualNoiseLabel(it.label) }
             .filterNot { it.label.isBlank() || it.label == "???" }
-            // Prefer clear, larger boxes if two classes have almost the same confidence.
-            .maxByOrNull { it.confidence * (0.85f + 0.15f * it.areaFraction.coerceIn(0f, 1f)) }
+            .distinctBy { it.label.trim().lowercase(Locale.ROOT) }
+            .sortedByDescending { it.confidence * (0.85f + 0.15f * it.areaFraction.coerceIn(0f, 1f)) }
+            .take(5)
+            .toList()
+        if (sceneObjects.isNotEmpty()) {
+            latestSceneSummary = "أرى في المشهد: " + sceneObjects.joinToString("، ") {
+                "${arabicVisualObjectName(it.label)} (ثقة ${(it.confidence * 100f).toInt()}٪)"
+            }.take(180)
+            lastSceneObservationAt = now
+            Log.i("EVE_SCENE", "SCENE_SUMMARY objects=${sceneObjects.size} summary=${latestSceneSummary}")
+        }
+        val best = sceneObjects.maxByOrNull {
+            it.confidence * (0.85f + 0.15f * it.areaFraction.coerceIn(0f, 1f))
+        }
         if (best == null) {
             val previous = lastObjectDiagnosticAt.get()
             if (now - previous >= 6000L && lastObjectDiagnosticAt.compareAndSet(previous, now)) {
@@ -1619,6 +1638,79 @@ class MainActivity : ComponentActivity() {
     private val objectObservationMinConfidence = 0.52f
     private val objectLabelMemoryIntervalMs = 9_000L
     private val objectReactionCooldownMs = 8_000L
+
+    private fun arabicVisualObjectName(rawLabel: String): String {
+        val label = rawLabel.trim().lowercase(Locale.ROOT).replace('_', ' ')
+            .replace(Regex("\\s+"), " ")
+        return when (label) {
+            "person" -> "شخص"
+            "bicycle" -> "دراجة"
+            "car" -> "سيارة"
+            "motorcycle" -> "دراجة نارية"
+            "airplane" -> "طائرة"
+            "bus" -> "حافلة"
+            "train" -> "قطار"
+            "truck" -> "شاحنة"
+            "boat" -> "قارب"
+            "bird" -> "طائر"
+            "cat" -> "قطة"
+            "dog" -> "كلب"
+            "horse" -> "حصان"
+            "sheep" -> "خروف"
+            "cow" -> "بقرة"
+            "elephant" -> "فيل"
+            "bear" -> "دب"
+            "zebra" -> "حمار وحشي"
+            "giraffe" -> "زرافة"
+            "backpack" -> "حقيبة ظهر"
+            "umbrella" -> "مظلة"
+            "handbag" -> "حقيبة يد"
+            "tie" -> "ربطة عنق"
+            "suitcase" -> "حقيبة سفر"
+            "bottle" -> "زجاجة"
+            "wine glass" -> "كأس"
+            "cup" -> "كوب"
+            "fork" -> "شوكة"
+            "knife" -> "سكين"
+            "spoon" -> "ملعقة"
+            "bowl" -> "وعاء"
+            "banana" -> "موزة"
+            "apple" -> "تفاحة"
+            "sandwich" -> "شطيرة"
+            "orange" -> "برتقالة"
+            "broccoli" -> "بروكلي"
+            "carrot" -> "جزرة"
+            "hot dog" -> "هوت دوغ"
+            "pizza" -> "بيتزا"
+            "donut" -> "دونات"
+            "cake" -> "كعكة"
+            "chair" -> "كرسي"
+            "couch" -> "أريكة"
+            "potted plant" -> "نبات في أصيص"
+            "bed" -> "سرير"
+            "dining table" -> "طاولة طعام"
+            "toilet" -> "مرحاض"
+            "tv" -> "تلفاز"
+            "laptop" -> "حاسوب محمول"
+            "mouse" -> "فأرة حاسوب"
+            "remote" -> "جهاز تحكم"
+            "keyboard" -> "لوحة مفاتيح"
+            "cell phone" -> "هاتف"
+            "microwave" -> "ميكروويف"
+            "oven" -> "فرن"
+            "toaster" -> "محمصة خبز"
+            "sink" -> "حوض"
+            "refrigerator" -> "ثلاجة"
+            "book" -> "كتاب"
+            "clock" -> "ساعة"
+            "vase" -> "مزهرية"
+            "scissors" -> "مقص"
+            "teddy bear" -> "دب محشو"
+            "hair drier" -> "مجفف شعر"
+            "toothbrush" -> "فرشاة أسنان"
+            else -> rawLabel.trim().take(32)
+        }
+    }
 
     private fun isVisualNoiseLabel(label: String): Boolean =
         label.trim().lowercase(Locale.ROOT) in setOf(
@@ -1849,7 +1941,13 @@ class MainActivity : ComponentActivity() {
             recentObservations = memory.recentVisualMemories(5),
             recentDialogues = memory.recentDialogues(3),
             recentReflections = memory.recentReflections(3),
-            knownPeople = peopleMemory.summary()
+            knownPeople = peopleMemory.summary(),
+            latestSceneSummary = latestSceneSummary,
+            sceneObservationAgeMs = if (lastSceneObservationAt > 0L) {
+                (SystemClock.elapsedRealtime() - lastSceneObservationAt).coerceAtLeast(0L)
+            } else {
+                Long.MAX_VALUE
+            }
         )
     }
 

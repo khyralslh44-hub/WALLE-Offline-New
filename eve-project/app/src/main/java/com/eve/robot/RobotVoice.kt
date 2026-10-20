@@ -118,28 +118,34 @@ class RobotVoice {
         val rate = 24_000
         val capture = event.contains("capture") || event.contains("check") || event.contains("win")
         val durationMs = when {
-            event.contains("select") -> 55
-            capture -> 145
-            event.contains("start") -> 125
-            else -> 92
+            event.contains("win") -> 245
+            event.contains("loss") -> 225
+            event.contains("check") -> 210
+            event.contains("capture") -> 195
+            event.contains("invalid") -> 120
+            event.contains("select") -> 90
+            event.contains("start") -> 170
+            else -> 135
         }
         val frequency = when {
-            event.contains("invalid") -> 300.0
-            event.contains("capture") -> 470.0
-            event.contains("check") -> 760.0
+            event.contains("loss") -> 250.0
+            event.contains("invalid") -> 310.0
+            event.contains("capture") -> 455.0
+            event.contains("check") -> 790.0
+            event.contains("win") -> 1_020.0
             event.contains("select") -> 920.0
             event.contains("start") -> 610.0
-            else -> 680.0
+            else -> 660.0
         }
         val count = rate * durationMs / 1000
         val pcm = ShortArray(count)
         for (i in pcm.indices) {
             val t = i.toDouble() / rate
             val attack = (t / 0.003).coerceIn(0.0, 1.0)
-            val decay = exp(-t * if (capture) 25.0 else 38.0)
+            val decay = exp(-t * if (event.contains("win") || event.contains("loss") || event.contains("check") || event.contains("capture")) 10.0 else 18.0)
             val fundamental = sin(2.0 * PI * frequency * t)
             val overtone = sin(2.0 * PI * frequency * 2.13 * t) * 0.18
-            val sample = (fundamental + overtone) * attack * decay * 0.32
+            val sample = (fundamental + overtone) * attack * decay * 0.54
             pcm[i] = (sample * Short.MAX_VALUE)
                 .toInt().coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
         }
@@ -165,7 +171,7 @@ class RobotVoice {
                 .build()
             val written = track.write(pcm, 0, pcm.size, AudioTrack.WRITE_BLOCKING)
             if (written == pcm.size && !closed) {
-                track.setVolume(0.78f)
+                track.setVolume(0.96f)
                 track.play()
                 Log.i("EVE_GAME_SOUND", "PLAYBACK_STARTED event=$event samples=$count state=${track.playState}")
                 Thread.sleep(durationMs + 35L)
