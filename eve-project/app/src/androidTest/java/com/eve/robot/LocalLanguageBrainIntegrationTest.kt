@@ -31,7 +31,7 @@ class LocalLanguageBrainIntegrationTest {
         val context = instrumentation.targetContext
         val modelFile = File(
             File(context.filesDir, "local-language-brain"),
-            "Qwen2_0.5B_Instruct.litertlm"
+            "Qwen3-1.7B_dynamic_wi4b32_afp32.litertlm"
         )
         val modelPrefs = context.getSharedPreferences("eve_local_llm", Context.MODE_PRIVATE)
         val verifiedOnDisk = modelFile.isFile &&
@@ -39,7 +39,7 @@ class LocalLanguageBrainIntegrationTest {
             modelPrefs.getString("verifiedModelSha256", null) == MODEL_SHA256 &&
             modelPrefs.getLong("verifiedModelBytes", -1L) == modelFile.length()
         val bundledAssetAvailable = try {
-            context.assets.open("Qwen2_0.5B_Instruct.litertlm").use { it.read() >= 0 }
+            context.assets.open("Qwen3-1.7B_dynamic_wi4b32_afp32.litertlm").use { it.read() >= 0 }
         } catch (_: java.io.FileNotFoundException) {
             false
         }
@@ -100,8 +100,8 @@ class LocalLanguageBrainIntegrationTest {
             assertNotNull("The first generated answer should be retained for diagnostics.", firstReply)
             Log.i(
                 TAG,
-                "LOCAL_LLM_OFFLINE_RESTART_PASS model=Qwen2-0.5B-Instruct " +
-                    "backend=CPU verifiedBytes=${modelFile.length()} firstChars=${firstReply.length} " +
+                "LOCAL_LLM_OFFLINE_RESTART_PASS model=Qwen3-1.7B-INT4 " +
+                    "backend=gpu-first-cpu-fallback verifiedBytes=${modelFile.length()} firstChars=${firstReply.length} " +
                     "secondChars=${second.replyArabic.length} internetValidated=false"
             )
             val gameComment = awaitGameComment(offlineBrain)
@@ -197,7 +197,7 @@ class LocalLanguageBrainIntegrationTest {
     private fun hasVerifiedModel(context: Context): Boolean {
         val file = File(
             File(context.filesDir, "local-language-brain"),
-            "Qwen2_0.5B_Instruct.litertlm"
+            "Qwen3-1.7B_dynamic_wi4b32_afp32.litertlm"
         )
         val prefs = context.getSharedPreferences("eve_local_llm", Context.MODE_PRIVATE)
         return file.isFile &&
@@ -239,8 +239,8 @@ class LocalLanguageBrainIntegrationTest {
 
     companion object {
         private const val TAG = "EVE_LLM_TEST"
-        private const val MODEL_SHA256 = "0f01cc004b8eb62b92ba6be85ed05a248ba0d2f78af94c4949b313eccfb4c157"
-        private const val MIN_MODEL_BYTES = 500_000_000L
+        private const val MODEL_SHA256 = "2eeffef7b51bc3e1225ea69fe7aa5f417397934b56a5b6c20cc068d6fd2c918b"
+        private const val MIN_MODEL_BYTES = 850_000_000L
         private const val INITIAL_STARTUP_GRACE_MS = 12_000L
         private const val INITIALIZE_TIMEOUT_MS = 20L * 60L * 1000L
         private const val OFFLINE_RELOAD_TIMEOUT_MS = 5L * 60L * 1000L

@@ -124,17 +124,17 @@ jobs:
         run: |
           set -euo pipefail
           ASSETS="eve-project/app/src/main/assets"
-          MODEL="$ASSETS/Qwen2_0.5B_Instruct.litertlm"
+          MODEL="$ASSETS/Qwen3-1.7B_dynamic_wi4b32_afp32.litertlm"
           mkdir -p "$ASSETS"
           curl --fail --location --retry 4 --retry-delay 3 --connect-timeout 30 --max-time 1200 \
-            "https://huggingface.co/litert-community/Qwen2-0.5B-Instruct/resolve/main/Qwen2_0.5B_Instruct.litertlm" \
+            "https://huggingface.co/litert-community/Qwen3-1.7B/resolve/main/Qwen3-1.7B_dynamic_wi4b32_afp32.litertlm" \
             --output "$MODEL"
-          EXPECTED="0f01cc004b8eb62b92ba6be85ed05a248ba0d2f78af94c4949b313eccfb4c157"
+          EXPECTED="2eeffef7b51bc3e1225ea69fe7aa5f417397934b56a5b6c20cc068d6fd2c918b"
           ACTUAL="$(sha256sum "$MODEL" | awk '{print $1}')"
           BYTES="$(stat -c '%s' "$MODEL")"
           echo "Bundled Qwen SHA-256: $ACTUAL"
           echo "Bundled Qwen bytes: $BYTES"
-          if [ "$ACTUAL" != "$EXPECTED" ] || [ "$BYTES" -lt 500000000 ]; then
+          if [ "$ACTUAL" != "$EXPECTED" ] || [ "$BYTES" -lt 900000000 ]; then
             echo "FAIL: Qwen weights failed pinned digest/size verification."
             exit 1
           fi
@@ -142,20 +142,20 @@ jobs:
 
           # Include the upstream Apache-2.0 license with the redistributed weights.
           curl --fail --location --retry 3 --connect-timeout 20 --max-time 120 \
-            "https://huggingface.co/Qwen/Qwen2-0.5B-Instruct/resolve/main/LICENSE" \
-            --output "$ASSETS/qwen2_model_license.txt"
-          grep -Fq "Apache License" "$ASSETS/qwen2_model_license.txt"
+            "https://huggingface.co/Qwen/Qwen3-1.7B/resolve/main/LICENSE" \
+            --output "$ASSETS/qwen3_model_license.txt"
+          grep -Fq "Apache License" "$ASSETS/qwen3_model_license.txt"
           cp eve-project/THIRD_PARTY_NOTICES.md "$ASSETS/THIRD_PARTY_NOTICES.txt"
           cat >> "$ASSETS/THIRD_PARTY_NOTICES.txt" <<'NOTICE'
 
-          ## Qwen2-0.5B-Instruct language model
+          ## Qwen3-1.7B language model
 
-          The bundled Qwen2_0.5B_Instruct.litertlm weights are the LiteRT-LM conversion
-          of Qwen/Qwen2-0.5B-Instruct from litert-community/Qwen2-0.5B-Instruct.
+          The bundled Qwen3-1.7B_dynamic_wi4b32_afp32.litertlm weights are the LiteRT-LM conversion
+          of Qwen/Qwen3-1.7B from litert-community/Qwen3-1.7B.
           The upstream model is licensed under Apache License 2.0; the full license is
-          included in qwen2_model_license.txt in this APK's assets.
+          included in qwen3_model_license.txt in this APK's assets.
           NOTICE
-          ls -lh "$MODEL" "$ASSETS/qwen2_model_license.txt"
+          ls -lh "$MODEL" "$ASSETS/qwen3_model_license.txt"
           echo "PASS: pinned Qwen weights and license are embedded for offline first launch."
 
       - name: Bundle fully offline Arabic speech recognition model
@@ -171,21 +171,21 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          EXPECTED="0f01cc004b8eb62b92ba6be85ed05a248ba0d2f78af94c4949b313eccfb4c157"
+          EXPECTED="2eeffef7b51bc3e1225ea69fe7aa5f417397934b56a5b6c20cc068d6fd2c918b"
           for APK in \
             "eve-project/app/build/outputs/apk/debug/app-debug.apk" \
             "eve-project/app/build/outputs/apk/release/app-release.apk"; do
             test -s "$APK"
-            if ! unzip -Z1 "$APK" | grep -Fxq "assets/Qwen2_0.5B_Instruct.litertlm"; then
+            if ! unzip -Z1 "$APK" | grep -Fxq "assets/Qwen3-1.7B_dynamic_wi4b32_afp32.litertlm"; then
               echo "FAIL: Qwen model asset is missing from $APK"
               exit 1
             fi
-            ACTUAL="$(unzip -p "$APK" assets/Qwen2_0.5B_Instruct.litertlm | sha256sum | awk '{print $1}')"
+            ACTUAL="$(unzip -p "$APK" assets/Qwen3-1.7B_dynamic_wi4b32_afp32.litertlm | sha256sum | awk '{print $1}')"
             if [ "$ACTUAL" != "$EXPECTED" ]; then
               echo "FAIL: packaged Qwen weights failed SHA-256 verification in $APK"
               exit 1
             fi
-            unzip -Z1 "$APK" | grep -Fxq "assets/qwen2_model_license.txt"
+            unzip -Z1 "$APK" | grep -Fxq "assets/qwen3_model_license.txt"
             ls -lh "$APK"
             echo "PASS: verified packaged Qwen weights and license in $APK"
           done

@@ -65,36 +65,36 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          MODEL="$RUNNER_TEMP/Qwen2_0.5B_Instruct.litertlm"
-          EXPECTED="0f01cc004b8eb62b92ba6be85ed05a248ba0d2f78af94c4949b313eccfb4c157"
+          MODEL="$RUNNER_TEMP/Qwen3-1.7B_dynamic_wi4b32_afp32.litertlm"
+          EXPECTED="2eeffef7b51bc3e1225ea69fe7aa5f417397934b56a5b6c20cc068d6fd2c918b"
           curl --fail --location --retry 4 --retry-delay 3 --connect-timeout 30 --max-time 1200 \
-            "https://huggingface.co/litert-community/Qwen2-0.5B-Instruct/resolve/main/Qwen2_0.5B_Instruct.litertlm" \
+            "https://huggingface.co/litert-community/Qwen3-1.7B/resolve/main/Qwen3-1.7B_dynamic_wi4b32_afp32.litertlm" \
             --output "$MODEL"
           ACTUAL="$(sha256sum "$MODEL" | awk '{print $1}')"
           BYTES="$(stat -c '%s' "$MODEL")"
           echo "Qwen model SHA-256: $ACTUAL"
           echo "Qwen model bytes: $BYTES"
-          if [ "$ACTUAL" != "$EXPECTED" ] || [ "$BYTES" -lt 500000000 ]; then
+          if [ "$ACTUAL" != "$EXPECTED" ] || [ "$BYTES" -lt 900000000 ]; then
             echo "FAIL: pinned Qwen weights failed digest/size verification."
             exit 1
           fi
           sha256sum "$MODEL" | tee "$RUNNER_TEMP/qwen-model-sha256.txt"
           ASSETS="eve-project/app/src/main/assets"
           mkdir -p "$ASSETS"
-          cp "$MODEL" "$ASSETS/Qwen2_0.5B_Instruct.litertlm"
+          cp "$MODEL" "$ASSETS/Qwen3-1.7B_dynamic_wi4b32_afp32.litertlm"
           curl --fail --location --retry 3 --connect-timeout 20 --max-time 120 \
-            "https://huggingface.co/Qwen/Qwen2-0.5B-Instruct/resolve/main/LICENSE" \
-            --output "$ASSETS/qwen2_model_license.txt"
-          grep -Fq "Apache License" "$ASSETS/qwen2_model_license.txt"
+            "https://huggingface.co/Qwen/Qwen3-1.7B/resolve/main/LICENSE" \
+            --output "$ASSETS/qwen3_model_license.txt"
+          grep -Fq "Apache License" "$ASSETS/qwen3_model_license.txt"
           cp eve-project/THIRD_PARTY_NOTICES.md "$ASSETS/THIRD_PARTY_NOTICES.txt"
           cat >> "$ASSETS/THIRD_PARTY_NOTICES.txt" <<'NOTICE'
 
-          ## Qwen2-0.5B-Instruct language model
+          ## Qwen3-1.7B language model
 
-          The bundled Qwen2_0.5B_Instruct.litertlm weights are the LiteRT-LM conversion
-          of Qwen/Qwen2-0.5B-Instruct from litert-community/Qwen2-0.5B-Instruct.
+          The bundled Qwen3-1.7B_dynamic_wi4b32_afp32.litertlm weights are the LiteRT-LM conversion
+          of Qwen/Qwen3-1.7B from litert-community/Qwen3-1.7B.
           The upstream model is licensed under Apache License 2.0; the full license is
-          included in qwen2_model_license.txt in this APK's assets.
+          included in qwen3_model_license.txt in this APK's assets.
           NOTICE
           echo "PASS: Qwen weights verified and copied into APK assets before compilation."
 
@@ -112,13 +112,13 @@ jobs:
           # Verify the exact output APK before spending 20+ minutes booting the emulator.
           # Persist ZIP entries first to avoid pipefail/SIGPIPE false negatives from grep -q.
           unzip -Z1 "$APP_APK" > "$RUNNER_TEMP/eve-app-apk-entries.txt"
-          if ! grep -Fxq "assets/Qwen2_0.5B_Instruct.litertlm" "$RUNNER_TEMP/eve-app-apk-entries.txt"; then
+          if ! grep -Fxq "assets/Qwen3-1.7B_dynamic_wi4b32_afp32.litertlm" "$RUNNER_TEMP/eve-app-apk-entries.txt"; then
             echo "FAIL: build output app-debug.apk is missing the Qwen asset."
-            grep -Fi "Qwen2_0.5B_Instruct" "$RUNNER_TEMP/eve-app-apk-entries.txt" || true
+            grep -Fi "Qwen3-1.7B_dynamic_wi4b32_afp32" "$RUNNER_TEMP/eve-app-apk-entries.txt" || true
             exit 21
           fi
-          PACKAGED_SHA256="$(unzip -p "$APP_APK" assets/Qwen2_0.5B_Instruct.litertlm | sha256sum | awk '{print $1}')"
-          EXPECTED_SHA256="0f01cc004b8eb62b92ba6be85ed05a248ba0d2f78af94c4949b313eccfb4c157"
+          PACKAGED_SHA256="$(unzip -p "$APP_APK" assets/Qwen3-1.7B_dynamic_wi4b32_afp32.litertlm | sha256sum | awk '{print $1}')"
+          EXPECTED_SHA256="2eeffef7b51bc3e1225ea69fe7aa5f417397934b56a5b6c20cc068d6fd2c918b"
           if [ "$PACKAGED_SHA256" != "$EXPECTED_SHA256" ]; then
             echo "FAIL: APK Qwen model digest mismatch: $PACKAGED_SHA256"
             exit 22

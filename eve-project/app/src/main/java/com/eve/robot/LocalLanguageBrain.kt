@@ -134,9 +134,12 @@ class LocalLanguageBrain(
                     val memoryInfo = ActivityManager.MemoryInfo()
                     memory.getMemoryInfo(memoryInfo)
                     // Keep the camera and Android responsive on lower-RAM phones.
-                    if (memoryInfo.availMem < MIN_AVAILABLE_RAM_BYTES) {
+                    val isArm64 = Build.SUPPORTED_ABIS.any { it == "arm64-v8a" }
+                    val enoughMemoryForGpu = isArm64 && memoryInfo.availMem >= MIN_GPU_AVAILABLE_RAM_BYTES
+                    val enoughMemoryForCpu = memoryInfo.availMem >= MIN_CPU_AVAILABLE_RAM_BYTES
+                    if (!enoughMemoryForGpu && !enoughMemoryForCpu) {
                         throw IllegalStateException(
-                            "الذاكرة المتاحة قليلة لتشغيل النموذج الآن؛ أغلق التطبيقات الأخرى ثم أعد فتح إيف."
+                            "الذاكرة المتاحة قليلة لتشغيل الدماغ المحلي؛ أغلق التطبيقات الأخرى ثم أعد فتح إيف."
                         )
                     }
 
@@ -158,10 +161,12 @@ class LocalLanguageBrain(
                     // fallback for devices whose vendor driver/delegate cannot initialize it.
                     val cpuThreads = Runtime.getRuntime().availableProcessors().coerceIn(1, 4)
                     val cpuBackend = Backend.CPU(threadCount = cpuThreads)
-                    val backends = if (Build.SUPPORTED_ABIS.any { it == "arm64-v8a" }) {
-                        listOf("GPU" to Backend.GPU(), "CPU" to cpuBackend)
-                    } else {
-                        listOf("CPU" to cpuBackend)
+                    // The 1.7B INT4 artifact is GPU-optimized. On ARM64, avoid falling back to
+                    // CPU when there is not enough headroom for that heavier path; on x86 CI,
+                    // use CPU so the offline integration test can still exercise real inference.
+                    val backends = buildList {
+                        if (enoughMemoryForGpu) add("GPU" to Backend.GPU())
+                        if (enoughMemoryForCpu) add("CPU" to cpuBackend)
                     }
                     Log.i(TAG, "LOCAL_LLM_BACKEND_CANDIDATES=${backends.map { it.first }} cpuThreads=$cpuThreads")
 
@@ -510,7 +515,7 @@ class LocalLanguageBrain(
         }
         val free = StatFs(modelDirectory.absolutePath).availableBytes
         if (free < MIN_FREE_STORAGE_BYTES) {
-            throw IllegalStateException("يلزم توفير 1.2 غيغابايت من المساحة الحرة لتجهيز الدماغ اللغوي الجديد.")
+            throw IllegalStateException("يلزم توفير نحو 1.05 غيغابايت من المساحة الحرة لتجهيز الدماغ اللغوي الجديد.")
         }
 
         // Product APKs embed this exact model in assets, so first-run setup works with Wi-Fi off.
@@ -785,8 +790,9 @@ class LocalLanguageBrain(
         private const val KEY_MODEL_BYTES = "verifiedModelBytes"
         private const val APPROX_MODEL_BYTES = 977_000_000L
         private const val MIN_MODEL_BYTES = 850_000_000L
-        private const val MIN_FREE_STORAGE_BYTES = 1_200_000_000L
-        private const val MIN_AVAILABLE_RAM_BYTES = 1_200_000_000L
+        private const val MIN_FREE_STORAGE_BYTES = 1_050_000_000L
+        private const val MIN_CPU_AVAILABLE_RAM_BYTES = 1_200_000_000L
+        private const val MIN_GPU_AVAILABLE_RAM_BYTES = 850_000_000L
         private const val CONNECT_TIMEOUT_MS = 25_000
         private const val READ_TIMEOUT_MS = 75_000
         private const val RETRY_DELAY_MS = 30_000L
@@ -794,7 +800,7 @@ class LocalLanguageBrain(
         private const val MAX_OUTPUT_TOKENS = 48
         private const val MAX_RESPONSE_BUFFER_CHARS = 8_000
         /**
-         * Qwen2 chat format adapted for LiteRT-LM 0.18 typed content.
+         * Qwen3 chat format adapted for LiteRT-LM 0.18 typed content.
          * The stock bundle template concatenates role + content as strings, which fails when
          * the runtime supplies content as a sequence of {type: text, text: ...} parts.
          */
