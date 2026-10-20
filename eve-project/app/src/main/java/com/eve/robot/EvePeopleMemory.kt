@@ -46,8 +46,19 @@ object EvePersonUtteranceParser {
 
         for ((key, relation, pattern) in rules) {
             val match = pattern.matchEntire(q) ?: continue
-            val name = cleanName(match.groupValues.getOrNull(1).orEmpty()) ?: continue
-            return EveKnownPerson(key, relation, name)
+            val normalizedName = cleanName(match.groupValues.getOrNull(1).orEmpty()) ?: continue
+            // Use the normalized capture only for validation. Save the original last name words
+            // so spelling such as أ/إ/آ and ة is not silently rewritten in the user's memory.
+            val rawNameWords = raw.trim()
+                .replace(Regex("[\\u064B-\\u065F\\u0670]"), "")
+                .replace(Regex("[^\\p{L}\\p{N}\\s'-]"), " ")
+                .replace(Regex("\\s+"), " ")
+                .trim()
+                .split(' ')
+                .takeLast(normalizedName.split(' ').size)
+            val displayName = rawNameWords.joinToString(" ").trim()
+            if (displayName.isBlank()) continue
+            return EveKnownPerson(key, relation, displayName)
         }
         return null
     }
