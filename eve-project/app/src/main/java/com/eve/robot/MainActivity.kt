@@ -1345,6 +1345,33 @@ class MainActivity : ComponentActivity() {
                         val xs = points.map { it.x() }.filter { it.isFinite() }
                         val ys = points.map { it.y() }.filter { it.isFinite() }
                         val centerX = xs.takeIf { it.isNotEmpty() }?.average()?.toFloat()
+                        val centerY = ys.takeIf { it.isNotEmpty() }?.average()?.toFloat()
+                        val fingerTips = listOf(4, 8, 12, 16, 20).mapNotNull { tipIndex ->
+                            points.getOrNull(tipIndex)?.let { tip ->
+                                val tx = tip.x()
+                                val ty = tip.y()
+                                if (tx.isFinite() && ty.isFinite()) {
+                                    tx.coerceIn(0f, 1f) to ty.coerceIn(0f, 1f)
+                                } else null
+                            }
+                        }
+                        val movement = if (centerX != null && centerY != null) {
+                            val current = centerX.coerceIn(0f, 1f) to centerY.coerceIn(0f, 1f)
+                            val previous = previousHandCenterSample
+                            previousHandCenterSample = current
+                            if (previous == null) 0f else kotlin.math.hypot(
+                                (current.first - previous.first).toDouble(),
+                                (current.second - previous.second).toDouble()
+                            ).toFloat().div(0.12f).coerceIn(0f, 1f)
+                        } else {
+                            previousHandCenterSample = null
+                            0f
+                        }
+                        latestHandCenterX = centerX?.coerceIn(0f, 1f) ?: Float.NaN
+                        latestHandCenterY = centerY?.coerceIn(0f, 1f) ?: Float.NaN
+                        latestHandFingerTips = fingerTips
+                        latestHandTrajectoryScore = movement
+                        latestHandObservedAt = SystemClock.elapsedRealtime()
                         val spanX = if (xs.size >= 2) (xs.maxOrNull()!! - xs.minOrNull()!!) else 0f
                         val spanY = if (ys.size >= 2) (ys.maxOrNull()!! - ys.minOrNull()!!) else 0f
                         val span = maxOf(spanX, spanY).takeIf { it > 0f }
