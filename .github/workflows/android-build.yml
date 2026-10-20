@@ -257,6 +257,31 @@ jobs:
             echo "PASS: $APK contains efficientnet_lite0_int8.tflite SHA-256=$PACKAGED_SHA256"
           done
 
+      - name: Verify pinned MobileFaceNet model and license are packaged in both APKs
+        shell: bash
+        run: |
+          set -euo pipefail
+          MODEL="eve-project/app/src/main/assets/MobileFaceNet.tflite"
+          LICENSE="eve-project/app/src/main/assets/mobilefacenet_model_license.txt"
+          EXPECTED="3249c511be86366d5d0a137dc6f4af321af28678"
+          test -s "$MODEL"
+          test -s "$LICENSE"
+          test "$(git hash-object "$MODEL")" = "$EXPECTED"
+          grep -Fq "MIT License" "$LICENSE"
+          for APK in \
+            "eve-project/app/build/outputs/apk/debug/app-debug.apk" \
+            "eve-project/app/build/outputs/apk/release/app-release.apk"; do
+            test -s "$APK"
+            unzip -Z1 "$APK" | grep -Fxq "assets/MobileFaceNet.tflite"
+            unzip -Z1 "$APK" | grep -Fxq "assets/mobilefacenet_model_license.txt"
+            PACKAGED="$(unzip -p "$APK" assets/MobileFaceNet.tflite | git hash-object --stdin)"
+            if [ "$PACKAGED" != "$EXPECTED" ]; then
+              echo "FAIL: MobileFaceNet model in $APK does not match the pinned model."
+              exit 1
+            fi
+            echo "PASS: $APK contains the pinned offline identity model and license."
+          done
+
       - name: Verify APK signatures for installer compatibility
         shell: bash
         run: |
