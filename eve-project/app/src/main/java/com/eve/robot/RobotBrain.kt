@@ -208,6 +208,22 @@ class RobotBrain(personality: EvePersonality = EvePersonality()) {
         return snapshot(EveMood.AWAKE, "experience started", false)
     }
 
+    /** A spoken name/relationship update is a real social-memory event in the shared affect state. */
+    @Synchronized
+    fun observeKnownPerson(relation: String, isIntroduction: Boolean): EveDecision {
+        val safeRelation = relation.trim().replace(Regex("\\s+"), " ").take(32).ifBlank { "شخص معروف" }
+        familiarity = (familiarity + if (isIntroduction) 0.18f else 0.10f).coerceAtMost(1f)
+        valence = (valence + if (isIntroduction) 0.10f else 0.06f).coerceAtMost(0.95f)
+        curiosity = (curiosity + 0.04f * personality.curiosityBias).coerceAtMost(1f)
+        arousal = 0.48f
+        return snapshot(
+            EveMood.FAMILIAR,
+            if (isIntroduction) "remembered spoken introduction: $safeRelation" else "recalled local relationship: $safeRelation",
+            false,
+            EveIntent.CONNECT
+        )
+    }
+
     /** Camera/permission failures are behavior events, not direct UI-only mood overrides. */
     @Synchronized
     fun cameraUnavailable(reason: String): EveDecision {
