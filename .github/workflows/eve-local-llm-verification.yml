@@ -98,6 +98,23 @@ jobs:
           NOTICE
           echo "PASS: Qwen weights verified and copied into APK assets before compilation."
 
+      - name: Download broad offline ImageNet classifier before building
+        shell: bash
+        run: |
+          set -euo pipefail
+          MODEL="eve-project/app/src/main/assets/efficientnet_lite0_int8.tflite"
+          mkdir -p "$(dirname "$MODEL")"
+          curl --fail --location --retry 4 --retry-delay 2 --connect-timeout 20 --max-time 240 \
+            "https://storage.googleapis.com/mediapipe-models/image_classifier/efficientnet_lite0/int8/latest/efficientnet_lite0.tflite" \
+            --output "$MODEL"
+          BYTES="$(stat -c '%s' "$MODEL")"
+          SHA256="$(sha256sum "$MODEL" | awk '{print $1}')"
+          echo "EfficientNet-Lite0 ImageNet SHA-256: $SHA256"
+          echo "EfficientNet-Lite0 ImageNet bytes: $BYTES"
+          test "$BYTES" -gt 1000000
+          test "$BYTES" -lt 20000000
+          sha256sum "$MODEL" | tee "$RUNNER_TEMP/imagenet-classifier-sha256.txt"
+
       - name: Build app and the dedicated language-model instrumentation APK
         shell: bash
         run: |
@@ -124,6 +141,18 @@ jobs:
             exit 22
           fi
           echo "PASS: APK contains the pinned Qwen asset (SHA-256 verified)."
+          unzip -Z1 "$APP_APK" > "$RUNNER_TEMP/eve-llm-apk-entries.txt"
+          if ! grep -Fxq "assets/efficientnet_lite0_int8.tflite" "$RUNNER_TEMP/eve-llm-apk-entries.txt"; then
+            echo "FAIL: app-debug.apk is missing the broad ImageNet classifier."
+            exit 23
+          fi
+          PACKAGED_IMAGENET_SHA256="$(unzip -p "$APP_APK" assets/efficientnet_lite0_int8.tflite | sha256sum | awk '{print $1}')"
+          SOURCE_IMAGENET_SHA256="$(sha256sum eve-project/app/src/main/assets/efficientnet_lite0_int8.tflite | awk '{print $1}')"
+          if [ "$PACKAGED_IMAGENET_SHA256" != "$SOURCE_IMAGENET_SHA256" ]; then
+            echo "FAIL: local LLM test APK ImageNet model hash mismatch."
+            exit 24
+          fi
+          echo "PASS: app-debug.apk contains the broad offline ImageNet classifier (SHA-256 verified)."
           sha256sum "$APP_APK" "$TEST_APK" | tee "$RUNNER_TEMP/eve-llm-apk-sha256.txt"
 
       - name: Enable KVM acceleration for local model inference
