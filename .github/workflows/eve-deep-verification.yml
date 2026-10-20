@@ -80,6 +80,23 @@ jobs:
           file "$FIXTURE" || true
           sha256sum "$FIXTURE" | tee "$RUNNER_TEMP/face-fixture-sha256.txt"
 
+      - name: Download and pin a second person portrait for identity negative control
+        shell: bash
+        run: |
+          set -euo pipefail
+          FIXTURE="eve-project/app/src/androidTest/assets/face_fixture_biden.jpg"
+          mkdir -p "$(dirname "$FIXTURE")"
+          curl --fail --location --retry 3 --connect-timeout 20 --max-time 120 \
+            "https://raw.githubusercontent.com/ageitgey/face_recognition/9f3061aaeed9a8756d2c970f5dfe066617a8281d/examples/biden.jpg" --output "$FIXTURE"
+          EXPECTED="3a0bdc974e9067b1595a6a623a3d898265b0a7a2"
+          ACTUAL="$(git hash-object "$FIXTURE")"
+          if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "FAIL: different-person identity fixture hash changed."
+            exit 1
+          fi
+          sha256sum "$FIXTURE" | tee "$RUNNER_TEMP/identity-negative-fixture-sha256.txt"
+          echo "PASS: distinct-person negative-control fixture is pinned."
+          
       - name: Download and pin offline facial-expression model
         shell: bash
         run: |
@@ -203,6 +220,10 @@ jobs:
           set -euo pipefail
           FIXTURE="eve-project/app/src/androidTest/assets/face_fixture.jpg"
           GESTURE_FIXTURE="eve-project/app/src/androidTest/assets/gesture_thumb_up.jpg"
+          FACE_IDENTITY_FIXTURE="eve-project/app/src/androidTest/assets/face_fixture_biden.jpg"
+          test -s "$FACE_IDENTITY_FIXTURE"
+          test "$(git hash-object "$FACE_IDENTITY_FIXTURE")" = "3a0bdc974e9067b1595a6a623a3d898265b0a7a2"
+          grep -Fq "face_fixture_biden.jpg" "eve-project/app/src/androidTest/java/com/eve/robot/FaceIdentityIntegrationTest.kt"
           TEST_SOURCE="eve-project/app/src/androidTest/java/com/eve/robot/FaceVisionIntegrationTest.kt"
           GESTURE_TEST_SOURCE="eve-project/app/src/androidTest/java/com/eve/robot/HandGestureIntegrationTest.kt"
           TEST_SCRIPT=".github/scripts/run-deep-face-test.sh"
