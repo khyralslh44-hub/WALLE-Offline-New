@@ -130,6 +130,26 @@ jobs:
           sha256sum "$MODEL" | tee "$RUNNER_TEMP/object-detector-sha256.txt"
           echo "PASS: pinned EfficientDet-Lite0 model verified."
 
+      - name: Download broad offline ImageNet image classifier
+        shell: bash
+        run: |
+          set -euo pipefail
+          MODEL="eve-project/app/src/main/assets/efficientnet_lite0_int8.tflite"
+          mkdir -p "$(dirname "$MODEL")"
+          curl --fail --location --retry 4 --retry-delay 2 --connect-timeout 20 --max-time 240 \
+            "https://storage.googleapis.com/mediapipe-models/image_classifier/efficientnet_lite0/int8/latest/efficientnet_lite0.tflite" \
+            --output "$MODEL"
+          BYTES="$(stat -c '%s' "$MODEL")"
+          SHA256="$(sha256sum "$MODEL" | awk '{print $1}')"
+          echo "EfficientNet-Lite0 ImageNet SHA-256: $SHA256"
+          echo "EfficientNet-Lite0 ImageNet bytes: $BYTES"
+          if [ "$BYTES" -lt 1000000 ] || [ "$BYTES" -gt 20000000 ]; then
+            echo "FAIL: downloaded ImageNet classifier has an implausible size."
+            exit 1
+          fi
+          sha256sum "$MODEL" | tee "$RUNNER_TEMP/imagenet-classifier-sha256.txt"
+          echo "PASS: broad offline ImageNet classifier downloaded for integration testing."
+
       - name: Download and pin offline thumb-up gesture fixture
         shell: bash
         run: |
@@ -168,6 +188,10 @@ jobs:
           OBJECT_MODEL="eve-project/app/src/main/assets/efficientdet_lite0.tflite"
           test -s "$OBJECT_MODEL"
           test "$(sha256sum "$OBJECT_MODEL" | awk '{print $1}')" = "40338edf5ec70d43e318b0a716a84d4564cd1802759a7a07170c7e43796dbf58"
+          IMAGENET_MODEL="eve-project/app/src/main/assets/efficientnet_lite0_int8.tflite"
+          test -s "$IMAGENET_MODEL"
+          test "$(stat -c '%s' "$IMAGENET_MODEL")" -gt 1000000
+          test -s "$RUNNER_TEMP/imagenet-classifier-sha256.txt"
           VOSK_ARCHIVE="eve-project/app/src/main/assets/vosk-model-ar-mgb2-0.4.zip"
           test -s "$VOSK_ARCHIVE"
           unzip -Z1 "$VOSK_ARCHIVE" > "$RUNNER_TEMP/vosk-model.entries.txt"
