@@ -14,6 +14,8 @@ data class EveHomeMapSnapshot(
     val obstacleCells: Int,
     val namedRoomCells: Int,
     val currentRoom: EveRoomType,
+    /** Room categories supported by repeated visual hypotheses in this session's map. */
+    val knownRooms: Set<EveRoomType> = emptySet(),
     val observedAtMs: Long
 )
 
@@ -134,6 +136,10 @@ class EveHomeMapMemory(
             obstacleCells = obstacles,
             namedRoomCells = roomVotes.size,
             currentRoom = currentRoom,
+            knownRooms = roomVotes.values
+                .flatMap { it.counts.filterValues { count -> count > 0 }.keys }
+                .filter { it != EveRoomType.UNKNOWN }
+                .toSet(),
             observedAtMs = nowMs
         )
     }
