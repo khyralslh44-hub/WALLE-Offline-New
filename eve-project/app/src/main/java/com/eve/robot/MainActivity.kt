@@ -1252,10 +1252,14 @@ class MainActivity : ComponentActivity() {
             now - lastImageClassifierAt.get() >= imageClassificationIntervalMs &&
             imageClassifierRunning.compareAndSet(false, true)
         if (requestImageClassification) lastImageClassifierAt.set(now)
+        val requestPoseInference = poseLandmarkerReady &&
+            now - lastPoseInferenceAt.get() >= poseInferenceIntervalMs &&
+            poseInferenceRunning.compareAndSet(false, true)
+        if (requestPoseInference) lastPoseInferenceAt.set(now)
 
         // This RGB bitmap is independent of ImageProxy memory and is shared read-only with
-        // object detection, broad image classification, facial-expression inference, and gestures.
-        val bitmapNeeded = requestObjectDetection || requestImageClassification ||
+        // local object classification, facial analysis, gestures, and human-pose estimation.
+        val bitmapNeeded = requestObjectDetection || requestImageClassification || requestPoseInference ||
             (emotionClassifier.isReady && !ferInferenceRunning.get()) ||
             (handGestureReady && !handGestureInferenceRunning.get())
         val frameBitmap = if (bitmapNeeded) {
@@ -1275,8 +1279,10 @@ class MainActivity : ComponentActivity() {
         }
         if (requestObjectDetection && frameBitmap == null) objectInferenceRunning.set(false)
         if (requestImageClassification && frameBitmap == null) imageClassifierRunning.set(false)
+        if (requestPoseInference && frameBitmap == null) poseInferenceRunning.set(false)
         val runObjectDetection = requestObjectDetection && frameBitmap != null
         val runImageClassification = requestImageClassification && frameBitmap != null
+        val runPoseInference = requestPoseInference && frameBitmap != null
 
         val input = InputImage.fromMediaImage(mediaImage, proxy.imageInfo.rotationDegrees)
         val labelsTask = labeler.process(input)
@@ -1359,7 +1365,8 @@ class MainActivity : ComponentActivity() {
             2L +
                 (if (runHandGesture) 1L else 0L) +
                 (if (runObjectDetection) 1L else 0L) +
-                (if (runImageClassification) 1L else 0L)
+                (if (runImageClassification) 1L else 0L) +
+                (if (runPoseInference) 1L else 0L)
         )
         fun finishFrameConsumer() {
             if (pendingFrameConsumers.decrementAndGet() == 0L) {
@@ -1418,6 +1425,54 @@ class MainActivity : ComponentActivity() {
                 imageClassifierRunning.set(false)
                 finishFrameConsumer()
                 Log.e("EVE_IMAGENET", "Could not queue image classifier inference.", error)
+            }
+        }
+
+        if (runPoseInference && frameBitmap != null) {
+            val poseBitmap = frameBitmap
+            try {
+                objectExecutor.execute {
+                    try {
+                        val result = poseLandmarker?.detect(BitmapImageBuilder(poseBitmap).build())
+                        val landmarks = result?.landmarks()?.firstOrNull().orEmpty()
+                        val points = landmarks.map { EvePosePoint(it.x(), it.y()) }
+                        val previous = previousPoseAngles
+                        val angles = if (landmarks.isEmpty()) null else
+                            EvePoseAnglesAnalyzer.analyze(points, poseBitmap.width, poseBitmap.height, previous)
+                        val observedAt = SystemClock.elapsedRealtime()
+                        if (angles != null) {
+                            previousPoseAngles = angles
+                            latestPoseAngles = angles
+                            latestPoseObservedAt = observedAt
+                            Log.d(
+                                "EVE_POSE",
+                                "POSE_FRAME landmarks=${points.size} " +
+                                    "knees=${angles.leftKnee?.toInt()},${angles.rightKnee?.toInt()} " +
+                                    "elbows=${angles.leftElbow?.toInt()},${angles.rightElbow?.toInt()} " +
+                                    "motion=${angles.jointMotionScore} offline=true"
+                            )
+                        } else {
+                            latestPoseAngles = null
+                            latestPoseObservedAt = observedAt
+                            previousPoseAngles = null
+                            val previousDiagnostic = lastPoseDiagnosticAt.get()
+                            if (observedAt - previousDiagnostic >= 7_000L &&
+                                lastPoseDiagnosticAt.compareAndSet(previousDiagnostic, observedAt)
+                            ) {
+                                Log.i("EVE_POSE", "POSE_FRAME_NO_BODY landmarks=${landmarks.size}; activity remains uncertain")
+                            }
+                        }
+                    } catch (error: Exception) {
+                        Log.w("EVE_POSE", "Offline pose inference failed for one frame.", error)
+                    } finally {
+                        poseInferenceRunning.set(false)
+                        finishFrameConsumer()
+                    }
+                }
+            } catch (error: Exception) {
+                poseInferenceRunning.set(false)
+                finishFrameConsumer()
+                Log.e("EVE_POSE", "Could not queue local pose inference.", error)
             }
         }
 
