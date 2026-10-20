@@ -101,6 +101,27 @@ jobs:
           sha256sum "$MODEL" | tee "$RUNNER_TEMP/object-detector-sha256.txt"
           echo "PASS: pinned EfficientDet-Lite0 model verified for offline object detection."
 
+      - name: Download broad offline ImageNet image classifier
+        shell: bash
+        run: |
+          set -euo pipefail
+          MODEL="eve-project/app/src/main/assets/efficientnet_lite0_int8.tflite"
+          mkdir -p "$(dirname "$MODEL")"
+          curl --fail --location --retry 4 --retry-delay 2 --connect-timeout 20 --max-time 240 \
+            "https://storage.googleapis.com/mediapipe-models/image_classifier/efficientnet_lite0/int8/latest/efficientnet_lite0.tflite" \
+            --output "$MODEL"
+          BYTES="$(stat -c '%s' "$MODEL")"
+          SHA256="$(sha256sum "$MODEL" | awk '{print $1}')"
+          echo "EfficientNet-Lite0 ImageNet SHA-256: $SHA256"
+          echo "EfficientNet-Lite0 ImageNet bytes: $BYTES"
+          if [ "$BYTES" -lt 1000000 ] || [ "$BYTES" -gt 20000000 ]; then
+            echo "FAIL: downloaded ImageNet classifier has an implausible size."
+            exit 1
+          fi
+          test "$(dd if="$MODEL" bs=1 count=2 status=none | od -An -tx1 | tr -d ' \n')" != ""
+          sha256sum "$MODEL" | tee "$RUNNER_TEMP/imagenet-classifier-sha256.txt"
+          echo "PASS: broad offline ImageNet classifier downloaded for local inference."
+ 
       - name: Download and pin offline hand-gesture model
         shell: bash
         run: |
@@ -188,6 +209,29 @@ jobs:
             unzip -Z1 "$APK" | grep -Fxq "assets/qwen3_model_license.txt"
             ls -lh "$APK"
             echo "PASS: verified packaged Qwen weights and license in $APK"
+          done
+
+      - name: Verify offline vision models are packaged in both APKs
+        shell: bash
+        run: |
+          set -euo pipefail
+          ASSET_NAME="efficientnet_lite0_int8.tflite"
+          for APK in \
+            "eve-project/app/build/outputs/apk/debug/app-debug.apk" \
+            "eve-project/app/build/outputs/apk/release/app-release.apk"; do
+            test -s "$APK"
+            unzip -Z1 "$APK" > "$RUNNER_TEMP/vision-apk-entries.txt"
+            if ! grep -Fxq "assets/$ASSET_NAME" "$RUNNER_TEMP/vision-apk-entries.txt"; then
+              echo "FAIL: broad offline image classifier is missing from $APK"
+              exit 1
+            fi
+            PACKAGED_SHA256="$(unzip -p "$APK" "assets/$ASSET_NAME" | sha256sum | awk '{print $1}')"
+            SOURCE_SHA256="$(sha256sum "eve-project/app/src/main/assets/$ASSET_NAME" | awk '{print $1}')"
+            if [ "$PACKAGED_SHA256" != "$SOURCE_SHA256" ]; then
+              echo "FAIL: packaged ImageNet model hash differs from downloaded model."
+              exit 1
+            fi
+            echo "PASS: $APK contains efficientnet_lite0_int8.tflite SHA-256=$PACKAGED_SHA256"
           done
 
       - name: Verify APK signatures for installer compatibility
