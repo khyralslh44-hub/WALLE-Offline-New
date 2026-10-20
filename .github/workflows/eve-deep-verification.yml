@@ -147,6 +147,20 @@ jobs:
           sha256sum "$MODEL" | tee "$RUNNER_TEMP/object-detector-sha256.txt"
           echo "PASS: pinned EfficientDet-Lite0 model verified."
 
+      - name: Download and pin offline pose landmarker for activity reasoning
+        shell: bash
+        run: |
+          set -euo pipefail
+          MODEL="eve-project/app/src/main/assets/pose_landmarker_lite.task"
+          mkdir -p "$(dirname "$MODEL")"
+          curl --fail --location --retry 4 --connect-timeout 20 --max-time 180 \
+            "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task" \
+            --output "$MODEL"
+          EXPECTED_SHA256="59929e1d1ee95287735ddd833b19cf4ac46d29bc7afddbbf6753c459690d574a"
+          ACTUAL_SHA256="$(sha256sum "$MODEL" | awk '{print $1}')"
+          test "$ACTUAL_SHA256" = "$EXPECTED_SHA256"
+          echo "PASS: pinned Pose Landmarker Lite verified SHA-256=$ACTUAL_SHA256 bytes=$(stat -c '%s' "$MODEL")"
+
       - name: Download broad offline ImageNet image classifier
         shell: bash
         run: |
@@ -236,6 +250,12 @@ jobs:
           IMAGENET_MODEL="eve-project/app/src/main/assets/efficientnet_lite0_int8.tflite"
           test -s "$IMAGENET_MODEL"
           test "$(stat -c '%s' "$IMAGENET_MODEL")" -eq 5434517
+          POSE_MODEL="eve-project/app/src/main/assets/pose_landmarker_lite.task"
+          test -s "$POSE_MODEL"
+          test "$(sha256sum "$POSE_MODEL" | awk '{print $1}')" = "59929e1d1ee95287735ddd833b19cf4ac46d29bc7afddbbf6753c459690d574a"
+          grep -Fq "PoseVisionIntegrationTest" "eve-project/app/src/androidTest/java/com/eve/robot/PoseVisionIntegrationTest.kt"
+          grep -Fq "POSE_MODEL_PASS" "eve-project/app/src/androidTest/java/com/eve/robot/PoseVisionIntegrationTest.kt"
+          grep -Fq "POSE_MODEL_PASS" "$TEST_SCRIPT"
           test "$(sha256sum "$IMAGENET_MODEL" | awk '{print $1}')" = "bc2ffe19c1118de0c0c2a9088992da5589722656e0fba81421385300a4a34b16"
           test -s "$RUNNER_TEMP/imagenet-classifier-sha256.txt"
           VOSK_ARCHIVE="eve-project/app/src/main/assets/vosk-model-ar-mgb2-0.4.zip"
