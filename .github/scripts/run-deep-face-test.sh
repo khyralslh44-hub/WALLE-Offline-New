@@ -69,11 +69,14 @@ if [ ! -s "$IMAGENET_MODEL" ]; then
   exit 20
 fi
 IMAGENET_BYTES="$(stat -c '%s' "$IMAGENET_MODEL")"
-if [ "$IMAGENET_BYTES" -lt 1000000 ] || [ "$IMAGENET_BYTES" -gt 20000000 ]; then
-  echo "FAIL: broad offline ImageNet classifier model size is invalid: $IMAGENET_BYTES" | tee -a "$RESULT_DIR/environment.txt"
+IMAGENET_SHA256="$(sha256sum "$IMAGENET_MODEL" | awk '{print $1}')"
+EXPECTED_IMAGENET_BYTES=5434517
+EXPECTED_IMAGENET_SHA256="bc2ffe19c1118de0c0c2a9088992da5589722656e0fba81421385300a4a34b16"
+if [ "$IMAGENET_BYTES" -ne "$EXPECTED_IMAGENET_BYTES" ] || [ "$IMAGENET_SHA256" != "$EXPECTED_IMAGENET_SHA256" ]; then
+  echo "FAIL: broad ImageNet model does not match the reviewed pinned model: bytes=$IMAGENET_BYTES sha256=$IMAGENET_SHA256" | tee -a "$RESULT_DIR/environment.txt"
   exit 21
 fi
-echo "PASS: broad offline ImageNet model is present ($IMAGENET_BYTES bytes, SHA-256 $(sha256sum "$IMAGENET_MODEL" | awk '{print $1}'))." | tee -a "$RESULT_DIR/environment.txt"
+echo "PASS: pinned offline ImageNet model verified (bytes=$IMAGENET_BYTES sha256=$IMAGENET_SHA256)." | tee -a "$RESULT_DIR/environment.txt"
 if [ ! -s "$GITHUB_WORKSPACE/eve-project/app/src/main/assets/gesture_recognizer.task" ]; then
   echo "FAIL: bundled offline hand-gesture model is missing." | tee -a "$RESULT_DIR/environment.txt"
   exit 15
