@@ -175,13 +175,15 @@ object EyeExpressionGenerator {
                 else -> EyeSilhouette.PLAYFUL
             }
             EveIntent.REST -> when {
-                fatigue >= 0.78f -> EyeSilhouette.BLINK_LOW
+                // REST is a sustained state: use sleepy lids, not the transient low-blink slit.
+                fatigue >= 0.78f -> EyeSilhouette.DROOPY
                 fatigue < 0.16f && arousal >= 0.48f -> EyeSilhouette.SOFT
                 else -> EyeSilhouette.DROOPY
             }
             EveIntent.FOCUS -> when {
                 decision.frustration >= 0.58f -> EyeSilhouette.UNIMPRESSED
-                fatigue >= 0.76f -> EyeSilhouette.BLINK_LOW
+                // Fatigue changes the eyelids; blink slits are reserved for blink-like poses.
+                fatigue >= 0.76f -> EyeSilhouette.DROOPY
                 arousal < 0.30f -> EyeSilhouette.SQUINT
                 else -> EyeSilhouette.FOCUSED
             }
