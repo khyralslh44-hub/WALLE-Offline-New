@@ -17,7 +17,7 @@ object EvePersonUtteranceParser {
     fun normalize(value: String): String = value.trim().lowercase(Locale.ROOT)
         .replace(Regex("[\\u064B-\\u065F\\u0670]"), "")
         .replace('أ', 'ا').replace('إ', 'ا').replace('آ', 'ا')
-        .replace('ى', 'ي').replace('ة', 'ه')
+        .replace('ى', 'ي')
         .replace(Regex("[^\\p{L}\\p{N}\\s]"), " ")
         .replace(Regex("\\s+"), " ").trim()
 
@@ -114,6 +114,12 @@ class EvePeopleMemory(context: Context) {
             } else {
                 "أتذكر: " + friends.joinToString("، ") { "${it.name} (${it.relationArabic})" } + ". هل تتحدث عن واحد منهم الآن؟"
             }
+        }
+
+        if (q.contains("اسم") && (q.contains("صديقي") || q.contains("صاحبي") || q.contains("صديقتي") || q.contains("صاحبتي"))) {
+            val friend = people.lastOrNull { it.key == "friend" || it.key == "friend_female" }
+            return if (friend == null) "لم تحفظ ذاكرتي اسم صديق بعد. عرّفيني عليه بالكلام أولًا."
+            else "أتذكر أن اسم ${friend.relationArabic} الذي حفظته هو ${friend.name}. هل تقصد شخصًا آخر؟"
         }
 
         val relationQuery = listOf(
