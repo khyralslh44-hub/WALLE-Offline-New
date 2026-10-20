@@ -5,6 +5,7 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.StatFs
@@ -44,7 +45,8 @@ data class LocalLlmContext(
     val personality: EvePersonality = EvePersonality(),
     val recentObservations: List<String> = emptyList(),
     val recentDialogues: List<String> = emptyList(),
-    val recentReflections: List<String> = emptyList()
+    val recentReflections: List<String> = emptyList(),
+    val knownPeople: String = ""
 )
 
 data class LocalLlmResult(
@@ -151,51 +153,66 @@ class LocalLanguageBrain(
                         )
                     }
 
-                    // LiteRT-LM 0.18.0 supports an explicit CPU thread count.
-                    // Bound it to 1..4 so the 4-core emulator can make progress without
-                    // creating an oversized worker pool on mid-range phones such as Redmi 12.
+                    // Prefer the packaged GPU delegate on ARM64 phones. The bundled Qwen
+                    // LiteRT-LM artifact is measured on mobile GPU; CPU remains the compatibility
+                    // fallback for devices whose vendor driver/delegate cannot initialize it.
                     val cpuThreads = Runtime.getRuntime().availableProcessors().coerceIn(1, 4)
-                    Log.i(TAG, "LOCAL_LLM_BACKEND_CPU threads=$cpuThreads availableProcessors=${Runtime.getRuntime().availableProcessors()}")
-                    val newEngine = Engine(
-                        EngineConfig(
-                            modelPath = file.absolutePath,
-                            backend = Backend.CPU(threadCount = cpuThreads),
-                            // This app keeps compact prompts and at most 48 output tokens;
-                            // bounding KV-cache capacity avoids reserving a huge model-default context.
-                            maxNumTokens = 768,
-                            cacheDir = engineCacheDirectory.absolutePath
-                        )
-                    )
-                    try {
-                        newEngine.initialize()
-                        val newConversation = newEngine.createConversation(
-                            ConversationConfig(
-                                systemInstruction = Contents.of(SYSTEM_INSTRUCTION),
-                                samplerConfig = SamplerConfig(
-                                    topK = 24,
-                                    topP = 0.88,
-                                    temperature = 0.35
-                                ),
-                                maxOutputToken = MAX_OUTPUT_TOKENS,
-                                // The bundled Qwen2 file has the legacy string-content template.
-                                // LiteRT-LM 0.18 passes message content as typed parts, so override
-                                // the metadata template to safely flatten text parts before formatting.
-                                chatTemplate = QWEN2_COMPATIBLE_CHAT_TEMPLATE
+                    val cpuBackend = Backend.CPU(threadCount = cpuThreads)
+                    val backends = if (Build.SUPPORTED_ABIS.any { it == "arm64-v8a" }) {
+                        listOf("GPU" to Backend.GPU(), "CPU" to cpuBackend)
+                    } else {
+                        listOf("CPU" to cpuBackend)
+                    }
+                    Log.i(TAG, "LOCAL_LLM_BACKEND_CANDIDATES=${backends.map { it.first }} cpuThreads=$cpuThreads")
+
+                    var selectedEngine: Engine? = null
+                    var selectedConversation: Conversation? = null
+                    var lastBackendError: Exception? = null
+                    for ((backendName, backend) in backends) {
+                        val candidate = Engine(
+                            EngineConfig(
+                                modelPath = file.absolutePath,
+                                backend = backend,
+                                // Keep the KV cache bounded; conversation turns are deliberately short.
+                                maxNumTokens = 768,
+                                cacheDir = engineCacheDirectory.absolutePath
                             )
                         )
-                        engine = newEngine
-                        conversation = newConversation
-                    } catch (error: Exception) {
-                        try { newEngine.close() } catch (_: Exception) { }
-                        throw error
+                        try {
+                            candidate.initialize()
+                            val candidateConversation = candidate.createConversation(
+                                ConversationConfig(
+                                    systemInstruction = Contents.of(SYSTEM_INSTRUCTION),
+                                    samplerConfig = SamplerConfig(
+                                        topK = 24,
+                                        topP = 0.88,
+                                        temperature = 0.35
+                                    ),
+                                    maxOutputToken = MAX_OUTPUT_TOKENS,
+                                    chatTemplate = QWEN2_COMPATIBLE_CHAT_TEMPLATE
+                                )
+                            )
+                            selectedEngine = candidate
+                            selectedConversation = candidateConversation
+                            Log.i(TAG, "LOCAL_LLM_BACKEND_SELECTED backend=$backendName")
+                            break
+                        } catch (error: Exception) {
+                            lastBackendError = error
+                            try { candidate.close() } catch (_: Exception) { }
+                            Log.w(TAG, "LOCAL_LLM_BACKEND_FAILED backend=$backendName; trying next candidate", error)
+                        }
                     }
+                    engine = selectedEngine
+                        ?: throw IllegalStateException("تعذر تهيئة محرك اللغة على GPU أو CPU.", lastBackendError)
+                    conversation = selectedConversation
+                        ?: throw IllegalStateException("لم تُنشأ محادثة محلية بعد تهيئة المحرك.")
 
                     state = LocalLlmState.READY
                     lastRetryAt = 0L
                     publish(LocalLlmState.READY, 100, "الدماغ اللغوي المحلي جاهز ويعمل دون إنترنت")
                     Log.i(
                         TAG,
-                        "LOCAL_LLM_READY model=Qwen2-0.5B-Instruct backend=CPU localOnly=true modelBytes=${file.length()}"
+                        "LOCAL_LLM_READY model=Qwen2-0.5B-Instruct localOnly=true modelBytes=${file.length()}"
                     )
                 } catch (error: Exception) {
                     if (!closed.get()) {
@@ -423,6 +440,9 @@ class LocalLanguageBrain(
         }
         context.recentReflections.lastOrNull()?.trim()?.takeIf { it.isNotBlank() }?.let {
             fields += "REF=${it.take(40)}"
+        }
+        context.knownPeople.trim().takeIf { it.isNotBlank() }?.let {
+            fields += "PEOPLE=${it.take(140)}"
         }
         if (context.moodReason.isNotBlank() && context.moodReason != mode) {
             fields += "WHY=${context.moodReason.trim().take(40)}"
@@ -764,7 +784,7 @@ class LocalLanguageBrain(
         private const val CONNECT_TIMEOUT_MS = 25_000
         private const val READ_TIMEOUT_MS = 75_000
         private const val RETRY_DELAY_MS = 30_000L
-        private const val MAX_REPLY_CHARS = 650
+        private const val MAX_REPLY_CHARS = 300
         private const val MAX_OUTPUT_TOKENS = 48
         private const val MAX_RESPONSE_BUFFER_CHARS = 8_000
         /**
