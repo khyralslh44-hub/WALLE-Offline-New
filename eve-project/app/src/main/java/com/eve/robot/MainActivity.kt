@@ -1420,11 +1420,17 @@ class MainActivity : ComponentActivity() {
                     if (bestFace == null) {
                         faceCueSmoother.reset()
                         emotionSmoother.reset()
+                        val elapsed = SystemClock.elapsedRealtime()
+                        val unknown = activityUnderstanding.observe(
+                            EveHumanFrameEvidence(timestampMs = elapsed, personConfidence = 0f)
+                        )
+                        applyHumanActivityInterpretation(unknown, elapsed)
                         return@addOnSuccessListener
                     }
 
                     val elapsed = SystemClock.elapsedRealtime()
                     lastFaceSeenAt = elapsed
+                    observeHumanActivityFromFace(bestFace, elapsed)
                     val rawCue = EveFaceCue(
                         smilingProbability = bestFace.smilingProbability,
                         leftEyeOpenProbability = bestFace.leftEyeOpenProbability,
@@ -1775,6 +1781,130 @@ class MainActivity : ComponentActivity() {
     private val objectObservationMinConfidence = 0.52f
     private val objectLabelMemoryIntervalMs = 9_000L
     private val objectReactionCooldownMs = 8_000L
+    private data class MouthGeometry(
+        val centerX: Float,
+        val centerY: Float,
+        val openingRatio: Float
+    )
+
+    /** Estimate average luminance by sparse pixel sampling; no photo is saved. */
+    private fun estimateMeanLuminance(bitmap: Bitmap): Float {
+        if (bitmap.isRecycled || bitmap.width <= 0 || bitmap.height <= 0) return 0f
+        val stepX = (bitmap.width / 32).coerceAtLeast(1)
+        val stepY = (bitmap.height / 32).coerceAtLeast(1)
+        var total = 0.0
+        var count = 0
+        var y = 0
+        while (y < bitmap.height) {
+            var x = 0
+            while (x < bitmap.width) {
+                val pixel = bitmap.getPixel(x, y)
+                total += 0.299 * android.graphics.Color.red(pixel) +
+                    0.587 * android.graphics.Color.green(pixel) +
+                    0.114 * android.graphics.Color.blue(pixel)
+                count++
+                x += stepX
+            }
+            y += stepY
+        }
+        return if (count == 0) 0f else (total / count).toFloat()
+    }
+
+    /** Lip contours are motion cues only; they cannot identify gum or prove intent. */
+    private fun mouthGeometry(face: Face): MouthGeometry {
+        val width = latestAnalysisWidth.toFloat().coerceAtLeast(1f)
+        val height = latestAnalysisHeight.toFloat().coerceAtLeast(1f)
+        val upper = face.getContour(FaceContour.UPPER_LIP_BOTTOM)?.points.orEmpty()
+        val lower = face.getContour(FaceContour.LOWER_LIP_TOP)?.points.orEmpty()
+        if (upper.isNotEmpty() && lower.isNotEmpty()) {
+            val upperY = upper.map { it.y }.average().toFloat()
+            val lowerY = lower.map { it.y }.average().toFloat()
+            val allX = (upper + lower).map { it.x }
+            val centerX = allX.average().toFloat() / width
+            val centerY = ((upperY + lowerY) * 0.5f) / height
+            val ratio = kotlin.math.abs(lowerY - upperY) /
+                face.boundingBox.height().coerceAtLeast(1)
+            return MouthGeometry(
+                centerX = centerX.coerceIn(0f, 1f),
+                centerY = centerY.coerceIn(0f, 1f),
+                openingRatio = ratio.coerceIn(0f, 1f)
+            )
+        }
+        // Missing lip contours provide only a rough position, never mouth-opening evidence.
+        val box = face.boundingBox
+        return MouthGeometry(
+            centerX = (box.centerX().toFloat() / width).coerceIn(0f, 1f),
+            centerY = ((box.top + box.height() * 0.68f) / height).coerceIn(0f, 1f),
+            openingRatio = 0f
+        )
+    }
+
+    private fun handNearMouthConfidence(mouth: MouthGeometry, faceHeightPixels: Int, now: Long): Float {
+        val observedAt = latestHandObservedAt
+        if (observedAt == 0L || now - observedAt !in 0L..1_400L) return 0f
+        val tips = latestHandFingerTips
+        if (tips.isEmpty()) return 0f
+        val frameHeight = latestAnalysisHeight.toFloat().coerceAtLeast(1f)
+        val threshold = ((faceHeightPixels / frameHeight) * 0.34f).coerceIn(0.035f, 0.12f)
+        val nearest = tips.minOfOrNull { (x, y) ->
+            kotlin.math.hypot((x - mouth.centerX).toDouble(), (y - mouth.centerY).toDouble()).toFloat()
+        } ?: return 0f
+        return (1f - nearest / threshold).coerceIn(0f, 1f) * 0.95f
+    }
+
+    /** Connect face/mouth cues, tracked hands, and recent object detections. */
+    private fun observeHumanActivityFromFace(face: Face, now: Long) {
+        val mouth = mouthGeometry(face)
+        val handConfidence = handNearMouthConfidence(mouth, face.boundingBox.height(), now)
+        val handIsFresh = latestHandObservedAt > 0L && now - latestHandObservedAt in 0L..1_400L
+        val labels = if (lastObjectSceneAt > 0L && now - lastObjectSceneAt in 0L..6_000L) {
+            latestObjectLabels
+        } else {
+            emptySet()
+        }
+        val result = activityUnderstanding.observe(
+            EveHumanFrameEvidence(
+                timestampMs = now,
+                // Detected face means a person is present; it does not identify their name.
+                personConfidence = 0.88f,
+                handToMouthConfidence = handConfidence,
+                mouthOpeningRatio = mouth.openingRatio,
+                jointMotionScore = if (handIsFresh) latestHandTrajectoryScore else 0f,
+                handCenterX = latestHandCenterX.takeIf { handIsFresh && it.isFinite() },
+                handCenterY = latestHandCenterY.takeIf { handIsFresh && it.isFinite() },
+                visibleObjectLabels = labels
+            )
+        )
+        applyHumanActivityInterpretation(result, now)
+    }
+
+    private fun applyHumanActivityInterpretation(result: EveActivityInterpretation, now: Long) {
+        if (isFinishing || isDestroyed) return
+        if (result.isActionable) {
+            lastHumanActivityAt = now
+            lastActivityObservationAt = now
+            latestActivitySummary = result.explanationArabic +
+                " (احتمال ${(result.confidence * 100f).toInt()}٪؛ وليس تأكيدًا)"
+            if (result.activity != activeHumanActivity) {
+                activeHumanActivity = result.activity
+                val decision = brain.observeHumanActivity(result.activity, result.confidence)
+                main.post {
+                    if (!isFinishing && !isDestroyed) react(decision, playSound = false)
+                }
+            }
+            Log.i(
+                "EVE_ACTIVITY",
+                "ACTIVITY_HYPOTHESIS activity=${result.activity} confidence=${result.confidence} " +
+                    "frames=${result.evidenceCount} durationMs=${result.durationMs} offline=true"
+            )
+        } else if (lastHumanActivityAt == 0L || now - lastHumanActivityAt > activitySummaryTtlMs) {
+            activeHumanActivity = EveHumanActivity.UNKNOWN
+            latestActivitySummary = ""
+            lastActivityObservationAt = 0L
+        }
+        refreshLatestSceneSummary(now)
+    }
+
     private val sceneSummaryTtlMs = 15_000L
 
     /** Combines spatial object boxes with broader ImageNet scene hypotheses, discarding stale evidence. */
