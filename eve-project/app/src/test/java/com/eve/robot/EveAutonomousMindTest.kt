@@ -19,7 +19,9 @@ class EveAutonomousMindTest {
         activityConfidence: Float = 0f,
         explore: Boolean = false,
         llmReady: Boolean = false,
-        lastReflection: Long = 0L
+        lastReflection: Long = 0L,
+        cameraFront: Boolean = false,
+        switchAllowed: Boolean = false
     ) = EveMindContext(
         nowMs = now,
         inactiveMs = inactive,
@@ -33,7 +35,9 @@ class EveAutonomousMindTest {
         activityConfidence = activityConfidence,
         explorationEnabled = explore,
         localLanguageReady = llmReady,
-        lastReflectionAtMs = lastReflection
+        lastReflectionAtMs = lastReflection,
+        cameraIsFront = cameraFront,
+        cameraSwitchAllowed = switchAllowed
     )
 
     @Test fun staleScenePlansObservationInsteadOfInventingWhatItSees() {
@@ -61,9 +65,64 @@ class EveAutonomousMindTest {
         assertTrue(plan.steps.size <= 3)
     }
 
-    @Test fun explorationNeverPlansAnAutomaticCameraLensSwitch() {
+    @Test fun explorationNeverPlansAnAutomaticCameraLensSwitchWithoutExplicitSafeConditions() {
         val plan = EveAutonomousMind().plan(context(explore = true, llmReady = false))
-        assertFalse(plan.steps.any { it.action.name.contains("SWITCH_CAMERA") })
+        assertFalse(plan.steps.any { it.action == EveMindAction.SWITCH_TO_WORLD_CAMERA })
+    }
+
+    @Test fun longQuietPeriodChoosesRearCameraExplorationOnlyWhenNoFaceIsPresent() {
+        val plan = EveAutonomousMind().plan(
+            context(
+                now = 60_000L,
+                inactive = EveAutonomousMind.AUTO_CAMERA_SWITCH_IDLE_MS,
+                sceneAge = Long.MAX_VALUE,
+                scene = "",
+                label = "",
+                confidence = 0f,
+                face = false,
+                explore = true,
+                cameraFront = true,
+                switchAllowed = true
+            )
+        )
+        assertEquals(EveMindGoal.EXPLORE_CURRENT_VIEW, plan.goal)
+        assertEquals(EveMindAction.SWITCH_TO_WORLD_CAMERA, plan.steps.first().action)
+        assertTrue(plan.rationaleArabic.contains("الكاميرا الخلفية"))
+    }
+
+    @Test fun explorationWillNotSwitchCameraWhileAPersonIsVisible() {
+        val plan = EveAutonomousMind().plan(
+            context(
+                now = 60_000L,
+                inactive = 40_000L,
+                sceneAge = Long.MAX_VALUE,
+                scene = "",
+                label = "",
+                confidence = 0f,
+                face = true,
+                explore = true,
+                cameraFront = true,
+                switchAllowed = true
+            )
+        )
+        assertFalse(plan.steps.any { it.action == EveMindAction.SWITCH_TO_WORLD_CAMERA })
+    }
+
+    @Test fun explorationWillNotSwitchCameraWhenTheCooldownOrPermissionBlocksIt() {
+        val plan = EveAutonomousMind().plan(
+            context(
+                now = 60_000L,
+                inactive = 40_000L,
+                sceneAge = Long.MAX_VALUE,
+                scene = "",
+                label = "",
+                confidence = 0f,
+                explore = true,
+                cameraFront = true,
+                switchAllowed = false
+            )
+        )
+        assertFalse(plan.steps.any { it.action == EveMindAction.SWITCH_TO_WORLD_CAMERA })
     }
 
     @Test fun repeatedEvidenceDoesNotGenerateEndlessReflectionLoops() {
