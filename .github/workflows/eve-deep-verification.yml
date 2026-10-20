@@ -141,10 +141,12 @@ jobs:
             --output "$MODEL"
           BYTES="$(stat -c '%s' "$MODEL")"
           SHA256="$(sha256sum "$MODEL" | awk '{print $1}')"
+          EXPECTED_SHA256="bc2ffe19c1118de0c0c2a9088992da5589722656e0fba81421385300a4a34b16"
+          EXPECTED_BYTES=5434517
           echo "EfficientNet-Lite0 ImageNet SHA-256: $SHA256"
           echo "EfficientNet-Lite0 ImageNet bytes: $BYTES"
-          if [ "$BYTES" -lt 1000000 ] || [ "$BYTES" -gt 20000000 ]; then
-            echo "FAIL: downloaded ImageNet classifier has an implausible size."
+          if [ "$SHA256" != "$EXPECTED_SHA256" ] || [ "$BYTES" -ne "$EXPECTED_BYTES" ]; then
+            echo "FAIL: ImageNet classifier model differs from the reviewed pinned model."
             exit 1
           fi
           sha256sum "$MODEL" | tee "$RUNNER_TEMP/imagenet-classifier-sha256.txt"
@@ -190,7 +192,8 @@ jobs:
           test "$(sha256sum "$OBJECT_MODEL" | awk '{print $1}')" = "40338edf5ec70d43e318b0a716a84d4564cd1802759a7a07170c7e43796dbf58"
           IMAGENET_MODEL="eve-project/app/src/main/assets/efficientnet_lite0_int8.tflite"
           test -s "$IMAGENET_MODEL"
-          test "$(stat -c '%s' "$IMAGENET_MODEL")" -gt 1000000
+          test "$(stat -c '%s' "$IMAGENET_MODEL")" -eq 5434517
+          test "$(sha256sum "$IMAGENET_MODEL" | awk '{print $1}')" = "bc2ffe19c1118de0c0c2a9088992da5589722656e0fba81421385300a4a34b16"
           test -s "$RUNNER_TEMP/imagenet-classifier-sha256.txt"
           VOSK_ARCHIVE="eve-project/app/src/main/assets/vosk-model-ar-mgb2-0.4.zip"
           test -s "$VOSK_ARCHIVE"
