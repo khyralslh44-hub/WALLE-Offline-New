@@ -46,3 +46,14 @@ The model repository declares the weights licensed under Apache License 2.0. The
 APK includes the upstream license as the asset `qwen2_model_license.txt`.
 The model weights are verified in CI against SHA-256
 `0f01cc004b8eb62b92ba6be85ed05a248ba0d2f78af94c4949b313eccfb4c157`.
+
+
+## MobileFaceNet on-device face identity model
+
+The local face comparison model is `MobileFaceNet.tflite` from
+`syaringan357/Android-MobileFaceNet-MTCNN-FaceAntiSpoofing`, pinned to commit
+`d635649e711f5e16e6cd3dc06cbb329cd8d1d3b7`.
+The upstream repository declares an MIT license; the APK includes the license as
+`mobilefacenet_model_license.txt`. The model is used only after an explicit
+voice request to enrol a named face. Face reference crops remain in app-private
+storage and are not uploaded.
