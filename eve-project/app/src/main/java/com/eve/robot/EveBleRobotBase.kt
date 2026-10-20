@@ -78,6 +78,7 @@ class EveBleRobotBase(
     private var scanCallback: ScanCallback? = null
     private var gatt: BluetoothGatt? = null
     private var commandCharacteristic: BluetoothGattCharacteristic? = null
+    private var commandWriteType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
     private var telemetryCharacteristic: BluetoothGattCharacteristic? = null
     private var poseCharacteristic: BluetoothGattCharacteristic? = null
     private var sequence = 0
@@ -159,12 +160,17 @@ class EveBleRobotBase(
                 pendingFrame = frame
                 return true
             }
-            writeInFlight = startWrite(currentGatt, characteristic, frame)
-            if (!writeInFlight) {
+            val started = startWrite(currentGatt, characteristic, frame)
+            if (!started) {
+                writeInFlight = false
                 pendingFrame = null
                 fail("تعذرت كتابة أمر الحركة؛ لا تكرر الحركة دون بيانات اتصال سليمة.")
                 return false
             }
+            // Write-with-response is serialized through onCharacteristicWrite. A no-response
+            // characteristic has no dependable completion signal, so don't wait on that callback
+            // or let one command permanently block all newer stop/drive frames.
+            writeInFlight = commandWriteType != BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
         }
         return true
     }
@@ -279,6 +285,11 @@ class EveBleRobotBase(
                 return
             }
             commandCharacteristic = command
+            commandWriteType = if (command.properties and BluetoothGattCharacteristic.PROPERTY_WRITE != 0) {
+                BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+            } else {
+                BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+            }
             telemetryCharacteristic = telemetry
             poseCharacteristic = pose
             if (!enableNotifications(callbackGatt, telemetry)) {
@@ -429,11 +440,11 @@ class EveBleRobotBase(
                 currentGatt.writeCharacteristic(
                     characteristic,
                     frame,
-                    BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+                    commandWriteType
                 ) == 0
             } else {
                 @Suppress("DEPRECATION")
-                characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+                characteristic.writeType = commandWriteType
                 @Suppress("DEPRECATION")
                 characteristic.value = frame
                 @Suppress("DEPRECATION")
@@ -475,6 +486,7 @@ class EveBleRobotBase(
         val current = gatt
         gatt = null
         commandCharacteristic = null
+        commandWriteType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
         telemetryCharacteristic = null
         poseCharacteristic = null
         latestTelemetry = null
