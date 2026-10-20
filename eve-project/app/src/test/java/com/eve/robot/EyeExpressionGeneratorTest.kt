@@ -233,4 +233,23 @@ class EyeExpressionGeneratorTest {
         assertEquals(EyeSilhouette.SOFT, connect.silhouette)
         assertTrue(setOf(explore.silhouette, rest.silhouette, connect.silhouette).size == 3)
     }
+
+    @Test fun sleepyMoodUsesDroopyLidsInsteadOfBlinkSlitsAtHighFatigue() {
+        val pose = EyeExpressionGenerator.generate(
+            EveDecision(
+                mood = EveMood.SLEEPY,
+                reason = "long quiet period",
+                valence = -0.12f,
+                arousal = 0.12f,
+                curiosity = 0.35f,
+                fatigue = 0.94f
+            ),
+            seed = 2026L
+        )
+        assertEquals(
+            "Sustained sleepiness must use droopy eyelids; BLINK_LOW is reserved for a blink expression.",
+            EyeSilhouette.DROOPY,
+            pose.silhouette
+        )
+    }
 }
