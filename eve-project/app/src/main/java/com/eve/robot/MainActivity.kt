@@ -2166,6 +2166,8 @@ class MainActivity : ComponentActivity() {
         val mouth = mouthGeometry(face)
         val handConfidence = handNearMouthConfidence(mouth, face.boundingBox.height(), now)
         val handIsFresh = latestHandObservedAt > 0L && now - latestHandObservedAt in 0L..1_400L
+        val poseIsFresh = latestPoseObservedAt > 0L && now - latestPoseObservedAt in 0L..3_200L
+        val pose = latestPoseAngles.takeIf { poseIsFresh }
         val labels = if (lastObjectSceneAt > 0L && now - lastObjectSceneAt in 0L..6_000L) {
             latestObjectLabels
         } else {
@@ -2178,7 +2180,14 @@ class MainActivity : ComponentActivity() {
                 personConfidence = 0.88f,
                 handToMouthConfidence = handConfidence,
                 mouthOpeningRatio = mouth.openingRatio,
-                jointMotionScore = if (handIsFresh) latestHandTrajectoryScore else 0f,
+                jointMotionScore = maxOf(
+                    if (handIsFresh) latestHandTrajectoryScore else 0f,
+                    pose?.jointMotionScore ?: 0f
+                ),
+                leftKneeAngleDegrees = pose?.leftKnee,
+                rightKneeAngleDegrees = pose?.rightKnee,
+                leftElbowAngleDegrees = pose?.leftElbow,
+                rightElbowAngleDegrees = pose?.rightElbow,
                 handCenterX = latestHandCenterX.takeIf { handIsFresh && it.isFinite() },
                 handCenterY = latestHandCenterY.takeIf { handIsFresh && it.isFinite() },
                 visibleObjectLabels = labels
@@ -2192,6 +2201,7 @@ class MainActivity : ComponentActivity() {
         if (result.isActionable) {
             lastHumanActivityAt = now
             lastActivityObservationAt = now
+            activeHumanActivityConfidence = result.confidence
             latestActivitySummary = result.explanationArabic +
                 " (احتمال ${(result.confidence * 100f).toInt()}٪؛ وليس تأكيدًا)"
             if (result.activity != activeHumanActivity) {
@@ -2208,6 +2218,7 @@ class MainActivity : ComponentActivity() {
             )
         } else if (lastHumanActivityAt == 0L || now - lastHumanActivityAt > activitySummaryTtlMs) {
             activeHumanActivity = EveHumanActivity.UNKNOWN
+            activeHumanActivityConfidence = 0f
             latestActivitySummary = ""
             lastActivityObservationAt = 0L
         }
@@ -2230,6 +2241,7 @@ class MainActivity : ComponentActivity() {
         if (lastActivityObservationAt == 0L || now - lastActivityObservationAt > activitySummaryTtlMs) {
             latestActivitySummary = ""
             activeHumanActivity = EveHumanActivity.UNKNOWN
+            activeHumanActivityConfidence = 0f
         }
         if (lastEnvironmentObservationAt == 0L || now - lastEnvironmentObservationAt > environmentSummaryTtlMs) {
             latestEnvironmentSummary = ""
