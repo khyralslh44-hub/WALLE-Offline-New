@@ -1100,9 +1100,8 @@ class RobotGamesActivity : ComponentActivity() {
     // All projectiles and scoring are drawn locally; no camera or network is required.
     private fun startPaintShot() {
         beginGameSession()
-        // Vision-first mode uses the live camera scene and virtual projectiles. The arena remains
-        // available as a touch fallback, but is no longer the only aiming method.
-        startActivity(Intent(this, CameraShotActivity::class.java).putExtra("eve_camera_game", "paint_shot"))
+        // The standard Paint Shot mode is a self-contained moving-target game with hit scoring.
+        // The separate camera mode is available from the menu and has its own moving AR target.
         paintShotArena?.setGameActive(false)
         game = Game.PAINT_SHOT
         paintShotScore = 0

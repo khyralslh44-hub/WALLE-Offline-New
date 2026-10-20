@@ -78,6 +78,42 @@ class RobotGamesGameplayTest {
     }
 
     @Test
+    fun rockPaperScissorsTouchPlayScoresTheRoundAndPersistsPlayerHistory() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        context.getSharedPreferences("eve_games", android.content.Context.MODE_PRIVATE)
+            .edit().remove("rps:move_history").commit()
+        val scenario = ActivityScenario.launch(RobotGamesActivity::class.java)
+        try {
+            scenario.onActivity { activity ->
+                requireNotNull(buttonContaining(activity, "حجر • ورقة • مقص")).performClick()
+            }
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+            scenario.onActivity { activity ->
+                requireNotNull(buttonContaining(activity, "لعب احتياطي باللمس")).performClick()
+            }
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+            scenario.onActivity { activity ->
+                requireNotNull(buttonContaining(activity, "✊ حجر")).performClick()
+                assertTrue(
+                    "RPS should display the played round and both scores: ${visibleText(activity)}",
+                    visibleText(activity).contains("الجولات: 1")
+                )
+                assertTrue(
+                    "RPS should report the outcome of the round: ${visibleText(activity)}",
+                    visibleText(activity).contains("نقطة") || visibleText(activity).contains("تعادل")
+                )
+                assertTrue(
+                    "The chosen move should be persisted for later pattern reading.",
+                    activity.getSharedPreferences("eve_games", android.content.Context.MODE_PRIVATE)
+                        .getString("rps:move_history", "").orEmpty().isNotBlank()
+                )
+            }
+        } finally {
+            scenario.close()
+        }
+    }
+
+    @Test
     fun paintShotArenaFiresAtMovingTargetAndScoresOnlyAccurateShots() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val scenario = ActivityScenario.launch(RobotGamesActivity::class.java)

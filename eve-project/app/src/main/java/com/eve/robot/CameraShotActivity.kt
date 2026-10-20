@@ -57,6 +57,8 @@ class CameraShotActivity : ComponentActivity() {
     private val rpsWorker = Executors.newSingleThreadExecutor()
     private val rpsInferenceRunning = AtomicBoolean(false)
     @Volatile private var rpsRecognizer: GestureRecognizer? = null
+    internal var gestureModelReadyForTest = false
+        private set
     private var rpsSamplingActive = false
     private var rpsFace: RobotFaceView? = null
     private var rpsBrain: RobotBrain? = null
@@ -130,14 +132,15 @@ class CameraShotActivity : ComponentActivity() {
                         raw.toIntOrNull()?.let { RpsMove.values().getOrNull(it) }
                     }.takeLast(24)
             )
-            rpsFace = RobotFaceView(this).apply {
+            val face = RobotFaceView(this).apply {
                 isClickable = false
                 contentDescription = "EVE hand-gesture RPS reaction face"
                 setExpression(requireNotNull(rpsBrain).awakenExperience(), SystemClock.uptimeMillis())
                 startAnimation()
             }
+            rpsFace = face
             root.addView(
-                rpsFace,
+                face,
                 FrameLayout.LayoutParams(dp(124), dp(86), Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply {
                     bottomMargin = dp(20)
                 }
@@ -274,6 +277,7 @@ class CameraShotActivity : ComponentActivity() {
                         .setNumHands(1)
                         .build()
                     rpsRecognizer = GestureRecognizer.createFromOptions(applicationContext, options)
+                    gestureModelReadyForTest = true
                     runOnUiThread {
                         if (!isFinishing && !isDestroyed) {
                             rpsStatusLine = "جاهزة للرصد: قبضة حجر • كف ورقة • إصبعان مقص"
