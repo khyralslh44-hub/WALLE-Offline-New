@@ -53,6 +53,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var face: RobotFaceView
     private lateinit var brain: RobotBrain
     private lateinit var memory: EveMemory
+    private lateinit var peopleMemory: EvePeopleMemory
     private lateinit var voice: RobotVoice
     private lateinit var localLanguageBrain: LocalLanguageBrain
     private val lastLocalLlmVisionAt = AtomicLong(0L)
@@ -345,6 +346,7 @@ class MainActivity : ComponentActivity() {
         }
         setContentView(root)
         memory = EveMemory(applicationContext)
+        peopleMemory = EvePeopleMemory(applicationContext)
         brain = RobotBrain(memory.learnedPersonality())
         voice = RobotVoice()
         localLanguageBrain = LocalLanguageBrain(applicationContext) { state, percent, message ->
@@ -594,6 +596,36 @@ class MainActivity : ComponentActivity() {
             return
         }
 
+        // Explicit spoken introductions update private on-device memory; this is name memory,
+        // not face identity recognition. Only user-supplied names are stored.
+        val introducedPerson = peopleMemory.rememberIntroduction(text)
+        if (introducedPerson != null) {
+            val confirmation = when (introducedPerson.key) {
+                "user" -> "حفظت اسمك، ${introducedPerson.name}، على هذا الهاتف. هل أناديك بهذا الاسم؟"
+                else -> "حفظت أن ${introducedPerson.relationArabic} اسمه ${introducedPerson.name}. سأستخدم الاسم عندما تسألني عنه."
+            }
+            val decision = brain.observeKnownPerson(introducedPerson.relationArabic, isIntroduction = true)
+            react(decision, playSound = false)
+            memory.rememberDialogue(text, confirmation)
+            showDialogueText(confirmation, durationMs = 8_000L)
+            voice.respondToSpeech(decision.mood, text)
+            lastConversationalExchangeAt = now
+            Log.i("EVE_PEOPLE", "INTRODUCTION_SAVED relation=${introducedPerson.key} nameLength=${introducedPerson.name.length}")
+            return
+        }
+
+        val peopleAnswer = peopleMemory.answer(text)
+        if (peopleAnswer != null) {
+            val decision = brain.observeKnownPerson("العائلة والأصدقاء", isIntroduction = false)
+            react(decision, playSound = false)
+            memory.rememberDialogue(text, peopleAnswer)
+            showDialogueText(peopleAnswer, durationMs = 8_000L)
+            voice.respondToSpeech(decision.mood, text)
+            lastConversationalExchangeAt = now
+            Log.i("EVE_PEOPLE", "MEMORY_ANSWER chars=${peopleAnswer.length}")
+            return
+        }
+
         val addressedToEve = listOf(
             "ايف", "يا ايف", "ايفي", "يا روبوت", "eve", "hey eve", "hello eve"
         ).any(text::contains)
@@ -601,13 +633,34 @@ class MainActivity : ComponentActivity() {
         val isQuestion = OfflineEveResponder.isQuestion(text)
         val activeConversation = lastConversationalExchangeAt > 0L &&
             now - lastConversationalExchangeAt in 0L..90_000L
-        // A direct question is answered even if a family member has not used the wake name.
-        // Non-question statements are followed only when EVE is addressed or a conversation is active.
         val conversationalTurn = isQuestion || addressedToEve ||
             (wordCount >= 3 && activeConversation)
 
-        // Once the real on-device LLM is ready, send open-ended questions and complete thoughts
-        // to it before canned FAQ matching. This preserves multi-turn context and visual memory.
+        // Resolve known safe local questions first; never make an FAQ wait behind slow inference.
+        val currentVisualAge = if (lastMeaningfulLabelAt > 0L) now - lastMeaningfulLabelAt else Long.MAX_VALUE
+        val offlineAnswer = OfflineEveResponder.answer(
+            rawQuestion = text,
+            latestLabel = lastMeaningfulLabel,
+            latestConfidence = lastMeaningfulConfidence,
+            observationAgeMs = currentVisualAge
+        )
+        if (offlineAnswer != null && offlineAnswer.topic != "unknown_offline_question") {
+            val speechState = brain.respondToSpeech(text, addressedToEve = true)
+            val answerDecision = speechState.copy(
+                mood = offlineAnswer.mood,
+                reason = "local answer: " + offlineAnswer.topic,
+                intent = if (offlineAnswer.mood == EveMood.CURIOUS) EveIntent.EXPLORE else EveIntent.FOCUS
+            )
+            react(answerDecision, playSound = false)
+            showDialogueText(offlineAnswer.text, durationMs = 7200L)
+            memory.rememberDialogue(text, offlineAnswer.text)
+            voice.respondToSpeech(answerDecision.mood, text)
+            Log.i("EVE_DIALOGUE", "ANSWER topic=" + offlineAnswer.topic + " mood=" + answerDecision.mood + " local=true")
+            lastConversationalExchangeAt = now
+            return
+        }
+
+        // Open-ended questions go to the local generator only after deterministic memory/FAQ paths.
         if (conversationalTurn && ::localLanguageBrain.isInitialized) {
             if (localLanguageBrain.isReady) {
                 requestLocalLanguageReply(text, addressedToEve)
@@ -619,14 +672,7 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // During first model setup or low-memory fallback, use only narrow grounded local answers.
-        val currentVisualAge = if (lastMeaningfulLabelAt > 0L) now - lastMeaningfulLabelAt else Long.MAX_VALUE
-        val offlineAnswer = OfflineEveResponder.answer(
-            rawQuestion = text,
-            latestLabel = lastMeaningfulLabel,
-            latestConfidence = lastMeaningfulConfidence,
-            observationAgeMs = currentVisualAge
-        )
+        // If the local generator is unavailable, return an honest grounded fallback immediately.
         if (offlineAnswer != null) {
             val speechState = brain.respondToSpeech(text, addressedToEve = true)
             val answerDecision = speechState.copy(
@@ -636,6 +682,7 @@ class MainActivity : ComponentActivity() {
             )
             react(answerDecision, playSound = false)
             showDialogueText(offlineAnswer.text, durationMs = 7200L)
+            memory.rememberDialogue(text, offlineAnswer.text)
             voice.respondToSpeech(answerDecision.mood, text)
             Log.i("EVE_DIALOGUE", "ANSWER topic=" + offlineAnswer.topic + " mood=" + answerDecision.mood + " local=true")
             lastConversationalExchangeAt = now
@@ -1801,7 +1848,8 @@ class MainActivity : ComponentActivity() {
             personality = memory.learnedPersonality(),
             recentObservations = memory.recentVisualMemories(5),
             recentDialogues = memory.recentDialogues(3),
-            recentReflections = memory.recentReflections(3)
+            recentReflections = memory.recentReflections(3),
+            knownPeople = peopleMemory.summary()
         )
     }
 
