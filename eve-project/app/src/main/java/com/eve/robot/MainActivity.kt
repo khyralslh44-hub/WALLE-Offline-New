@@ -1179,8 +1179,10 @@ class MainActivity : ComponentActivity() {
         val frameBitmap = if (bitmapNeeded) {
             try {
                 imageProxyToUprightBitmap(proxy).also { bitmap ->
-                    latestAnalysisWidth = bitmap.width.coerceAtLeast(1)
-                    latestAnalysisHeight = bitmap.height.coerceAtLeast(1)
+                    if (bitmap != null) {
+                        latestAnalysisWidth = bitmap.width.coerceAtLeast(1)
+                        latestAnalysisHeight = bitmap.height.coerceAtLeast(1)
+                    }
                 }
             } catch (error: Exception) {
                 Log.w("EVE_FER", "Could not convert camera YUV frame for local on-device models.", error)
