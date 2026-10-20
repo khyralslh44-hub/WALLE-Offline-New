@@ -73,6 +73,41 @@ class EveHomeMapMemoryTest {
         assertTrue(result.knownRooms.contains(EveRoomType.KITCHEN))
     }
 
+    @Test fun mapDoesNotLearnFromAnEdgeFaultOrUnsafeBaseState() {
+        val map = EveHomeMapMemory()
+        val safe = map.observe(
+            pose = pose(),
+            telemetry = telemetry(),
+            room = EveRoomType.KITCHEN,
+            nowMs = 1_000L
+        )
+        assertNotNull(safe)
+        val before = map.snapshot().knownCells
+
+        val nearEdge = telemetry(at = 1_200L).copy(leftCliffDistanceMm = 220)
+        assertNull(
+            map.observe(
+                pose = pose(at = 1_200L),
+                telemetry = nearEdge,
+                room = EveRoomType.BATHROOM,
+                nowMs = 1_200L
+            )
+        )
+        assertEquals("Unsafe edge evidence must not update the occupancy map.", before, map.snapshot().knownCells)
+        assertEquals("Unsafe edge evidence must not rewrite the room label.", EveRoomType.KITCHEN, map.snapshot().currentRoom)
+
+        val faulted = telemetry(at = 1_300L).copy(baseFault = true)
+        assertNull(
+            map.observe(
+                pose = pose(at = 1_300L),
+                telemetry = faulted,
+                room = EveRoomType.BATHROOM,
+                nowMs = 1_300L
+            )
+        )
+        assertEquals(before, map.snapshot().knownCells)
+    }
+
     @Test fun movingThroughCoordinatesAddsExploredCellsAndCanChangeRoom() {
         val map = EveHomeMapMemory()
         map.observe(pose(), telemetry(), EveRoomType.LIVING_ROOM, 1_000L)
