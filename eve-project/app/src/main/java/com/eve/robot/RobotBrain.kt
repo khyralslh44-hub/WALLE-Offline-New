@@ -224,6 +224,53 @@ class RobotBrain(personality: EvePersonality = EvePersonality()) {
         )
     }
 
+    /**
+     * A multi-frame activity estimate may gently influence attention, but never interrupts the
+     * person, speaks automatically, or treats a visual hypothesis as a known fact.
+     */
+    @Synchronized
+    fun observeHumanActivity(activity: EveHumanActivity, confidence: Float): EveDecision {
+        val certainty = confidence.takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: 0f
+        if (activity == EveHumanActivity.UNKNOWN || certainty < 0.55f) {
+            return snapshot(EveMood.NEUTRAL, "human activity evidence is insufficient", false)
+        }
+
+        // Activity is context, not a command. Keep voice silent and make only a bounded shift
+        // in attention, so the character looks observant rather than intrusive.
+        curiosity = (curiosity + certainty * 0.045f * personality.curiosityBias).coerceAtMost(1f)
+        fatigue = (fatigue - certainty * 0.025f).coerceAtLeast(0f)
+        return when (activity) {
+            EveHumanActivity.EATING_POSSIBLE, EveHumanActivity.DRINKING_POSSIBLE -> {
+                arousal = (arousal * 0.72f + 0.28f * 0.28f).coerceIn(0.12f, 0.72f)
+                snapshot(
+                    EveMood.CURIOUS,
+                    "cautious visual activity hypothesis: $activity; remain quiet",
+                    false,
+                    EveIntent.FOCUS
+                )
+            }
+            EveHumanActivity.CHEWING_MOTION_POSSIBLE -> {
+                arousal = (arousal * 0.70f + 0.30f * 0.32f).coerceIn(0.12f, 0.75f)
+                snapshot(
+                    EveMood.FOCUSED,
+                    "repeated mouth-area motion is ambiguous; do not infer chewing gum",
+                    false,
+                    EveIntent.FOCUS
+                )
+            }
+            EveHumanActivity.EXERCISE_LIKE_MOTION -> {
+                arousal = (arousal * 0.58f + 0.42f * 0.56f).coerceIn(0.20f, 0.85f)
+                snapshot(
+                    EveMood.CURIOUS,
+                    "repeated joint motion may be exercise; give the person space",
+                    false,
+                    EveIntent.EXPLORE
+                )
+            }
+            EveHumanActivity.UNKNOWN -> snapshot(EveMood.NEUTRAL, "human activity is unknown", false)
+        }
+    }
+
     /** Camera/permission failures are behavior events, not direct UI-only mood overrides. */
     @Synchronized
     fun cameraUnavailable(reason: String): EveDecision {
