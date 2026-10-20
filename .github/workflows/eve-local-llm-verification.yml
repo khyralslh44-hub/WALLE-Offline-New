@@ -126,12 +126,28 @@ jobs:
           echo "PASS: APK contains the pinned Qwen asset (SHA-256 verified)."
           sha256sum "$APP_APK" "$TEST_APK" | tee "$RUNNER_TEMP/eve-llm-apk-sha256.txt"
 
+      - name: Enable KVM acceleration for local model inference
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -e /dev/kvm ]; then
+            echo "::error::KVM is unavailable; x86_64 model prefill would be emulated too slowly to give a valid inference result."
+            exit 1
+          fi
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          sudo chmod 666 /dev/kvm
+          test -r /dev/kvm && test -w /dev/kvm
+          ls -l /dev/kvm
+          echo "PASS: hardware virtualization device is readable and writable."
+
       - name: Run real local model test on Android API 35
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          # API 35 is already installed and verified by the preceding SDK step. Keep the
-          # long 329 MB inference test off the flaky API 29 platform download path; the
-          # separate emulator smoke workflow still checks compatibility on API 29.
+          # API 35 is installed above. Require KVM so Qwen prefill runs in a virtualized
+          # x86_64 guest rather than unaccelerated instruction emulation; the Redmi 12
+          # production path uses the ARM64 GPU backend instead.
           api-level: 35
           target: default
           arch: x86_64
@@ -140,7 +156,7 @@ jobs:
           ram-size: 4096M
           heap-size: 1024M
           emulator-boot-timeout: 900
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -no-audio -no-boot-anim
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -no-audio -no-boot-anim -accel on
           disable-animations: true
           script: bash "$GITHUB_WORKSPACE/.github/scripts/run-local-llm-test.sh"
 
