@@ -77,6 +77,19 @@ if [ "$IMAGENET_BYTES" -ne "$EXPECTED_IMAGENET_BYTES" ] || [ "$IMAGENET_SHA256" 
   exit 21
 fi
 echo "PASS: pinned offline ImageNet model verified (bytes=$IMAGENET_BYTES sha256=$IMAGENET_SHA256)." | tee -a "$RESULT_DIR/environment.txt"
+FACE_IDENTITY_MODEL="$GITHUB_WORKSPACE/eve-project/app/src/main/assets/MobileFaceNet.tflite"
+FACE_IDENTITY_LICENSE="$GITHUB_WORKSPACE/eve-project/app/src/main/assets/mobilefacenet_model_license.txt"
+if [ ! -s "$FACE_IDENTITY_MODEL" ] || [ ! -s "$FACE_IDENTITY_LICENSE" ]; then
+  echo "FAIL: bundled MobileFaceNet model or MIT license is missing." | tee -a "$RESULT_DIR/environment.txt"
+  exit 22
+fi
+EXPECTED_FACE_IDENTITY_MODEL="3249c511be86366d5d0a137dc6f4af321af28678"
+ACTUAL_FACE_IDENTITY_MODEL="$(git hash-object "$FACE_IDENTITY_MODEL")"
+if [ "$ACTUAL_FACE_IDENTITY_MODEL" != "$EXPECTED_FACE_IDENTITY_MODEL" ] || ! grep -Fq "MIT License" "$FACE_IDENTITY_LICENSE"; then
+  echo "FAIL: MobileFaceNet model/license verification failed." | tee -a "$RESULT_DIR/environment.txt"
+  exit 23
+fi
+echo "PASS: pinned MobileFaceNet identity model and MIT license verified." | tee -a "$RESULT_DIR/environment.txt"
 if [ ! -s "$GITHUB_WORKSPACE/eve-project/app/src/main/assets/gesture_recognizer.task" ]; then
   echo "FAIL: bundled offline hand-gesture model is missing." | tee -a "$RESULT_DIR/environment.txt"
   exit 15
@@ -258,6 +271,7 @@ INSTRUMENTATION_EXIT=0
 FACE_TEST_CLASSES=(
   "com.eve.robot.FaceVisionIntegrationTest"
   "com.eve.robot.ObjectVisionIntegrationTest"
+  "com.eve.robot.FaceIdentityIntegrationTest"
   "com.eve.robot.ImageNetVisionIntegrationTest"
   "com.eve.robot.HandGestureIntegrationTest"
   "com.eve.robot.RobotFaceRenderingTest"
@@ -328,7 +342,7 @@ if grep -E "INSTRUMENTATION_FAILED|FAILURES!!!|INSTRUMENTATION_STATUS_CODE: -2" 
   exit 11
 fi
 
-for marker in FACE_ROBUSTNESS_PASS FACE_FIXTURE_PASS FER_MODEL_PASS OBJECT_MODEL_PASS IMAGENET_CLASSIFIER_PASS HAND_GESTURE_FIXTURE_PASS OFFLINE_AFFECT_LEARNING_PASS EYE_RENDER_GALLERY_PASS GENERATED_NOTIFICATION_PASS; do
+for marker in FACE_ROBUSTNESS_PASS FACE_FIXTURE_PASS FER_MODEL_PASS OBJECT_MODEL_PASS FACE_IDENTITY_MODEL_PASS IMAGENET_CLASSIFIER_PASS HAND_GESTURE_FIXTURE_PASS OFFLINE_AFFECT_LEARNING_PASS EYE_RENDER_GALLERY_PASS GENERATED_NOTIFICATION_PASS; do
   # AndroidJUnitRunner may capture test stdout while logcat can be lost if the emulator's
   # background services restart. Accept the marker from either independent diagnostic stream.
   if ! grep -F "$marker" "$RESULT_DIR/logcat.txt" "$RESULT_DIR/instrumentation-output.txt" >/dev/null 2>&1; then
