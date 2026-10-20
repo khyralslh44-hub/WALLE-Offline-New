@@ -252,4 +252,33 @@ class EyeExpressionGeneratorTest {
             pose.silhouette
         )
     }
+
+    @Test fun sustainedRestAndFatigueUseDroopyLidsNotBlinkSlits() {
+        val tiredRest = EyeExpressionGenerator.generate(
+            EveDecision(
+                mood = EveMood.SLEEPY,
+                reason = "autonomous rest",
+                valence = -0.10f,
+                arousal = 0.12f,
+                curiosity = 0.25f,
+                fatigue = 0.96f,
+                intent = EveIntent.REST
+            ),
+            seed = 20261020L
+        )
+        val tiredFocus = EyeExpressionGenerator.generate(
+            EveDecision(
+                mood = EveMood.FOCUSED,
+                reason = "slow focus",
+                valence = 0f,
+                arousal = 0.50f,
+                curiosity = 0.30f,
+                fatigue = 0.92f,
+                intent = EveIntent.FOCUS
+            ),
+            seed = 20261020L
+        )
+        assertEquals(EyeSilhouette.DROOPY, tiredRest.silhouette)
+        assertEquals(EyeSilhouette.DROOPY, tiredFocus.silhouette)
+    }
 }
