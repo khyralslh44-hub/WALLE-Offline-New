@@ -41,15 +41,17 @@ class FaceIdentityIntegrationTest {
         try {
             memory.deleteAll()
             // Both fixtures are test-only; neither is included in the production APK.
-            enrolledCrop = loadLargestFaceCrop(testContext, "face_fixture.jpg", detector)
-            differentCrop = loadLargestFaceCrop(testContext, "face_fixture_biden.jpg", detector)
+            val enrolledFace = loadLargestFaceCrop(testContext, "face_fixture.jpg", detector)
+            enrolledCrop = enrolledFace
+            val differentFace = loadLargestFaceCrop(testContext, "face_fixture_biden.jpg", detector)
+            differentCrop = differentFace
 
-            val selfSimilarity = matcher.similarity(enrolledCrop, enrolledCrop)
+            val selfSimilarity = matcher.similarity(enrolledFace, enrolledFace)
             assertTrue(
                 "MobileFaceNet must produce high same-image similarity, got $selfSimilarity.",
                 selfSimilarity >= 0.98f
             )
-            val differentPersonSimilarity = matcher.similarity(enrolledCrop, differentCrop)
+            val differentPersonSimilarity = matcher.similarity(enrolledFace, differentFace)
             assertTrue(
                 "Different-person fixture must stay below the acceptance threshold; score=$differentPersonSimilarity.",
                 differentPersonSimilarity < EveFaceIdentityMatcher.DEFAULT_MATCH_THRESHOLD
@@ -60,14 +62,14 @@ class FaceIdentityIntegrationTest {
                 relationArabic = "الصديق",
                 name = "اختبار وجه محلي"
             )
-            val profile = memory.enroll(person, enrolledCrop)
-            val match = memory.recognize(enrolledCrop, matcher)
+            val profile = memory.enroll(person, enrolledFace)
+            val match = memory.recognize(enrolledFace, matcher)
             assertNotNull("The newly enrolled local face should match the same face crop.", match)
             assertEquals(profile.id, match?.profile?.id)
             assertTrue("Stored JPEG reference fell below threshold.", match!!.similarity >= 0.80f)
             assertNull(
                 "A different person's face must not be assigned the enrolled name.",
-                memory.recognize(differentCrop, matcher)
+                memory.recognize(differentFace, matcher)
             )
 
             val marker = "FACE_IDENTITY_MODEL_PASS selfSimilarity=$selfSimilarity " +
