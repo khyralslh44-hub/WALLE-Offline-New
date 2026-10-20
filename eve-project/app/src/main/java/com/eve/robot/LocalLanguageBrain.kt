@@ -310,7 +310,8 @@ class LocalLanguageBrain(
         )
         runInference(
             buildPrompt("GAME", gameEvent, gameContext),
-            maxOutputTokens = 24,
+            // The JSON schema itself consumes tokens; leave enough room for a real Arabic comment.
+            maxOutputTokens = 40,
             callback = callback
         )
     }
@@ -430,7 +431,7 @@ class LocalLanguageBrain(
         val task = when (mode) {
             "USER" -> "Answer briefly in Arabic."
             "CURIOSITY" -> "Ask one Arabic question about fresh vision only."
-            "GAME" -> "Comment only on the supplied game outcome."
+            "GAME" -> "Write one lively short Arabic sentence in reply_ar from the supplied game outcome. reply_ar MUST NOT be empty; reflection_ar must be empty."
             else -> "Write a brief reflection; reply_ar must be empty."
         }
 
@@ -474,7 +475,7 @@ class LocalLanguageBrain(
         fields += """JSON only: {"reply_ar":"","reflection_ar":"","mood":"neutral|curious|happy|concerned|focused|playful|sleepy|irritated|none","intent":"observe|explore|connect|play|focus|rest|regulate|none","confidence":0}"""
         fields += when (mode) {
             "OBSERVATION" -> "Never invent facts. OBSERVATION reply_ar empty."
-            "GAME" -> "Never invent score or events; follow the outcome only."
+            "GAME" -> "reply_ar must contain a non-empty Arabic game comment; reflection_ar must be empty. Never invent score or events; follow the supplied outcome only."
             else -> "Never invent observations or memories. If fresh vision is absent, do not describe a scene."
         }
 
