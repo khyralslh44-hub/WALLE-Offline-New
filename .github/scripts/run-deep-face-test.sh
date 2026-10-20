@@ -94,6 +94,10 @@ if [ ! -s "$GITHUB_WORKSPACE/eve-project/app/src/main/assets/gesture_recognizer.
   echo "FAIL: bundled offline hand-gesture model is missing." | tee -a "$RESULT_DIR/environment.txt"
   exit 15
 fi
+if [ ! -s "$GITHUB_WORKSPACE/eve-project/app/src/androidTest/assets/face_fixture_biden.jpg" ]; then
+  echo "FAIL: pinned different-person face identity fixture is missing." | tee -a "$RESULT_DIR/environment.txt"
+  exit 24
+fi
 if [ ! -s "$GITHUB_WORKSPACE/eve-project/app/src/androidTest/assets/gesture_thumb_up.jpg" ]; then
   echo "FAIL: pinned thumb-up image fixture is missing." | tee -a "$RESULT_DIR/environment.txt"
   exit 16
