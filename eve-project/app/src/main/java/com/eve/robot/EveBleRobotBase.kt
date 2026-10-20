@@ -389,8 +389,14 @@ class EveBleRobotBase(
         if (characteristic.uuid == telemetryUuid) {
             val parsed = EveRobotBaseProtocol.decodeTelemetry(bytes, now)
             if (parsed == null) {
+                // Invalidate the prior sample before posting the state transition: the next
+                // 250 ms control tick must not move on a still-young but contradicted frame.
+                latestTelemetry = null
+                send(EveRobotBaseProtocol.MotorCommand(
+                    EveRobotBaseProtocol.CommandType.STOP,
+                    reason = "invalid telemetry"
+                ))
                 main.post { fail("وصل إطار حساس غير صالح (الإصدار/الطول/التحقق). الحركة متوقفة حتى وصول إطار سليم.") }
-                send(EveRobotBaseProtocol.MotorCommand(EveRobotBaseProtocol.CommandType.STOP, reason = "invalid telemetry"))
                 return
             }
             if (!telemetrySequenceGuard.accept(parsed.sequence)) {
