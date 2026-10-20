@@ -317,6 +317,8 @@ class MainActivity : ComponentActivity() {
                 face.setExpression(decision, System.currentTimeMillis())
                 Log.i("EVE", "AUTONOMOUS mood=${decision.mood} reason=${decision.reason} inactiveMs=$inactive")
             }
+            val directIdle = (SystemClock.elapsedRealtime() - lastDirectUserActionAt).coerceAtLeast(0L)
+            if (directIdle >= 8_000L) runAutonomousCognition(directIdle)
             main.postDelayed(this, 6000L)
         }
     }
@@ -405,6 +407,8 @@ class MainActivity : ComponentActivity() {
         memory = EveMemory(applicationContext)
         peopleMemory = EvePeopleMemory(applicationContext)
         faceIdentityMemory = EveFaceIdentityMemory(applicationContext)
+        autonomousExplorationEnabled = getSharedPreferences("eve_relationship", MODE_PRIVATE)
+            .getBoolean("autonomousExplorationEnabled", true)
         brain = RobotBrain(memory.learnedPersonality())
         voice = RobotVoice()
         localLanguageBrain = LocalLanguageBrain(applicationContext) { state, percent, message ->
@@ -418,6 +422,7 @@ class MainActivity : ComponentActivity() {
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     touchDownAt = SystemClock.uptimeMillis()
+                    lastDirectUserActionAt = SystemClock.elapsedRealtime()
                     true
                 }
                 MotionEvent.ACTION_UP -> {
@@ -618,6 +623,7 @@ class MainActivity : ComponentActivity() {
         if (text == lastSpeechText && now - lastSpeechAt < 2800L) return
         lastSpeechText = text
         lastSpeechAt = now
+        lastDirectUserActionAt = now
         Log.i("EVE_AUDIO", "RECOGNIZED source=$source text=$text")
 
         // Respect a quiet request immediately: settle the eyes without answering with a tone.
@@ -628,6 +634,40 @@ class MainActivity : ComponentActivity() {
         ) {
             react(brain.observeFacialEmotion("neutral", 0.90f), playSound = false)
             Log.i("EVE_AUDIO", "SPEECH_RESPONSE_SUPPRESSED reason=quiet_command")
+            return
+        }
+
+        if (listOf(
+                "ابدئي الاستكشاف", "ابداي الاستكشاف", "ابدأ الاستكشاف",
+                "استكشفي المكان", "استكشفي", "انظري حولك", "دوري حولك",
+                "ابحثي حولك", "استكشاف تلقائي", "explore", "scan the room"
+            ).any(text::contains)
+        ) {
+            autonomousExplorationEnabled = true
+            getSharedPreferences("eve_relationship", MODE_PRIVATE).edit()
+                .putBoolean("autonomousExplorationEnabled", true)
+                .apply()
+            Log.i("EVE_MIND", "AUTONOMOUS_EXPLORATION enabled=true mode=local_current_view")
+            if (activeCameraLens != CameraLens.BACK) {
+                showDialogueText("بدأت الاستكشاف المحلي. سأستخدم الكاميرا الخلفية لمعاينة المكان.", durationMs = 5200L)
+                switchCamera()
+            } else {
+                showDialogueText("الاستكشاف المحلي نشط. سأحلل المشهد وأقارن الأدلة دون تخمين.", durationMs = 5200L)
+                runAutonomousCognition(8_000L)
+            }
+            return
+        }
+        if (listOf(
+                "اوقفي الاستكشاف", "اوقف الاستكشاف", "ايقاف الاستكشاف",
+                "توقفي عن الاستكشاف", "stop exploring", "disable exploration"
+            ).any(text::contains)
+        ) {
+            autonomousExplorationEnabled = false
+            getSharedPreferences("eve_relationship", MODE_PRIVATE).edit()
+                .putBoolean("autonomousExplorationEnabled", false)
+                .apply()
+            Log.i("EVE_MIND", "AUTONOMOUS_EXPLORATION enabled=false")
+            showDialogueText("أوقفت وضع الاستكشاف التلقائي. ستبقى الرؤية المحلية متاحة أثناء تشغيل الكاميرا.", durationMs = 5200L)
             return
         }
 
