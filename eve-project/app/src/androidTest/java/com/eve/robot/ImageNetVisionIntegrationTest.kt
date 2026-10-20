@@ -29,7 +29,7 @@ class ImageNetVisionIntegrationTest {
             Bitmap.createScaledBitmap(
                 decoded,
                 (decoded.width * scale).toInt().coerceAtLeast(1),
-                (decoded.height * scale).coerceAtLeast(1),
+                (decoded.height * scale).toInt().coerceAtLeast(1),
                 true
             )
         } else {
