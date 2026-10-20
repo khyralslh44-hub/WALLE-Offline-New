@@ -118,15 +118,12 @@ class EveHomeMapMemory(
     fun snapshot(nowMs: Long = lastObservedAtMs): EveHomeMapSnapshot {
         val free = occupancy.values.count { it > 0 }
         val obstacles = occupancy.values.count { it < 0 }
-        val currentCell = occupancy.keys.lastOrNull()
-        val room = currentCell?.let { roomVotes[it]?.counts?.maxByOrNull { vote -> vote.value }?.key }
-            ?: currentRoom
         return EveHomeMapSnapshot(
             knownCells = occupancy.size,
             freeCells = free,
             obstacleCells = obstacles,
             namedRoomCells = roomVotes.size,
-            currentRoom = room,
+            currentRoom = currentRoom,
             observedAtMs = nowMs
         )
     }
