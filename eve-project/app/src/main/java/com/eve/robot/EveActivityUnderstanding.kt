@@ -32,6 +32,9 @@ data class EveHumanFrameEvidence(
     val rightKneeAngleDegrees: Float? = null,
     val leftElbowAngleDegrees: Float? = null,
     val rightElbowAngleDegrees: Float? = null,
+    /** Normalized hand/palm center from consecutive local hand-landmark detections. */
+    val handCenterX: Float? = null,
+    val handCenterY: Float? = null,
     val visibleObjectLabels: Set<String> = emptySet()
 )
 
@@ -94,6 +97,8 @@ class EveActivityUnderstanding(
         val averageJointMotion = people.map { it.jointMotionScore }.average().toFloat()
         val jointChanges = countJointChanges(people)
         val jointReversals = countJointReversals(people)
+        val handMotionChanges = countHandMotionChanges(people)
+        val handMotionReversals = countHandMotionReversals(people)
 
         val candidate = when {
             // Repeated hand-to-mouth movement plus a nearby food object and visible mouth motion.
@@ -173,6 +178,23 @@ class EveActivityUnderstanding(
                     durationMs = span,
                     explanationArabic = "حركة متكررة لزوايا المفاصل عبر عدة إطارات؛ قد تكون تمرينًا أو حركة متكررة مشابهة.",
                     nextActionArabic = "اترك مساحة للشخص ولا تقاطعه؛ إذا واصل التفاعل معك، اسأله عمّا يريد فعله.",
+                    observedAtMs = sample.timestampMs
+                )
+            }
+            // If leg/elbow landmarks are unavailable, a visible person's repeated hand/arm
+            // trajectory can only support a weaker "exercise-like motion" hypothesis. It may
+            // also be waving, cleaning, or working, so never identify a specific exercise.
+            people.size >= 5 && span >= 3_500L &&
+                handMotionChanges >= 5 && handMotionReversals >= 3 &&
+                averageJointMotion >= 0.13f -> {
+                EveActivityInterpretation(
+                    EveHumanActivity.EXERCISE_LIKE_MOTION,
+                    confidence = confidence(0.53f + min(0.12f, handMotionReversals * 0.018f) +
+                        min(0.04f, averageJointMotion * 0.04f)),
+                    evidenceCount = people.size,
+                    durationMs = span,
+                    explanationArabic = "رصدت حركة متكررة لليد أو الذراع عبر الزمن؛ قد تكون تمرينًا، أو تلويحًا، أو نشاطًا آخر، ولا يمكن تحديد النوع بثقة من اليد وحدها.",
+                    nextActionArabic = "لا تفترض نوع التمرين ولا تقاطع الشخص؛ انتظر أدلة أوضح أو تفاعلًا مباشرًا.",
                     observedAtMs = sample.timestampMs
                 )
             }
@@ -269,6 +291,29 @@ class EveActivityUnderstanding(
         return changes
     }
 
+    private fun countHandMotionChanges(values: List<EveHumanFrameEvidence>): Int {
+        var changes = 0
+        for (i in 1 until values.size) {
+            val a = values[i - 1]
+            val b = values[i]
+            val ax = a.handCenterX ?: continue
+            val ay = a.handCenterY ?: continue
+            val bx = b.handCenterX ?: continue
+            val by = b.handCenterY ?: continue
+            if (kotlin.math.hypot((bx - ax).toDouble(), (by - ay).toDouble()) >= MIN_HAND_MOTION_STEP) {
+                changes++
+            }
+        }
+        return changes
+    }
+
+    private fun countHandMotionReversals(values: List<EveHumanFrameEvidence>): Int {
+        val xs = values.mapNotNull { it.handCenterX }
+        val ys = values.mapNotNull { it.handCenterY }
+        return countDirectionReversals(xs, MIN_HAND_REVERSAL_STEP) +
+            countDirectionReversals(ys, MIN_HAND_REVERSAL_STEP)
+    }
+
     private fun countJointReversals(values: List<EveHumanFrameEvidence>): Int {
         val allAngles = listOf(
             values.map { it.leftKneeAngleDegrees },
@@ -297,6 +342,8 @@ class EveActivityUnderstanding(
         rightKneeAngleDegrees = input.rightKneeAngleDegrees?.takeIf { it.isFinite() }?.coerceIn(0f, 180f),
         leftElbowAngleDegrees = input.leftElbowAngleDegrees?.takeIf { it.isFinite() }?.coerceIn(0f, 180f),
         rightElbowAngleDegrees = input.rightElbowAngleDegrees?.takeIf { it.isFinite() }?.coerceIn(0f, 180f),
+        handCenterX = input.handCenterX?.takeIf { it.isFinite() }?.coerceIn(0f, 1f),
+        handCenterY = input.handCenterY?.takeIf { it.isFinite() }?.coerceIn(0f, 1f),
         visibleObjectLabels = input.visibleObjectLabels.map(::normalizeLabel).filter { it.isNotBlank() }.toSet()
     )
 
@@ -339,6 +386,8 @@ class EveActivityUnderstanding(
         private const val HAND_NEAR_MOUTH_THRESHOLD = 0.62f
         private const val MIN_EPISODE_GAP_MS = 450L
         private const val MIN_JOINT_CHANGE_DEGREES = 12f
+        private const val MIN_HAND_MOTION_STEP = 0.035f
+        private const val MIN_HAND_REVERSAL_STEP = 0.035f
         private val FOOD_LABELS = setOf(
             "food", "fruit", "banana", "apple", "orange", "pizza", "sandwich", "bread",
             "cake", "donut", "doughnut", "carrot", "hot dog", "broccoli", "bowl", "fork",
