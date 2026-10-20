@@ -204,6 +204,34 @@ object EveRobotBaseProtocol {
     const val LOW_BATTERY_STOP_PERCENT = 8
 }
 
+/**
+ * Rejects duplicate or backwards 8-bit sequence numbers while allowing normal wraparound and
+ * missed notifications. Each independent GATT stream gets its own guard.
+ */
+class EveBaseFrameSequenceGuard {
+    private var previous: Int? = null
+
+    @Synchronized
+    fun accept(sequence: Int): Boolean {
+        if (sequence !in 0..255) return false
+        val last = previous
+        if (last == null) {
+            previous = sequence
+            return true
+        }
+        val forwardDistance = (sequence - last + 256) % 256
+        // A zero delta is a replay. A delta >= 128 is indistinguishable from old/out-of-order data.
+        if (forwardDistance !in 1..127) return false
+        previous = sequence
+        return true
+    }
+
+    @Synchronized
+    fun reset() {
+        previous = null
+    }
+}
+
 data class EveBaseMotionDecision(
     val leftPercent: Int,
     val rightPercent: Int,
