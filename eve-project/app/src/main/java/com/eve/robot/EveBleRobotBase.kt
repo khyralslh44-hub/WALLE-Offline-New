@@ -367,6 +367,10 @@ class EveBleRobotBase(
             status: Int
         ) {
             if (characteristic.uuid != commandUuid) return
+            // WRITE_TYPE_NO_RESPONSE completion callbacks may be absent or delayed; never let a
+            // late callback release the in-flight lock for a newer command. The base watchdog is
+            // responsible for stopping if a no-response write itself is lost.
+            if (commandWriteType == BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE) return
             synchronized(writeLock) {
                 writeInFlight = false
                 if (status != BluetoothGatt.GATT_SUCCESS) {
