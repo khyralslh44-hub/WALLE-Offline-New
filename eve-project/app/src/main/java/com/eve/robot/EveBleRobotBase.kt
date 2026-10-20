@@ -238,6 +238,7 @@ class EveBleRobotBase(
                     gatt = null
                     commandCharacteristic = null
                     telemetryCharacteristic = null
+                    poseCharacteristic = null
                     latestTelemetry = null
                     latestPose = null
                     synchronized(writeLock) {
