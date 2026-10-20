@@ -63,6 +63,17 @@ if [ "$ACTUAL_OBJECT_SHA256" != "$EXPECTED_OBJECT_SHA256" ]; then
   exit 19
 fi
 echo "PASS: pinned EfficientDet-Lite0 model verified." | tee -a "$RESULT_DIR/environment.txt"
+IMAGENET_MODEL="$GITHUB_WORKSPACE/eve-project/app/src/main/assets/efficientnet_lite0_int8.tflite"
+if [ ! -s "$IMAGENET_MODEL" ]; then
+  echo "FAIL: broad offline ImageNet classifier model is missing." | tee -a "$RESULT_DIR/environment.txt"
+  exit 20
+fi
+IMAGENET_BYTES="$(stat -c '%s' "$IMAGENET_MODEL")"
+if [ "$IMAGENET_BYTES" -lt 1000000 ] || [ "$IMAGENET_BYTES" -gt 20000000 ]; then
+  echo "FAIL: broad offline ImageNet classifier model size is invalid: $IMAGENET_BYTES" | tee -a "$RESULT_DIR/environment.txt"
+  exit 21
+fi
+echo "PASS: broad offline ImageNet model is present ($IMAGENET_BYTES bytes, SHA-256 $(sha256sum "$IMAGENET_MODEL" | awk '{print $1}'))." | tee -a "$RESULT_DIR/environment.txt"
 if [ ! -s "$GITHUB_WORKSPACE/eve-project/app/src/main/assets/gesture_recognizer.task" ]; then
   echo "FAIL: bundled offline hand-gesture model is missing." | tee -a "$RESULT_DIR/environment.txt"
   exit 15
@@ -244,6 +255,7 @@ INSTRUMENTATION_EXIT=0
 FACE_TEST_CLASSES=(
   "com.eve.robot.FaceVisionIntegrationTest"
   "com.eve.robot.ObjectVisionIntegrationTest"
+  "com.eve.robot.ImageNetVisionIntegrationTest"
   "com.eve.robot.HandGestureIntegrationTest"
   "com.eve.robot.RobotFaceRenderingTest"
   "com.eve.robot.EveGeneratedNotificationDeliveryTest"
@@ -313,7 +325,7 @@ if grep -E "INSTRUMENTATION_FAILED|FAILURES!!!|INSTRUMENTATION_STATUS_CODE: -2" 
   exit 11
 fi
 
-for marker in FACE_ROBUSTNESS_PASS FACE_FIXTURE_PASS FER_MODEL_PASS HAND_GESTURE_FIXTURE_PASS OFFLINE_AFFECT_LEARNING_PASS EYE_RENDER_GALLERY_PASS GENERATED_NOTIFICATION_PASS; do
+for marker in FACE_ROBUSTNESS_PASS FACE_FIXTURE_PASS FER_MODEL_PASS OBJECT_MODEL_PASS IMAGENET_CLASSIFIER_PASS HAND_GESTURE_FIXTURE_PASS OFFLINE_AFFECT_LEARNING_PASS EYE_RENDER_GALLERY_PASS GENERATED_NOTIFICATION_PASS; do
   # AndroidJUnitRunner may capture test stdout while logcat can be lost if the emulator's
   # background services restart. Accept the marker from either independent diagnostic stream.
   if ! grep -F "$marker" "$RESULT_DIR/logcat.txt" "$RESULT_DIR/instrumentation-output.txt" >/dev/null 2>&1; then
