@@ -2721,6 +2721,99 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * Runs an evidence-based planning tick. Perception continues on its own cadence; this loop
+     * chooses whether to observe, review an activity hypothesis, reflect with the local LLM,
+     * explore the current view, or wait. The planner never switches camera lenses by itself.
+     */
+    private fun runAutonomousCognition(inactiveMs: Long) {
+        if (isFinishing || isDestroyed || !::brain.isInitialized || !::memory.isInitialized) return
+        val now = SystemClock.elapsedRealtime()
+        val sceneAge = if (lastSceneObservationAt > 0L) {
+            (now - lastSceneObservationAt).coerceAtLeast(0L)
+        } else {
+            Long.MAX_VALUE
+        }
+        val label = lastMeaningfulLabel.orEmpty()
+        val labelAge = if (lastMeaningfulLabelAt > 0L) {
+            (now - lastMeaningfulLabelAt).coerceAtLeast(0L)
+        } else {
+            Long.MAX_VALUE
+        }
+        val labelConfidence = if (labelAge in 0L..EveAutonomousMind.SCENE_FRESH_MS) {
+            lastMeaningfulConfidence
+        } else {
+            0f
+        }
+        val faceRecent = lastFaceSeenAt > 0L && now - lastFaceSeenAt in 0L..4_500L
+        val familiarPersonRecent = faceRecent &&
+            lastIdentityGreetingId.isNotBlank() &&
+            now - lastIdentityGreetingAt in 0L..30_000L
+        val context = EveMindContext(
+            nowMs = now,
+            inactiveMs = inactiveMs.coerceAtLeast(0L),
+            sceneAgeMs = sceneAge,
+            sceneSummary = latestSceneSummary,
+            latestLabel = label,
+            labelConfidence = labelConfidence,
+            faceSeenRecently = faceRecent,
+            familiarPersonRecognized = familiarPersonRecent,
+            activity = activeHumanActivity,
+            activityConfidence = activeHumanActivityConfidence,
+            explorationEnabled = autonomousExplorationEnabled,
+            localLanguageReady = ::localLanguageBrain.isInitialized && localLanguageBrain.isReady,
+            lastReflectionAtMs = lastAutonomyReflectionAt
+        )
+        val plan = autonomousMind.plan(context)
+        val step = plan.steps.first()
+        val signature = "${plan.goal}|${step.action}|${label.take(48)}"
+        if (signature != lastAutonomyPlanSignature) {
+            lastAutonomyPlanSignature = signature
+            Log.i(
+                "EVE_MIND",
+                "MIND_PLAN goal=${plan.goal} action=${step.action} confidence=${plan.confidence} " +
+                    "priority=${step.priority} steps=${plan.steps.size} sceneAgeMs=$sceneAge " +
+                    "inactiveMs=$inactiveMs explore=$autonomousExplorationEnabled " +
+                    "rationale=${plan.rationaleArabic} success=${step.successCriterionArabic}"
+            )
+        }
+
+        when (step.action) {
+            EveMindAction.REQUEST_LOCAL_REFLECTION -> {
+                if (label.isNotBlank() && labelConfidence >= EveAutonomousMind.MIN_REFLECTION_CONFIDENCE &&
+                    ::localLanguageBrain.isInitialized && localLanguageBrain.isReady &&
+                    (lastAutonomyReflectionAt == 0L ||
+                        now - lastAutonomyReflectionAt >= EveAutonomousMind.REFLECTION_COOLDOWN_MS)
+                ) {
+                    // Use the same bounded key in the planner's feedback set and the completion callback.
+                    val evidenceKey = (
+                        label.trim().lowercase(Locale.ROOT) + "|" +
+                            latestSceneSummary.trim().take(180)
+                        ).take(180)
+                    lastAutonomyReflectionAt = now
+                    maybeReflectWithLocalLanguage(
+                        label,
+                        labelConfidence,
+                        memory.sightings(label),
+                        mindEvidenceKey = evidenceKey
+                    )
+                }
+            }
+            EveMindAction.REVIEW_RECENT_EVIDENCE -> {
+                // The vision pipeline is live; this step explicitly checks confidence/freshness
+                // instead of inventing a scene when the objects or activity have gone stale.
+                Log.d(
+                    "EVE_MIND",
+                    "MIND_REVIEW goal=${plan.goal} activity=$activeHumanActivity " +
+                        "activityConfidence=$activeHumanActivityConfidence sceneFresh=${sceneAge <= EveAutonomousMind.SCENE_FRESH_MS}"
+                )
+            }
+            EveMindAction.WAIT_FOR_FRESH_FRAME -> Unit
+            EveMindAction.MAINTAIN_QUIET_ATTENTION -> Unit
+            EveMindAction.CONTINUE_EXPLORATION -> Unit
+        }
+    }
+
     private fun localLanguageContext(): LocalLlmContext {
         val relationship = getSharedPreferences("eve_relationship", MODE_PRIVATE)
         val label = lastMeaningfulLabel
