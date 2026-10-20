@@ -230,7 +230,9 @@ class EveBaseNavigator {
         telemetry: EveRobotBaseProtocol.Telemetry?,
         nowMs: Long,
         autonomyEnabled: Boolean,
-        personInPath: Boolean = false
+        personInPath: Boolean = false,
+        preferredHeadingDegrees: Float? = null,
+        currentHeadingDegrees: Float? = null
     ): EveBaseMotionDecision {
         if (telemetry == null) return stop("no base telemetry")
         if (!telemetry.isFresh(nowMs)) {
@@ -341,6 +343,21 @@ class EveBaseNavigator {
             return moving(-RETREAT_SPEED, -RETREAT_SPEED, 250, "obstacle ahead; retreat before turning")
         }
 
+        val preferredHeading = preferredHeadingDegrees?.takeIf { it.isFinite() }
+        val currentHeading = currentHeadingDegrees?.takeIf { it.isFinite() }
+        if (preferredHeading != null && currentHeading != null) {
+            val delta = signedHeadingDelta(preferredHeading, currentHeading)
+            if (kotlin.math.abs(delta) > HEADING_ALIGNMENT_TOLERANCE_DEGREES) {
+                val turningLeft = delta > 0f
+                val sideClearance = if (turningLeft) left else right
+                if (sideClearance <= SIDE_TURN_CLEARANCE_MM) {
+                    return stop("mapped frontier heading blocked by side clearance")
+                }
+                val turn = if (turningLeft) TURN_SPEED else -TURN_SPEED
+                return moving(-turn, turn, 250, "align toward unexplored mapped frontier")
+            }
+        }
+
         return moving(CRUISE_SPEED, CRUISE_SPEED, 300, "slow autonomous exploration")
     }
 
@@ -379,6 +396,13 @@ class EveBaseNavigator {
     private fun moving(left: Int, right: Int, lease: Int, reason: String) =
         EveBaseMotionDecision(left, right, lease, reason, true)
 
+    private fun signedHeadingDelta(target: Float, current: Float): Float {
+        var delta = (target - current) % 360f
+        if (delta > 180f) delta -= 360f
+        if (delta < -180f) delta += 360f
+        return delta
+    }
+
     companion object {
         const val FRONT_OBSTACLE_TRIGGER_MM = 360
         const val SIDE_OBSTACLE_TRIGGER_MM = 240
@@ -389,5 +413,6 @@ class EveBaseNavigator {
         const val CRUISE_SPEED = 18
         const val RETREAT_SPEED = 16
         const val TURN_SPEED = 20
+        const val HEADING_ALIGNMENT_TOLERANCE_DEGREES = 24f
     }
 }
