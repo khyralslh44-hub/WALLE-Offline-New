@@ -60,7 +60,7 @@ data class LocalLlmResult(
 /**
  * A real generative language model running on the phone through LiteRT-LM.
  *
- * The official release APK bundles the pinned 647 MB Qwen model in its assets. On first launch,
+ * The official release APK bundles the pinned Qwen3-1.7B dynamic-INT4 model (~977 MB) in its assets. On first launch,
  * weights are copied to app-private storage and SHA-256 verified; this needs no runtime network.
  * A Wi-Fi fallback remains only for developer/test APKs built without the optional model asset.
  * Inference is local; prompts, labels, and replies are not sent to a remote service. Vision
@@ -189,7 +189,7 @@ class LocalLanguageBrain(
                                         temperature = 0.35
                                     ),
                                     maxOutputToken = MAX_OUTPUT_TOKENS,
-                                    chatTemplate = QWEN2_COMPATIBLE_CHAT_TEMPLATE
+                                    chatTemplate = QWEN3_COMPATIBLE_CHAT_TEMPLATE
                                 )
                             )
                             selectedEngine = candidate
@@ -212,7 +212,7 @@ class LocalLanguageBrain(
                     publish(LocalLlmState.READY, 100, "الدماغ اللغوي المحلي جاهز ويعمل دون إنترنت")
                     Log.i(
                         TAG,
-                        "LOCAL_LLM_READY model=Qwen2-0.5B-Instruct localOnly=true modelBytes=${file.length()}"
+                        "LOCAL_LLM_READY model=Qwen3-1.7B-INT4 localOnly=true modelBytes=${file.length()}"
                     )
                 } catch (error: Exception) {
                     if (!closed.get()) {
@@ -503,9 +503,14 @@ class LocalLanguageBrain(
             throw IllegalStateException("تعذر إنشاء مساحة تخزين الدماغ المحلي.")
         }
         if (isVerifiedModelOnDisk()) return modelFile
+        // Remove the previous model first so an upgrade does not need both weights at once.
+        val legacyModel = File(modelDirectory, LEGACY_MODEL_FILE_NAME)
+        if (legacyModel.exists() && !legacyModel.delete()) {
+            Log.w(TAG, "Could not remove the superseded local Qwen2 model before upgrade.")
+        }
         val free = StatFs(modelDirectory.absolutePath).availableBytes
         if (free < MIN_FREE_STORAGE_BYTES) {
-            throw IllegalStateException("يلزم توفير 750 ميغابايت على الأقل من المساحة الحرة لتثبيت الدماغ المحلي.")
+            throw IllegalStateException("يلزم توفير 1.2 غيغابايت من المساحة الحرة لتجهيز الدماغ اللغوي الجديد.")
         }
 
         // Product APKs embed this exact model in assets, so first-run setup works with Wi-Fi off.
@@ -771,15 +776,16 @@ class LocalLanguageBrain(
 
         private const val TAG = "EVE_LLM"
         private const val MODEL_URL =
-            "https://huggingface.co/litert-community/Qwen2-0.5B-Instruct/resolve/main/Qwen2_0.5B_Instruct.litertlm"
-        private const val MODEL_FILE_NAME = "Qwen2_0.5B_Instruct.litertlm"
+            "https://huggingface.co/litert-community/Qwen3-1.7B/resolve/d9b8a91/Qwen3-1.7B_dynamic_wi4b32_afp32.litertlm"
+        private const val MODEL_FILE_NAME = "Qwen3-1.7B_dynamic_wi4b32_afp32.litertlm"
+        private const val LEGACY_MODEL_FILE_NAME = "Qwen2_0.5B_Instruct.litertlm"
         private const val MODEL_SHA256 =
-            "0f01cc004b8eb62b92ba6be85ed05a248ba0d2f78af94c4949b313eccfb4c157"
+            "2eeffef7b51bc3e1225ea69fe7aa5f417397934b56a5b6c20cc068d6fd2c918b"
         private const val KEY_VERIFIED_SHA = "verifiedModelSha256"
         private const val KEY_MODEL_BYTES = "verifiedModelBytes"
-        private const val APPROX_MODEL_BYTES = 647_000_000L
-        private const val MIN_MODEL_BYTES = 500_000_000L
-        private const val MIN_FREE_STORAGE_BYTES = 750_000_000L
+        private const val APPROX_MODEL_BYTES = 977_000_000L
+        private const val MIN_MODEL_BYTES = 850_000_000L
+        private const val MIN_FREE_STORAGE_BYTES = 1_200_000_000L
         private const val MIN_AVAILABLE_RAM_BYTES = 1_200_000_000L
         private const val CONNECT_TIMEOUT_MS = 25_000
         private const val READ_TIMEOUT_MS = 75_000
@@ -792,7 +798,7 @@ class LocalLanguageBrain(
          * The stock bundle template concatenates role + content as strings, which fails when
          * the runtime supplies content as a sequence of {type: text, text: ...} parts.
          */
-        private val QWEN2_COMPATIBLE_CHAT_TEMPLATE = """
+        private val QWEN3_COMPATIBLE_CHAT_TEMPLATE = """
 {%- macro format_content(content) -%}
 {%- if content is string -%}
 {{- content -}}
@@ -810,13 +816,17 @@ class LocalLanguageBrain(
 {%- endfor -%}
 {%- endif -%}
 {%- endmacro -%}
-{%- for message in messages -%}
+{%- set loop_messages = messages[1:] if messages and messages[0]['role'] == 'system' else messages -%}
+{%- if messages and messages[0]['role'] == 'system' -%}
+{{- '<|im_start|>system\n' + format_content(messages[0]['content']) + '<|im_end|>\n' -}}
+{%- endif -%}
+{%- for message in loop_messages -%}
 {{- '<|im_start|>' + message['role'] + '\n' -}}
 {{- format_content(message['content']) -}}
 {{- '<|im_end|>\n' -}}
 {%- endfor -%}
 {%- if add_generation_prompt -%}
-{{- '<|im_start|>assistant\n' -}}
+{{- '<|im_start|>assistant\n<think>\n\n</think>\n\n' -}}
 {%- endif -%}
 """.trimIndent()
         private val ALLOWED_MOODS = setOf(
