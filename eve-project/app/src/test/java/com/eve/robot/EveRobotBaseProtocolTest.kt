@@ -110,6 +110,11 @@ class EveRobotBaseProtocolTest {
         assertEquals(EveRobotBaseProtocol.COMMAND_FRAME_BYTES, frame.size)
         assertEquals(9, frame[3].toInt() and 0xFF)
         assertEquals(3, frame[6].toInt() and 0xFF)
+        val quarterSecondLease = EveRobotBaseProtocol.encodeCommand(
+            command.copy(leaseMs = 250),
+            sequence = 10
+        )
+        assertEquals("250 ms must round up to a 300 ms watchdog lease", 3, quarterSecondLease[6].toInt() and 0xFF)
         assertEquals(EveRobotBaseProtocol.checksum(frame, 7), frame[7].toInt() and 0xFF)
     }
 
