@@ -98,6 +98,7 @@ class MainActivity : ComponentActivity() {
     private val lastFaceIdentityCheckAt = AtomicLong(0L)
     @Volatile private var pendingFaceEnrollment: EveFaceEnrollmentRequest? = null
     @Volatile private var pendingFaceEnrollmentExpiresAt = 0L
+    @Volatile private var pendingFaceEnrollmentConfirmed = false
     @Volatile private var lastIdentityGreetingId = ""
     @Volatile private var lastIdentityGreetingAt = 0L
     // EfficientDet is initialized/inferred on its own worker so the camera/UI threads stay responsive.
@@ -641,15 +642,41 @@ class MainActivity : ComponentActivity() {
         if (listOf("إلغاء حفظ الوجه", "الغاء حفظ الوجه", "ألغِ تذكر الوجه").any(text::contains)) {
             pendingFaceEnrollment = null
             pendingFaceEnrollmentExpiresAt = 0L
+            pendingFaceEnrollmentConfirmed = false
             showDialogueText("ألغيت طلب حفظ الوجه. لم أحفظ مرجعًا جديدًا.", durationMs = 5_000L)
             Log.i("EVE_PEOPLE", "FACE_ENROLLMENT_CANCELLED")
             return
         }
         if (listOf("احذفي الوجوه المحفوظة", "امسحي الوجوه المحفوظة", "احذف الوجوه المحفوظة").any(text::contains)) {
             faceIdentityMemory.deleteAll()
+            pendingFaceEnrollment = null
+            pendingFaceEnrollmentExpiresAt = 0L
+            pendingFaceEnrollmentConfirmed = false
             lastIdentityGreetingId = ""
             showDialogueText("حذفت مراجع الوجوه المحفوظة من هذا الهاتف.", durationMs = 5_000L)
             Log.i("EVE_PEOPLE", "FACE_PROFILES_DELETED")
+            return
+        }
+
+        if (pendingFaceEnrollment != null && listOf(
+                "نعم احفظ الوجه", "نعم احفظه", "اوافق على حفظ الوجه", "أكد حفظ الوجه", "اكد حفظ الوجه"
+            ).any(text::contains)
+        ) {
+            if (now > pendingFaceEnrollmentExpiresAt) {
+                pendingFaceEnrollment = null
+                pendingFaceEnrollmentExpiresAt = 0L
+                pendingFaceEnrollmentConfirmed = false
+                showDialogueText("انتهت مهلة التأكيد؛ لم أحفظ وجهًا.", durationMs = 5_000L)
+            } else {
+                pendingFaceEnrollmentConfirmed = true
+                pendingFaceEnrollmentExpiresAt = now + 60_000L
+                showDialogueText(
+                    "تم التأكيد. بعد استئذان الشخص، اجعل وجهه واضحًا أمام الكاميرا خلال دقيقة. " +
+                        "سيبقى مرجع الوجه على هذا الهاتف فقط.",
+                    durationMs = 8_000L
+                )
+                Log.i("EVE_PEOPLE", "FACE_ENROLLMENT_CONFIRMED localOnly=true")
+            }
             return
         }
 
@@ -659,8 +686,9 @@ class MainActivity : ComponentActivity() {
                 ?: faceEnrollmentRequest.person
             pendingFaceEnrollment = faceEnrollmentRequest.copy(person = storedPerson)
             pendingFaceEnrollmentExpiresAt = now + 60_000L
-            val confirmation = "سأحاول حفظ مرجع وجه ${storedPerson.relationArabic} باسم ${storedPerson.name} محليًا على هذا الهاتف فقط. " +
-                "اجعل الوجه واضحًا أمام الكاميرا. قل «إلغاء حفظ الوجه» للإلغاء، واستأذن الشخص قبل الحفظ."
+            pendingFaceEnrollmentConfirmed = false
+            val confirmation = "أستطيع حفظ مرجع وجه ${storedPerson.relationArabic} باسم ${storedPerson.name} على هذا الهاتف فقط. " +
+                "استأذن الشخص أولًا، ثم قل «نعم احفظ الوجه» للتأكيد. قل «إلغاء حفظ الوجه» للإلغاء."
             showDialogueText(confirmation, durationMs = 8_000L)
             Log.i(
                 "EVE_PEOPLE",
@@ -1678,10 +1706,10 @@ class MainActivity : ComponentActivity() {
      */
     private fun processFaceIdentityCrop(faceCrop: Bitmap, observedAt: Long) {
         val request = pendingFaceEnrollment
-        val enrolling = request != null && observedAt <= pendingFaceEnrollmentExpiresAt
-        if (request != null && !enrolling) {
+        if (request != null && observedAt > pendingFaceEnrollmentExpiresAt) {
             pendingFaceEnrollment = null
             pendingFaceEnrollmentExpiresAt = 0L
+            pendingFaceEnrollmentConfirmed = false
             main.post {
                 if (!isFinishing && !isDestroyed) {
                     showDialogueText("انتهت مهلة حفظ الوجه؛ لم أحفظ وجهًا جديدًا.", durationMs = 5_000L)
@@ -1689,6 +1717,9 @@ class MainActivity : ComponentActivity() {
             }
             return
         }
+        val enrolling = request != null && pendingFaceEnrollmentConfirmed
+        // Seeing someone or merely mentioning their name never silently enrolls their face.
+        if (request != null && !enrolling) return
         if (!enrolling) {
             if (!faceIdentityMemory.hasProfiles()) return
             val previous = lastFaceIdentityCheckAt.get()
@@ -1718,6 +1749,7 @@ class MainActivity : ComponentActivity() {
                             if (pendingFaceEnrollment == request) {
                                 pendingFaceEnrollment = null
                                 pendingFaceEnrollmentExpiresAt = 0L
+                                pendingFaceEnrollmentConfirmed = false
                                 lastIdentityGreetingId = profile.id
                                 lastIdentityGreetingAt = SystemClock.elapsedRealtime()
                                 val decision = brain.observeKnownPerson(profile.relationArabic, isIntroduction = true)
@@ -1771,6 +1803,7 @@ class MainActivity : ComponentActivity() {
                         if (!isFinishing && !isDestroyed && enrolling && pendingFaceEnrollment == request) {
                             pendingFaceEnrollment = null
                             pendingFaceEnrollmentExpiresAt = 0L
+                            pendingFaceEnrollmentConfirmed = false
                             showDialogueText(
                                 "لم أستطع حفظ مرجع الوجه؛ لم أسجل تعرّفًا غير مؤكد.",
                                 durationMs = 5_500L
