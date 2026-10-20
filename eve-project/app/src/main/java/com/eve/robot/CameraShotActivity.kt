@@ -2,6 +2,7 @@ package com.eve.robot
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -24,6 +25,12 @@ import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
+import com.google.mediapipe.framework.image.BitmapImageBuilder
+import com.google.mediapipe.tasks.core.BaseOptions
+import com.google.mediapipe.tasks.vision.core.RunningMode
+import com.google.mediapipe.tasks.vision.gesturerecognizer.GestureRecognizer
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.min
@@ -43,6 +50,32 @@ class CameraShotActivity : ComponentActivity() {
 
     private var cameraProvider: ProcessCameraProvider? = null
     private var activeLens = Lens.BACK
+    private val isRpsMode: Boolean
+        get() = intent.getStringExtra("eve_camera_game") == "rps"
+
+    private val rpsHandler = Handler(Looper.getMainLooper())
+    private val rpsWorker = Executors.newSingleThreadExecutor()
+    private val rpsInferenceRunning = AtomicBoolean(false)
+    @Volatile private var rpsRecognizer: GestureRecognizer? = null
+    private var rpsSamplingActive = false
+    private var rpsFace: RobotFaceView? = null
+    private var rpsBrain: RobotBrain? = null
+    private var rpsVoice: RobotVoice? = null
+    private var rpsPlayerScore = 0
+    private var rpsEveScore = 0
+    private var rpsRound = 0
+    private val rpsHistory = mutableListOf<RpsMove>()
+    private var rpsCandidate: RpsMove? = null
+    private var rpsCandidateFrames = 0
+    private var rpsBlankFrames = 0
+    private var rpsArmed = true
+    private var rpsLastPlayedMove: RpsMove? = null
+    private var rpsLastRoundAt = 0L
+    private var rpsStatusLine = "ارفع يدك: قبضة = حجر، كف مفتوح = ورقة، علامة النصر = مقص."
+    private var rpsLastGeneratedAt = 0L
+    private var rpsGenerationSerial = 0L
+
+    private val rpsSampleRunnable = Runnable { sampleRpsPreview() }
 
     private enum class Lens { BACK, FRONT }
 
@@ -73,17 +106,56 @@ class CameraShotActivity : ComponentActivity() {
         }
         root.addView(previewView, FrameLayout.LayoutParams(-1, -1))
 
-        shotOverlay = CameraShotOverlay(this) { toggleCameraLens() }
-        root.addView(shotOverlay, FrameLayout.LayoutParams(-1, -1))
-
         cameraMessage = TextView(this).apply {
-            text = "لمسة واحدة: أطلق طلقة افتراضية • لمستان: بدّل الكاميرا\nجارٍ تشغيل الكاميرا…"
+            text = if (isRpsMode) {
+                "وضع حجر وورقة ومقص بالكاميرا: قبضة = حجر • كف = ورقة • إصبعان = مقص"
+            } else {
+                "لمسة واحدة: أطلق على الهدف المتحرك • لمستان: بدّل الكاميرا\nجارٍ تشغيل الكاميرا…"
+            }
             textSize = 14f
             setTextColor(Color.rgb(182, 250, 255))
             gravity = Gravity.CENTER
             setPadding(dp(14), dp(12), dp(14), dp(12))
             setBackgroundColor(Color.argb(178, 2, 10, 15))
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+        }
+        if (isRpsMode) {
+            cameraMessage.setOnClickListener { toggleCameraLens() }
+            rpsBrain = RobotBrain(EveMemory(applicationContext).learnedPersonality())
+            rpsVoice = RobotVoice()
+            rpsHistory.addAll(
+                getSharedPreferences("eve_games", MODE_PRIVATE)
+                    .getString("rps:move_history", "").orEmpty()
+                    .split(',').mapNotNull { raw ->
+                        raw.toIntOrNull()?.let { RpsMove.values().getOrNull(it) }
+                    }.takeLast(24)
+            )
+            rpsFace = RobotFaceView(this).apply {
+                isClickable = false
+                contentDescription = "EVE hand-gesture RPS reaction face"
+                setExpression(requireNotNull(rpsBrain).awakenExperience(), SystemClock.uptimeMillis())
+                startAnimation()
+            }
+            root.addView(
+                rpsFace,
+                FrameLayout.LayoutParams(dp(124), dp(86), Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply {
+                    bottomMargin = dp(20)
+                }
+            )
+            initializeRpsRecognizer()
+        } else {
+            shotOverlay = CameraShotOverlay(
+                this,
+                onDoubleTap = { toggleCameraLens() },
+                onShotResult = { hit, shotCount, hitCount ->
+                    if (!isFinishing && !isDestroyed) {
+                        val lens = if (activeLens == Lens.FRONT) "الأمامية" else "الخلفية"
+                        cameraMessage.text = "الكاميرا $lens • التصويب $hitCount/$shotCount إصابة" +
+                            if (hit) " • إصابة دقيقة!" else " • أخطأت الهدف؛ حرّك التصويب."
+                    }
+                }
+            )
+            root.addView(shotOverlay, FrameLayout.LayoutParams(-1, -1))
         }
         root.addView(cameraMessage, FrameLayout.LayoutParams(-1, -2, Gravity.TOP))
         setContentView(root)
@@ -95,6 +167,23 @@ class CameraShotActivity : ComponentActivity() {
         } else {
             cameraPermission.launch(Manifest.permission.CAMERA)
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        rpsSamplingActive = isRpsMode
+        if (isRpsMode) {
+            rpsFace?.startAnimation()
+            rpsHandler.removeCallbacks(rpsSampleRunnable)
+            rpsHandler.postDelayed(rpsSampleRunnable, 500L)
+        }
+    }
+
+    override fun onStop() {
+        rpsSamplingActive = false
+        rpsHandler.removeCallbacks(rpsSampleRunnable)
+        rpsFace?.stopAnimation()
+        super.onStop()
     }
 
     private fun dp(value: Int): Int =
@@ -143,7 +232,11 @@ class CameraShotActivity : ComponentActivity() {
 
     private fun hintForActiveLens(): String {
         val lensName = if (activeLens == Lens.FRONT) "الأمامية" else "الخلفية"
-        return "الكاميرا $lensName • لمسة: طلقة افتراضية • لمستان: تبديل العدسة • رجوع: خروج"
+        return if (isRpsMode) {
+            "الكاميرا " + lensName + " • " + rpsStatusLine + " • اضغط هنا لتبديل العدسة"
+        } else {
+            "الكاميرا $lensName • صوّب على الهدف المتحرك بلمسة • إصابات ${shotOverlay.shotHitsForTest}/${shotOverlay.shotCountForTest} • لمستان لتبديل العدسة"
+        }
     }
 
     private fun toggleCameraLens() {
@@ -155,7 +248,11 @@ class CameraShotActivity : ComponentActivity() {
         val next = if (previous == Lens.BACK) Lens.FRONT else Lens.BACK
         try {
             bindLens(provider, next)
-            shotOverlay.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
+            if (::shotOverlay.isInitialized) {
+                shotOverlay.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
+            } else {
+                cameraMessage.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
+            }
         } catch (error: Exception) {
             try {
                 bindLens(provider, previous)
@@ -167,25 +264,261 @@ class CameraShotActivity : ComponentActivity() {
         }
     }
 
+    private fun initializeRpsRecognizer() {
+        try {
+            rpsWorker.execute {
+                try {
+                    val options = GestureRecognizer.GestureRecognizerOptions.builder()
+                        .setBaseOptions(BaseOptions.builder().setModelAssetPath("gesture_recognizer.task").build())
+                        .setRunningMode(RunningMode.IMAGE)
+                        .setNumHands(1)
+                        .build()
+                    rpsRecognizer = GestureRecognizer.createFromOptions(applicationContext, options)
+                    runOnUiThread {
+                        if (!isFinishing && !isDestroyed) {
+                            rpsStatusLine = "جاهزة للرصد: قبضة حجر • كف ورقة • إصبعان مقص"
+                            cameraMessage.text = hintForActiveLens()
+                            android.util.Log.i("EVE_CAMERA_RPS", "OFFLINE_GESTURE_MODEL_READY")
+                        }
+                    }
+                } catch (error: Exception) {
+                    android.util.Log.e("EVE_CAMERA_RPS", "OFFLINE_GESTURE_MODEL_FAILED", error)
+                    runOnUiThread {
+                        rpsStatusLine = "تعذّر تحميل نموذج إشارات اليد المحلي؛ استخدم وضع اللمس."
+                        cameraMessage.text = hintForActiveLens()
+                    }
+                }
+            }
+        } catch (error: Exception) {
+            android.util.Log.e("EVE_CAMERA_RPS", "Could not queue gesture recognizer setup.", error)
+        }
+    }
+
+    private fun sampleRpsPreview() {
+        if (!rpsSamplingActive || isFinishing || isDestroyed || !isRpsMode) return
+        val recognizer = rpsRecognizer
+        if (recognizer == null || !rpsInferenceRunning.compareAndSet(false, true)) {
+            rpsHandler.postDelayed(rpsSampleRunnable, 450L)
+            return
+        }
+        val original = try { previewView.bitmap } catch (_: Exception) { null }
+        if (original == null) {
+            rpsInferenceRunning.set(false)
+            rpsHandler.postDelayed(rpsSampleRunnable, 450L)
+            return
+        }
+        val maxDimension = max(original.width, original.height)
+        val scaled = if (maxDimension > 480) {
+            val ratio = 480f / maxDimension
+            Bitmap.createScaledBitmap(
+                original,
+                (original.width * ratio).toInt().coerceAtLeast(1),
+                (original.height * ratio).toInt().coerceAtLeast(1),
+                true
+            )
+        } else original
+        try {
+            rpsWorker.execute {
+                try {
+                    val result = recognizer.recognize(BitmapImageBuilder(scaled).build())
+                    val category = result.gestures().firstOrNull()?.firstOrNull()
+                    val label = category?.categoryName()
+                    val confidence = category?.score() ?: 0f
+                    val move = RpsGestureLogic.fromGesture(label, confidence)
+                    rpsHandler.post {
+                        if (rpsSamplingActive && !isFinishing && !isDestroyed) {
+                            handleRpsGestureSample(move, label, confidence)
+                        }
+                    }
+                } catch (error: Exception) {
+                    android.util.Log.w("EVE_CAMERA_RPS", "One offline hand-gesture frame failed.", error)
+                } finally {
+                    if (scaled !== original) try { scaled.recycle() } catch (_: Exception) { }
+                    try { original.recycle() } catch (_: Exception) { }
+                    rpsInferenceRunning.set(false)
+                    rpsHandler.postDelayed(rpsSampleRunnable, 420L)
+                }
+            }
+        } catch (error: Exception) {
+            if (scaled !== original) try { scaled.recycle() } catch (_: Exception) { }
+            try { original.recycle() } catch (_: Exception) { }
+            rpsInferenceRunning.set(false)
+            android.util.Log.e("EVE_CAMERA_RPS", "Could not queue one RPS frame.", error)
+            rpsHandler.postDelayed(rpsSampleRunnable, 650L)
+        }
+    }
+
+    private fun handleRpsGestureSample(move: RpsMove?, label: String?, confidence: Float) {
+        if (move == null) {
+            rpsBlankFrames++
+            rpsCandidate = null
+            rpsCandidateFrames = 0
+            if (rpsBlankFrames >= 2) {
+                rpsArmed = true
+                rpsLastPlayedMove = null
+                rpsStatusLine = "ارفع يدك بوضوح: قبضة، كف مفتوح، أو إصبعان للنصر."
+                cameraMessage.text = hintForActiveLens()
+            }
+            return
+        }
+        rpsBlankFrames = 0
+        if (move == rpsCandidate) rpsCandidateFrames++ else {
+            rpsCandidate = move
+            rpsCandidateFrames = 1
+        }
+        rpsStatusLine = "أرى " + move.arabicName + " (" + (confidence * 100).toInt() + "%)… أثبّت الإشارة."
+        cameraMessage.text = hintForActiveLens()
+        val stable = rpsCandidateFrames >= 3
+        val changedGesture = move != rpsLastPlayedMove
+        val cooldownPassed = SystemClock.elapsedRealtime() - rpsLastRoundAt >= 1_500L
+        if (stable && (rpsArmed || changedGesture) && cooldownPassed) {
+            rpsArmed = false
+            rpsLastPlayedMove = move
+            rpsLastRoundAt = SystemClock.elapsedRealtime()
+            playCameraRpsRound(move, label ?: "unknown", confidence)
+        }
+    }
+
+    private fun playCameraRpsRound(player: RpsMove, label: String, confidence: Float) {
+        val strategyRoll = kotlin.random.Random.nextInt(100)
+        val eve = RpsGestureLogic.chooseEveMove(rpsHistory, strategyRoll, kotlin.random.Random.nextInt(3))
+        val outcome = RpsGestureLogic.outcome(player, eve)
+        rpsRound++
+        when (outcome) {
+            RpsOutcome.PLAYER -> rpsPlayerScore++
+            RpsOutcome.EVE -> rpsEveScore++
+            RpsOutcome.DRAW -> Unit
+        }
+        rpsHistory.add(player)
+        while (rpsHistory.size > 24) rpsHistory.removeAt(0)
+        getSharedPreferences("eve_games", MODE_PRIVATE).edit()
+            .putString("rps:move_history", rpsHistory.joinToString(",") { it.ordinal.toString() }).apply()
+        val resultKey = when (outcome) {
+            RpsOutcome.PLAYER -> "player"
+            RpsOutcome.EVE -> "robot"
+            RpsOutcome.DRAW -> "draw"
+        }
+        EveNotificationScheduler.recordGameResult(this, "rps", resultKey)
+        val brain = rpsBrain
+        val decision = when (outcome) {
+            RpsOutcome.PLAYER -> brain?.gameOutcome("rps", "miss")
+            RpsOutcome.EVE -> brain?.gameOutcome("rps", "robot")
+            RpsOutcome.DRAW -> brain?.gameOutcome("rps", "draw")
+        }
+        if (decision != null) rpsFace?.setExpression(decision, SystemClock.uptimeMillis())
+        rpsVoice?.playGameCue(
+            when (outcome) {
+                RpsOutcome.PLAYER -> "game_loss"
+                RpsOutcome.EVE -> "game_win"
+                RpsOutcome.DRAW -> "game_draw"
+            }
+        )
+        rpsStatusLine = "جولة $rpsRound: أنت " + player.arabicName + " • إيف " + eve.arabicName + " • " +
+            when (outcome) {
+                RpsOutcome.PLAYER -> "نقطة لك"
+                RpsOutcome.EVE -> "نقطة لي"
+                RpsOutcome.DRAW -> "تعادل"
+            } + " • النتيجة $rpsPlayerScore–$rpsEveScore. أبعد يدك ثم ارفع الإشارة التالية."
+        cameraMessage.text = hintForActiveLens()
+        android.util.Log.i(
+            "EVE_CAMERA_RPS",
+            "RPS_ROUND_PASS round=$rpsRound label=$label confidence=$confidence player=$player eve=$eve outcome=$outcome score=$rpsPlayerScore-$rpsEveScore"
+        )
+        requestGeneratedCameraRpsComment(outcome, player, eve, decision)
+    }
+
+    private fun requestGeneratedCameraRpsComment(
+        outcome: RpsOutcome,
+        player: RpsMove,
+        eve: RpsMove,
+        decision: EveDecision?
+    ) {
+        val now = SystemClock.elapsedRealtime()
+        if (now - rpsLastGeneratedAt < 5_000L) return
+        val model = LocalLanguageBrain.currentInstance() ?: return
+        if (!model.isReady) return
+        rpsLastGeneratedAt = now
+        val serial = ++rpsGenerationSerial
+        val outcomeText = when (outcome) {
+            RpsOutcome.PLAYER -> "player"
+            RpsOutcome.EVE -> "robot"
+            RpsOutcome.DRAW -> "draw"
+        }
+        val detail = "حجر وورقة ومقص عبر الكاميرا؛ الجولة $rpsRound؛ إشارة اللاعب " + player.arabicName +
+            "؛ اختيار إيف " + eve.arabicName + "؛ النتيجة $outcomeText؛ الإجمالي " +
+            "$rpsPlayerScore-$rpsEveScore. ابتكر تعليقًا عربيًا مرتبطًا بهذه الجولة."
+        val memory = EveMemory(applicationContext)
+        val context = LocalLlmContext(
+            currentMood = decision?.mood?.name ?: EveMood.CURIOUS.name,
+            moodReason = decision?.reason.orEmpty(),
+            personality = memory.learnedPersonality(),
+            recentDialogues = memory.recentDialogues(3),
+            recentReflections = memory.recentReflections(2)
+        )
+        model.commentOnGame(
+            gameName = "rps_camera",
+            outcome = outcomeText,
+            detail = detail,
+            playerScore = rpsPlayerScore,
+            eveScore = rpsEveScore,
+            round = rpsRound,
+            difficulty = 2,
+            recentResults = emptyList(),
+            context = context
+        ) { result ->
+            if (isFinishing || isDestroyed || !isRpsMode || serial != rpsGenerationSerial) return@commentOnGame
+            val generated = result.getOrNull() ?: return@commentOnGame
+            val reply = generated.replyArabic.trim().take(220)
+            if (reply.isBlank()) return@commentOnGame
+            rpsStatusLine = reply
+            generated.moodHint?.let { mood ->
+                val generatedDecision = rpsBrain?.integrateLanguageInsight(
+                    moodHint = mood,
+                    intentHint = generated.intentHint,
+                    confidence = generated.confidence,
+                    note = generated.reflectionArabic,
+                    source = "rps_game"
+                )
+                if (generatedDecision != null) rpsFace?.setExpression(generatedDecision, SystemClock.uptimeMillis())
+            }
+            cameraMessage.text = hintForActiveLens()
+        }
+    }
+
     override fun onDestroy() {
-        shotOverlay.cancelPendingTouch()
+        rpsSamplingActive = false
+        rpsHandler.removeCallbacksAndMessages(null)
+        if (::shotOverlay.isInitialized) shotOverlay.cancelPendingTouch()
+        rpsFace?.stopAnimation()
         cameraProvider?.unbindAll()
         cameraProvider = null
+        try {
+            rpsWorker.execute {
+                try { rpsRecognizer?.close() } catch (_: Exception) { }
+                rpsRecognizer = null
+            }
+            rpsWorker.shutdown()
+        } catch (_: Exception) {
+            try { rpsWorker.shutdownNow() } catch (_: Exception) { }
+        }
+        rpsVoice?.close()
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         super.onDestroy()
     }
 }
 
-/** Transparent AR overlay: single tap paints a virtual fiery tracer; double tap swaps camera lens. */
+/** Touch-controlled AR shooting with a moving virtual target, real hit/miss scoring, and offline effects. */
 internal class CameraShotOverlay(
     context: android.content.Context,
-    private val onDoubleTap: () -> Unit
+    private val onDoubleTap: () -> Unit,
+    private val onShotResult: (hit: Boolean, shotCount: Int, hitCount: Int) -> Unit
 ) : View(context) {
     private data class Shot(
         val startX: Float,
         val startY: Float,
         val targetX: Float,
         val targetY: Float,
+        val hit: Boolean,
         val startedAt: Long
     )
 
@@ -202,8 +535,25 @@ internal class CameraShotOverlay(
 
     internal var shotCountForTest = 0
         private set
+    internal var shotHitsForTest = 0
+        private set
+    internal var shotMissesForTest = 0
+        private set
     internal var cameraSwitchCountForTest = 0
         private set
+
+    internal val targetCenterForTest: Pair<Float, Float>
+        get() = movingTargetAt(SystemClock.uptimeMillis())
+
+    private fun movingTargetAt(now: Long): Pair<Float, Float> {
+        if (width <= 0 || height <= 0) return width * 0.5f to height * 0.46f
+        val phaseX = sin(now / 1_100.0).toFloat()
+        val phaseY = sin(now / 1_700.0 + 0.85).toFloat()
+        val x = width * 0.5f + phaseX * width * 0.24f
+        val y = (height * 0.45f + phaseY * height * 0.12f)
+            .coerceIn(dp(105f), height * 0.77f)
+        return x.coerceIn(width * 0.12f, width * 0.88f) to y
+    }
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
@@ -221,17 +571,24 @@ internal class CameraShotOverlay(
 
     internal fun fireAt(x: Float, y: Float) {
         if (width <= 0 || height <= 0) return
+        val now = SystemClock.uptimeMillis()
         val safeX = x.coerceIn(width * 0.04f, width * 0.96f)
         val safeY = y.coerceIn(dp(84).toFloat(), height * 0.94f)
+        val (movingX, movingY) = movingTargetAt(now)
+        val dx = safeX - movingX
+        val dy = safeY - movingY
+        val hit = dx * dx + dy * dy <= dp(52f) * dp(52f)
         targetX = safeX
         targetY = safeY
         hasTarget = true
         val startX = width * 0.5f
         val startY = height * 0.91f
-        shots.add(Shot(startX, startY, safeX, safeY, SystemClock.uptimeMillis()))
+        shots.add(Shot(startX, startY, safeX, safeY, hit, now))
         shotCountForTest++
-        muzzleFlashAt = SystemClock.uptimeMillis()
+        if (hit) shotHitsForTest++ else shotMissesForTest++
+        muzzleFlashAt = now
         performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+        onShotResult(hit, shotCountForTest, shotHitsForTest)
         invalidate()
     }
 
@@ -297,11 +654,37 @@ internal class CameraShotOverlay(
         val now = SystemClock.uptimeMillis()
         shots.removeAll { now - it.startedAt > FLIGHT_MS + IMPACT_MS }
 
+        val (movingX, movingY) = movingTargetAt(now)
+        drawMovingTarget(canvas, movingX, movingY, now)
         if (hasTarget) drawReticle(canvas, targetX, targetY, now)
         for (shot in shots) drawShot(canvas, shot, now)
 
         if (now - muzzleFlashAt in 0L..90L) drawMuzzleFlash(canvas, width * 0.5f, height * 0.91f, now - muzzleFlashAt)
-        if (shots.isNotEmpty() || now - muzzleFlashAt in 0L..90L) postInvalidateOnAnimation()
+        // The target moves continuously; keep the overlay alive while the activity is visible.
+        postInvalidateOnAnimation()
+    }
+
+    private fun drawMovingTarget(canvas: Canvas, x: Float, y: Float, now: Long) {
+        val pulse = 1f + 0.08f * sin(now / 140.0).toFloat()
+        val radius = dp(25f) * pulse
+        fill.color = Color.argb(54, 44, 246, 210)
+        canvas.drawCircle(x, y, radius * 1.35f, fill)
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = dp(3f)
+        paint.color = Color.rgb(56, 255, 205)
+        canvas.drawCircle(x, y, radius, paint)
+        paint.strokeWidth = dp(1.5f)
+        paint.color = Color.argb(220, 199, 255, 241)
+        canvas.drawCircle(x, y, radius * 0.52f, paint)
+        fill.color = Color.rgb(56, 255, 205)
+        canvas.drawCircle(x, y, dp(4f), fill)
+        val arm = radius * 1.75f
+        val gap = radius * 1.12f
+        paint.strokeWidth = dp(2f)
+        canvas.drawLine(x - arm, y, x - gap, y, paint)
+        canvas.drawLine(x + gap, y, x + arm, y, paint)
+        canvas.drawLine(x, y - arm, x, y - gap, paint)
+        canvas.drawLine(x, y + gap, x, y + arm, paint)
     }
 
     private fun drawReticle(canvas: Canvas, x: Float, y: Float, now: Long) {
@@ -334,20 +717,22 @@ internal class CameraShotOverlay(
 
             paint.style = Paint.Style.STROKE
             paint.strokeWidth = dp(14).toFloat()
+            val core = if (shot.hit) Color.rgb(60, 255, 170) else Color.rgb(255, 111, 22)
+            val pale = if (shot.hit) Color.rgb(205, 255, 225) else Color.rgb(255, 242, 150)
             paint.color = Color.argb(32, 255, 80, 12)
             canvas.drawLine(tailX, tailY, x, y, paint)
             paint.strokeWidth = dp(7).toFloat()
-            paint.color = Color.argb(130, 255, 95, 20)
+            paint.color = if (shot.hit) Color.argb(70, 30, 210, 135) else Color.argb(130, 255, 95, 20)
             canvas.drawLine(tailX, tailY, x, y, paint)
             paint.strokeWidth = dp(2.5f)
-            paint.color = Color.rgb(255, 237, 120)
+            paint.color = pale
             canvas.drawLine(tailX, tailY, x, y, paint)
 
             fill.color = Color.argb(78, 255, 55, 10)
             canvas.drawCircle(x, y, dp(13).toFloat(), fill)
-            fill.color = Color.rgb(255, 111, 22)
+            fill.color = core
             canvas.drawCircle(x, y, dp(7).toFloat(), fill)
-            fill.color = Color.rgb(255, 242, 150)
+            fill.color = pale
             canvas.drawCircle(x, y, dp(3).toFloat(), fill)
         } else {
             val impactAge = age - FLIGHT_MS
@@ -356,10 +741,11 @@ internal class CameraShotOverlay(
             val alpha = (190f * (1f - p)).toInt().coerceIn(0, 190)
             paint.style = Paint.Style.STROKE
             paint.strokeWidth = dp(2.5f) * (1f - p * 0.45f)
-            paint.color = Color.argb(alpha, 255, 137, 37)
+            val impactColor = if (shot.hit) Color.rgb(48, 255, 171) else Color.rgb(255, 137, 37)
+            paint.color = Color.argb(alpha, Color.red(impactColor), Color.green(impactColor), Color.blue(impactColor))
             canvas.drawCircle(shot.targetX, shot.targetY, radius, paint)
             paint.strokeWidth = dp(1.5f)
-            paint.color = Color.argb((alpha * 0.75f).toInt(), 255, 232, 100)
+            paint.color = Color.argb((alpha * 0.75f).toInt(), if (shot.hit) 190 else 255, 232, if (shot.hit) 220 else 100)
             canvas.drawCircle(shot.targetX, shot.targetY, radius * 0.52f, paint)
 
             for (i in 0 until 8) {
