@@ -218,8 +218,9 @@ object EyeExpressionGenerator {
                 }
                 EveMood.FAMILIAR -> if (valence >= 0.62f && familiarity >= 0.25f &&
                     characterPlayfulness >= 0.45f) EyeSilhouette.GLEE else EyeSilhouette.SOFT
-                EveMood.SLEEPY -> if (fatigue >= 0.78f) EyeSilhouette.BLINK_LOW
-                    else EyeSilhouette.DROOPY
+                // Sleep is a sustained eyelid pose, not the one-frame low-blink slit.
+                // BLINK_LOW remains a separate transient expression for a deliberate blink.
+                EveMood.SLEEPY -> EyeSilhouette.DROOPY
                 EveMood.FOCUSED -> when {
                     decision.frustration >= 0.58f -> EyeSilhouette.UNIMPRESSED
                     fatigue >= 0.76f -> EyeSilhouette.BLINK_LOW
