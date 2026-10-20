@@ -128,6 +128,7 @@ class MainActivity : ComponentActivity() {
     @Volatile private var poseLandmarkerReady = false
     private val poseInferenceRunning = AtomicBoolean(false)
     private val lastPoseInferenceAt = AtomicLong(0L)
+    private val lastPoseDiagnosticAt = AtomicLong(0L)
     @Volatile private var latestPoseAngles: EvePoseAngles? = null
     @Volatile private var latestPoseObservedAt = 0L
     private var previousPoseAngles: EvePoseAngles? = null
@@ -1941,6 +1942,28 @@ class MainActivity : ComponentActivity() {
                     imageClassifierReady = false
                     Log.e("EVE_IMAGENET", "Could not initialize the broad image classifier.", error)
                 }
+
+                try {
+                    val options = PoseLandmarker.PoseLandmarkerOptions.builder()
+                        .setBaseOptions(
+                            BaseOptions.builder()
+                                .setModelAssetPath("pose_landmarker_lite.task")
+                                .build()
+                        )
+                        .setRunningMode(RunningMode.IMAGE)
+                        .setNumPoses(1)
+                        .setMinPoseDetectionConfidence(0.45f)
+                        .setMinPosePresenceConfidence(0.45f)
+                        .setMinTrackingConfidence(0.45f)
+                        .build()
+                    val pose = PoseLandmarker.createFromOptions(applicationContext, options)
+                    poseLandmarker = pose
+                    poseLandmarkerReady = true
+                    Log.i("EVE_POSE", "POSE_LANDMARKER_AVAILABLE model=pose_landmarker_lite.task landmarks=33 offline=true")
+                } catch (error: Exception) {
+                    poseLandmarkerReady = false
+                    Log.e("EVE_POSE", "Could not initialize offline pose landmarker.", error)
+                }
             }
         } catch (error: Exception) {
             objectDetectorReady = false
@@ -2062,6 +2085,7 @@ class MainActivity : ComponentActivity() {
 
     private val objectDetectionIntervalMs = 1400L
     private val imageClassificationIntervalMs = 4_500L
+    private val poseInferenceIntervalMs = 2_200L
     private val imageClassificationMinConfidence = 0.10f
     private val objectObservationMinConfidence = 0.52f
     private val objectLabelMemoryIntervalMs = 9_000L
