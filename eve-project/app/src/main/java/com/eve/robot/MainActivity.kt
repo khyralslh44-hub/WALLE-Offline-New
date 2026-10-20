@@ -29,6 +29,8 @@ import androidx.camera.core.ImageProxy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.content.ContextCompat
 import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.face.Face
+import com.google.mlkit.vision.face.FaceContour
 import com.google.mlkit.vision.face.FaceDetection
 import com.google.mlkit.vision.face.FaceDetector
 import com.google.mlkit.vision.face.FaceDetectorOptions
@@ -42,6 +44,7 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import java.util.Calendar
 import java.util.Locale
 import java.util.UUID
 
@@ -117,12 +120,30 @@ class MainActivity : ComponentActivity() {
     // Allow at most one FER inference in flight; never build a queue of stale camera frames.
     private val ferInferenceRunning = AtomicBoolean(false)
     private val faceCueSmoother = EveFaceCueSmoother(windowSize = 3, requiredVotes = 2)
+    private val activityUnderstanding = EveActivityUnderstanding()
+    private val environmentUnderstanding = EveEnvironmentUnderstanding()
+    private var activeHumanActivity = EveHumanActivity.UNKNOWN
+    private var lastHumanActivityAt = 0L
+    @Volatile private var latestActivitySummary = ""
+    @Volatile private var latestEnvironmentSummary = ""
+    @Volatile private var lastActivityObservationAt = 0L
+    @Volatile private var lastEnvironmentObservationAt = 0L
+    @Volatile private var lastEnvironmentDiagnosticAt = 0L
+    @Volatile private var latestAnalysisWidth = 1
+    @Volatile private var latestAnalysisHeight = 1
+    @Volatile private var latestHandObservedAt = 0L
+    @Volatile private var latestHandCenterX = Float.NaN
+    @Volatile private var latestHandCenterY = Float.NaN
+    @Volatile private var latestHandTrajectoryScore = 0f
+    @Volatile private var latestHandFingerTips: List<Pair<Float, Float>> = emptyList()
+    private var previousHandCenterSample: Pair<Float, Float>? = null
     private val lastLabelAt = mutableMapOf<String, Long>()
     private val labeler by lazy { ImageLabeling.getClient(ImageLabelerOptions.DEFAULT_OPTIONS) }
     private val faceDetector: FaceDetector by lazy {
         val options = FaceDetectorOptions.Builder()
             .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST)
             .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_NONE)
+            .setContourMode(FaceDetectorOptions.CONTOUR_MODE_ALL)
             .setClassificationMode(FaceDetectorOptions.CLASSIFICATION_MODE_ALL)
             .enableTracking()
             .build()
@@ -156,7 +177,7 @@ class MainActivity : ComponentActivity() {
     @Volatile private var latestImageClassifierSummary = ""
     @Volatile private var lastObjectSceneAt = 0L
     @Volatile private var lastImageClassifierSceneAt = 0L
-    private var latestObjectLabels: Set<String> = emptySet()
+    @Volatile private var latestObjectLabels: Set<String> = emptySet()
     @Volatile private var lastSceneObservationAt = 0L
 
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
@@ -1157,7 +1178,10 @@ class MainActivity : ComponentActivity() {
             (handGestureReady && !handGestureInferenceRunning.get())
         val frameBitmap = if (bitmapNeeded) {
             try {
-                imageProxyToUprightBitmap(proxy)
+                imageProxyToUprightBitmap(proxy).also { bitmap ->
+                    latestAnalysisWidth = bitmap.width.coerceAtLeast(1)
+                    latestAnalysisHeight = bitmap.height.coerceAtLeast(1)
+                }
             } catch (error: Exception) {
                 Log.w("EVE_FER", "Could not convert camera YUV frame for local on-device models.", error)
                 null
