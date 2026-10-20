@@ -1777,7 +1777,7 @@ class MainActivity : ComponentActivity() {
 
         fun publishQuestion(questionRaw: String, llmResult: LocalLlmResult?) {
             if (isFinishing || isDestroyed) return
-            val question = questionRaw.trim().take(180).let {
+            val question = questionRaw.trim().take(84).let {
                 if (it.endsWith("؟") || it.endsWith("?")) it else "$it؟"
             }
             val publishedAt = System.currentTimeMillis()
@@ -1843,8 +1843,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun isUsableCuriosityQuestion(value: String): Boolean {
-        val text = value.trim().take(180)
-        if (text.length !in 12..180) return false
+        val text = value.trim().take(84)
+        if (text.length !in 12..84) return false
         if (text.any { it == '{' || it == '}' || it == '\n' }) return false
         if (text.none { it in '\u0600'..'\u06FF' }) return false
         val questionSignals = listOf("؟", "?", "هل", "ما ", "ماذا", "كيف", "لماذا", "أتساءل", "اتساءل", "يمكننا", "نختبر")

@@ -53,8 +53,28 @@ class EveLocalDialogueTest {
             "cat", 0.91f, 7, 0.80f, 0L, 0L, 1, 100_000L
         )
         assertNotNull(thought)
-        assertTrue(thought!!.text.contains("مرة أخرى"))
-        assertTrue(thought.text.contains("الشيء نفسه"))
+        assertTrue(thought!!.text.contains("كثيرًا"))
+        assertTrue(thought.text.contains("كل مشاهدة"))
+        assertTrue(thought.text.length <= 70)
+        assertFalse(thought.text.contains("الشيء نفسه"))
+    }
+
+    @Test fun personQuestionIsBriefAndDoesNotPretendToRecognizeTheFace() {
+        val thought = EveCuriosityEngine.consider(
+            label = "person",
+            confidence = 0.95f,
+            sightings = 5,
+            curiosityBias = 0.84f,
+            lastAnyQuestionAtMs = 0L,
+            lastLabelQuestionAtMs = 0L,
+            previousQuestionCount = 0,
+            nowMs = 100_000L
+        )
+        assertNotNull(thought)
+        assertEquals("أرى شخصًا. ما اسمك؟", thought!!.text)
+        assertTrue(thought.text.length <= 70)
+        assertFalse(thought.text.contains("مرة أخرى"))
+        assertFalse(thought.text.contains("أعرفك"))
     }
 
     @Test fun asksWhatItSeesOnlyFromFreshConfidentLocalLabel() {
