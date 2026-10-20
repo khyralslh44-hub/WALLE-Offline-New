@@ -407,8 +407,22 @@ class MainActivity : ComponentActivity() {
         memory = EveMemory(applicationContext)
         peopleMemory = EvePeopleMemory(applicationContext)
         faceIdentityMemory = EveFaceIdentityMemory(applicationContext)
-        autonomousExplorationEnabled = getSharedPreferences("eve_relationship", MODE_PRIVATE)
-            .getBoolean("autonomousExplorationEnabled", true)
+        val relationshipPreferences = getSharedPreferences("eve_relationship", MODE_PRIVATE)
+        autonomousExplorationEnabled = relationshipPreferences.getBoolean("autonomousExplorationEnabled", true)
+        val priorReflectionKey = relationshipPreferences.getString("lastAutonomyReflectionKey", "").orEmpty()
+        if (priorReflectionKey.isNotBlank()) {
+            // Restore a tiny non-image summary so a restart does not trigger the same reflection again.
+            autonomousMind.recordFeedback(
+                EveMindFeedback(
+                    EveMindGoal.REFLECT_ON_NEW_EVIDENCE,
+                    EveMindAction.REQUEST_LOCAL_REFLECTION,
+                    succeeded = true,
+                    note = priorReflectionKey,
+                    atMs = SystemClock.elapsedRealtime()
+                )
+            )
+            lastAutonomyReflectionAt = SystemClock.elapsedRealtime()
+        }
         brain = RobotBrain(memory.learnedPersonality())
         voice = RobotVoice()
         localLanguageBrain = LocalLanguageBrain(applicationContext) { state, percent, message ->
@@ -2998,15 +3012,22 @@ class MainActivity : ComponentActivity() {
             val reflection = insight.reflectionArabic.ifBlank { insight.replyArabic }.trim().take(240)
             if (reflection.isNotBlank()) memory.rememberReflection(reflection)
             mindEvidenceKey?.let { key ->
+                val reflectionSucceeded = insight.confidence >= 0.45f && reflection.isNotBlank()
                 autonomousMind.recordFeedback(
                     EveMindFeedback(
                         EveMindGoal.REFLECT_ON_NEW_EVIDENCE,
                         EveMindAction.REQUEST_LOCAL_REFLECTION,
-                        succeeded = insight.confidence >= 0.45f && reflection.isNotBlank(),
+                        succeeded = reflectionSucceeded,
                         note = key,
                         atMs = SystemClock.elapsedRealtime()
                     )
                 )
+                if (reflectionSucceeded) {
+                    getSharedPreferences("eve_relationship", MODE_PRIVATE).edit()
+                        .putString("lastAutonomyReflectionKey", key)
+                        .putLong("lastAutonomyReflectionWallAt", System.currentTimeMillis())
+                        .apply()
+                }
             }
             val suggestion = brain.integrateLanguageInsight(
                 moodHint = insight.moodHint,
