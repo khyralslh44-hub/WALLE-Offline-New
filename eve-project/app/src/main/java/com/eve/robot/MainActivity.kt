@@ -2787,7 +2787,11 @@ class MainActivity : ComponentActivity() {
             }
         )
         val plan = autonomousMind.plan(context)
-        val step = plan.steps.first()
+        // A reflection plan contains a review step followed by an LLM step. The frame/context
+        // has already passed freshness checks above, so execute the planned reflection step
+        // rather than stopping permanently at the first review-only step.
+        val step = plan.steps.firstOrNull { it.action == EveMindAction.REQUEST_LOCAL_REFLECTION }
+            ?: plan.steps.first()
         val signature = "${plan.goal}|${step.action}|${label.take(48)}"
         if (signature != lastAutonomyPlanSignature) {
             lastAutonomyPlanSignature = signature
