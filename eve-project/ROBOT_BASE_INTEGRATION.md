@@ -1,28 +1,29 @@
 # EVE mobile-base add-on (Bluetooth LE)
 
-This is a future-ready interface contract for a mobile base. It is **not** a claim of compatibility with every commercial Bluetooth robot base. A base must implement the GATT UUIDs and packet format below, or a model-specific adapter must be added after its vendor protocol is known.
+This is a future-ready hardware interface contract. It is **not** a claim of compatibility with every commercial Bluetooth robot base. A base must implement the GATT UUIDs and packet format below, or a model-specific adapter must be added after its vendor protocol is known.
 
 ## What the phone does locally
 
 - Sends bounded wheel commands over Bluetooth LE only after a compatible service is discovered.
-- Reads fresh, checksummed obstacle, floor-edge, bumper, emergency-stop, motor-state, and battery telemetry.
-- Runs a fail-closed navigation policy: it stops on a detected/possible drop, stale telemetry, missing required sensors, a person in the current camera view, bumper press, base fault, emergency stop, or low battery.
-- Uses short motor-command leases; the base firmware must independently stop motors when a lease expires or the phone link is lost.
-- Can combine the phone's on-device object/image labels with repeated evidence to suggest room types. These are hypotheses, not a metric map or guaranteed room recognition.
+- Reads fresh, checksummed obstacle, floor-edge, bumper, emergency-stop, motor-state, battery, and fused odometry telemetry.
+- Runs a fail-closed navigation policy: it stops on a detected/possible drop, stale sensors or pose, missing required sensors, a person in the current camera view, bumper press, base fault, emergency stop, or low battery.
+- Uses short motor-command leases; base firmware must independently stop motors when a lease expires or the phone link is lost.
+- Builds a bounded local occupancy grid from measured ranges and the base's fused pose; associates cautious room hypotheses with map cells and chooses nearby unexplored frontiers. This is an exploration aid, not a claim of full SLAM.
 
-No movement command should be accepted by the base without fresh sensor telemetry. The user must explicitly say **"استكشفي المنزل بالقاعدة"** to enable movement. **"أوقفي القاعدة"** must disable movement immediately. A safety latch requires an explicit safe-reset command after all sensor readings are current and safe.
+No movement command should be accepted without fresh sensor and pose telemetry. The user must explicitly say **"استكشفي المنزل بالقاعدة"** to enable movement. **"أوقفي القاعدة"** disables movement immediately. A cliff/fault stop is latched and requires an explicit safe-reset command after every sensor reading is current and safe.
 
 ## Required hardware before enabling wheels
 
 A compatible base must contain:
 - independently addressable left and right drive motors;
 - front, rear, left, and right distance sensors;
-- two down-facing cliff/drop sensors, near the left and right sides;
+- two down-facing cliff/drop sensors near the left and right sides;
 - bumper input and a physical emergency-stop input;
 - battery and motor-controller fault reporting;
-- a firmware watchdog that stops/ brakes the motors if no valid command is renewed within 300 ms.
+- wheel encoders plus an IMU (or equivalent fused odometry) that reports a stable local (x,y,heading) pose;
+- a firmware watchdog that brakes/stops the motors if a valid command is not renewed within 300 ms.
 
-The phone cannot guarantee edge avoidance from camera pixels alone. If a cliff sensor is missing, invalid, or out of range, the app refuses to move. Do not test near stairs or a tabletop edge until the base firmware, cliff sensors, physical stop, and watchdog have each been validated independently.
+The phone cannot guarantee edge avoidance from camera pixels alone. If a cliff sensor, required distance sensor, or fresh pose is missing or invalid, the app refuses to move. Do not test near stairs or a tabletop edge until the base firmware, physical stop, cliff sensors, and watchdog have each been validated independently.
 
 ## GATT contract
 
@@ -30,6 +31,7 @@ UUIDs:
 - Service: `6f8e0001-7d5b-4d7a-ae11-2e9b00000001`
 - Phone command characteristic (write with response): `6f8e0002-7d5b-4d7a-ae11-2e9b00000001`
 - Base telemetry characteristic (notify/indicate): `6f8e0003-7d5b-4d7a-ae11-2e9b00000001`
+- Fused odometry pose characteristic (notify/indicate): `6f8e0004-7d5b-4d7a-ae11-2e9b00000001`
 
 All multibyte sensor distances are unsigned little-endian millimetres. Sensor values `0xFFFF` mean invalid and must not be interpreted as clear space.
 
@@ -67,23 +69,40 @@ The base must reject invalid magic/version/length/checksum and unknown command t
 | 18 | Status: bit 0 motor driver ready, bit 1 base fault |
 | 19 | XOR of bytes 0–18 |
 
-The base should notify at 10 Hz or faster. The phone rejects frames with wrong size, version, type, or checksum and considers telemetry unsafe after 600 ms without a fresh frame. A detected drop is latched until a safe-reset command is accepted; reconnection alone must never clear it.
+### Fused pose frame (16 bytes, one notification)
+
+| Byte(s) | Meaning |
+|---|---|
+| 0 | Magic `0xE7` |
+| 1 | Protocol version `1` |
+| 2 | Pose type `0x81` |
+| 3 | Rolling sequence number |
+| 4–7 | Signed little-endian (x) position in millimetres |
+| 8–11 | Signed little-endian (y) position in millimetres |
+| 12–13 | Signed little-endian heading in centidegrees (−18000…18000) |
+| 14 | Bit 0 means the fused pose is valid |
+| 15 | XOR of bytes 0–14 |
+
+Map convention: (0°=+X), with positive heading counter-clockwise. The base must keep the pose origin stable during a mapping session and publish pose and sensor frames at least 10 Hz. The app rejects wrong size/version/checksum frames and considers telemetry or pose unsafe after 600 ms without a fresh frame. The grid is bounded and held locally for the current connected exploration session; it does not yet promise a persistent map across app restarts, reconnects, or base reboots.
+
+A detected drop is latched until a safe-reset command is accepted; reconnection alone never clears it.
 
 ## Connection and voice commands
 
-No connection scan runs on app launch. The user can say:
+No connection scan runs at app launch. The user can say:
 - **"اتصلي بالقاعدة"** — search for a compatible base over BLE.
-- **"استكشفي المنزل بالقاعدة"** — request connection if needed, then enable guarded autonomous motion once the link and sensors are ready.
-- **"أوقفي القاعدة"** — stop and disable base movement.
+- **"استكشفي المنزل بالقاعدة"** — request connection if needed, then enable guarded autonomous movement once camera, link, sensors, and pose are ready.
+- **"أوقفي القاعدة"** — stop and disable movement.
 - **"افصلي القاعدة"** — stop and disconnect.
-- **"استعادة الحركة"** — clear a latched stop only if the current telemetry passes every safety check.
+- **"استعادة الحركة"** — clear a latched stop only if the current telemetry passes all safety checks.
+- **"ما اسم الغرفة"** — report the latest cautious visual room hypothesis.
 
-Android Bluetooth permissions are requested only when this optional feature is invoked.
+Android Bluetooth permissions are requested only when the optional feature is invoked. When the app is backgrounded, it stops issuing wheel commands.
 
-## Not provided by a generic BLE protocol
+## Room recognition and map limitations
 
-Room recognition can return cautious labels such as kitchen/bedroom/bathroom/living room when visual evidence supports them. A reliable persistent map of the entire home needs a real odometry source (wheel encoders or equivalent), repeatable localization, and calibrated sensors. Those are not inferred from an ordinary Bluetooth connection and must be added for the specific purchased base.
+Room type is inferred locally from repeated whole-image/object labels—for example, bed plus pillow may support a bedroom hypothesis, while a fridge plus oven/microwave may support a kitchen hypothesis. A single cup or table is not enough. Room labels remain hypotheses, not certainties. Narrow passages, stairs, glass, reflective surfaces, dynamic obstacles, or miscalibrated sensors require hardware-specific tuning and supervised validation. This is not a production SLAM system.
 
 ## Test status
 
-The protocol decoder and navigation policy are covered by local unit tests. No physical mobile base has been connected to this project yet. Before use with hardware, a base-specific firmware implementation and bench tests with wheels lifted, emergency-stop checks, cliff-sensor checks, and then slow supervised floor tests are mandatory.
+The protocol decoder and navigation policy have unit tests; the map/frontier policy has local unit tests. **No physical base has been connected to this project yet.** Before hardware use, implement this firmware contract and bench-test with wheels lifted, then validate emergency stop, cliff sensors, watchdog, and obstacle avoidance in a slow supervised floor test. Never test the first build near a real drop.
