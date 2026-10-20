@@ -139,6 +139,32 @@ class EveActivityUnderstandingTest {
         assertTrue(last.explanationArabic.contains("قد تكون تمرينًا"))
     }
 
+    @Test fun repeatedCyclicHandMotionCanOnlySuggestExerciseLikeMotion() {
+        val engine = EveActivityUnderstanding()
+        val positions = listOf(
+            0.22f, 0.61f, 0.28f, 0.66f, 0.24f,
+            0.64f, 0.27f, 0.62f, 0.23f
+        )
+        var last = EveActivityInterpretation(
+            EveHumanActivity.UNKNOWN, 0f, 0, 0, "", "", 0L
+        )
+        for (i in positions.indices) {
+            last = engine.observe(
+                EveHumanFrameEvidence(
+                    timestampMs = i * 800L,
+                    personConfidence = 0.88f,
+                    jointMotionScore = 0.45f,
+                    handCenterX = positions[i],
+                    handCenterY = if (i % 2 == 0) 0.35f else 0.72f
+                )
+            )
+        }
+        assertEquals(EveHumanActivity.EXERCISE_LIKE_MOTION, last.activity)
+        assertTrue(last.confidence in 0.55f..0.68f)
+        assertTrue(last.explanationArabic.contains("قد تكون تمرينًا"))
+        assertTrue(last.explanationArabic.contains("تلويحًا"))
+    }
+
     @Test fun staleFramesAreIgnoredInsteadOfRewindingTheWindow() {
         val engine = EveActivityUnderstanding()
         engine.observe(EveHumanFrameEvidence(2_000L, 0.9f))
