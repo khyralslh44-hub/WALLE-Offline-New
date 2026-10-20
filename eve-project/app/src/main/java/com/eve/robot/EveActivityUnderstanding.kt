@@ -109,6 +109,20 @@ class EveActivityUnderstanding(
                     observedAtMs = sample.timestampMs
                 )
             }
+            // Some face frames do not expose a reliable mouth signal. Repeated, separated
+            // hand-to-mouth episodes plus visible food still support a cautious hypothesis,
+            // but only after a longer temporal window and without claiming certainty.
+            hasFood && handMouthEpisodes >= 3 && span >= 2_500L -> {
+                EveActivityInterpretation(
+                    EveHumanActivity.EATING_POSSIBLE,
+                    confidence = confidence(0.55f + min(0.18f, handMouthEpisodes * 0.04f)),
+                    evidenceCount = people.size,
+                    durationMs = span,
+                    explanationArabic = "ظهر طعام وتكررت حركة اليد باتجاه منطقة الفم عبر الزمن، لكن إشارة فتح الفم غير واضحة؛ الأكل احتمال فقط.",
+                    nextActionArabic = "لا تقاطع الشخص. لا تتحدث إلا إذا خاطبك أو طلب المساعدة.",
+                    observedAtMs = sample.timestampMs
+                )
+            }
             // A cup/bottle alone is not enough: require a repeated approach to the mouth.
             hasDrink && handMouthEpisodes >= 1 && (mouthRange >= 0.025f || mouthCycles >= 1) -> {
                 EveActivityInterpretation(
@@ -118,6 +132,19 @@ class EveActivityUnderstanding(
                     evidenceCount = people.size,
                     durationMs = span,
                     explanationArabic = "وعاء شرب محتمل مع اقتراب اليد من الفم وحركة فم؛ الشرب مجرد استنتاج بصري محتمل.",
+                    nextActionArabic = "ابقَ هادئًا ولا تقاطع الشخص؛ انتظر تفاعلًا مباشرًا قبل طرح سؤال.",
+                    observedAtMs = sample.timestampMs
+                )
+            }
+            // If mouth landmarks are unavailable, require multiple separate approaches;
+            // a cup/bottle by itself never implies drinking.
+            hasDrink && handMouthEpisodes >= 2 && span >= 2_000L -> {
+                EveActivityInterpretation(
+                    EveHumanActivity.DRINKING_POSSIBLE,
+                    confidence = confidence(0.54f + min(0.17f, handMouthEpisodes * 0.04f)),
+                    evidenceCount = people.size,
+                    durationMs = span,
+                    explanationArabic = "ظهر وعاء شرب محتمل مع تكرار حركة اليد نحو الفم عبر عدة إطارات؛ الشرب احتمال وليس يقينًا.",
                     nextActionArabic = "ابقَ هادئًا ولا تقاطع الشخص؛ انتظر تفاعلًا مباشرًا قبل طرح سؤال.",
                     observedAtMs = sample.timestampMs
                 )
