@@ -82,6 +82,8 @@ class EveBleRobotBase(
     private var telemetryCharacteristic: BluetoothGattCharacteristic? = null
     private var poseCharacteristic: BluetoothGattCharacteristic? = null
     private var sequence = 0
+    private val telemetrySequenceGuard = EveBaseFrameSequenceGuard()
+    private val poseSequenceGuard = EveBaseFrameSequenceGuard()
     private val writeLock = Any()
     private var writeInFlight = false
     private var pendingFrame: ByteArray? = null
@@ -109,6 +111,8 @@ class EveBleRobotBase(
         disconnectInternal(announce = false)
         latestTelemetry = null
         latestPose = null
+        telemetrySequenceGuard.reset()
+        poseSequenceGuard.reset()
         update(EveBaseLinkState.SCANNING, "أبحث فقط عن قاعدة تعلن بروتوكول EVE المتوافق.")
         val callback = object : ScanCallback() {
             override fun onScanResult(callbackType: Int, result: ScanResult) {
@@ -248,6 +252,8 @@ class EveBleRobotBase(
                     poseCharacteristic = null
                     latestTelemetry = null
                     latestPose = null
+                    telemetrySequenceGuard.reset()
+                    poseSequenceGuard.reset()
                     synchronized(writeLock) {
                         writeInFlight = false
                         pendingFrame = null
@@ -387,6 +393,15 @@ class EveBleRobotBase(
                 send(EveRobotBaseProtocol.MotorCommand(EveRobotBaseProtocol.CommandType.STOP, reason = "invalid telemetry"))
                 return
             }
+            if (!telemetrySequenceGuard.accept(parsed.sequence)) {
+                latestTelemetry = null
+                send(EveRobotBaseProtocol.MotorCommand(
+                    type = EveRobotBaseProtocol.CommandType.STOP,
+                    reason = "replayed or out-of-order sensor telemetry"
+                ))
+                main.post { fail("تكررت أو عادت إلى الخلف بيانات الحساسات؛ أوقفت الحركة حتى يتصل الجهاز ويرسل إطارات جديدة.") }
+                return
+            }
             latestTelemetry = parsed
             main.post { if (state == EveBaseLinkState.READY) listener.onTelemetry(parsed) }
             return
@@ -397,6 +412,15 @@ class EveBleRobotBase(
                 main.post { fail("وصل إطار موقع حركي غير صالح؛ لن أحرّك القاعدة حتى يصل إطار صحيح.") }
                 latestPose = null
                 send(EveRobotBaseProtocol.MotorCommand(EveRobotBaseProtocol.CommandType.STOP, reason = "invalid pose"))
+                return
+            }
+            if (!poseSequenceGuard.accept(pose.sequence)) {
+                latestPose = null
+                send(EveRobotBaseProtocol.MotorCommand(
+                    type = EveRobotBaseProtocol.CommandType.STOP,
+                    reason = "replayed or out-of-order odometry pose"
+                ))
+                main.post { fail("تكررت أو عادت إلى الخلف إحداثيات القاعدة؛ أوقفت الحركة حتى تصل إحداثيات حديثة.") }
                 return
             }
             latestPose = pose
@@ -492,6 +516,8 @@ class EveBleRobotBase(
         poseCharacteristic = null
         latestTelemetry = null
         latestPose = null
+        telemetrySequenceGuard.reset()
+        poseSequenceGuard.reset()
         synchronized(writeLock) {
             writeInFlight = false
             pendingFrame = null
