@@ -40,6 +40,7 @@ import com.google.mediapipe.framework.image.BitmapImageBuilder
 import com.google.mediapipe.tasks.core.BaseOptions
 import com.google.mediapipe.tasks.vision.core.RunningMode
 import com.google.mediapipe.tasks.vision.gesturerecognizer.GestureRecognizer
+import com.google.mediapipe.tasks.vision.poselandmarker.PoseLandmarker
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
@@ -123,6 +124,13 @@ class MainActivity : ComponentActivity() {
     private val lastGestureDiagnosticAt = AtomicLong(0L)
     private val handGestureInterpreter = HandGestureInterpreter()
     private val lastHandReactionAt = mutableMapOf<String, Long>()
+    @Volatile private var poseLandmarker: PoseLandmarker? = null
+    @Volatile private var poseLandmarkerReady = false
+    private val poseInferenceRunning = AtomicBoolean(false)
+    private val lastPoseInferenceAt = AtomicLong(0L)
+    @Volatile private var latestPoseAngles: EvePoseAngles? = null
+    @Volatile private var latestPoseObservedAt = 0L
+    private var previousPoseAngles: EvePoseAngles? = null
     private val emotionClassifierDelegate = lazy { EveFacialEmotionClassifier(applicationContext) }
     private val emotionClassifier by emotionClassifierDelegate
     private val emotionSmoother = EveEmotionSmoother(windowSize = 3, requiredVotes = 2, minConfidence = 0.62f)
@@ -132,7 +140,13 @@ class MainActivity : ComponentActivity() {
     private val faceCueSmoother = EveFaceCueSmoother(windowSize = 3, requiredVotes = 2)
     private val activityUnderstanding = EveActivityUnderstanding()
     private val environmentUnderstanding = EveEnvironmentUnderstanding()
+    private val autonomousMind = EveAutonomousMind()
+    @Volatile private var autonomousExplorationEnabled = false
+    @Volatile private var lastDirectUserActionAt = SystemClock.elapsedRealtime()
+    @Volatile private var lastAutonomyPlanSignature = ""
+    @Volatile private var lastAutonomyReflectionAt = 0L
     @Volatile private var activeHumanActivity = EveHumanActivity.UNKNOWN
+    @Volatile private var activeHumanActivityConfidence = 0f
     @Volatile private var lastHumanActivityAt = 0L
     @Volatile private var latestActivitySummary = ""
     @Volatile private var latestEnvironmentSummary = ""
