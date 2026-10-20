@@ -141,6 +141,28 @@ jobs:
           fi
           ls -lh "$MODEL"
 
+      - name: Download and pin offline MobileFaceNet identity model
+        shell: bash
+        run: |
+          set -euo pipefail
+          ASSETS="eve-project/app/src/main/assets"
+          MODEL="$ASSETS/MobileFaceNet.tflite"
+          LICENSE="$ASSETS/mobilefacenet_model_license.txt"
+          mkdir -p "$ASSETS"
+          curl --fail --location --retry 3 --connect-timeout 20 --max-time 180 \
+            "https://raw.githubusercontent.com/syaringan357/Android-MobileFaceNet-MTCNN-FaceAntiSpoofing/d635649e711f5e16e6cd3dc06cbb329cd8d1d3b7/app/src/main/assets/MobileFaceNet.tflite" --output "$MODEL"
+          EXPECTED="3249c511be86366d5d0a137dc6f4af321af28678"
+          ACTUAL="$(git hash-object "$MODEL")"
+          echo "MobileFaceNet Git blob hash: $ACTUAL"
+          if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "FAIL: MobileFaceNet model hash changed; refusing an unreviewed model."
+            exit 1
+          fi
+          curl --fail --location --retry 3 --connect-timeout 20 --max-time 90 \
+            "https://raw.githubusercontent.com/syaringan357/Android-MobileFaceNet-MTCNN-FaceAntiSpoofing/d635649e711f5e16e6cd3dc06cbb329cd8d1d3b7/LICENSE" --output "$LICENSE"
+          grep -Fq "MIT License" "$LICENSE"
+          ls -lh "$MODEL" "$LICENSE"
+          echo "PASS: pinned offline face-identity model and its license are ready."
       - name: Bundle the pinned Qwen language model for offline first launch
         shell: bash
         run: |
