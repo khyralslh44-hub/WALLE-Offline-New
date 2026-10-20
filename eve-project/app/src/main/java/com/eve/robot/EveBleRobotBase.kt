@@ -46,6 +46,7 @@ class EveBleRobotBase(
     interface Listener {
         fun onStateChanged(state: EveBaseLinkState, detail: String)
         fun onTelemetry(telemetry: EveRobotBaseProtocol.Telemetry)
+        fun onPose(pose: EveRobotBaseProtocol.Pose)
     }
 
     private val appContext = context.applicationContext
@@ -55,6 +56,7 @@ class EveBleRobotBase(
     private val serviceUuid = UUID.fromString(EveRobotBaseProtocol.SERVICE_UUID_TEXT)
     private val commandUuid = UUID.fromString(EveRobotBaseProtocol.COMMAND_UUID_TEXT)
     private val telemetryUuid = UUID.fromString(EveRobotBaseProtocol.TELEMETRY_UUID_TEXT)
+    private val poseUuid = UUID.fromString(EveRobotBaseProtocol.POSE_UUID_TEXT)
     private val cccdUuid = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
 
     @Volatile
@@ -66,6 +68,10 @@ class EveBleRobotBase(
         private set
 
     @Volatile
+    var latestPose: EveRobotBaseProtocol.Pose? = null
+        private set
+
+    @Volatile
     var lastDetail: String = "لم يتم توصيل قاعدة متوافقة."
         private set
 
@@ -73,6 +79,7 @@ class EveBleRobotBase(
     private var gatt: BluetoothGatt? = null
     private var commandCharacteristic: BluetoothGattCharacteristic? = null
     private var telemetryCharacteristic: BluetoothGattCharacteristic? = null
+    private var poseCharacteristic: BluetoothGattCharacteristic? = null
     private var sequence = 0
     private val writeLock = Any()
     private var writeInFlight = false
@@ -100,6 +107,7 @@ class EveBleRobotBase(
 
         disconnectInternal(announce = false)
         latestTelemetry = null
+        latestPose = null
         update(EveBaseLinkState.SCANNING, "أبحث فقط عن قاعدة تعلن بروتوكول EVE المتوافق.")
         val callback = object : ScanCallback() {
             override fun onScanResult(callbackType: Int, result: ScanResult) {
@@ -231,6 +239,7 @@ class EveBleRobotBase(
                     commandCharacteristic = null
                     telemetryCharacteristic = null
                     latestTelemetry = null
+                    latestPose = null
                     synchronized(writeLock) {
                         writeInFlight = false
                         pendingFrame = null
@@ -248,6 +257,7 @@ class EveBleRobotBase(
             val service = callbackGatt.getService(serviceUuid)
             val command = service?.getCharacteristic(commandUuid)
             val telemetry = service?.getCharacteristic(telemetryUuid)
+            val pose = service?.getCharacteristic(poseUuid)
             val supportsWrite = command != null && (
                 command.properties and BluetoothGattCharacteristic.PROPERTY_WRITE != 0 ||
                     command.properties and BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE != 0
@@ -256,44 +266,22 @@ class EveBleRobotBase(
                 telemetry.properties and BluetoothGattCharacteristic.PROPERTY_NOTIFY != 0 ||
                     telemetry.properties and BluetoothGattCharacteristic.PROPERTY_INDICATE != 0
                 )
-            if (service == null || command == null || telemetry == null || !supportsWrite || !supportsNotify) {
-                fail("الجهاز لا يطابق بروتوكول EVE المطلوب؛ لم أرسل أوامر محركات.")
+            val supportsPose = pose != null && (
+                pose.properties and BluetoothGattCharacteristic.PROPERTY_NOTIFY != 0 ||
+                    pose.properties and BluetoothGattCharacteristic.PROPERTY_INDICATE != 0
+                )
+            if (service == null || command == null || telemetry == null || pose == null ||
+                !supportsWrite || !supportsNotify || !supportsPose
+            ) {
+                fail("القاعدة لا توفر أوامر EVE وحساساتها وبيانات الموقع الحركي؛ لم أسمح بالحركة.")
                 callbackGatt.disconnect()
                 return
             }
             commandCharacteristic = command
             telemetryCharacteristic = telemetry
-            try {
-                if (!callbackGatt.setCharacteristicNotification(telemetry, true)) {
-                    fail("تعذر تفعيل إشعارات الحساسات.")
-                    callbackGatt.disconnect()
-                    return
-                }
-                val descriptor = telemetry.getDescriptor(cccdUuid)
-                if (descriptor == null) {
-                    fail("خاصية إشعارات الحساسات غير موجودة.")
-                    callbackGatt.disconnect()
-                    return
-                }
-                val value = if (telemetry.properties and BluetoothGattCharacteristic.PROPERTY_INDICATE != 0) {
-                    BluetoothGattDescriptor.ENABLE_INDICATION_VALUE
-                } else {
-                    BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-                }
-                val writeStarted = if (Build.VERSION.SDK_INT >= 33) {
-                    callbackGatt.writeDescriptor(descriptor, value) == 0
-                } else {
-                    @Suppress("DEPRECATION")
-                    descriptor.value = value
-                    @Suppress("DEPRECATION")
-                    callbackGatt.writeDescriptor(descriptor)
-                }
-                if (!writeStarted) {
-                    fail("تعذر تفعيل قناة بيانات الحساسات.")
-                    callbackGatt.disconnect()
-                }
-            } catch (error: SecurityException) {
-                fail("فُقد إذن Bluetooth أثناء تهيئة الحساسات.")
+            poseCharacteristic = pose
+            if (!enableNotifications(callbackGatt, telemetry)) {
+                fail("تعذر تفعيل إشعارات حساسات العوائق والحواف.")
                 callbackGatt.disconnect()
             }
         }
@@ -304,23 +292,36 @@ class EveBleRobotBase(
             status: Int
         ) {
             if (descriptor.uuid != cccdUuid) return
-            if (status == BluetoothGatt.GATT_SUCCESS) {
-                update(EveBaseLinkState.READY, "قاعدة EVE متصلة؛ أنتظر بيانات حديثة من الحساسات قبل السماح بالحركة.")
-                send(
-                    EveRobotBaseProtocol.MotorCommand(
-                        type = EveRobotBaseProtocol.CommandType.STOP,
-                        reason = "safe stop on connection"
-                    )
-                )
-                send(
-                    EveRobotBaseProtocol.MotorCommand(
-                        type = EveRobotBaseProtocol.CommandType.REQUEST_STATUS,
-                        reason = "request fresh sensor state"
-                    )
-                )
-            } else {
-                fail("لم أستطع تفعيل إشعارات الحساسات؛ الحركة ممنوعة.")
+            if (status != BluetoothGatt.GATT_SUCCESS) {
+                fail("تعذر تفعيل قناة الحساسات أو الإحداثيات؛ الحركة ممنوعة.")
                 callbackGatt.disconnect()
+                return
+            }
+            when (descriptor.characteristic.uuid) {
+                telemetryUuid -> {
+                    // GATT permits one descriptor transaction at a time. Subscribe to fused pose
+                    // only after the safety-sensor notification subscription has completed.
+                    val pose = poseCharacteristic
+                    if (pose == null || !enableNotifications(callbackGatt, pose)) {
+                        fail("لم أستطع تفعيل بيانات الموقع الحركي؛ خريطة المنزل والحركة ممنوعتان.")
+                        callbackGatt.disconnect()
+                    }
+                }
+                poseUuid -> {
+                    update(EveBaseLinkState.READY, "قاعدة EVE متصلة؛ أنتظر بيانات حساسات وإحداثيات حديثة قبل السماح بالحركة.")
+                    send(
+                        EveRobotBaseProtocol.MotorCommand(
+                            type = EveRobotBaseProtocol.CommandType.STOP,
+                            reason = "safe stop on connection"
+                        )
+                    )
+                    send(
+                        EveRobotBaseProtocol.MotorCommand(
+                            type = EveRobotBaseProtocol.CommandType.REQUEST_STATUS,
+                            reason = "request fresh sensor and pose state"
+                        )
+                    )
+                }
             }
         }
 
@@ -365,16 +366,55 @@ class EveBleRobotBase(
     }
 
     private fun receiveTelemetry(characteristic: BluetoothGattCharacteristic, bytes: ByteArray) {
-        if (characteristic.uuid != telemetryUuid) return
-        val parsed = EveRobotBaseProtocol.decodeTelemetry(bytes, android.os.SystemClock.elapsedRealtime())
-        if (parsed == null) {
-            main.post { fail("وصل إطار حساس غير صالح (الإصدار/الطول/التحقق). الحركة متوقفة حتى وصول إطار سليم.") }
-            send(EveRobotBaseProtocol.MotorCommand(EveRobotBaseProtocol.CommandType.STOP, reason = "invalid telemetry"))
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (characteristic.uuid == telemetryUuid) {
+            val parsed = EveRobotBaseProtocol.decodeTelemetry(bytes, now)
+            if (parsed == null) {
+                main.post { fail("وصل إطار حساس غير صالح (الإصدار/الطول/التحقق). الحركة متوقفة حتى وصول إطار سليم.") }
+                send(EveRobotBaseProtocol.MotorCommand(EveRobotBaseProtocol.CommandType.STOP, reason = "invalid telemetry"))
+                return
+            }
+            latestTelemetry = parsed
+            main.post { if (state == EveBaseLinkState.READY) listener.onTelemetry(parsed) }
             return
         }
-        latestTelemetry = parsed
-        main.post {
-            if (state == EveBaseLinkState.READY) listener.onTelemetry(parsed)
+        if (characteristic.uuid == poseUuid) {
+            val pose = EveRobotBaseProtocol.decodePose(bytes, now)
+            if (pose == null) {
+                main.post { fail("وصل إطار موقع حركي غير صالح؛ لن أحرّك القاعدة حتى يصل إطار صحيح.") }
+                latestPose = null
+                send(EveRobotBaseProtocol.MotorCommand(EveRobotBaseProtocol.CommandType.STOP, reason = "invalid pose"))
+                return
+            }
+            latestPose = pose
+            main.post { if (state == EveBaseLinkState.READY) listener.onPose(pose) }
+        }
+    }
+
+    private fun enableNotifications(
+        callbackGatt: BluetoothGatt,
+        characteristic: BluetoothGattCharacteristic
+    ): Boolean {
+        return try {
+            if (!callbackGatt.setCharacteristicNotification(characteristic, true)) return false
+            val descriptor = characteristic.getDescriptor(cccdUuid) ?: return false
+            val value = if (characteristic.properties and BluetoothGattCharacteristic.PROPERTY_INDICATE != 0) {
+                BluetoothGattDescriptor.ENABLE_INDICATION_VALUE
+            } else {
+                BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+            }
+            if (Build.VERSION.SDK_INT >= 33) {
+                callbackGatt.writeDescriptor(descriptor, value) == 0
+            } else {
+                @Suppress("DEPRECATION")
+                descriptor.value = value
+                @Suppress("DEPRECATION")
+                callbackGatt.writeDescriptor(descriptor)
+            }
+        } catch (_: SecurityException) {
+            false
+        } catch (_: Exception) {
+            false
         }
     }
 
@@ -435,7 +475,9 @@ class EveBleRobotBase(
         gatt = null
         commandCharacteristic = null
         telemetryCharacteristic = null
+        poseCharacteristic = null
         latestTelemetry = null
+        latestPose = null
         synchronized(writeLock) {
             writeInFlight = false
             pendingFrame = null
