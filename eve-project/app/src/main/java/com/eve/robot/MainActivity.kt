@@ -146,6 +146,8 @@ class MainActivity : ComponentActivity() {
     @Volatile private var lastDirectUserActionAt = SystemClock.elapsedRealtime()
     @Volatile private var lastAutonomyPlanSignature = ""
     @Volatile private var lastAutonomyReflectionAt = 0L
+    private val lastAutonomyCameraSwitchAt = AtomicLong(0L)
+    private val autonomousCameraSwitchCooldownMs = 60_000L
     @Volatile private var activeHumanActivity = EveHumanActivity.UNKNOWN
     @Volatile private var activeHumanActivityConfidence = 0f
     @Volatile private var lastHumanActivityAt = 0L
@@ -2777,7 +2779,12 @@ class MainActivity : ComponentActivity() {
             activityConfidence = activeHumanActivityConfidence,
             explorationEnabled = autonomousExplorationEnabled,
             localLanguageReady = ::localLanguageBrain.isInitialized && localLanguageBrain.isReady,
-            lastReflectionAtMs = lastAutonomyReflectionAt
+            lastReflectionAtMs = lastAutonomyReflectionAt,
+            cameraIsFront = activeCameraLens == CameraLens.FRONT,
+            cameraSwitchAllowed = hasCameraPermission() && run {
+                val switchedAt = lastAutonomyCameraSwitchAt.get()
+                switchedAt <= 0L || now - switchedAt >= autonomousCameraSwitchCooldownMs
+            }
         )
         val plan = autonomousMind.plan(context)
         val step = plan.steps.first()
@@ -2823,9 +2830,80 @@ class MainActivity : ComponentActivity() {
                         "activityConfidence=$activeHumanActivityConfidence sceneFresh=${sceneAge <= EveAutonomousMind.SCENE_FRESH_MS}"
                 )
             }
-            EveMindAction.WAIT_FOR_FRESH_FRAME -> Unit
+            EveMindAction.WAIT_FOR_FRESH_FRAME -> {
+                autonomousMind.recordFeedback(
+                    EveMindFeedback(
+                        goal = plan.goal,
+                        action = step.action,
+                        succeeded = sceneAge <= EveAutonomousMind.SCENE_FRESH_MS,
+                        note = "frame_age_ms=$sceneAge",
+                        atMs = now
+                    )
+                )
+            }
             EveMindAction.MAINTAIN_QUIET_ATTENTION -> Unit
-            EveMindAction.CONTINUE_EXPLORATION -> Unit
+            EveMindAction.CONTINUE_EXPLORATION -> {
+                Log.d(
+                    "EVE_MIND",
+                    "MIND_EXPLORE_VIEW lens=${activeCameraLens.name} sceneAgeMs=$sceneAge " +
+                        "labels=${latestObjectLabels.size} offline=true"
+                )
+            }
+            EveMindAction.SWITCH_TO_WORLD_CAMERA -> {
+                val currentNow = SystemClock.elapsedRealtime()
+                val faceStillVisible = lastFaceSeenAt > 0L &&
+                    currentNow - lastFaceSeenAt in 0L..4_500L
+                val lastSwitch = lastAutonomyCameraSwitchAt.get()
+                val cooldownDone = lastSwitch <= 0L ||
+                    currentNow - lastSwitch >= autonomousCameraSwitchCooldownMs
+                val safeToSwitch = autonomousExplorationEnabled &&
+                    hasCameraPermission() &&
+                    activeCameraLens == CameraLens.FRONT &&
+                    !faceStillVisible &&
+                    currentNow - lastDirectUserActionAt >= EveAutonomousMind.AUTO_CAMERA_SWITCH_IDLE_MS &&
+                    cooldownDone
+                if (safeToSwitch) {
+                    lastAutonomyCameraSwitchAt.set(currentNow)
+                    Log.i(
+                        "EVE_MIND",
+                        "MIND_ACTION start=SWITCH_TO_WORLD_CAMERA from=FRONT reason=quiet_exploration"
+                    )
+                    switchCamera()
+                    main.postDelayed({
+                        if (isFinishing || isDestroyed) return@postDelayed
+                        val succeeded = cameraStarted && activeCameraLens == CameraLens.BACK
+                        autonomousMind.recordFeedback(
+                            EveMindFeedback(
+                                goal = plan.goal,
+                                action = step.action,
+                                succeeded = succeeded,
+                                note = "rear_camera_active=$succeeded",
+                                atMs = SystemClock.elapsedRealtime()
+                            )
+                        )
+                        Log.i(
+                            "EVE_MIND",
+                            "MIND_ACTION_RESULT action=SWITCH_TO_WORLD_CAMERA success=$succeeded " +
+                                "lens=${activeCameraLens.name}"
+                        )
+                    }, 1_500L)
+                } else {
+                    autonomousMind.recordFeedback(
+                        EveMindFeedback(
+                            goal = plan.goal,
+                            action = step.action,
+                            succeeded = false,
+                            note = "blocked_by_current_safety_or_cooldown",
+                            atMs = currentNow
+                        )
+                    )
+                    Log.i(
+                        "EVE_MIND",
+                        "MIND_ACTION_BLOCKED action=SWITCH_TO_WORLD_CAMERA face=$faceStillVisible " +
+                            "lens=${activeCameraLens.name} permission=${hasCameraPermission()} cooldown=$cooldownDone"
+                    )
+                }
+            }
         }
     }
 
