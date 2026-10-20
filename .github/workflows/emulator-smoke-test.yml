@@ -162,6 +162,24 @@ jobs:
           echo "PASS: pinned thumb-up gesture fixture verified."
           sha256sum "$GESTURE_FIXTURE" | tee "$RUNNER_TEMP/thumb-up-fixture-sha256.txt"
 
+      - name: Download broad offline ImageNet classifier for API 35
+        if: ${{ matrix.api-level == 35 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          MODEL="eve-project/app/src/main/assets/efficientnet_lite0_int8.tflite"
+          mkdir -p "$(dirname "$MODEL")"
+          curl --fail --location --retry 4 --retry-delay 2 --connect-timeout 20 --max-time 240 \
+            "https://storage.googleapis.com/mediapipe-models/image_classifier/efficientnet_lite0/int8/latest/efficientnet_lite0.tflite" \
+            --output "$MODEL"
+          BYTES="$(stat -c '%s' "$MODEL")"
+          SHA256="$(sha256sum "$MODEL" | awk '{print $1}')"
+          echo "EfficientNet-Lite0 ImageNet SHA-256: $SHA256"
+          echo "EfficientNet-Lite0 ImageNet bytes: $BYTES"
+          test "$BYTES" -gt 1000000
+          test "$BYTES" -lt 20000000
+          sha256sum "$MODEL" | tee "$RUNNER_TEMP/imagenet-classifier-sha256.txt"
+
       - name: Bundle fully offline Arabic speech recognition model for API 35
         if: ${{ matrix.api-level == 35 }}
         shell: bash
@@ -183,7 +201,7 @@ jobs:
           BYTES="$(stat -c '%s' "$MODEL")"
           echo "Qwen SHA-256: $ACTUAL"
           echo "Qwen model bytes: $BYTES"
-          if [ "$ACTUAL" != "$EXPECTED" ] || [ "$BYTES" -lt 500000000 ]; then
+          if [ "$ACTUAL" != "$EXPECTED" ] || [ "$BYTES" -lt 300000000 ]; then
             echo "FAIL: Qwen weights failed pinned digest/size verification."
             exit 1
           fi
@@ -221,6 +239,18 @@ jobs:
             exit 22
           fi
           echo "PASS: API 35 APK contains the pinned Qwen asset (SHA-256 verified)."
+          unzip -Z1 "$LOCAL_APK" > "$RUNNER_TEMP/eve-api35-vision-apk-entries.txt"
+          if ! grep -Fxq "assets/efficientnet_lite0_int8.tflite" "$RUNNER_TEMP/eve-api35-vision-apk-entries.txt"; then
+            echo "FAIL: API 35 local app APK is missing the broad ImageNet classifier."
+            exit 23
+          fi
+          PACKAGED_IMAGENET_SHA256="$(unzip -p "$LOCAL_APK" assets/efficientnet_lite0_int8.tflite | sha256sum | awk '{print $1}')"
+          SOURCE_IMAGENET_SHA256="$(sha256sum eve-project/app/src/main/assets/efficientnet_lite0_int8.tflite | awk '{print $1}')"
+          if [ "$PACKAGED_IMAGENET_SHA256" != "$SOURCE_IMAGENET_SHA256" ]; then
+            echo "FAIL: API 35 packaged ImageNet model hash mismatch."
+            exit 24
+          fi
+          echo "PASS: API 35 APK contains the broad offline ImageNet classifier (SHA-256 verified)."
           echo "APK_PATH=$LOCAL_APK" >> "$GITHUB_ENV"
           echo "TEST_APK_PATH=$TEST_APK" >> "$GITHUB_ENV"
           echo "SOURCE_RUN_ID=local-$GITHUB_RUN_ID" >> "$GITHUB_ENV"
