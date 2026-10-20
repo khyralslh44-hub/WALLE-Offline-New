@@ -40,8 +40,22 @@ class RobotGamesActivity : ComponentActivity() {
     private var gameSessionId = 0L
     private var gameLlmRequestSerial = 0L
     private var lastGameLlmRequestAt = 0L
+    private var pendingGameComment: PendingGameComment? = null
+    private var pendingGameCommentRunnable: Runnable? = null
     private var modelGameIntent = "play"
     private var latestGameDecision: EveDecision? = null
+
+    private data class PendingGameComment(
+        val gameName: String,
+        val outcome: String,
+        val detail: String,
+        val playerScore: Int?,
+        val eveScore: Int?,
+        val round: Int?,
+        val force: Boolean,
+        val sessionId: Long,
+        val game: Game
+    )
 
     private enum class Game { MENU, XO, RPS, CHESS, TARGET, PAINT_SHOT, MEMORY, REFLEX }
 
@@ -55,6 +69,7 @@ class RobotGamesActivity : ComponentActivity() {
     private var chessSelected: Int? = null
     private var chessFinished = false
     private var chessThinking = false
+    private var chessPly = 0
 
     // RPS adapts by choosing a winning response to the player's most common move.
     private val playerRpsHistory = mutableListOf<Int>()
@@ -219,10 +234,33 @@ class RobotGamesActivity : ComponentActivity() {
     private fun beginGameSession() {
         gameSessionId++
         gameLlmRequestSerial++
+        pendingGameComment = null
+        pendingGameCommentRunnable?.let(handler::removeCallbacks)
+        pendingGameCommentRunnable = null
         gameDialogueView = null
     }
 
     /** Use the shared local Qwen engine for contextual game commentary and bounded style hints. */
+    private fun queueGameComment(request: PendingGameComment, delayMs: Long) {
+        pendingGameComment = request
+        pendingGameCommentRunnable?.let(handler::removeCallbacks)
+        val task = Runnable {
+            val pending = pendingGameComment ?: return@Runnable
+            pendingGameComment = null
+            pendingGameCommentRunnable = null
+            if (pending.sessionId != gameSessionId || pending.game != game || isFinishing || isDestroyed) {
+                android.util.Log.d("EVE_GAME_LLM", "COMMENT_DROPPED stale game=${pending.gameName}")
+                return@Runnable
+            }
+            requestModelGameComment(
+                pending.gameName, pending.outcome, pending.detail,
+                pending.playerScore, pending.eveScore, pending.round, pending.force
+            )
+        }
+        pendingGameCommentRunnable = task
+        handler.postDelayed(task, delayMs.coerceAtLeast(250L))
+    }
+
     private fun requestModelGameComment(
         gameName: String,
         outcome: String,
@@ -232,6 +270,12 @@ class RobotGamesActivity : ComponentActivity() {
         round: Int? = null,
         force: Boolean = false
     ) {
+        val requestId = ++gameLlmRequestSerial
+        val sessionAtRequest = gameSessionId
+        val gameAtRequest = game
+        val request = PendingGameComment(
+            gameName, outcome, detail, playerScore, eveScore, round, force, sessionAtRequest, gameAtRequest
+        )
         val model = LocalLanguageBrain.currentInstance()
         if (model == null) {
             android.util.Log.i("EVE_GAME_LLM", "COMMENT_FALLBACK reason=model_instance_unavailable game=$gameName")
@@ -239,18 +283,20 @@ class RobotGamesActivity : ComponentActivity() {
         }
         if (!model.isReady) {
             model.ensureReady()
-            android.util.Log.i("EVE_GAME_LLM", "COMMENT_FALLBACK reason=model_not_ready game=$gameName")
+            queueGameComment(request, 1_200L)
+            android.util.Log.i("EVE_GAME_LLM", "COMMENT_QUEUED reason=model_not_ready game=$gameName")
             return
         }
         val now = SystemClock.elapsedRealtime()
         if (!force && now - lastGameLlmRequestAt < 5_000L) {
-            android.util.Log.d("EVE_GAME_LLM", "COMMENT_THROTTLED game=$gameName outcome=$outcome")
+            queueGameComment(request, 5_000L - (now - lastGameLlmRequestAt))
+            android.util.Log.d("EVE_GAME_LLM", "COMMENT_QUEUED cooldown game=$gameName outcome=$outcome")
             return
         }
+        pendingGameComment = null
+        pendingGameCommentRunnable?.let(handler::removeCallbacks)
+        pendingGameCommentRunnable = null
         lastGameLlmRequestAt = now
-        val requestId = ++gameLlmRequestSerial
-        val sessionAtRequest = gameSessionId
-        val gameAtRequest = game
         val decision = latestGameDecision
         val history = prefs.getString("recent_game_results", "").orEmpty()
             .split("\\n").filter { it.isNotBlank() }.takeLast(3)
@@ -283,11 +329,23 @@ class RobotGamesActivity : ComponentActivity() {
             val generated = result.getOrNull()
             val reply = generated?.replyArabic?.trim()?.take(320).orEmpty()
             if (generated == null || reply.isBlank()) {
+                val error = result.exceptionOrNull()
                 android.util.Log.w(
                     "EVE_GAME_LLM",
                     "COMMENT_FAILED game=$gameName outcome=$outcome; kept immediate local fallback",
-                    result.exceptionOrNull()
+                    error
                 )
+                if (gameLlmRequestSerial == requestId &&
+                    error?.message.orEmpty().contains("مشغول بطلب سابق")
+                ) {
+                    queueGameComment(
+                        PendingGameComment(
+                            gameName, outcome, detail, playerScore, eveScore, round, force,
+                            sessionAtRequest, gameAtRequest
+                        ),
+                        650L
+                    )
+                }
                 return@commentOnGame
             }
             generated.intentHint?.takeIf {
@@ -303,6 +361,12 @@ class RobotGamesActivity : ComponentActivity() {
             latestGameDecision = languageDecision
             eveGameFace?.setExpression(languageDecision, SystemClock.uptimeMillis())
             gameDialogueView?.text = reply
+            if (gameName == "paint_shot") {
+                paintShotMessage = reply
+                paintShotMessageView?.text = reply
+            }
+            if (gameName == "target") statusText = reply
+            if (gameName == "memory" && !memoryShowing) memoryCue?.text = reply
             prefs.edit()
                 .putString("last_game_reply", reply)
                 .putLong("last_game_reply_at", System.currentTimeMillis())
@@ -323,7 +387,9 @@ class RobotGamesActivity : ComponentActivity() {
     private var generatedReplyCount = 0
 
     private fun generateGameReply(gameName: String, outcome: String, detail: String = "", score: Int? = null, round: Int? = null): String {
-        val decision = if (::gameBrain.isInitialized) gameBrain.gameOutcome(gameName, outcome) else null
+        // This is a fast local fallback only. The local language model replaces it with a fresh,
+        // context-grounded reaction as soon as inference is available.
+        val decision = if (::gameBrain.isInitialized) (latestGameDecision ?: gameBrain.gameOutcome(gameName, outcome)) else null
         val mood = decision?.mood ?: EveMood.CURIOUS
         val seed = SystemClock.elapsedRealtime() / 97L + ++generatedReplyCount * 31L + (score ?: 0) * 13L + (round ?: 0) * 7L
         fun pick(values: List<String>, salt: Long = 0L): String {
@@ -353,47 +419,68 @@ class RobotGamesActivity : ComponentActivity() {
         lastGeneratedGameReply = reply
         prefs.edit().putString("last_game_reply", reply).putLong("last_game_reply_at", System.currentTimeMillis()).putString("last_game_reply_game", gameName).putString("last_game_reply_outcome", outcome).apply()
         android.util.Log.i("EVE_GAME_DIALOGUE", "game=" + gameName + " outcome=" + outcome + " mood=" + mood + " reply=" + reply)
-        val shouldAskModel = when (gameName) {
-            "rps" -> round != null && round > 0 && round % 4 == 0
-            "paint_shot" -> round == 1 || round == 5
-            else -> false
-        }
-        if (shouldAskModel) {
-            requestModelGameComment(
-                gameName = gameName,
-                outcome = outcome,
-                detail = detail,
-                playerScore = if (gameName == "rps") rpsScoreHuman else score,
-                eveScore = if (gameName == "rps") rpsScoreEve else null,
-                round = round,
-                force = false
-            )
-        }
         return reply
     }
 
     /** Game events update the affect engine; starts and final results invoke the local LLM. */
-    private fun reactWithEve(gameName: String, outcome: String) {
+    private fun reactWithEve(
+        gameName: String,
+        outcome: String,
+        detail: String = "",
+        playerScore: Int? = null,
+        eveScore: Int? = null,
+        round: Int? = null
+    ) {
         if (!::gameBrain.isInitialized) return
-        val decision = gameBrain.gameOutcome(gameName, outcome)
+        val event = outcome.lowercase()
+        val decision = if (gameName.equals("chess", ignoreCase = true)) {
+            when (event) {
+                "player" -> gameBrain.gameOutcome("chess", "miss")
+                "robot" -> gameBrain.gameOutcome("chess", "robot")
+                "draw" -> gameBrain.gameOutcome("chess", "draw")
+                "player_capture", "player_check", "player_checkmate" -> gameBrain.gameOutcome("chess", "miss")
+                "eve_capture", "eve_check", "eve_checkmate" -> gameBrain.gameOutcome("chess", "robot")
+                else -> gameBrain.integrateLanguageInsight(
+                    moodHint = null, intentHint = "focus", confidence = 0.58f,
+                    note = detail, source = "chess_turn"
+                )
+            }
+        } else gameBrain.gameOutcome(gameName, outcome)
         latestGameDecision = decision
         eveGameFace?.setExpression(decision, SystemClock.uptimeMillis())
         android.util.Log.i("EVE_GAME", "game=$gameName outcome=$outcome mood=${decision.mood} reason=${decision.reason}")
         if (::robotVoice.isInitialized) {
-            val cue = when (outcome.lowercase()) {
-                "start" -> "game_start"
-                "player", "success", "win" -> "game_win"
-                "robot", "miss", "loss" -> "game_loss"
-                "draw" -> "game_draw"
-                else -> "game_event"
+            val cue = when {
+                gameName.equals("chess", ignoreCase = true) -> when (event) {
+                    "start" -> "game_start"
+                    "player" -> "chess_loss"
+                    "robot" -> "chess_win"
+                    "player_capture", "eve_capture" -> "chess_capture"
+                    "player_check", "eve_check" -> "chess_check"
+                    "player_checkmate" -> "chess_loss"
+                    "eve_checkmate" -> "chess_win"
+                    else -> null
+                }
+                event in setOf("player", "success", "win") -> "game_win"
+                event in setOf("robot", "miss", "loss") -> "game_loss"
+                event == "draw" -> "game_draw"
+                event == "start" -> "game_start"
+                else -> null
             }
-            robotVoice.playGameCue(cue)
+            if (cue != null) robotVoice.playGameCue(cue)
         }
+        val metrics = currentGameMetrics(gameName)
+        val resolvedPlayerScore = playerScore ?: metrics.first
+        val resolvedEveScore = eveScore ?: metrics.second
+        val resolvedRound = round ?: metrics.third
         if (outcome == "start") {
             requestModelGameComment(
                 gameName, outcome,
-                "بدأت مباراة جديدة. اختر أسلوبًا عامًا مناسبًا ولا تقترح نقلة محددة.",
-                playerScore = 0, eveScore = 0, round = 0, force = true
+                detail.ifBlank { "بدأت مباراة جديدة. أنشئ رد فعل شخصيًا مناسبًا للعبة ولا تخترع نتيجة." },
+                playerScore = resolvedPlayerScore ?: 0,
+                eveScore = resolvedEveScore ?: 0,
+                round = resolvedRound ?: 0,
+                force = true
             )
             return
         }
@@ -406,34 +493,55 @@ class RobotGamesActivity : ComponentActivity() {
             Game.REFLEX -> reflexFinished
             Game.RPS, Game.MENU -> false
         }
+        val eventDetail = detail.ifBlank {
+            when (gameName.lowercase()) {
+                "chess" -> "حدث شطرنج=$outcome؛ نقلة=$chessPly؛ تقييم القطع للاعب=${chessMaterial(true)} ولإيف=${chessMaterial(false)}."
+                "rps" -> "الجولة $rpsRound؛ نتيجة الجولة=$outcome؛ سجل محلي لأسلوب الاختيار."
+                "paint_shot" -> "التصويبات $paintShotScore من $paintShotRound؛ الحدث=$outcome."
+                "target" -> "إصابات الهدف $targetScore من $targetRound؛ الحدث=$outcome."
+                "xo" -> "علامات اللاعب=${xo.count { it == 'X' }} وإيف=${xo.count { it == 'O' }}؛ الحركة $xoHumanMoves."
+                "memory" -> "مستوى الذاكرة $memoryLevel؛ طول التسلسل ${sequence.size}؛ الحدث=$outcome."
+                "reflex" -> "جولات الاستجابة $reflexRound؛ إصابات اللاعب $reflexHits؛ الحدث=$outcome."
+                else -> "اللعبة=$gameName؛ الحدث=$outcome."
+            }
+        }
         if (terminal && game != Game.RPS) {
-            val humanScore = when (game) {
-                Game.PAINT_SHOT -> paintShotScore
-                Game.TARGET -> targetScore
-                Game.MEMORY -> memoryLevel
-                Game.REFLEX -> reflexHits
-                else -> null
-            }
-            val eveScore = when (game) {
-                Game.PAINT_SHOT -> paintShotRound - paintShotScore
-                Game.TARGET -> targetRound - targetScore
-                Game.MEMORY -> 0
-                Game.REFLEX -> reflexRound - reflexHits
-                else -> null
-            }
             requestModelGameComment(
                 gameName, outcome,
-                "انتهت المباراة. أعط تعليقًا مرتبطًا بالنتيجة الفعلية والمعلومات المتاحة فقط.",
-                playerScore = humanScore,
-                eveScore = eveScore,
-                round = when (game) {
-                    Game.PAINT_SHOT -> paintShotRound
-                    Game.TARGET -> targetRound
-                    Game.REFLEX -> reflexRound
-                    else -> null
-                },
+                (eventDetail + " انتهت المباراة؛ علّق على النتيجة الحقيقية ورد الفعل المناسب.").take(220),
+                playerScore = resolvedPlayerScore,
+                eveScore = resolvedEveScore,
+                round = resolvedRound,
                 force = true
             )
+        } else {
+            // Rapid events are coalesced so the freshest event wins instead of queueing stale reactions.
+            requestModelGameComment(
+                gameName, outcome, eventDetail.take(220),
+                resolvedPlayerScore, resolvedEveScore, resolvedRound, force = false
+            )
+        }
+    }
+
+    private fun currentGameMetrics(gameName: String): Triple<Int?, Int?, Int?> = when (gameName.lowercase()) {
+        "chess" -> Triple(chessMaterial(true), chessMaterial(false), chessPly)
+        "rps" -> Triple(rpsScoreHuman, rpsScoreEve, rpsRound)
+        "paint_shot" -> Triple(paintShotScore, (paintShotRound - paintShotScore).coerceAtLeast(0), paintShotRound)
+        "target" -> Triple(targetScore, (targetRound - targetScore).coerceAtLeast(0), targetRound)
+        "xo" -> Triple(xo.count { it == 'X' }, xo.count { it == 'O' }, xoHumanMoves)
+        "memory" -> Triple(memoryLevel, 0, sequence.size)
+        "reflex" -> Triple(reflexHits, (reflexRound - reflexHits).coerceAtLeast(0), reflexRound)
+        else -> Triple(null, null, null)
+    }
+
+    private fun chessMaterial(white: Boolean): Int = chess.position.board.sumOf { piece ->
+        if (piece == '.' || piece.isUpperCase() != white) 0 else when (piece.uppercaseChar()) {
+            'P' -> 1
+            'N', 'B' -> 3
+            'R' -> 5
+            'Q' -> 9
+            'K' -> 0
+            else -> 0
         }
     }
 
@@ -472,13 +580,20 @@ class RobotGamesActivity : ComponentActivity() {
         startActivity(Intent(this, CameraShotActivity::class.java))
     }
 
-    private fun saveResult(name: String, result: String) {
+    private fun saveResult(
+        name: String,
+        result: String,
+        detail: String = "",
+        playerScore: Int? = null,
+        eveScore: Int? = null,
+        round: Int? = null
+    ) {
         EveNotificationScheduler.recordGameResult(this, name, result)
         val historyLine = name + ":" + result
         val history = prefs.getString("recent_game_results", "").orEmpty()
             .split("\\n").filter { it.isNotBlank() }
         prefs.edit().putString("recent_game_results", (history + historyLine).takeLast(8).joinToString("\\n")).apply()
-        reactWithEve(name, result)
+        reactWithEve(name, result, detail, playerScore, eveScore, round)
         val ratingKey = "rating:" + name
         val old = prefs.getInt(ratingKey, 1000)
         val update = when (result) { "player" -> old + 18; "robot" -> old - 16; else -> old + 2 }
@@ -602,6 +717,8 @@ class RobotGamesActivity : ComponentActivity() {
     private fun moveXo(index: Int) {
         if (game != Game.XO || xoFinished || xo[index] != ' ') return
         xo[index] = 'X'; xoHumanMoves++
+        val humanMoveDetail = "اللاعب وضع X في الخانة $index. عدد حركات اللاعب $xoHumanMoves؛ " +
+            "لوحة إكس-أو الحالية: اللاعب ${xo.count { it == 'X' }} وإيف ${xo.count { it == 'O' }}."
         val humanWin = winner(xo)
         if (humanWin == 'X') {
             xoFinished = true; saveResult("xo", "player"); renderXo("فزت! هذه الجولة لك. سأغيّر خطتي."); return
@@ -671,6 +788,11 @@ class RobotGamesActivity : ComponentActivity() {
             }
         }
         xo[chosen] = 'O'
+        reactWithEve(
+            "xo", "move",
+            "$humanMoveDetail إيف ردت بوضع O في الخانة $chosen. اختارت الحركة بمقارنة احتمالات الفوز والتعادل.",
+            xo.count { it == 'X' }, xo.count { it == 'O' }, xoHumanMoves
+        )
         when {
             winner(xo) == 'O' -> {
                 xoFinished = true
@@ -765,10 +887,10 @@ class RobotGamesActivity : ComponentActivity() {
             else -> "player"
         }
         when (result) { "player" -> rpsScoreHuman++; "robot" -> rpsScoreEve++ }
-        saveResult("rps", result)
-        reactWithEve("rps", result)
-        val detail = "اخترت ${labels[player]}؛ اخترت ${labels[robot]}. " +
-            if (playerRpsHistory.size >= 4) "سجلّ اختياراتك يساعدني على توقع النمط." else "ما زلت أجمع إشارات عن أسلوب لعبك."
+        val detail = "الجولة $rpsRound: اخترت ${labels[player]} واخترت إيف ${labels[robot]}؛ " +
+            "النتيجة $result؛ اللاعب $rpsScoreHuman مقابل إيف $rpsScoreEve. " +
+            if (playerRpsHistory.size >= 4) "إيف تحلل نمط اختياراتك السابقة." else "إيف ما زالت تجمع أمثلة من اختياراتك."
+        saveResult("rps", result, detail, rpsScoreHuman, rpsScoreEve, rpsRound)
         renderRps(generateGameReply("rps", result, detail, rpsScoreEve, rpsRound))
     }
 
@@ -776,12 +898,13 @@ class RobotGamesActivity : ComponentActivity() {
     private fun startChess() {
         beginGameSession()
         game = Game.CHESS
-        reactWithEve("chess", "start")
         chess.reset()
         chessSelected = null
         chessFinished = false
         chessThinking = false
-        renderChess("أنت الأبيض، وأنا الأسود. المس قطعة بيضاء ثم وجهتها.")
+        chessPly = 0
+        reactWithEve("chess", "start", "بدأت مباراة الشطرنج من الوضع القياسي؛ أنت الأبيض وإيف الأسود.")
+        renderChess("أنت الأبيض، وأنا الأسود. أراقب كل نقلة وأغيّر ردة فعلي وفق ما يحدث.")
     }
 
     private fun renderChess(message: String) {
@@ -863,12 +986,28 @@ class RobotGamesActivity : ComponentActivity() {
         val playerCapture = board[move.to] != '.' ||
             (board[move.from].uppercaseChar() == 'P' && move.to == chess.position.enPassant)
         chess.play(move)
-        when {
-            chess.isCheckmate() -> robotVoice.playGameCue("chess_win")
-            chess.isCheck() -> robotVoice.playGameCue("chess_check")
-            playerCapture -> robotVoice.playGameCue("chess_capture")
-            else -> robotVoice.playGameCue("chess_move")
+        chessPly++
+        val playerEvent = when {
+            chess.isCheckmate() -> "player_checkmate"
+            chess.isCheck() -> "player_check"
+            playerCapture -> "player_capture"
+            else -> "player_move"
         }
+        val playerDetail = buildString {
+            append("اللاعب لعب نقلة ")
+            append(chess.moveLabel(move))
+            append("؛ الحدث=")
+            append(playerEvent)
+            append("؛ تقييم القطع: اللاعب ")
+            append(chessMaterial(true))
+            append(" وإيف ")
+            append(chessMaterial(false))
+            append(".")
+        }
+        reactWithEve(
+            "chess", playerEvent, playerDetail,
+            chessMaterial(true), chessMaterial(false), chessPly
+        )
         chessSelected = null
         when {
             chess.isCheckmate() -> {
@@ -882,26 +1021,71 @@ class RobotGamesActivity : ComponentActivity() {
             else -> {
                 renderChess(if (chess.isCheck()) "كش! أبحث عن رد." else "حركتك ${chess.moveLabel(move)}. دوري.")
                 chessThinking = true
+                val thinkingSession = gameSessionId
                 handler.postDelayed({
-                    if (game != Game.CHESS || chessFinished || isFinishing) return@postDelayed
+                    if (game != Game.CHESS || chessFinished || isFinishing ||
+                        thinkingSession != gameSessionId
+                    ) return@postDelayed
+                    gameDialogueView?.text = "أفكر… أبحث عن أفضل ردّ وأحمي قطعي."
+                }, 360L)
+                handler.postDelayed({
+                    if (game != Game.CHESS || chessFinished || isFinishing ||
+                        thinkingSession != gameSessionId
+                    ) return@postDelayed
                     val robotMove = chess.robotMove(difficulty)
-                    if (robotMove == null) { chessFinished = true; saveResult("chess", if (chess.isCheck()) "player" else "draw"); renderChess("انتهت المباراة."); return@postDelayed }
+                    if (robotMove == null) {
+                        chessFinished = true
+                        saveResult("chess", if (chess.isCheck()) "player" else "draw", "لا توجد نقلة قانونية لإيف.")
+                        renderChess("انتهت المباراة؛ لا توجد لديّ نقلة قانونية.")
+                        return@postDelayed
+                    }
                     val boardBeforeRobotMove = chess.position.board
                     val robotCapture = boardBeforeRobotMove[robotMove.to] != '.' ||
                         (boardBeforeRobotMove[robotMove.from].lowercaseChar() == 'p' &&
                             robotMove.to == chess.position.enPassant)
                     chess.play(robotMove)
-                    when {
-                        chess.isCheckmate() -> robotVoice.playGameCue("chess_loss")
-                        chess.isCheck() -> robotVoice.playGameCue("chess_check")
-                        robotCapture -> robotVoice.playGameCue("chess_capture")
-                        else -> robotVoice.playGameCue("chess_robot_move")
-                    }
+                    chessPly++
                     chessThinking = false
+                    val eveEvent = when {
+                        chess.isCheckmate() -> "eve_checkmate"
+                        chess.isCheck() -> "eve_check"
+                        robotCapture -> "eve_capture"
+                        else -> "eve_move"
+                    }
+                    val eveDetail = buildString {
+                        append("إيف لعبت نقلة ")
+                        append(chess.moveLabel(robotMove))
+                        append("؛ الحدث=")
+                        append(eveEvent)
+                        append("؛ تقييم القطع: اللاعب ")
+                        append(chessMaterial(true))
+                        append(" وإيف ")
+                        append(chessMaterial(false))
+                        append(".")
+                    }
+                    reactWithEve(
+                        "chess", eveEvent, eveDetail,
+                        chessMaterial(true), chessMaterial(false), chessPly
+                    )
                     when {
-                        chess.isCheckmate() -> { chessFinished = true; saveResult("chess", "robot"); renderChess("كش مات. فزت هذه المرة؛ لن أنسى هذه الخطة.") }
-                        chess.isStalemate() -> { chessFinished = true; saveResult("chess", "draw"); renderChess("تعادل بالخنق. لا توجد حركة قانونية.") }
-                        else -> renderChess("لعبت ${chess.moveLabel(robotMove)}. ${if (chess.isCheck()) "كش عليك!" else "دورك."}")
+                        chess.isCheckmate() -> {
+                            chessFinished = true
+                            saveResult("chess", "robot", eveDetail, chessMaterial(true), chessMaterial(false), chessPly)
+                            renderChess("كش مات! نجحت خطتي هذه المرة. مباراة قوية!")
+                        }
+                        chess.isStalemate() -> {
+                            chessFinished = true
+                            saveResult("chess", "draw", "انتهت مباراة الشطرنج بالتعادل بالخنق.", chessMaterial(true), chessMaterial(false), chessPly)
+                            renderChess("تعادل بالخنق. لا توجد حركة قانونية؛ أحسنت اللعب.")
+                        }
+                        else -> {
+                            val response = when {
+                                chess.isCheck() -> "كش عليك! هل تستطيع الخروج من هذا الموقف؟"
+                                robotCapture -> "التقطت قطعتك! هل لديك رد ذكي؟ دورك."
+                                else -> "لعبت ${chess.moveLabel(robotMove)}. أراقب ردك… دورك."
+                            }
+                            renderChess(response)
+                        }
                     }
                 }, 180L)
             }
@@ -956,12 +1140,13 @@ class RobotGamesActivity : ComponentActivity() {
         paintShotRound = result.shotNumber
         if (result.hit) paintShotScore++
         val outcome = if (result.hit) "success" else "miss"
-        reactWithEve("paint_shot", outcome)
-        paintShotMessage = generateGameReply(
-            "paint_shot", outcome,
-            if (result.hit) "الهدف أصيب بطلقة الطلاء." else "الهدف يتحرك؛ جرّب توقيتًا مختلفًا.",
-            paintShotScore, paintShotRound
+        val shotDetail = "الطلقة $paintShotRound من 10؛ إصابات اللاعب $paintShotScore؛ " +
+            if (result.hit) "أصاب اللاعب الهدف المتحرك." else "أخطأ اللاعب الهدف المتحرك."
+        reactWithEve(
+            "paint_shot", outcome, shotDetail,
+            paintShotScore, paintShotRound - paintShotScore, paintShotRound
         )
+        paintShotMessage = generateGameReply("paint_shot", outcome, shotDetail, paintShotScore, paintShotRound)
         android.util.Log.i(
             "EVE_PAINT_SHOT",
             "shot=${paintShotRound} hit=${result.hit} score=${paintShotScore}/${paintShotRound}"
@@ -1055,10 +1240,18 @@ class RobotGamesActivity : ComponentActivity() {
             statusText = listOf(
                 "إصابة دقيقة!", "سريع! بدأت أتوقع حركتك.", "هذه نقطة لك."
             )[targetScore % 3]
-            reactWithEve("target", "success")
+            reactWithEve(
+                "target", "success",
+                "الجولة $targetRound من 10؛ أصاب اللاعب الهدف. النقاط $targetScore من $targetRound.",
+                targetScore, targetRound - targetScore, targetRound
+            )
         } else {
             statusText = "أخطأت هذه المرة؛ انتقل الهدف إلى موضع جديد."
-            reactWithEve("target", "miss")
+            reactWithEve(
+                "target", "miss",
+                "الجولة $targetRound من 10؛ أخطأ اللاعب الهدف. النقاط $targetScore من $targetRound.",
+                targetScore, targetRound - targetScore, targetRound
+            )
         }
         if (targetRound >= 10) {
             targetFinished = true
@@ -1171,6 +1364,11 @@ class RobotGamesActivity : ComponentActivity() {
         memoryInput++
         if (memoryInput >= sequence.size) {
             memoryLevel++
+            reactWithEve(
+                "memory", "success",
+                "أكمل اللاعب التسلسل كاملًا بنجاح. المستوى التالي $memoryLevel وطول التسلسل الحالي ${sequence.size}.",
+                memoryLevel, 0, sequence.size
+            )
             if (sequence.size >= 12) {
                 memoryFinished = true; saveResult("memory", "player")
                 renderMemory("ذاكرة ممتازة! أكملت 12 إشارة وتفوّقت عليّ.")
