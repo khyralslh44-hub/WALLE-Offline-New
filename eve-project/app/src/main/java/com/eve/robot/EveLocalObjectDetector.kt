@@ -14,7 +14,13 @@ import java.util.Locale
 data class EveVisualObject(
     val label: String,
     val confidence: Float,
-    val areaFraction: Float
+    val areaFraction: Float,
+    /** Normalized horizontal center in the unmirrored camera analysis frame (0=left, 1=right). */
+    val centerX: Float = 0.5f,
+    /** Normalized vertical center in the analysis frame (0=top, 1=bottom). */
+    val centerY: Float = 0.5f,
+    val widthFraction: Float = 0f,
+    val heightFraction: Float = 0f
 )
 
 /**
@@ -82,10 +88,26 @@ class EveLocalObjectDetector(context: Context) : Closeable {
                     return@mapNotNull null
                 }
                 val box = detection.boundingBox()
-                val area = (box.width().coerceAtLeast(0f) * box.height().coerceAtLeast(0f) /
-                    (bitmap.width.toFloat() * bitmap.height.toFloat()).coerceAtLeast(1f))
-                    .coerceIn(0f, 1f)
-                EveVisualObject(label, score.coerceIn(0f, 1f), area)
+                val frameWidth = bitmap.width.toFloat().coerceAtLeast(1f)
+                val frameHeight = bitmap.height.toFloat().coerceAtLeast(1f)
+                // Keep box geometry grounded in the source frame so the brain can reason about
+                // approximate image-relative position and apparent size without guessing distance.
+                val left = box.left.coerceIn(0f, frameWidth)
+                val top = box.top.coerceIn(0f, frameHeight)
+                val right = box.right.coerceIn(left, frameWidth)
+                val bottom = box.bottom.coerceIn(top, frameHeight)
+                val boxWidth = (right - left).coerceAtLeast(0f)
+                val boxHeight = (bottom - top).coerceAtLeast(0f)
+                val area = (boxWidth * boxHeight / (frameWidth * frameHeight)).coerceIn(0f, 1f)
+                EveVisualObject(
+                    label = label,
+                    confidence = score.coerceIn(0f, 1f),
+                    areaFraction = area,
+                    centerX = ((left + right) * 0.5f / frameWidth).coerceIn(0f, 1f),
+                    centerY = ((top + bottom) * 0.5f / frameHeight).coerceIn(0f, 1f),
+                    widthFraction = (boxWidth / frameWidth).coerceIn(0f, 1f),
+                    heightFraction = (boxHeight / frameHeight).coerceIn(0f, 1f)
+                )
             }.sortedWith(
                 compareByDescending<EveVisualObject> { it.confidence }
                     .thenByDescending { it.areaFraction }
