@@ -258,6 +258,18 @@ class EveBaseNavigator {
             AvoidancePhase.NONE -> Unit
         }
 
+        // RETREAT can transition to TURN in the branch above; execute that next phase now
+        // instead of re-entering the obstacle trigger and accidentally retreating forever.
+        if (avoidancePhase == AvoidancePhase.TURN) {
+            val chosenSide = if (turnTowardLeft) left else right
+            if (chosenSide <= SIDE_TURN_CLEARANCE_MM) {
+                resetAvoidance()
+                return stop("turn path is not clear")
+            }
+            val turn = if (turnTowardLeft) TURN_SPEED else -TURN_SPEED
+            return moving(-turn, turn, 250, "turn toward wider measured clearance")
+        }
+
         val frontBlocked = front <= FRONT_OBSTACLE_TRIGGER_MM
         val leftBlocked = left <= SIDE_OBSTACLE_TRIGGER_MM
         val rightBlocked = right <= SIDE_OBSTACLE_TRIGGER_MM
