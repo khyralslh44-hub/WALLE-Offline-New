@@ -70,6 +70,18 @@ class EveRobotBaseProtocolTest {
         return result
     }
 
+    @Test fun sequenceGuardRejectsDuplicateAndBackwardFramesButAllowsWraparound() {
+        val guard = EveBaseFrameSequenceGuard()
+        assertTrue(guard.accept(254))
+        assertTrue(guard.accept(255))
+        assertTrue(guard.accept(0))
+        assertFalse(guard.accept(0))
+        assertFalse(guard.accept(255))
+        assertTrue(guard.accept(1))
+        guard.reset()
+        assertTrue(guard.accept(10))
+    }
+
     @Test fun validTelemetryFrameDecodesLittleEndianDistancesAndStatus() {
         val decoded = EveRobotBaseProtocol.decodeTelemetry(frame(), 1_000L)
         assertNotNull(decoded)
