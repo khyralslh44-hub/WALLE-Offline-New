@@ -20,7 +20,8 @@ enum class EveMindAction {
     REVIEW_RECENT_EVIDENCE,
     REQUEST_LOCAL_REFLECTION,
     MAINTAIN_QUIET_ATTENTION,
-    CONTINUE_EXPLORATION
+    CONTINUE_EXPLORATION,
+    SWITCH_TO_WORLD_CAMERA
 }
 
 data class EveMindContext(
@@ -36,7 +37,11 @@ data class EveMindContext(
     val activityConfidence: Float,
     val explorationEnabled: Boolean,
     val localLanguageReady: Boolean,
-    val lastReflectionAtMs: Long = 0L
+    val lastReflectionAtMs: Long = 0L,
+    /** True when the front/selfie camera is active and the rear camera can provide a wider scene. */
+    val cameraIsFront: Boolean = false,
+    /** Computed by the activity after checking permission, inactivity, and switching cooldown. */
+    val cameraSwitchAllowed: Boolean = false
 )
 
 data class EveMindStep(
@@ -113,6 +118,21 @@ class EveAutonomousMind(
                 listOf(step(EveMindAction.REVIEW_RECENT_EVIDENCE, "مراجعة نشاط مرئي متكرر", "تتجدد الأدلة أو تنتهي صلاحيتها دون مقاطعة الشخص", 0.82f)),
                 activityConfidence, now
             )
+            context.explorationEnabled && context.cameraIsFront && context.cameraSwitchAllowed &&
+                !context.faceSeenRecently && context.inactiveMs >= AUTO_CAMERA_SWITCH_IDLE_MS ->
+                makePlan(
+                    EveMindGoal.EXPLORE_CURRENT_VIEW,
+                    "لا يوجد شخص حديث أمام الكاميرا الأمامية؛ بعد فترة هدوء أختار الكاميرا الخلفية لمعاينة المكان. لن أبدّل العدسة أثناء رؤية شخص.",
+                    listOf(
+                        step(
+                            EveMindAction.SWITCH_TO_WORLD_CAMERA,
+                            "الانتقال مرة واحدة إلى منظور المكان",
+                            "تعمل الكاميرا الخلفية وتصل أدلة مشهد حديثة؛ وإلا أعود إلى الانتظار",
+                            0.78f
+                        )
+                    ),
+                    0.78f, now
+                )
             context.sceneAgeMs < 0L || !sceneFresh -> makePlan(
                 EveMindGoal.OBSERVE_SCENE,
                 "المشهد غير متاح أو قديم؛ الخطوة الصحيحة هي انتظار إطار حديث لا تخمين ما يحدث.",
@@ -217,6 +237,7 @@ class EveAutonomousMind(
         const val MIN_REFLECTION_CONFIDENCE = 0.84f
         const val MIN_ACTIVITY_CONFIDENCE = 0.55f
         const val IDLE_REFLECTION_MS = 18_000L
+        const val AUTO_CAMERA_SWITCH_IDLE_MS = 24_000L
         const val PLAN_TTL_MS = 22_000L
         const val MAX_REFLECTED_KEYS = 32
     }
