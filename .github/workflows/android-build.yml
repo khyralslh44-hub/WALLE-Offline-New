@@ -141,6 +141,23 @@ jobs:
           fi
           ls -lh "$MODEL"
 
+      - name: Download and pin offline pose landmarker for human-motion reasoning
+        shell: bash
+        run: |
+          set -euo pipefail
+          MODEL="eve-project/app/src/main/assets/pose_landmarker_lite.task"
+          mkdir -p "$(dirname "$MODEL")"
+          curl --fail --location --retry 4 --connect-timeout 20 --max-time 180 \
+            "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task" \
+            --output "$MODEL"
+          EXPECTED_SHA256="59929e1d1ee95287735ddd833b19cf4ac46d29bc7afddbbf6753c459690d574a"
+          ACTUAL_SHA256="$(sha256sum "$MODEL" | awk '{print $1}')"
+          if [ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]; then
+            echo "FAIL: pose landmarker does not match the pinned Lite model."
+            exit 1
+          fi
+          echo "PASS: offline Pose Landmarker Lite SHA-256=$ACTUAL_SHA256 bytes=$(stat -c '%s' "$MODEL")"
+
       - name: Download and pin offline MobileFaceNet identity model
         shell: bash
         run: |
@@ -255,6 +272,21 @@ jobs:
               exit 1
             fi
             echo "PASS: $APK contains efficientnet_lite0_int8.tflite SHA-256=$PACKAGED_SHA256"
+            POSE_NAME="pose_landmarker_lite.task"
+            POSE_SOURCE="eve-project/app/src/main/assets/$POSE_NAME"
+            test -s "$POSE_SOURCE"
+            test "$(sha256sum "$POSE_SOURCE" | awk '{print $1}')" = "59929e1d1ee95287735ddd833b19cf4ac46d29bc7afddbbf6753c459690d574a"
+            if ! grep -Fxq "assets/$POSE_NAME" "$RUNNER_TEMP/vision-apk-entries.txt"; then
+              echo "FAIL: offline pose model is missing from $APK"
+              exit 1
+            fi
+            POSE_PACKAGED_SHA256="$(unzip -p "$APK" "assets/$POSE_NAME" | sha256sum | awk '{print $1}')"
+            POSE_SOURCE_SHA256="$(sha256sum "$POSE_SOURCE" | awk '{print $1}')"
+            if [ "$POSE_PACKAGED_SHA256" != "$POSE_SOURCE_SHA256" ]; then
+              echo "FAIL: packaged pose model hash differs from the pinned source model."
+              exit 1
+            fi
+            echo "PASS: $APK contains $POSE_NAME SHA-256=$POSE_PACKAGED_SHA256"
           done
 
       - name: Verify pinned MobileFaceNet model and license are packaged in both APKs
