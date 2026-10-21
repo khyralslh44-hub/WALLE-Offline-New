@@ -820,7 +820,7 @@ class MainActivity : ComponentActivity() {
 
     private fun handleTravelMemorySpeech(text: String, addressedToEve: Boolean, activeConversation: Boolean, nowElapsed: Long): Boolean {
         val q = normalizeArabicSpeech(text)
-        val clear = listOf("امسحي ذاكرة السفر","احذفي ذاكرة السفر","امسحي معلومات السفر","احذفي معلومات السفر","انسي ذاكرة السفر","انسي معلومات السفر").any(q::contains)
+        val clear = listOf("امسحي ذاكره السفر","احذفي ذاكره السفر","امسحي معلومات السفر","احذفي معلومات السفر","انسي ذاكره السفر","انسي معلومات السفر").any(q::contains)
         if (clear && (addressedToEve || activeConversation)) {
             personalTravelMemory.clear()
             getSharedPreferences("eve_personal_travel_memory", MODE_PRIVATE).edit().putString("records", personalTravelMemory.serialize()).apply()

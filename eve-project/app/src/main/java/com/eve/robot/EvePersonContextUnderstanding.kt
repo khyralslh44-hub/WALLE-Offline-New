@@ -35,11 +35,14 @@ class EvePersonContextUnderstanding(private val windowMs: Long = 9_000L, private
   val frames = samples.filter { it.personConfidence >= 0.55f }
   val poses = frames.filter { it.poseObservationAtMs > 0L && e.timestampMs - it.poseObservationAtMs in 0L..3_200L }
    .distinctBy { it.poseObservationAtMs }.sortedBy { it.poseObservationAtMs }
-  val seats = frames.filter { it.objectObservationAtMs > 0L && it.nearbySeatConfidence >= 0.42f }
+  val seats = frames.filter { it.objectObservationAtMs > 0L &&
+   e.timestampMs - it.objectObservationAtMs in 0L..2_200L && it.nearbySeatConfidence >= 0.42f }
    .distinctBy { it.objectObservationAtMs }
-  val phones = frames.filter { it.objectObservationAtMs > 0L && it.phoneConfidence >= 0.42f }
+  val phones = frames.filter { it.objectObservationAtMs > 0L &&
+   e.timestampMs - it.objectObservationAtMs in 0L..2_200L && it.phoneConfidence >= 0.42f }
    .distinctBy { it.objectObservationAtMs }.sortedBy { it.objectObservationAtMs }
-  val hands = frames.filter { it.handObservationAtMs > 0L && it.handNearPhoneConfidence > 0f }
+  val hands = frames.filter { it.handObservationAtMs > 0L &&
+   e.timestampMs - it.handObservationAtMs in 0L..1_400L && it.handNearPhoneConfidence > 0f }
    .distinctBy { it.handObservationAtMs }.sortedBy { it.handObservationAtMs }
   val sitMean = poses.map { it.sittingPoseConfidence }.meanOrZero()
   val sitVotes = if (poses.isEmpty()) 0f else poses.count { it.sittingPoseConfidence >= 0.52f }.toFloat() / poses.size

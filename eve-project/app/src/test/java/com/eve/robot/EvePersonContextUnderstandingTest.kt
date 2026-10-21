@@ -28,4 +28,10 @@ class EvePersonContextUnderstandingTest {
   for(i in 1..6){val t=i*350L;r=e.observe(EvePersonContextEvidence(t,0.9f,objectObservationAtMs=t,phoneConfidence=0.9f))}
   assertEquals(0f,r.phoneCallConfidence);assertEquals(0f,r.phoneBrowsingConfidence)
  }
+ @Test fun stalePhoneEvidenceExpiresWhilePersonRemainsVisible(){
+  val e=EvePersonContextUnderstanding();var r=EvePersonContextSnapshot()
+  for(i in 1..4){val t=i*300L;r=e.observe(EvePersonContextEvidence(t,0.9f,objectObservationAtMs=t,phoneConfidence=0.9f,phoneNearEarConfidence=0.9f))}
+  for(i in 5..16){val t=i*300L;r=e.observe(EvePersonContextEvidence(t,0.9f))}
+  assertEquals(0f,r.phoneCallConfidence);assertEquals(0f,r.phoneBrowsingConfidence)
+ }
 }
