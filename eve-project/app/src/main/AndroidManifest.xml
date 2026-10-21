@@ -46,6 +46,10 @@
             android:screenOrientation="portrait"
             android:exported="false" />
         <activity
+            android:name=".EveDoctorActivity"
+            android:screenOrientation="portrait"
+            android:exported="false" />
+        <activity
             android:name=".EmbodiedGamesActivity"
             android:screenOrientation="portrait"
             android:exported="false" />
