@@ -92,6 +92,11 @@ class RobotFaceRenderingTest {
             spec(
                 "Disappointed", EveMood.CONCERNED, EyeSilhouette.DISAPPOINTED,
                 reason = "disappointed", valence = -0.40f, arousal = 0.40f, fatigue = 0.12f
+            ),
+            Spec(
+                "Dizzy",
+                EveDecision(EveMood.CONCERNED, "confirmed strong physical shake", valence = -0.20f, arousal = 0.90f),
+                EyeSilhouette.DIZZY
             )
         )
 
@@ -117,7 +122,11 @@ class RobotFaceRenderingTest {
         val boundsReport = ArrayList<String>()
 
         specs.forEachIndexed { index, item ->
-            val profile = EyeExpressionGenerator.generate(item.decision, 77L)
+            val profile = if (item.expected == EyeSilhouette.DIZZY) {
+                EyeExpressionGenerator.generateDizzy(item.decision)
+            } else {
+                EyeExpressionGenerator.generate(item.decision, 77L)
+            }
             assertEquals("Wrong glyph selected for ${item.label}", item.expected, profile.silhouette)
 
             val face = RobotFaceView(context)
@@ -127,7 +136,12 @@ class RobotFaceRenderingTest {
             )
             face.layout(0, 0, cellWidth, faceHeight)
             face.setExpression(item.decision, 77L)
-            // Let the 360ms parameter transition and 260ms silhouette crossfade settle.
+            if (item.expected == EyeSilhouette.DIZZY) {
+                face.showDizzyReaction(4000L)
+            } else {
+                face.setExpression(item.decision, 77L)
+            }
+            // Let parameter interpolation settle. The renderer draws one silhouette per frame.
             SystemClock.sleep(420L)
             val rendered = Bitmap.createBitmap(cellWidth, faceHeight, Bitmap.Config.ARGB_8888)
             face.draw(Canvas(rendered))
@@ -184,7 +198,7 @@ class RobotFaceRenderingTest {
         val uniqueMasks = fingerprints.values.toSet().size
         assertTrue(
             "Too many expressions render the same binary pixel mask; unique=$uniqueMasks/${specs.size}; $boundsReport",
-            uniqueMasks >= 22
+            uniqueMasks == specs.size
         )
 
         val output = File(context.filesDir, "eye-expression-contact-sheet.png")

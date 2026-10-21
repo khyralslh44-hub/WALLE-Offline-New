@@ -67,6 +67,7 @@ class EyeExpressionGalleryTest {
         GlyphCase(EyeSilhouette.SHARP, "ANGRY", decision(EveMood.ANGRY, "angry", arousal = 0.5f)),
         GlyphCase(EyeSilhouette.FURIOUS, "FURIOUS", decision(EveMood.ANGRY, "angry", arousal = 0.85f, frustration = 0.85f)),
         GlyphCase(EyeSilhouette.SCARED, "SCARED", decision(EveMood.CONCERNED, "fearful", valence = -0.50f, arousal = 0.86f)),
+        GlyphCase(EyeSilhouette.DIZZY, "DIZZY / SHAKE", decision(EveMood.CONCERNED, "physical shake", valence = -0.20f, arousal = 0.90f)),
         GlyphCase(EyeSilhouette.AWE, "AWE", decision(EveMood.SURPRISED, "surprised", valence = 0.85f)),
         GlyphCase(EyeSilhouette.PLAYFUL, "PLAYFUL", decision(EveMood.PLAYFUL, valence = 0.40f)),
         GlyphCase(EyeSilhouette.SOFT, "WARM / SOFT", decision(EveMood.FAMILIAR, valence = 0.25f)),
@@ -90,7 +91,8 @@ class EyeExpressionGalleryTest {
         val appContext = instrumentation.targetContext
         val glyphCases = cases()
         val selected = glyphCases.map {
-            EyeExpressionGenerator.generate(it.decision, 0xC02A0L).silhouette
+            if (it.expected == EyeSilhouette.DIZZY) EyeSilhouette.DIZZY
+            else EyeExpressionGenerator.generate(it.decision, 0xC02A0L).silhouette
         }.toSet()
         assertEquals("Every defined glyph must be reachable from an affect decision.", EyeSilhouette.values().toSet(), selected)
 
@@ -122,7 +124,11 @@ class EyeExpressionGalleryTest {
                     View.MeasureSpec.makeMeasureSpec(viewHeight, View.MeasureSpec.EXACTLY)
                 )
                 view.layout(0, 0, tileWidth, viewHeight)
-                view.setExpression(item.decision, seed = 0xE7E123L)
+                if (item.expected == EyeSilhouette.DIZZY) {
+                    view.showDizzyReaction(4000L)
+                } else {
+                    view.setExpression(item.decision, seed = 0xE7E123L)
+                }
                 // The production renderer animates parameter interpolation; render the settled pose.
                 SystemClock.sleep(390L)
                 val full = Bitmap.createBitmap(tileWidth, viewHeight, Bitmap.Config.ARGB_8888)
@@ -230,6 +236,7 @@ class EyeExpressionGalleryTest {
                 EyeSilhouette.ROUND_SURPRISE, EyeSilhouette.AWE -> 14
                 EyeSilhouette.SCARED -> 19
                 EyeSilhouette.CONFUSED -> 11
+                EyeSilhouette.DIZZY -> 12
                 EyeSilhouette.ANTICIPATING -> 12
                 EyeSilhouette.DISAPPOINTED -> 8
             }
@@ -251,8 +258,8 @@ class EyeExpressionGalleryTest {
         }
 
         assertTrue(
-            "Expected 20+ visually distinct rasterized patterns from every glyph; got ${signatures.size}",
-            signatures.size >= 20
+            "Every declared glyph must render a different pixel raster; got ${signatures.size}/${glyphCases.size}",
+            signatures.size == glyphCases.size
         )
         val output = File(appContext.filesDir, "eye-expression-sheet.png")
         FileOutputStream(output).use { stream ->
