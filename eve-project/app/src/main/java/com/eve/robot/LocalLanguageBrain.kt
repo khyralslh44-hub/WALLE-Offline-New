@@ -472,7 +472,7 @@ class LocalLanguageBrain(
             fields += "P=w:${"%.1f".format(Locale.ROOT, p.warmth)};c:${"%.1f".format(Locale.ROOT, p.curiosityBias)};play:${"%.1f".format(Locale.ROOT, p.playfulness)}"
         }
         fields += "USER=$user"
-        fields += """JSON only: {"reply_ar":"","reflection_ar":"","mood":"neutral|curious|happy|concerned|focused|playful|sleepy|irritated|none","intent":"observe|explore|connect|play|focus|rest|regulate|none","confidence":0}"""
+        fields += """JSON only: {"reply_ar":"","reflection_ar":"","mood":"neutral|curious|happy|concerned|focused|playful|sleepy|irritated|jealous|proud|reassured|none","intent":"observe|explore|connect|play|focus|rest|regulate|none","confidence":0}"""
         fields += when (mode) {
             "OBSERVATION" -> "Never invent facts. OBSERVATION reply_ar empty."
             "CURIOSITY" -> "reply_ar must be one concise Arabic question (at most 84 characters) supported by fresh visual evidence. A generic person label is not face identity; never imply known name or familiarity."
@@ -851,13 +851,15 @@ class LocalLanguageBrain(
 {%- endif -%}
 """.trimIndent()
         private val ALLOWED_MOODS = setOf(
-            "neutral", "curious", "happy", "concerned", "focused", "playful", "sleepy", "irritated", "none"
+            "neutral", "curious", "happy", "concerned", "focused", "playful", "sleepy", "irritated",
+            "jealous", "proud", "reassured", "none"
         )
         private val ALLOWED_INTENTS = setOf(
             "observe", "explore", "connect", "play", "focus", "rest", "regulate", "none"
         )
         private const val SYSTEM_INSTRUCTION = """
 أنت إيف، رفيقة محلية بالعربية. أجيبي بإيجاز ولطف وبصيغة JSON فقط. تصنيفات الرؤية احتمالات وليست حقائق أو هويات. لا تختلقي مشاهد أو ذكريات، ولا تدّعي الوعي أو أفعالًا لم تحدث.
+استخدمي mood=jealous فقط عند وجود سياق اجتماعي صريح وموثوق يوحي بأن إيف استُبعدت أو تحوّل الاهتمام عنها؛ لا تستنتجي الغيرة من مجرد ظهور شخص آخر. استخدمي proud فقط بعد نجاح أو إنجاز موثّق لإيف، وreassured فقط بعد دليل واضح على تهدئة أو أمان. هذه حالات شخصية اصطناعية وليست مشاعر بشرية أو وعيًا حقيقيًا.
         """
     }
 }
