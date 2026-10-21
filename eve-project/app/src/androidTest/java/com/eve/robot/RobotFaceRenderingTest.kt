@@ -128,6 +128,9 @@ class RobotFaceRenderingTest {
             textAlign = Paint.Align.CENTER
         }
         val fingerprints = linkedMapOf<String, Long>()
+        // Keep each rendered LED mask so the audit can measure meaningful visual separation,
+        // not merely count two drawings as different because of a single pixel.
+        val binaryMasks = linkedMapOf<String, BooleanArray>()
         val boundsReport = ArrayList<String>()
 
         specs.forEachIndexed { index, item ->
@@ -166,6 +169,7 @@ class RobotFaceRenderingTest {
             var maxX = -1
             var maxY = -1
             var cyanPixels = 0
+            val binaryMask = BooleanArray(cellWidth * faceHeight)
             var hash = -3750763034362895579L // FNV-1a offset basis, signed in Kotlin
             for (py in 0 until faceHeight) {
                 for (px in 0 until cellWidth) {
@@ -174,6 +178,7 @@ class RobotFaceRenderingTest {
                     val green = Color.green(pixel)
                     val blue = Color.blue(pixel)
                     val isLed = green > 75 && blue > 75 && green.toFloat() > red.toFloat() * 1.25f
+                    binaryMask[py * cellWidth + px] = isLed
                     hash = (hash xor if (isLed) 1L else 0L) * 1099511628211L
                     if (isLed) {
                         cyanPixels++
@@ -199,14 +204,55 @@ class RobotFaceRenderingTest {
                 maxY - minY >= minimumHeightPixels
             )
             fingerprints[item.label] = hash
+            binaryMasks[item.label] = binaryMask
             boundsReport += "${item.label}:pixels=$cyanPixels,bbox=${minX},${minY}-${maxX},${maxY},glyph=${profile.silhouette}"
             rendered.recycle()
         }
 
         val uniqueMasks = fingerprints.values.toSet().size
         assertTrue(
-            "Too many expressions render the same binary pixel mask; unique=$uniqueMasks/${specs.size}; $boundsReport",
+            "Every expression must render a unique binary pixel mask; unique=$uniqueMasks/${specs.size}; $boundsReport",
             uniqueMasks == specs.size
+        )
+
+        // Compare silhouette overlap directly. A one-pixel difference is not enough to count
+        // as a clear new expression; each pair must differ across at least 7.5% of its LED union.
+        val labels = binaryMasks.keys.toList()
+        val nearDuplicates = ArrayList<String>()
+        var smallestJaccardDistance = 1f
+        var closestPair = ""
+        for (i in labels.indices) {
+            val leftMask = requireNotNull(binaryMasks[labels[i]])
+            for (j in i + 1 until labels.size) {
+                val rightMask = requireNotNull(binaryMasks[labels[j]])
+                var intersection = 0
+                var union = 0
+                for (pixel in leftMask.indices) {
+                    if (leftMask[pixel] || rightMask[pixel]) {
+                        union++
+                        if (leftMask[pixel] && rightMask[pixel]) intersection++
+                    }
+                }
+                val distance = if (union == 0) 0f else (union - intersection).toFloat() / union
+                if (distance < smallestJaccardDistance) {
+                    smallestJaccardDistance = distance
+                    closestPair = "${labels[i]} / ${labels[j]}"
+                }
+                if (distance < 0.075f) {
+                    nearDuplicates += "${labels[i]} / ${labels[j]}=${"%.3f".format(java.util.Locale.ROOT, distance)}"
+                }
+            }
+        }
+        assertTrue(
+            "Expressions are pixel-unique but too similar to read clearly; closest=$closestPair " +
+                "distance=${"%.3f".format(java.util.Locale.ROOT, smallestJaccardDistance)}; " +
+                "nearPairs=${nearDuplicates.joinToString()}; $boundsReport",
+            nearDuplicates.isEmpty()
+        )
+        Log.i(
+            "EVE_TEST",
+            "EYE_SEPARATION_PASS glyphs=${specs.size} uniqueMasks=$uniqueMasks " +
+                "minimumJaccard=${"%.3f".format(java.util.Locale.ROOT, smallestJaccardDistance)} closest=$closestPair"
         )
 
         val output = File(context.filesDir, "eye-expression-contact-sheet.png")
