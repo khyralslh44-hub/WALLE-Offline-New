@@ -9,7 +9,8 @@ enum class EyeSilhouette {
     ALMOND, NEUTRAL, CURIOUS, BLINK_HIGH, SMILE, GLEE, BLINK_LOW,
     SAD_DOWN, SAD_UP, WORRIED, FOCUSED, ANNOYED, ROUND_SURPRISE,
     SKEPTIC, BORED, UNIMPRESSED, DROOPY, SUSPICIOUS, SQUINT,
-    SHARP, FURIOUS, SCARED, AWE, PLAYFUL, SOFT
+    SHARP, FURIOUS, SCARED, AWE, PLAYFUL, SOFT,
+    CONFUSED, ANTICIPATING, DISAPPOINTED
 }
 
 data class EyeExpressionProfile(
@@ -211,6 +212,8 @@ object EyeExpressionGenerator {
                 curiosity >= 0.86f && arousal >= 0.72f && valence >= 0.18f -> EyeSilhouette.AWE
                 curiosity >= 0.82f && valence <= -0.28f -> EyeSilhouette.SUSPICIOUS
                 curiosity >= 0.80f && valence < 0.10f -> EyeSilhouette.SKEPTIC
+                // Positive anticipation is different from surprise: eyes look upward and forward.
+                curiosity >= 0.62f && arousal >= 0.58f && valence >= 0.20f -> EyeSilhouette.ANTICIPATING
                 else -> EyeSilhouette.CURIOUS
             }
             EveMood.HAPPY -> if (valence >= 0.66f && arousal >= 0.48f &&
@@ -219,6 +222,13 @@ object EyeExpressionGenerator {
                 else EyeSilhouette.ROUND_SURPRISE
             EveMood.CONCERNED -> when {
                 valence <= -0.28f && arousal >= 0.82f -> EyeSilhouette.SCARED
+                // Mild negative valence with low-to-middle arousal reads as disappointment,
+                // not alarm or deep sadness.
+                valence in -0.54f..-0.28f && arousal < 0.46f && fatigue < 0.45f ->
+                    EyeSilhouette.DISAPPOINTED
+                // Balanced but conflicting cues create a clearly asymmetrical confused look.
+                valence in -0.15f..0.02f && arousal in 0.28f..0.48f &&
+                    decision.frustration < 0.35f -> EyeSilhouette.CONFUSED
                 valence <= -0.55f && fatigue >= 0.52f -> EyeSilhouette.SAD_DOWN
                 valence <= -0.55f -> EyeSilhouette.SAD_UP
                 arousal < 0.28f -> EyeSilhouette.UNIMPRESSED
@@ -282,23 +292,39 @@ object EyeExpressionGenerator {
             EyeSilhouette.AWE -> maxOf(clearOpening, 1.12f)
             EyeSilhouette.PLAYFUL -> maxOf(clearOpening, 0.85f)
             EyeSilhouette.SOFT -> maxOf(clearOpening, 0.82f)
+            EyeSilhouette.CONFUSED -> maxOf(clearOpening, 0.76f)
+            EyeSilhouette.ANTICIPATING -> maxOf(clearOpening, 0.98f)
+            EyeSilhouette.DISAPPOINTED -> maxOf(clearOpening, 0.68f)
         }.coerceIn(0.14f, 1.20f)
 
         // Gaze direction is also part of the pose. The sad-up/down variants previously
         // selected different contours while keeping the same downward gaze.
         val expressionGazeY = when (expressionSilhouette) {
-            EyeSilhouette.SAD_DOWN, EyeSilhouette.DROOPY -> maxOf(clearGazeY, 0.055f)
+            EyeSilhouette.SAD_DOWN, EyeSilhouette.DROOPY, EyeSilhouette.DISAPPOINTED -> maxOf(clearGazeY, 0.055f)
             EyeSilhouette.SAD_UP -> minOf(clearGazeY, -0.045f)
             EyeSilhouette.BLINK_HIGH -> minOf(clearGazeY, -0.040f)
             EyeSilhouette.BLINK_LOW -> maxOf(clearGazeY, 0.040f)
+            EyeSilhouette.ANTICIPATING -> minOf(clearGazeY, -0.050f)
+            EyeSilhouette.CONFUSED -> clearGazeY.coerceIn(-0.01f, 0.035f)
             else -> clearGazeY
         }.coerceIn(-0.12f, 0.12f)
+        val expressionGazeX = when (expressionSilhouette) {
+            EyeSilhouette.ANTICIPATING -> clearGazeX.coerceIn(0.025f, 0.095f)
+            EyeSilhouette.CONFUSED -> if (curiosity >= 0.5f) 0.055f else -0.055f
+            else -> clearGazeX
+        }.coerceIn(-0.16f, 0.16f)
+        val expressionTilt = when (expressionSilhouette) {
+            EyeSilhouette.CONFUSED -> if (valence < 0f) 8f else -8f
+            EyeSilhouette.ANTICIPATING -> minOf(clearTilt, -4f)
+            EyeSilhouette.DISAPPOINTED -> maxOf(clearTilt, 7f)
+            else -> clearTilt
+        }.coerceIn(-22f, 22f)
 
         return EyeExpressionProfile(
             mood = decision.mood,
             opening = expressionOpening,
-            tilt = clearTilt,
-            gazeX = clearGazeX,
+            tilt = expressionTilt,
+            gazeX = expressionGazeX,
             gazeY = expressionGazeY,
             glow = glow,
             squint = clearSquint,
