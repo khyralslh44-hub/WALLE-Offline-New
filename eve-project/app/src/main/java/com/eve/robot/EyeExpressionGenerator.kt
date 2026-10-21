@@ -159,7 +159,19 @@ object EyeExpressionGenerator {
         val intent = decision.intent
         // The emotional state owns the primary facial read. A goal may refine a neutral
         // expression, but "connect" or "play" must never erase clear anger, surprise, or joy.
-        val clearSilhouette = when (decision.mood) {
+        // These contextual drives refine an existing mood into a readable social expression.
+        // Anger/focus/fatigue retain priority so jealousy or reassurance cannot hide urgent states.
+        val clearSilhouette = when {
+            decision.jealousy >= 0.62f &&
+                decision.mood !in setOf(EveMood.ANGRY, EveMood.IRRITATED, EveMood.SLEEPY, EveMood.FOCUSED) ->
+                EyeSilhouette.SUSPICIOUS
+            decision.pride >= 0.62f &&
+                decision.mood in setOf(EveMood.HAPPY, EveMood.PLAYFUL, EveMood.FAMILIAR, EveMood.NEUTRAL) ->
+                EyeSilhouette.GLEE
+            decision.reassurance >= 0.62f &&
+                decision.mood in setOf(EveMood.CONCERNED, EveMood.NEUTRAL, EveMood.FAMILIAR, EveMood.AWAKE, EveMood.HAPPY) ->
+                EyeSilhouette.SOFT
+            else -> when (decision.mood) {
             EveMood.AWAKE -> when (intent) {
                 EveIntent.EXPLORE -> EyeSilhouette.CURIOUS
                 EveIntent.CONNECT -> EyeSilhouette.SOFT
@@ -259,6 +271,7 @@ object EyeExpressionGenerator {
             }
             EveMood.ANGRY -> if (arousal >= 0.72f || decision.frustration >= 0.70f)
                 EyeSilhouette.FURIOUS else EyeSilhouette.SHARP
+            }
         }
 
         // Open or compress each glyph as its own expression preset. Several previous
