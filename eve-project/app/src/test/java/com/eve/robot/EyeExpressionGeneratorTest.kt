@@ -26,6 +26,25 @@ class EyeExpressionGeneratorTest {
             dizzy.opening >= 0.86f)
     }
 
+    @Test fun jealousyPrideAndAffectionHaveThreeDistinctSingleDrawingSilhouettes() {
+        val jealous = RobotBrain().observeSocialCompetition("social_competition", 0.90f)
+        val proud = RobotBrain().recordAchievement("task_complete", 0.96f)
+        val affectionate = RobotBrain().receiveReassurance("calm_voice", 0.92f)
+
+        val jealousyPose = EyeExpressionGenerator.generate(jealous, 201L).silhouette
+        val pridePose = EyeExpressionGenerator.generate(proud, 202L).silhouette
+        val affectionPose = EyeExpressionGenerator.generate(affectionate, 203L).silhouette
+
+        assertEquals(EyeSilhouette.SUSPICIOUS, jealousyPose)
+        assertEquals(EyeSilhouette.GLEE, pridePose)
+        assertEquals(EyeSilhouette.SOFT, affectionPose)
+        assertEquals(
+            "Jealousy, pride, and affection must not reuse or layer the same eye drawing.",
+            3,
+            setOf(jealousyPose, pridePose, affectionPose).size
+        )
+    }
+
     @Test fun sameStateAndSeedProduceRepeatablePose() {
         val state = EveDecision(
             mood = EveMood.CURIOUS,
@@ -236,7 +255,10 @@ class EyeExpressionGeneratorTest {
             glyph(EveMood.CURIOUS, valence = 0.30f, arousal = 0.68f,
                 curiosity = 0.70f),                                             // anticipating
             glyph(EveMood.CONCERNED, valence = -0.42f, arousal = 0.35f,
-                fatigue = 0.10f, frustration = 0.10f)                            // disappointed
+                fatigue = 0.10f, frustration = 0.10f),                           // disappointed
+            EyeExpressionGenerator.generateDizzy(
+                EveDecision(EveMood.CONCERNED, "confirmed strong physical shake")
+            ).silhouette                                                        // dedicated dizzy pose
         )
         assertEquals(
             "Every reference-inspired glyph should be reachable from affect state and intent, not text labels.",
