@@ -191,6 +191,14 @@ internal class ChessEngine {
         val blackPawnsByFile = IntArray(8)
         var phase = 0
 
+        // Count every pawn before scoring rooks; board iteration order must not affect evaluation.
+        for (i in 0..63) {
+            when (board[i]) {
+                'P' -> whitePawnsByFile[i % 8]++
+                'p' -> blackPawnsByFile[i % 8]++
+            }
+        }
+
         for (i in 0..63) {
             val piece = board[i]
             if (piece == '.') continue
@@ -212,7 +220,6 @@ internal class ChessEngine {
 
             when (type) {
                 'P' -> {
-                    if (white) whitePawnsByFile[col]++ else blackPawnsByFile[col]++
                     val advance = if (white) 6 - row else row - 1
                     score += sign * (advance * 7 + center * 2)
                     if (isPassedPawn(board, i, white)) {
