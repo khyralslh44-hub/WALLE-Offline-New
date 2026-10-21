@@ -80,7 +80,19 @@ class RobotFaceRenderingTest {
             spec("Scared", EveMood.CONCERNED, EyeSilhouette.SCARED, reason = "fearful", valence = -0.50f, arousal = 0.85f),
             spec("Awe", EveMood.SURPRISED, EyeSilhouette.AWE, reason = "surprised", valence = 0.85f, arousal = 0.86f),
             spec("Playful", EveMood.PLAYFUL, EyeSilhouette.PLAYFUL, reason = "playful", valence = 0.40f),
-            spec("Warm", EveMood.FAMILIAR, EyeSilhouette.SOFT, reason = "familiar", valence = 0.25f)
+            spec("Warm", EveMood.FAMILIAR, EyeSilhouette.SOFT, reason = "familiar", valence = 0.25f),
+            spec(
+                "Confused", EveMood.CONCERNED, EyeSilhouette.CONFUSED,
+                reason = "confused", valence = -0.05f, arousal = 0.40f, frustration = 0.10f
+            ),
+            spec(
+                "Anticipating", EveMood.CURIOUS, EyeSilhouette.ANTICIPATING,
+                reason = "anticipating", valence = 0.32f, arousal = 0.66f, curiosity = 0.78f
+            ),
+            spec(
+                "Disappointed", EveMood.CONCERNED, EyeSilhouette.DISAPPOINTED,
+                reason = "disappointed", valence = -0.40f, arousal = 0.40f, fatigue = 0.12f
+            )
         )
 
         assertEquals("The rendering audit must cover every declared eye glyph.", EyeSilhouette.values().toSet(), specs.map { it.expected }.toSet())
@@ -171,7 +183,7 @@ class RobotFaceRenderingTest {
 
         val uniqueMasks = fingerprints.values.toSet().size
         assertTrue(
-            "Too many expressions render the same binary pixel mask; unique=$uniqueMasks/24; $boundsReport",
+            "Too many expressions render the same binary pixel mask; unique=$uniqueMasks/${specs.size}; $boundsReport",
             uniqueMasks >= 22
         )
 
