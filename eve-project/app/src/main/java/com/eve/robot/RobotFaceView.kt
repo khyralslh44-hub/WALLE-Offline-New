@@ -10,6 +10,7 @@ import android.os.SystemClock
 import android.view.View
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.sin
 
 private data class EyeContour(
     val upperPeak: Float,
@@ -33,6 +34,7 @@ class RobotFaceView(context: Context) : View(context) {
     }
     private val shape = Path()
     private var mood = EveMood.AWAKE
+    private var intent: EveIntent? = null
     private var silhouette = EyeSilhouette.ALMOND
     private var previousSilhouette = silhouette
     private var silhouetteTransitionStartedAt = 0L
@@ -103,6 +105,7 @@ class RobotFaceView(context: Context) : View(context) {
         silhouette = profile.silhouette
         silhouetteTransitionStartedAt = now
         mood = profile.mood
+        intent = profile.intent
         targetContour = contourFor(profile.silhouette)
         targetOpening = profile.opening
         targetTilt = profile.tilt
@@ -193,12 +196,25 @@ class RobotFaceView(context: Context) : View(context) {
             if (p < 0.5f) 1f - p * 1.8f else 0.1f + (p - 0.5f) * 1.8f
         } else 1f
         if (blinkStarted > 0L && blinkAge >= blinkDurationMs) blinkStarted = 0L
-        // Do not invent a new emotion/gaze every few seconds. Cozmo-style micro-animation
-        // is driven by explicit interaction decisions; idle mode only blinks. This prevents
-        // the face from changing when the camera has seen nothing new.
-        val idleGaze = 0f
-        val idleGazeY = 0f
-        val breath = 1f
+        // Living-style micro-animation is deliberately subtle and state-bound:
+        // a slow breath never changes mood, silhouette, or colour; exploratory scanning is
+        // enabled only while EVE has an explore/curiosity cue. No random pose changes.
+        val seconds = now / 1000f
+        val breath = if (animate) {
+            1f + 0.010f * sin(seconds * 0.71f) + 0.003f * sin(seconds * 0.27f + 0.8f)
+        } else 1f
+        val lookingAround = animate && (
+            intent == EveIntent.EXPLORE ||
+                silhouette == EyeSilhouette.CURIOUS ||
+                silhouette == EyeSilhouette.ANTICIPATING
+            )
+        val idleGaze = when {
+            lookingAround -> 0.014f * sin(seconds * 0.43f)
+            animate && (intent == EveIntent.FOCUS || mood == EveMood.FOCUSED) ->
+                0.0035f * sin(seconds * 0.24f)
+            else -> 0f
+        }
+        val idleGazeY = if (lookingAround) 0.006f * sin(seconds * 0.31f + 0.9f) else 0f
         // The reference sheet uses compact horizontal LED blocks (about 2:1), not square tiles.
         // Keep a dark bridge between the eyes and scale with the actual view size on phone screens.
         // Compact cyan LED blocks: the reference has two distinct rounded pixels with a
