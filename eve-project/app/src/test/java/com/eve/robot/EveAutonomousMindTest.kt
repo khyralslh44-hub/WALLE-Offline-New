@@ -171,4 +171,73 @@ class EveAutonomousMindTest {
         assertTrue(plan.steps.size in 1..3)
         assertEquals(plan.createdAtMs + EveAutonomousMind.PLAN_TTL_MS, plan.expiresAtMs)
     }
+
+    @Test fun failedReflectionOnSameEvidencePlansReviewInsteadOfAnImmediateRetry() {
+        val now = 30_000L
+        val evidenceKey = "cup|أجسام محددة: كوب"
+        val mind = EveAutonomousMind()
+        mind.recordFeedback(
+            EveMindFeedback(
+                goal = EveMindGoal.REFLECT_ON_NEW_EVIDENCE,
+                action = EveMindAction.REQUEST_LOCAL_REFLECTION,
+                succeeded = false,
+                note = evidenceKey,
+                atMs = now - 2_000L
+            )
+        )
+
+        val plan = mind.plan(context(now = now, explore = true, llmReady = true))
+        assertEquals(EveMindGoal.VERIFY_UNCERTAIN_EVIDENCE, plan.goal)
+        assertEquals(EveMindAction.REVIEW_RECENT_EVIDENCE, plan.steps.first().action)
+        assertFalse(plan.steps.any { it.action == EveMindAction.REQUEST_LOCAL_REFLECTION })
+    }
+
+    @Test fun localMindMemorySurvivesSerializationAndRestoresFailureAvoidance() {
+        val now = 30_000L
+        val evidenceKey = "cup|أجسام محددة: كوب"
+        val original = EveAutonomousMind()
+        original.recordFeedback(
+            EveMindFeedback(
+                goal = EveMindGoal.REFLECT_ON_NEW_EVIDENCE,
+                action = EveMindAction.REQUEST_LOCAL_REFLECTION,
+                succeeded = false,
+                note = evidenceKey,
+                atMs = now - 1_000L
+            )
+        )
+
+        val restored = EveAutonomousMind()
+        assertTrue(restored.restoreMemory(original.exportMemory()))
+        assertEquals(evidenceKey, restored.recentFeedback().single().note)
+        val plan = restored.plan(context(now = now, explore = true, llmReady = true))
+        assertEquals(EveMindGoal.VERIFY_UNCERTAIN_EVIDENCE, plan.goal)
+    }
+
+    @Test fun persistedSuccessfulReflectionStillSuppressesDuplicateThinking() {
+        val now = 30_000L
+        val evidenceKey = "cup|أجسام محددة: كوب"
+        val original = EveAutonomousMind()
+        original.recordFeedback(
+            EveMindFeedback(
+                goal = EveMindGoal.REFLECT_ON_NEW_EVIDENCE,
+                action = EveMindAction.REQUEST_LOCAL_REFLECTION,
+                succeeded = true,
+                note = evidenceKey,
+                atMs = now - 1_000L
+            )
+        )
+
+        val restored = EveAutonomousMind()
+        assertTrue(restored.restoreMemory(original.exportMemory()))
+        val plan = restored.plan(context(now = now, explore = true, llmReady = true))
+        assertTrue(plan.goal != EveMindGoal.REFLECT_ON_NEW_EVIDENCE)
+    }
+
+    @Test fun malformedOrUnsupportedMindMemoryIsRejectedSafely() {
+        val mind = EveAutonomousMind()
+        assertFalse(mind.restoreMemory("not-a-mind-snapshot"))
+        assertFalse(mind.restoreMemory("EVE_MIND_MEMORY_V99\\nF"))
+        assertTrue(mind.recentFeedback().isEmpty())
+    }
+
 }
