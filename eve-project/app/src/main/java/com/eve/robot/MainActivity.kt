@@ -706,9 +706,11 @@ class MainActivity : ComponentActivity() {
             return
         }
 
-        // The optional mobile base is an explicit extension; no BLE scan or motor command runs at startup.
+        // EVE's drive base is her embodied locomotion layer, not a separate assistant.
+        // Keep connection explicit and never move just because a body link becomes available.
         if (listOf(
                 "استكشفي المنزل بالقاعدة", "استكشاف المنزل بالقاعدة", "استكشفي بالقاعدة",
+                "استكشفي المنزل بجسدك", "استكشفي بجسدك", "تحركي بجسدك", "شغلي حركة جسدك",
                 "ابدئي حركة القاعدة", "تحركي بالقاعدة", "ابدئي استكشاف المنزل"
             ).any(text::contains)
         ) {
@@ -717,6 +719,7 @@ class MainActivity : ComponentActivity() {
         }
         if (listOf(
                 "اتصلي بالقاعدة", "اتصل بالقاعدة", "ابحثي عن القاعدة", "ابحث عن القاعدة",
+                "اتصلي بجسدك", "اتصل بجسدك", "اتصلي بوحدة الحركة", "وصلي جسدك",
                 "اتصال بالقاعدة", "اتصال القاعدة", "اربط القاعدة", "bluetooth base"
             ).any(text::contains)
         ) {
@@ -734,7 +737,7 @@ class MainActivity : ComponentActivity() {
         if (listOf("افصلي القاعدة", "قطع اتصال القاعدة", "افصل القاعدة").any(text::contains)) {
             stopRobotBaseAutonomy("أوقفت الحركة.")
             if (::robotBaseLink.isInitialized) robotBaseLink.disconnect()
-            showDialogueText("فصلت اتصال القاعدة. لن تتحرك حتى تطلبي الاتصال من جديد.", durationMs = 6500L)
+            showDialogueText("فصلت جزء الحركة من جسدي. ستبقى المحركات متوقفة حتى أعيد الاتصال وأفحص الحساسات.", durationMs = 6500L)
             return
         }
         if (listOf("استعادة الحركة", "اعيدي ضبط امان القاعدة", "اعيدي ضبط امان الروبوت").any(text::contains)) {
@@ -751,7 +754,7 @@ class MainActivity : ComponentActivity() {
             }
             return
         }
-        if (listOf("حالة القاعدة", "هل القاعدة متصلة", "حالة البلوتوث").any(text::contains)) {
+        if (listOf("حالة القاعدة", "هل القاعدة متصلة", "حالة البلوتوث", "حالة جسدك", "هل جسدك متصل").any(text::contains)) {
             val status = if (::robotBaseLink.isInitialized) robotBaseLink.lastDetail else "طبقة القاعدة لم تجهز بعد."
             val movement = if (baseAutonomyRequested) "الاستكشاف مطلوب" else "المحركات متوقفة"
             val map = homeMapMemory.snapshot()
@@ -3296,7 +3299,7 @@ class MainActivity : ComponentActivity() {
                 when (state) {
                     EveBaseLinkState.READY -> {
                         showDialogueText(
-                            "اتصلت بقاعدة متوافقة. سأنتظر بيانات الحساسات الحديثة، ولن أسمح بالحركة قبل فحصها.",
+                            "اتصل جزء الحركة من جسدي وأصبح ضمن نظامي الحسي والحركي. سأفحص الحساسات والموقع أولًا؛ الاتصال وحده لا يبدأ الحركة.",
                             durationMs = 7000L
                         )
                         if (baseAutonomyRequested) startBaseControlLoop()
@@ -3305,7 +3308,7 @@ class MainActivity : ComponentActivity() {
                         baseAutonomyRequested = false
                         main.removeCallbacks(baseControlLoop)
                         robotBaseNavigator.resetAvoidance()
-                        showDialogueText("$detail بقيت حركة القاعدة متوقفة.", durationMs = 8000L)
+                        showDialogueText("$detail تعطّل اتصال جزء الحركة من جسدي، لذلك ستبقى المحركات متوقفة.", durationMs = 8000L)
                     }
                     EveBaseLinkState.DISCONNECTED -> {
                         if (baseAutonomyRequested) {
@@ -3313,7 +3316,7 @@ class MainActivity : ComponentActivity() {
                             main.removeCallbacks(baseControlLoop)
                             robotBaseNavigator.resetAvoidance()
                         }
-                        showDialogueText("$detail يجب أن توقف القاعدة محركاتها أيضًا عند فقد الاتصال.", durationMs = 7500L)
+                        showDialogueText("$detail انقطع جزء الحركة من جسدي؛ يجب أن توقف اللوحة المحركات أيضًا عند فقد الاتصال.", durationMs = 7500L)
                     }
                     EveBaseLinkState.SCANNING,
                     EveBaseLinkState.CONNECTING,

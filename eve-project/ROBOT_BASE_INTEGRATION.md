@@ -1,8 +1,8 @@
-# EVE mobile-base add-on (Bluetooth LE)
+# EVE embodied body: mobility and base-sensor interface (Bluetooth LE)
 
-This is a future-ready hardware interface contract. It is **not** a claim of compatibility with every commercial Bluetooth robot base. A base must implement the GATT UUIDs and packet format below, or a model-specific adapter must be added after its vendor protocol is known.
+This defines EVE's physical locomotion/body layer. When a compatible base is connected, its drive motors, range/cliff sensors, bumper, battery, and odometry become EVE's body actuators and body-sensor inputs for the same on-device brain, camera perception, map, and navigation loop. It is **not** a separate assistant or separate robot app. The phone/display is her head-and-compute unit; the attached base supplies physical movement. The physical hardware remains a separate piece and must implement the GATT UUIDs and packet format below, or receive a model-specific adapter. This protocol is not compatible with every commercial Bluetooth base by default.
 
-## What the phone does locally
+## How EVE's mind and body work together
 
 - Sends bounded wheel commands over Bluetooth LE only after a compatible service is discovered.
 - Reads fresh, checksummed obstacle, floor-edge, bumper, emergency-stop, motor-state, battery, and fused odometry telemetry.
@@ -10,7 +10,7 @@ This is a future-ready hardware interface contract. It is **not** a claim of com
 - Uses short motor-command leases; base firmware must independently stop motors when a lease expires or the phone link is lost.
 - Builds a bounded local occupancy grid from measured ranges and the base's fused pose; associates cautious room hypotheses with map cells and chooses nearby unexplored frontiers. This is an exploration aid, not a claim of full SLAM.
 
-No movement command should be accepted without fresh sensor and pose telemetry. The user must explicitly say **"استكشفي المنزل بالقاعدة"** to enable movement. **"أوقفي القاعدة"** disables movement immediately. A cliff/fault stop is latched and requires an explicit safe-reset command after every sensor reading is current and safe.
+No movement command should be accepted without fresh sensor and pose telemetry. Connecting the body integrates its sensors into EVE's perception state, but does not start motors by itself. The user can explicitly say **"اتصلي بجسدك"** to connect or **"استكشفي المنزل بجسدك"** to request guarded movement. **"أوقفي القاعدة"** disables movement immediately. A cliff/fault stop is latched and requires an explicit safe-reset command after every sensor reading is current and safe.
 
 ## Required hardware before enabling wheels
 
@@ -87,17 +87,17 @@ Map convention: (0°=+X), with positive heading counter-clockwise. The base must
 
 A detected drop is latched until a safe-reset command is accepted; reconnection alone never clears it.
 
-## Connection and voice commands
+## Body connection and voice commands
 
-No connection scan runs at app launch. The user can say:
-- **"اتصلي بالقاعدة"** — search for a compatible base over BLE.
-- **"استكشفي المنزل بالقاعدة"** — request connection if needed, then enable guarded autonomous movement once camera, link, sensors, and pose are ready.
+No connection scan runs at app launch. EVE remains one app and one local brain: these voice intents attach, use, or stop her body-mobility layer. Connection does not imply motion. The user can say:
+- **"اتصلي بجسدك"** or **"اتصلي بالقاعدة"** — attach the compatible body-mobility link over BLE.
+- **"استكشفي المنزل بجسدك"** or **"استكشفي المنزل بالقاعدة"** — request connection if needed, then enable guarded autonomous movement once camera, body link, sensors, and pose are ready.
 - **"أوقفي القاعدة"** — stop and disable movement.
 - **"افصلي القاعدة"** — stop and disconnect.
 - **"استعادة الحركة"** — clear a latched stop only if the current telemetry passes all safety checks.
 - **"ما اسم الغرفة"** — report the latest cautious visual room hypothesis.
 
-Android Bluetooth permissions are requested only when the optional feature is invoked. When the app is backgrounded, it stops issuing wheel commands.
+Android Bluetooth permissions are requested only when EVE is asked to connect her body-mobility hardware. When the app is backgrounded, it stops issuing wheel commands.
 
 ## Room recognition and map limitations
 

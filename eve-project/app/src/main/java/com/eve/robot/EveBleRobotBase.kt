@@ -34,10 +34,12 @@ enum class EveBaseLinkState {
 }
 
 /**
- * Optional BLE adapter for the published EVE base GATT contract.
+ * Bluetooth transport for EVE's embodied mobility and body-sensor subsystem.
  *
- * This class will only connect to a base advertising EveRobotBaseProtocol.SERVICE_UUID_TEXT.
- * It does not assume that arbitrary Bluetooth toys share the same motor protocol.
+ * When attached and connected, the compatible base is EVE's physical locomotion body controlled
+ * by the same local brain and perception loop in the app—not a separate assistant or robot app.
+ * Connection never starts motion by itself: navigation still requires explicit intent and fresh
+ * safety telemetry. This class only connects to a base advertising the published GATT contract.
  */
 class EveBleRobotBase(
     context: Context,

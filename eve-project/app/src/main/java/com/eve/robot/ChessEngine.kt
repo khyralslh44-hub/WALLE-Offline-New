@@ -20,6 +20,25 @@ internal class ChessEngine {
         val p = position
         return pseudoMoves(p, p.whiteToMove).filter { (from == null || it.from == from) && !inCheck(apply(p, it), p.whiteToMove) }
     }
+
+    /**
+     * Counts legal move sequences from the current position using the same legality filter used
+     * by play(). Kept small and deterministic so regression tests can validate move generation.
+     */
+    internal fun perft(depth: Int): Long {
+        require(depth >= 0) { "depth must be non-negative" }
+        return perft(position, depth)
+    }
+
+    private fun perft(position: Position, depth: Int): Long {
+        if (depth == 0) return 1L
+        val sideToMove = position.whiteToMove
+        val legal = pseudoMoves(position, sideToMove)
+            .filter { !inCheck(apply(position, it), sideToMove) }
+        var nodes = 0L
+        for (move in legal) nodes += perft(apply(position, move), depth - 1)
+        return nodes
+    }
     fun play(move: Move): Boolean {
         if (move !in legalMoves(move.from)) return false
         position = apply(position, move)
