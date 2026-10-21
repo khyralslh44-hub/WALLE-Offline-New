@@ -113,7 +113,7 @@ class EveAutonomousMind(
         val candidate = when {
             context.explorationEnabled && context.cameraIsFront && context.cameraSwitchAllowed &&
                 !context.faceSeenRecently && context.inactiveMs >= AUTO_CAMERA_SWITCH_IDLE_MS &&
-                hasRecentFailureStreak(EveMindGoal.EXPLORE_CURRENT_VIEW, EveMindAction.SWITCH_TO_WORLD_CAMERA) ->
+                hasRecentFailureStreak(EveMindGoal.EXPLORE_CURRENT_VIEW, EveMindAction.SWITCH_TO_WORLD_CAMERA, now) ->
                 makePlan(
                     EveMindGoal.WAIT_QUIETLY,
                     "تعلمت من محاولات سابقة أن تبديل الكاميرا لم ينجح مرارًا؛ أوقف التكرار الآن وأنتظر تغيرًا أو تدخلًا بدل إعادة الخطأ نفسه.",
@@ -252,14 +252,14 @@ class EveAutonomousMind(
     }
 
     /** True only for a recent consecutive run of failed experiences for the exact same action. */
-    private fun hasRecentFailureStreak(goal: EveMindGoal, action: EveMindAction): Boolean {
+    private fun hasRecentFailureStreak(goal: EveMindGoal, action: EveMindAction, nowMs: Long): Boolean {
         val outcomes = feedback.asReversed().asSequence()
             .filter { it.goal == goal && it.action == action }
             .take(3).toList()
         if (outcomes.size < FAILURE_STREAK_MIN) return false
         val latest = outcomes.first()
         if (latest.succeeded || latest.atMs < 0L) return false
-        if (lastPlanAtMs > 0L && latest.atMs < lastPlanAtMs - FAILURE_MEMORY_WINDOW_MS) return false
+        if (nowMs - latest.atMs !in 0L..FAILURE_MEMORY_WINDOW_MS) return false
         return outcomes.take(FAILURE_STREAK_MIN).all { !it.succeeded }
     }
 
