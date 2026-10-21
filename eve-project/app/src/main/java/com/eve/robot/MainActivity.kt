@@ -3170,7 +3170,10 @@ class MainActivity : ComponentActivity() {
                 (SystemClock.elapsedRealtime() - lastSceneObservationAt).coerceAtLeast(0L)
             } else {
                 Long.MAX_VALUE
-            }
+            },
+            calendarContext = EveCalendarKnowledge.todaySummary(
+                System.currentTimeMillis(), currentCalendarHemisphere()
+            )
         )
     }
 
