@@ -457,7 +457,8 @@ class RobotGamesActivity : ComponentActivity() {
                     "robot" -> "chess_win"
                     "player_capture", "eve_capture" -> "chess_capture"
                     "player_check", "eve_check" -> "chess_check"
-                    "player_move", "eve_move" -> "chess_move"
+                    "player_move" -> "chess_move"
+                    "eve_move" -> "chess_robot_move"
                     "player_checkmate" -> "chess_loss"
                     "eve_checkmate" -> "chess_win"
                     else -> null
