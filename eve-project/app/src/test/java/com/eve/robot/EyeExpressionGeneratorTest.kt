@@ -416,9 +416,9 @@ class EyeExpressionGeneratorTest {
             seed = 20261021L
         )
 
-        assertEquals(EyeSilhouette.SUSPICIOUS, jealous.silhouette)
-        assertEquals(EyeSilhouette.GLEE, proud.silhouette)
-        assertEquals(EyeSilhouette.SOFT, reassured.silhouette)
+        assertEquals(EyeSilhouette.JEALOUS, jealous.silhouette)
+        assertEquals(EyeSilhouette.PROUD, proud.silhouette)
+        assertEquals(EyeSilhouette.AFFECTIONATE, reassured.silhouette)
         assertEquals(
             "The new social-affect layer must reuse the established cyan LED expression system.",
             EveMood.IRRITATED,

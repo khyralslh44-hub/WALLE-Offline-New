@@ -310,8 +310,8 @@ class LocalLanguageBrain(
         )
         runInference(
             buildPrompt("GAME", gameEvent, gameContext),
-            // The JSON schema itself consumes tokens; leave enough room for a real Arabic comment.
-            maxOutputTokens = 40,
+            // Use the full bounded output budget: a short Arabic sentence and valid JSON must both fit.
+            maxOutputTokens = MAX_OUTPUT_TOKENS,
             callback = callback
         )
     }
@@ -392,13 +392,48 @@ class LocalLanguageBrain(
                         throw IllegalStateException("أكمل النموذج المحلي التوليد دون نص.")
                     }
 
-                    val parsed = parseResponse(responseText, outputCap)
+                    var parsed = parseResponse(responseText, outputCap)
+                    var reportedResponseText = responseText
+
+                    // Small local models sometimes copy the schema's empty reply field. GAME
+                    // mode gets one short, focused second attempt rather than silently returning
+                    // an empty comment or substituting a canned line.
+                    if (prompt.lineSequence().firstOrNull() == "MODE=GAME" && parsed.replyArabic.isBlank()) {
+                        Log.w(TAG, "LOCAL_LLM_GAME_EMPTY_REPLY_RETRY firstChars=${responseText.length}")
+                        val retryStartedAt = SystemClock.elapsedRealtime()
+                        val retryResponse = activeConversation.sendMessage(
+                            buildGameRetryPrompt(prompt),
+                            maxOutputToken = MAX_OUTPUT_TOKENS
+                        )
+                        val retryText = retryResponse.contents.contents
+                            .filterIsInstance<com.google.ai.edge.litertlm.Content.Text>()
+                            .joinToString(separator = "") { it.text }
+                            .trim()
+                        if (retryText.isNotBlank()) {
+                            val retryParsed = parseResponse(retryText, MAX_OUTPUT_TOKENS)
+                            if (retryParsed.replyArabic.isNotBlank()) {
+                                parsed = retryParsed
+                                reportedResponseText = retryText
+                                Log.i(
+                                    TAG,
+                                    "LOCAL_LLM_GAME_RETRY_PASS retryElapsedMs=${SystemClock.elapsedRealtime() - retryStartedAt} " +
+                                        "chars=${retryText.length} replyChars=${retryParsed.replyArabic.length}"
+                                )
+                            }
+                        }
+                        if (parsed.replyArabic.isBlank()) {
+                            throw IllegalStateException(
+                                "Qwen returned an empty Arabic game comment after the focused offline retry."
+                            )
+                        }
+                    }
+
                     Log.i(
                         TAG,
                         "LOCAL_LLM_INFERENCE_OK nativeElapsedMs=$nativeElapsed " +
                             "totalElapsedMs=${SystemClock.elapsedRealtime() - startedAt} " +
-                            "chars=${responseText.length} mood=${parsed.moodHint ?: "none"} " +
-                            "intent=${parsed.intentHint ?: "none"}"
+                            "chars=${reportedResponseText.length} replyChars=${parsed.replyArabic.length} " +
+                            "mood=${parsed.moodHint ?: "none"} intent=${parsed.intentHint ?: "none"}"
                     )
                     deliver(callback, Result.success(parsed))
                 } catch (error: Exception) {
@@ -431,7 +466,7 @@ class LocalLanguageBrain(
         val task = when (mode) {
             "USER" -> "Answer briefly in Arabic."
             "CURIOSITY" -> "Ask one very short Arabic question (4-10 words, at most 70 Arabic characters) grounded only in fresh vision. Never claim that a generic person label identifies a face or proves familiarity."
-            "GAME" -> "Write one lively short Arabic sentence in reply_ar from the supplied game outcome. reply_ar MUST NOT be empty; reflection_ar must be empty."
+            "GAME" -> "Write one short Arabic reaction in reply_ar based only on the supplied game event. It must contain Arabic words and must not be empty. reflection_ar must be empty."
             else -> "Write a brief reflection; reply_ar must be empty."
         }
 
@@ -472,7 +507,13 @@ class LocalLanguageBrain(
             fields += "P=w:${"%.1f".format(Locale.ROOT, p.warmth)};c:${"%.1f".format(Locale.ROOT, p.curiosityBias)};play:${"%.1f".format(Locale.ROOT, p.playfulness)}"
         }
         fields += "USER=$user"
-        fields += """JSON only: {"reply_ar":"","reflection_ar":"","mood":"neutral|curious|happy|concerned|focused|playful|sleepy|irritated|jealous|proud|reassured|none","intent":"observe|explore|connect|play|focus|rest|regulate|none","confidence":0}"""
+        val responseExample = when (mode) {
+            "GAME" -> """JSON only. reply_ar MUST be a non-empty Arabic sentence: {"reply_ar":"كانت جولة حماسية! سأحاول الفوز في المرة القادمة.","reflection_ar":"","mood":"playful","intent":"play","confidence":0.8}"""
+            "USER" -> """JSON only: {"reply_ar":"مرحبًا! كيف أستطيع مساعدتك؟","reflection_ar":"","mood":"neutral","intent":"connect","confidence":0.8}"""
+            "CURIOSITY" -> """JSON only: {"reply_ar":"ما هذا الشيء؟","reflection_ar":"","mood":"curious","intent":"observe","confidence":0.7}"""
+            else -> """JSON only: {"reply_ar":"","reflection_ar":"ملاحظة موجزة من الدليل المتاح فقط.","mood":"neutral","intent":"observe","confidence":0.5}"""
+        }
+        fields += responseExample
         fields += when (mode) {
             "OBSERVATION" -> "Never invent facts. OBSERVATION reply_ar empty."
             "CURIOSITY" -> "reply_ar must be one concise Arabic question (at most 84 characters) supported by fresh visual evidence. A generic person label is not face identity; never imply known name or familiarity."
@@ -482,6 +523,26 @@ class LocalLanguageBrain(
 
         return fields.joinToString("\n")
     }
+    private fun buildGameRetryPrompt(originalPrompt: String): String {
+        val gameEvent = originalPrompt.lineSequence()
+            .firstOrNull { it.startsWith("USER=") }
+            ?.removePrefix("USER=")
+            ?.trim()
+            ?.take(220)
+            .orEmpty()
+            .ifBlank { "نتيجة اللعبة غير متاحة" }
+
+        return """
+            MODE=GAME_RETRY
+            اكتب تعليقًا عربيًا قصيرًا وطبيعيًا من حدث اللعبة أدناه فقط.
+            لا تخترع نتيجة أو حركة لم ترد في الحدث.
+            يجب أن يحتوي reply_ar على جملة عربية غير فارغة؛ reflection_ar يجب أن يكون فارغًا.
+            الحدث: $gameEvent
+            أخرج JSON صالحًا فقط بهذا الشكل ومحتوى reply_ar غير فارغ:
+            {"reply_ar":"كانت جولة ممتعة! سأحاول الفوز في المرة القادمة.","reflection_ar":"","mood":"playful","intent":"play","confidence":0.8}
+        """.trimIndent()
+    }
+
     private fun parseResponse(raw: String, maxOutputTokens: Int): LocalLlmResult {
         val safeRaw = raw.trim().take(1200)
         val jsonCandidate = safeRaw.indexOf('{').let { start ->

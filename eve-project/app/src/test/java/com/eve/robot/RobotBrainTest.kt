@@ -402,8 +402,8 @@ class RobotBrainTest {
         val jealous = localBrain.observeSocialCompetition("social_competition", 0.90f)
         assertTrue("An explicit, confident cue should update the jealousy drive.", jealous.jealousy >= 0.62f)
         assertEquals(
-            "The same social affect state should select a readable skeptical eye pose.",
-            EyeSilhouette.SUSPICIOUS,
+            "An explicit jealousy-like state should use its dedicated, readable eye glyph.",
+            EyeSilhouette.JEALOUS,
             EyeExpressionGenerator.generate(jealous, 14L).silhouette
         )
     }
@@ -417,7 +417,7 @@ class RobotBrainTest {
         val proud = localBrain.recordAchievement("checkmate", 0.96f)
         assertTrue(proud.pride >= 0.62f)
         assertEquals(EveMood.PLAYFUL, proud.mood)
-        assertEquals(EyeSilhouette.GLEE, EyeExpressionGenerator.generate(proud, 15L).silhouette)
+        assertEquals(EyeSilhouette.PROUD, EyeExpressionGenerator.generate(proud, 15L).silhouette)
 
         val gameWin = RobotBrain().gameOutcome("chess", "robot")
         assertTrue("A recorded EVE win should contribute to pride.", gameWin.pride >= 0.62f)
@@ -437,7 +437,7 @@ class RobotBrainTest {
         assertTrue(reassured.reassurance >= 0.62f)
         assertTrue(reassured.frustration < tense.frustration)
         assertEquals(EveMood.FAMILIAR, reassured.mood)
-        assertEquals(EyeSilhouette.SOFT, EyeExpressionGenerator.generate(reassured, 16L).silhouette)
+        assertEquals(EyeSilhouette.AFFECTIONATE, EyeExpressionGenerator.generate(reassured, 16L).silhouette)
     }
 
     @Test
