@@ -285,8 +285,7 @@ class EveEnvironmentUnderstanding(
      * Prefer the device timezone when it unambiguously identifies a region. The calendar
      * inference is date-based and local/offline; it does not claim the camera verified a season.
      */
-    companion object {
-        fun inferHemisphere(countryCode: String, timeZoneId: String): EveHemisphere {
+    fun inferHemisphere(countryCode: String, timeZoneId: String): EveHemisphere {
             val country = countryCode.trim().uppercase(Locale.ROOT)
             val zone = timeZoneId.trim()
             val southernCountries = setOf(
@@ -321,7 +320,6 @@ class EveEnvironmentUnderstanding(
             }
             return EveHemisphere.UNKNOWN
         }
-    }
 
     private fun strongestWeather(
         rain: Float,
