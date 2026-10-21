@@ -51,7 +51,7 @@ object EveLocalCalendarEvents {
 
     private fun fromContacts(context: Context, nowMillis: Long): List<Birthday> {
         val result = mutableListOf<Birthday>()
-        val projection = arrayOf(ContactsContract.Data.DISPLAY_NAME, ContactsContract.CommonDataKinds.Event.START_DATE)
+        val projection = arrayOf(ContactsContract.Contacts.DISPLAY_NAME, ContactsContract.CommonDataKinds.Event.START_DATE)
         val selection = ContactsContract.Data.MIMETYPE + " = ? AND " + ContactsContract.Data.DATA2 + " = ?"
         val args = arrayOf(
             ContactsContract.CommonDataKinds.Event.CONTENT_ITEM_TYPE,
@@ -59,7 +59,7 @@ object EveLocalCalendarEvents {
         )
         try {
             context.contentResolver.query(ContactsContract.Data.CONTENT_URI, projection, selection, args, null)?.use { cursor ->
-                val nameIndex = cursor.getColumnIndex(ContactsContract.Data.DISPLAY_NAME)
+                val nameIndex = cursor.getColumnIndex(ContactsContract.Contacts.DISPLAY_NAME)
                 val dateIndex = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Event.START_DATE)
                 if (nameIndex < 0 || dateIndex < 0) return@use
                 while (cursor.moveToNext()) {
