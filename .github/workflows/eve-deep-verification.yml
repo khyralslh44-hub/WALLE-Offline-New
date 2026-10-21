@@ -287,6 +287,20 @@ jobs:
           echo "FER model SHA256:"
           sha256sum eve-project/app/src/main/assets/eve_emotion_model.tflite
 
+      - name: Download and verify offline MediaPipe pose model
+        shell: bash
+        run: |
+          set -euo pipefail
+          MODEL="eve-project/app/src/main/assets/pose_landmarker_lite.task"
+          mkdir -p "$(dirname "$MODEL")"
+          curl --fail --location --retry 3 --connect-timeout 20 --max-time 180 \
+            "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task" \
+            --output "$MODEL"
+          test -s "$MODEL"
+          # The task bundle must be present before Gradle packages app assets.
+          file "$MODEL"
+          echo "Pose model downloaded: $(wc -c < "$MODEL") bytes"
+
       - name: Prebuild app, instrumentation APK, and CPU stress tests before emulator boot
         shell: bash
         run: |

@@ -223,6 +223,20 @@ jobs:
         shell: bash
         run: bash .github/scripts/fetch-arabic-vosk-model.sh
 
+      - name: Download and verify offline MediaPipe pose model
+        shell: bash
+        run: |
+          set -euo pipefail
+          MODEL="eve-project/app/src/main/assets/pose_landmarker_lite.task"
+          mkdir -p "$(dirname "$MODEL")"
+          curl --fail --location --retry 3 --connect-timeout 20 --max-time 180 \
+            "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task" \
+            --output "$MODEL"
+          test -s "$MODEL"
+          # The task bundle must be present before Gradle packages app assets.
+          file "$MODEL"
+          echo "Pose model downloaded: $(wc -c < "$MODEL") bytes"
+
       - name: Run logic tests and build debug APK
         run: |
           "$RUNNER_TEMP/gradle-8.9/bin/gradle"             --no-daemon --stacktrace -p eve-project             testDebugUnitTest assembleDebug assembleRelease

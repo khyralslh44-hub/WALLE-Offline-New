@@ -12,7 +12,6 @@ import com.google.mediapipe.tasks.vision.poselandmarker.PoseLandmarker
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.nio.ByteBuffer
 import org.junit.runner.RunWith
 
 /** Actual on-device Pose Landmarker Lite inference; no service or camera upload is involved. */
@@ -25,16 +24,10 @@ class PoseVisionIntegrationTest {
         val bitmap = requireNotNull(
             testContext.assets.open("face_fixture.jpg").use { BitmapFactory.decodeStream(it) }
         ) { "Pinned image fixture could not be decoded." }
-        val appContext = instrumentation.targetContext
-        val modelBytes = appContext.assets.open("pose_landmarker_lite.task").use { it.readBytes() }
-        val modelBuffer = ByteBuffer.allocateDirect(modelBytes.size).apply {
-            put(modelBytes)
-            rewind()
-        }
         val options = PoseLandmarker.PoseLandmarkerOptions.builder()
             .setBaseOptions(
                 BaseOptions.builder()
-                    .setModelAssetBuffer(modelBuffer)
+                    .setModelAssetPath("pose_landmarker_lite.task")
                     .build()
             )
             .setRunningMode(RunningMode.IMAGE)
@@ -43,7 +36,7 @@ class PoseVisionIntegrationTest {
             .setMinPosePresenceConfidence(0.45f)
             .setMinTrackingConfidence(0.45f)
             .build()
-        val landmarker = PoseLandmarker.createFromOptions(appContext, options)
+        val landmarker = PoseLandmarker.createFromOptions(instrumentation.targetContext, options)
         try {
             val result = landmarker.detect(BitmapImageBuilder(bitmap).build())
             assertNotNull("Pose Landmarker inference should return a result even when no full body is visible.", result)

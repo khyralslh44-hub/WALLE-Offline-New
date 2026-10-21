@@ -45,7 +45,6 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
-import java.nio.ByteBuffer
 import java.util.Calendar
 import java.util.Locale
 import java.util.UUID
@@ -2127,18 +2126,10 @@ class MainActivity : ComponentActivity() {
                 }
 
                 try {
-                    // Give MediaPipe a direct model buffer. Its Android resource fallback
-                    // can reject a bare asset filename after failing the initial asset lookup.
-                    val poseModelBytes = applicationContext.assets
-                        .open("pose_landmarker_lite.task").use { it.readBytes() }
-                    val poseModelBuffer = ByteBuffer.allocateDirect(poseModelBytes.size).apply {
-                        put(poseModelBytes)
-                        rewind()
-                    }
                     val options = PoseLandmarker.PoseLandmarkerOptions.builder()
                         .setBaseOptions(
                             BaseOptions.builder()
-                                .setModelAssetBuffer(poseModelBuffer)
+                                .setModelAssetPath("pose_landmarker_lite.task")
                                 .build()
                         )
                         .setRunningMode(RunningMode.IMAGE)
