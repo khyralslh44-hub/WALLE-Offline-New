@@ -287,6 +287,7 @@ class MainActivity : ComponentActivity() {
     @Volatile private var lastObjectSceneAt = 0L
     @Volatile private var lastImageClassifierSceneAt = 0L
     @Volatile private var latestObjectLabels: Set<String> = emptySet()
+    @Volatile private var latestImageClassifierLabels: Set<String> = emptySet()
     @Volatile private var lastSceneObservationAt = 0L
 
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
@@ -852,6 +853,7 @@ class MainActivity : ComponentActivity() {
             listOf("هل الشخص جالس","هل هو جالس","هل هي جالسه","هل يجلس","هل تجلس","قاعد","جالس","جالسه","sitting").any(q::contains) -> EvePersonContextActivity.SITTING_POSSIBLE
             listOf("مكالمة","يتصل عبر الهاتف","يتحدث عبر الهاتف","يكلم احد عبر الهاتف","يجري اتصال","phone call","calling").any(q::contains) -> EvePersonContextActivity.PHONE_CALL_POSSIBLE
             listOf("يتصفح الهاتف","يتصفح جواله","يتصفح هاتفه","يستخدم الهاتف","يستخدم جواله","يمسك الهاتف","browsing phone","using the phone").any(q::contains) -> EvePersonContextActivity.PHONE_BROWSING_POSSIBLE
+            listOf("يتشاجر","شجار","يتمازح","يمزحون","يتمازحون","يتضاربون","يتعاركون","مزاح","يتشاجرون","fighting","joking","roughhousing").any(q::contains) -> EvePersonContextActivity.INTERACTION_UNCLEAR
             else -> null
         } ?: return false
         val now = SystemClock.elapsedRealtime()
@@ -862,6 +864,7 @@ class MainActivity : ComponentActivity() {
             EvePersonContextActivity.SITTING_POSSIBLE -> "من وضعية الجسم عبر إطارات حديثة، يبدو أن الشخص قد يكون جالسًا أو في وضعية قرفصاء (تقدير بصري فقط)."
             EvePersonContextActivity.PHONE_CALL_POSSIBLE -> "رصدت هاتفًا قرب جانب الرأس في أكثر من لقطة؛ قد يكون الشخص في مكالمة، لكن الكاميرا لا تثبت أن هناك اتصالًا فعليًا."
             EvePersonContextActivity.PHONE_BROWSING_POSSIBLE -> "رصدت هاتفًا أمام الشخص مع حركة يد قريبة منه؛ قد يكون يستخدمه أو يتصفحه، ولا أستطيع قراءة محتوى الشاشة."
+            EvePersonContextActivity.INTERACTION_UNCLEAR -> "توجد حركة متكررة بين شخصين قريبين، لكن لا أستطيع التمييز بثقة بين المزاح والشجار من الرؤية الحالية. إذا بدا أن أحدًا يتأذى فتعامل مع الأمر بجدية واطلب المساعدة."
         } else "لا تتوفر لدي الآن أدلة بصرية متكررة وكافية لأحدد ذلك. ظهور الهاتف أو انحناء الركبة في لقطة واحدة لا يكفي، وعدم توفر دليل لا يعني أن النشاط غير حاصل."
         showDialogueText(reply, durationMs = 7_500L); memory.rememberDialogue(text, reply); lastConversationalExchangeAt = now
         return true
@@ -1963,6 +1966,10 @@ class MainActivity : ComponentActivity() {
                         it.boundingBox.width().toLong() * it.boundingBox.height().toLong()
                     }
                     if (bestFace == null) {
+                        personContextUnderstanding.reset()
+                        latestPersonContextSnapshot = null
+                        latestPersonContextSummary = ""
+                        lastPersonContextSummaryAt = 0L
                         faceCueSmoother.reset()
                         emotionSmoother.reset()
                         val elapsed = SystemClock.elapsedRealtime()
@@ -1975,7 +1982,7 @@ class MainActivity : ComponentActivity() {
 
                     val elapsed = SystemClock.elapsedRealtime()
                     lastFaceSeenAt = elapsed
-                    observeHumanActivityFromFace(bestFace, elapsed)
+                    observeHumanActivityFromFace(bestFace, elapsed, faces)
                     val rawCue = EveFaceCue(
                         smilingProbability = bestFace.smilingProbability,
                         leftEyeOpenProbability = bestFace.leftEyeOpenProbability,
@@ -2571,16 +2578,15 @@ class MainActivity : ComponentActivity() {
     }
 
     /** Connect face/mouth cues, tracked hands, and recent object detections. */
-    private fun observeHumanActivityFromFace(face: Face, now: Long) {
+    private fun observeHumanActivityFromFace(face: Face, now: Long, detectedFaces: List<Face>) {
         val mouth = mouthGeometry(face)
         val handConfidence = handNearMouthConfidence(mouth, face.boundingBox.height(), now)
         val handIsFresh = latestHandObservedAt > 0L && now - latestHandObservedAt in 0L..1_400L
         val poseIsFresh = latestPoseObservedAt > 0L && now - latestPoseObservedAt in 0L..3_200L
         val pose = latestPoseAngles.takeIf { poseIsFresh }
-        val labels = if (lastObjectSceneAt > 0L && now - lastObjectSceneAt in 0L..6_000L) {
-            latestObjectLabels
-        } else {
-            emptySet()
+        val labels = buildSet {
+            if (lastObjectSceneAt > 0L && now - lastObjectSceneAt in 0L..6_000L) addAll(latestObjectLabels)
+            if (lastImageClassifierSceneAt > 0L && now - lastImageClassifierSceneAt in 0L..8_000L) addAll(latestImageClassifierLabels)
         }
         val result = activityUnderstanding.observe(
             EveHumanFrameEvidence(
@@ -2603,13 +2609,15 @@ class MainActivity : ComponentActivity() {
             )
         )
         applyHumanActivityInterpretation(result, now)
-        observePersonContextFromFace(face, now, pose, handIsFresh)
+        observePersonContextFromFace(face, now, pose, handIsFresh, detectedFaces)
     }
 
     private fun isPhoneObject(label: String) = EveSceneGeometry.normalizeLabel(label) in setOf("cell phone", "mobile phone", "smartphone", "phone")
     private fun isSeatObject(label: String) = EveSceneGeometry.normalizeLabel(label) in setOf("chair", "couch", "bench", "bed")
 
-    private fun observePersonContextFromFace(face: Face, now: Long, pose: EvePoseAngles?, handIsFresh: Boolean) {
+    private fun observePersonContextFromFace(
+        face: Face, now: Long, pose: EvePoseAngles?, handIsFresh: Boolean, detectedFaces: List<Face>
+    ) {
         val age = if (lastObjectSceneAt > 0L) now - lastObjectSceneAt else Long.MAX_VALUE
         val freshObjects = age in 0L..2_200L
         val objects = if (freshObjects) latestVisualObjects else emptyList()
@@ -2647,8 +2655,14 @@ class MainActivity : ComponentActivity() {
         }
         val phone = phones.maxByOrNull { it.confidence * (0.8f + 0.2f * it.areaFraction) }
         val near = phone?.let(::nearEar) ?: 0f
+        val proximity = faceProximityConfidence(detectedFaces)
+        val motionAt = maxOf(if (poseIsFresh) latestPoseObservedAt else 0L, if (handIsFresh) latestHandObservedAt else 0L)
+        val motionScore = maxOf(if (poseIsFresh) pose?.jointMotionScore ?: 0f else 0f,
+            if (handIsFresh) latestHandTrajectoryScore else 0f)
         val snap = personContextUnderstanding.observe(EvePersonContextEvidence(
             timestampMs = now, personConfidence = 0.88f,
+            visiblePersonCount = detectedFaces.size, faceProximityConfidence = proximity,
+            motionObservationAtMs = motionAt, motionScore = motionScore,
             poseObservationAtMs = if (pose != null) latestPoseObservedAt else 0L,
             sittingPoseConfidence = pose?.sittingPoseConfidence ?: 0f,
             objectObservationAtMs = if (freshObjects) lastObjectSceneAt else 0L,
@@ -2663,6 +2677,22 @@ class MainActivity : ComponentActivity() {
         latestPersonContextSummary = snap.summaryArabic
         lastPersonContextSummaryAt = if (snap.summaryArabic.isNotBlank()) now else 0L
         refreshLatestSceneSummary(now)
+    }
+
+    private fun faceProximityConfidence(faces: List<Face>): Float {
+        if (faces.size < 2) return 0f
+        var closestRatio = Float.POSITIVE_INFINITY
+        for (i in faces.indices) for (j in i + 1 until faces.size) {
+            val a = faces[i].boundingBox
+            val b = faces[j].boundingBox
+            val dx = (a.centerX() - b.centerX()).toDouble()
+            val dy = (a.centerY() - b.centerY()).toDouble()
+            val distance = kotlin.math.hypot(dx, dy).toFloat()
+            val scale = ((a.height() + b.height()) * 0.5f).coerceAtLeast(1f)
+            closestRatio = minOf(closestRatio, distance / scale)
+        }
+        if (!closestRatio.isFinite() || closestRatio >= 4.5f) return 0f
+        return (1f - closestRatio / 4.5f).coerceIn(0f, 1f)
     }
 
     private fun applyHumanActivityInterpretation(result: EveActivityInterpretation, now: Long) {
@@ -2707,6 +2737,7 @@ class MainActivity : ComponentActivity() {
         }
         if (lastImageClassifierSceneAt == 0L || now - lastImageClassifierSceneAt > sceneSummaryTtlMs) {
             latestImageClassifierSummary = ""
+            latestImageClassifierLabels = emptySet()
         }
         if (lastActivityObservationAt == 0L || now - lastActivityObservationAt > activitySummaryTtlMs) {
             latestActivitySummary = ""
@@ -2844,12 +2875,17 @@ class MainActivity : ComponentActivity() {
         if (ranked.isEmpty()) {
             // Do not leave an old, now-rejected animal guess in the live scene context.
             latestImageClassifierSummary = ""
+            latestImageClassifierLabels = emptySet()
             lastImageClassifierSceneAt = 0L
             refreshLatestSceneSummary(now)
             Log.i("EVE_IMAGENET", "IMAGE_CLASSIFICATION_NO_CONFIDENT_CATEGORY_AFTER_EVIDENCE_POLICY")
             return
         }
 
+        latestImageClassifierLabels = ranked
+            .filter { it.confidence >= 0.35f }
+            .map { EveSceneGeometry.normalizeLabel(it.label) }
+            .toSet()
         val supplemental = ranked.filterNot { candidate ->
             val name = EveSceneGeometry.normalizeLabel(candidate.label)
             latestObjectLabels.any { objectName ->

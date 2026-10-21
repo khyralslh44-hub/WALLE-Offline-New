@@ -343,7 +343,8 @@ class RobotBrain(personality: EvePersonality = EvePersonality()) {
         curiosity = (curiosity + certainty * 0.045f * personality.curiosityBias).coerceAtMost(1f)
         fatigue = (fatigue - certainty * 0.025f).coerceAtLeast(0f)
         return when (activity) {
-            EveHumanActivity.EATING_POSSIBLE, EveHumanActivity.DRINKING_POSSIBLE -> {
+            EveHumanActivity.EATING_POSSIBLE, EveHumanActivity.EATING_TREAT_POSSIBLE,
+            EveHumanActivity.DRINKING_POSSIBLE -> {
                 arousal = (arousal * 0.72f + 0.28f * 0.28f).coerceIn(0.12f, 0.72f)
                 snapshot(
                     EveMood.CURIOUS,
@@ -351,6 +352,14 @@ class RobotBrain(personality: EvePersonality = EvePersonality()) {
                     false,
                     EveIntent.FOCUS
                 )
+            }
+            EveHumanActivity.PLAYING_GAME_POSSIBLE -> {
+                arousal = (arousal * 0.60f + 0.40f * 0.48f).coerceIn(0.16f, 0.82f)
+                snapshot(EveMood.PLAYFUL, "possible game activity; remain quiet and do not assume screen contents", false, EveIntent.PLAY)
+            }
+            EveHumanActivity.DRAWING_OR_COLORING_POSSIBLE -> {
+                arousal = (arousal * 0.70f + 0.30f * 0.30f).coerceIn(0.12f, 0.72f)
+                snapshot(EveMood.CURIOUS, "possible drawing or colouring activity; observe without interrupting", false, EveIntent.FOCUS)
             }
             EveHumanActivity.CHEWING_MOTION_POSSIBLE -> {
                 arousal = (arousal * 0.70f + 0.30f * 0.32f).coerceIn(0.12f, 0.75f)

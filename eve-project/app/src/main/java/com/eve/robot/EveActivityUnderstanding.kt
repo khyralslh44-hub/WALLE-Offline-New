@@ -15,8 +15,11 @@ import kotlin.math.min
 enum class EveHumanActivity {
     UNKNOWN,
     EATING_POSSIBLE,
+    EATING_TREAT_POSSIBLE,
     DRINKING_POSSIBLE,
     CHEWING_MOTION_POSSIBLE,
+    PLAYING_GAME_POSSIBLE,
+    DRAWING_OR_COLORING_POSSIBLE,
     EXERCISE_LIKE_MOTION
 }
 
@@ -91,8 +94,12 @@ class EveActivityUnderstanding(
         val mouthRange = (mouthValues.maxOrNull() ?: 0f) - (mouthValues.minOrNull() ?: 0f)
         val mouthCycles = countDirectionReversals(mouthValues, minDelta = 0.012f)
         val objectLabels = people.flatMap { it.visibleObjectLabels }.map(::normalizeLabel).toSet()
+        val hasTreat = objectLabels.any(::isTreatLabel)
         val hasFood = objectLabels.any(::isFoodLabel)
-        val hasDrink = objectLabels.any(::isDrinkContainerLabel)
+        val hasDrink = objectLabels.any(::isDrinkContainerLabel) || objectLabels.any(::isBeverageLabel)
+        val drinkKindArabic = drinkKind(objectLabels)
+        val hasGameCue = objectLabels.any(::isGameLabel)
+        val hasArtCue = objectLabels.any(::isArtLabel)
         val span = spanMs(people)
         val averageJointMotion = people.map { it.jointMotionScore }.average().toFloat()
         val jointChanges = countJointChanges(people)
@@ -101,6 +108,50 @@ class EveActivityUnderstanding(
         val handMotionReversals = countHandMotionReversals(people)
 
         val candidate = when {
+            // Treat labels plus repeated hand-to-mouth episodes and mouth motion suggest consumption,
+            // but they cannot prove licking or reveal ingredients from a camera image.
+            hasTreat && handMouthEpisodes >= 2 && span >= 1_800L &&
+                (mouthCycles >= 1 || mouthRange >= 0.025f || handMouthEpisodes >= 3) -> {
+                EveActivityInterpretation(
+                    EveHumanActivity.EATING_TREAT_POSSIBLE,
+                    confidence = confidence(0.55f + min(0.18f, handMouthEpisodes * 0.04f) +
+                        if (mouthCycles >= 1) 0.035f else 0f),
+                    evidenceCount = people.size,
+                    durationMs = span,
+                    explanationArabic = "ظهر تصنيف بصري لحلوى أو مثلجات مع تكرار حركة اليد نحو الفم؛ قد يكون الشخص يتناول مصاصة أو مثلجات، لكن لا أستطيع تأكيد اللعق أو نوع الطعام من الصورة وحدها.",
+                    nextActionArabic = "هذه فرضية بصرية فقط؛ لا تقاطع الشخص ولا تفترض مكونات الطعام.",
+                    observedAtMs = sample.timestampMs
+                )
+            }
+            // Specific game items plus repeated motion support a hypothesis, not proof of the game.
+            // A generic phone or screen alone is never enough.
+            hasGameCue && people.size >= 5 && span >= 2_000L &&
+                ((handMotionChanges >= 3 && handMotionReversals >= 1) ||
+                    (jointChanges >= 3 && averageJointMotion >= 0.16f)) -> {
+                EveActivityInterpretation(
+                    EveHumanActivity.PLAYING_GAME_POSSIBLE,
+                    confidence = confidence(0.54f + min(0.16f, handMotionReversals * 0.025f) +
+                        min(0.08f, averageJointMotion * 0.08f)),
+                    evidenceCount = people.size,
+                    durationMs = span,
+                    explanationArabic = "ظهرت أداة أو عناصر مرتبطة بالألعاب مع حركة متكررة؛ قد يكون الشخص يلعب، لكن وجود الأداة وحده لا يثبت النشاط أو نوع اللعبة.",
+                    nextActionArabic = "لا تقاطع اللعب؛ لا تفترض ما يظهر على الشاشة إلا إذا كان واضحًا أو شرحه الشخص.",
+                    observedAtMs = sample.timestampMs
+                )
+            }
+            // Art supplies and sustained hand movement may indicate drawing or colouring.
+            hasArtCue && people.size >= 5 && span >= 2_000L &&
+                handMotionChanges >= 4 && handMotionReversals >= 2 -> {
+                EveActivityInterpretation(
+                    EveHumanActivity.DRAWING_OR_COLORING_POSSIBLE,
+                    confidence = confidence(0.54f + min(0.18f, handMotionReversals * 0.025f)),
+                    evidenceCount = people.size,
+                    durationMs = span,
+                    explanationArabic = "ظهرت أداة أو مادة مرتبطة بالرسم أو التلوين مع حركة يد متكررة؛ قد يكون الشخص يرسم أو يلوّن، ولا يمكن تأكيد النتيجة من الأداة وحدها.",
+                    nextActionArabic = "انتظر مزيدًا من الأدلة ولا تصف الرسم أو محتواه إذا لم يكن واضحًا.",
+                    observedAtMs = sample.timestampMs
+                )
+            }
             // Repeated hand-to-mouth movement plus a nearby food object and visible mouth motion.
             hasFood && handMouthEpisodes >= 2 && (mouthCycles >= 1 || mouthRange >= 0.035f) -> {
                 EveActivityInterpretation(
@@ -136,7 +187,9 @@ class EveActivityUnderstanding(
                         if (mouthCycles >= 1) 0.04f else 0f),
                     evidenceCount = people.size,
                     durationMs = span,
-                    explanationArabic = "وعاء شرب محتمل مع اقتراب اليد من الفم وحركة فم؛ الشرب مجرد استنتاج بصري محتمل.",
+                    explanationArabic = if (drinkKindArabic != null)
+                        "ظهر كوب أو وعاء مع حركة متكررة نحو الفم وتصنيف بصري قد يشير إلى $drinkKindArabic؛ نوع السائل غير مؤكد."
+                    else "وعاء شرب محتمل مع اقتراب اليد من الفم وحركة فم؛ الشرب مجرد استنتاج بصري محتمل.",
                     nextActionArabic = "ابقَ هادئًا ولا تقاطع الشخص؛ انتظر تفاعلًا مباشرًا قبل طرح سؤال.",
                     observedAtMs = sample.timestampMs
                 )
@@ -149,7 +202,9 @@ class EveActivityUnderstanding(
                     confidence = confidence(0.54f + min(0.17f, handMouthEpisodes * 0.04f)),
                     evidenceCount = people.size,
                     durationMs = span,
-                    explanationArabic = "ظهر وعاء شرب محتمل مع تكرار حركة اليد نحو الفم عبر عدة إطارات؛ الشرب احتمال وليس يقينًا.",
+                    explanationArabic = if (drinkKindArabic != null)
+                        "ظهر وعاء وتصنيف بصري قد يشير إلى $drinkKindArabic مع تكرار حركة اليد نحو الفم؛ الشرب ونوع السائل غير مؤكدين."
+                    else "ظهر وعاء شرب محتمل مع تكرار حركة اليد نحو الفم عبر عدة إطارات؛ الشرب احتمال وليس يقينًا.",
                     nextActionArabic = "ابقَ هادئًا ولا تقاطع الشخص؛ انتظر تفاعلًا مباشرًا قبل طرح سؤال.",
                     observedAtMs = sample.timestampMs
                 )
@@ -379,6 +434,34 @@ class EveActivityUnderstanding(
         return value in DRINK_LABELS || DRINK_LABELS.any { value.contains(it) }
     }
 
+    private fun isTreatLabel(label: String): Boolean {
+        val value = normalizeLabel(label)
+        return TREAT_LABELS.any { value == it || value.contains(it) }
+    }
+
+    private fun isBeverageLabel(label: String): Boolean {
+        val value = normalizeLabel(label)
+        return BEVERAGE_LABELS.any { value == it || value.contains(it) }
+    }
+
+    private fun drinkKind(labels: Set<String>): String? = when {
+        labels.any { normalizeLabel(it).contains("coffee") || normalizeLabel(it).contains("espresso") || normalizeLabel(it).contains("latte") } -> "القهوة"
+        labels.any { normalizeLabel(it).contains("water") } -> "الماء"
+        labels.any { normalizeLabel(it).contains("tea") } -> "الشاي"
+        labels.any { normalizeLabel(it).contains("juice") } -> "العصير"
+        else -> null
+    }
+
+    private fun isGameLabel(label: String): Boolean {
+        val value = normalizeLabel(label)
+        return GAME_LABELS.any { value == it || value.contains(it) }
+    }
+
+    private fun isArtLabel(label: String): Boolean {
+        val value = normalizeLabel(label)
+        return ART_LABELS.any { value == it || value.contains(it) }
+    }
+
     companion object {
         private const val MIN_PERSON_CONFIDENCE = 0.55f
         private const val MIN_PERSON_SAMPLES = 3
@@ -391,8 +474,24 @@ class EveActivityUnderstanding(
         private val FOOD_LABELS = setOf(
             "food", "fruit", "banana", "apple", "orange", "pizza", "sandwich", "bread",
             "cake", "donut", "doughnut", "carrot", "hot dog", "broccoli", "bowl", "fork",
-            "knife", "spoon", "plate"
+            "knife", "spoon", "plate", "ice cream", "icecream", "candy", "sweets", "sweet",
+            "chocolate", "lollipop", "popsicle", "ice lolly", "ice pop", "frozen dessert",
+            "confectionery", "bonbon", "marshmallow", "cookie", "biscuit", "dessert"
         )
-        private val DRINK_LABELS = setOf("bottle", "cup", "wine glass", "water bottle")
+        private val TREAT_LABELS = setOf(
+            "ice cream", "icecream", "lollipop", "popsicle", "ice lolly", "ice pop",
+            "candy", "chocolate", "frozen dessert", "bonbon", "marshmallow"
+        )
+        private val DRINK_LABELS = setOf("bottle", "cup", "wine glass", "water bottle", "mug", "coffee cup")
+        private val BEVERAGE_LABELS = setOf("coffee", "espresso", "water", "tea", "juice", "beverage", "drink", "milk", "latte")
+        private val GAME_LABELS = setOf(
+            "game controller", "gamepad", "joystick", "video game", "game console", "gaming console",
+            "chessboard", "chess board", "board game", "game board", "playing cards", "dice", "toy"
+        )
+        private val ART_LABELS = setOf(
+            "crayon", "colored pencil", "colour pencil", "color pencil", "marker", "felt-tip pen",
+            "paintbrush", "paint brush", "pencil", "drawing", "sketchbook", "coloring book",
+            "colouring book", "artwork", "canvas", "palette", "watercolor", "watercolour", "paint"
+        )
     }
 }

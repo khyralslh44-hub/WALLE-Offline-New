@@ -28,6 +28,23 @@ class EvePersonContextUnderstandingTest {
   for(i in 1..6){val t=i*350L;r=e.observe(EvePersonContextEvidence(t,0.9f,objectObservationAtMs=t,phoneConfidence=0.9f))}
   assertEquals(0f,r.phoneCallConfidence);assertEquals(0f,r.phoneBrowsingConfidence)
  }
+ @Test fun closePeopleAndRepeatedMotionAreFlaggedAsUnclearInteractionNotFightOrPlay(){
+  val e=EvePersonContextUnderstanding();var r=EvePersonContextSnapshot()
+  for(i in 1..6){val t=i*350L;r=e.observe(EvePersonContextEvidence(
+   timestampMs=t,personConfidence=0.9f,motionObservationAtMs=t,motionScore=0.68f,
+   visiblePersonCount=2,faceProximityConfidence=0.74f
+  ))}
+  assertTrue(r.interactionConfidence>=0.55f)
+  assertTrue(r.summaryArabic.contains("لا أستطيع التمييز بثقة بين المزاح والشجار"))
+ }
+ @Test fun twoPeopleWithoutRepeatedMotionDoNotTriggerInteractionCue(){
+  val e=EvePersonContextUnderstanding();var r=EvePersonContextSnapshot()
+  for(i in 1..6){val t=i*350L;r=e.observe(EvePersonContextEvidence(
+   timestampMs=t,personConfidence=0.9f,motionObservationAtMs=t,motionScore=0.04f,
+   visiblePersonCount=2,faceProximityConfidence=0.78f
+  ))}
+  assertEquals(0f,r.interactionConfidence)
+ }
  @Test fun stalePhoneEvidenceExpiresWhilePersonRemainsVisible(){
   val e=EvePersonContextUnderstanding();var r=EvePersonContextSnapshot()
   for(i in 1..4){val t=i*300L;r=e.observe(EvePersonContextEvidence(t,0.9f,objectObservationAtMs=t,phoneConfidence=0.9f,phoneNearEarConfidence=0.9f))}

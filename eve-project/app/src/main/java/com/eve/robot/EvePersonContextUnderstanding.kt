@@ -1,23 +1,31 @@
 package com.eve.robot
 import java.util.ArrayDeque
 
-enum class EvePersonContextActivity { SITTING_POSSIBLE, PHONE_CALL_POSSIBLE, PHONE_BROWSING_POSSIBLE }
+enum class EvePersonContextActivity {
+    SITTING_POSSIBLE, PHONE_CALL_POSSIBLE, PHONE_BROWSING_POSSIBLE, INTERACTION_UNCLEAR
+}
 data class EvePersonContextEvidence(
  val timestampMs: Long, val personConfidence: Float,
  val poseObservationAtMs: Long = 0L, val sittingPoseConfidence: Float = 0f,
  val objectObservationAtMs: Long = 0L, val phoneConfidence: Float = 0f,
  val phoneNearEarConfidence: Float = 0f, val phoneInFrontConfidence: Float = 0f,
  val handObservationAtMs: Long = 0L, val handNearPhoneConfidence: Float = 0f,
- val nearbySeatConfidence: Float = 0f
+ val nearbySeatConfidence: Float = 0f,
+ val visiblePersonCount: Int = 0,
+ val faceProximityConfidence: Float = 0f,
+ val motionObservationAtMs: Long = 0L,
+ val motionScore: Float = 0f
 )
 data class EvePersonContextSnapshot(
  val sittingConfidence: Float = 0f, val phoneCallConfidence: Float = 0f,
- val phoneBrowsingConfidence: Float = 0f, val summaryArabic: String = "", val observedAtMs: Long = 0L
+ val phoneBrowsingConfidence: Float = 0f, val interactionConfidence: Float = 0f,
+ val summaryArabic: String = "", val observedAtMs: Long = 0L
 ) {
  fun confidenceFor(activity: EvePersonContextActivity): Float = when (activity) {
   EvePersonContextActivity.SITTING_POSSIBLE -> sittingConfidence
   EvePersonContextActivity.PHONE_CALL_POSSIBLE -> phoneCallConfidence
   EvePersonContextActivity.PHONE_BROWSING_POSSIBLE -> phoneBrowsingConfidence
+  EvePersonContextActivity.INTERACTION_UNCLEAR -> interactionConfidence
  }
 }
 /** Fuses repeated local signals and deduplicates source timestamps to prevent frame over-counting. */
@@ -55,6 +63,18 @@ class EvePersonContextUnderstanding(private val windowMs: Long = 9_000L, private
   val phoneSpan = span(phones.map { it.objectObservationAtMs })
   val call = if (phones.size >= 2 && phoneSpan >= 800L && phoneMean >= 0.42f && earMean >= 0.52f && earVotes >= 0.60f)
    (0.48f + 0.28f * earMean + ((phones.size - 2) * 0.025f).coerceAtMost(0.08f)).coerceAtMost(0.82f) else 0f
+  val socialMotion = frames.filter {
+   it.visiblePersonCount >= 2 && it.faceProximityConfidence >= 0.42f &&
+    it.motionObservationAtMs > 0L && e.timestampMs - it.motionObservationAtMs in 0L..1_500L &&
+    it.motionScore >= 0.22f
+  }.distinctBy { it.motionObservationAtMs }.sortedBy { it.motionObservationAtMs }
+  val socialProximity = socialMotion.map { it.faceProximityConfidence }.meanOrZero()
+  val socialMotionMean = socialMotion.map { it.motionScore }.meanOrZero()
+  val socialConfidence = if (socialMotion.size >= 3 &&
+    span(socialMotion.map { it.motionObservationAtMs }) >= 1_100L &&
+    socialProximity >= 0.45f && socialMotionMean >= 0.25f)
+   (0.35f + 0.35f * socialProximity + 0.20f * socialMotionMean).coerceAtMost(0.72f) else 0f
+
   val frontMean = phones.map { it.phoneInFrontConfidence }.meanOrZero()
   val handMean = hands.map { it.handNearPhoneConfidence }.meanOrZero()
   val browse = if (call < 0.55f && phones.size >= 2 && phoneSpan >= 1_000L && phoneMean >= 0.42f &&
@@ -66,14 +86,20 @@ class EvePersonContextUnderstanding(private val windowMs: Long = 9_000L, private
   else "تظهر وضعية جسم تشبه الجلوس أو القرفصاء عبر عدة إطارات؛ ليست تأكيدًا على أن الشخص جالس."
   if (call >= 0.55f) summaries += "ظهر هاتف قرب جانب الرأس في رصدات متكررة؛ قد يكون الشخص في مكالمة، ولا أستطيع تأكيد وجود اتصال فعلي."
   else if (browse >= 0.55f) summaries += "ظهر هاتف أمام الشخص مع اقتراب اليد منه في رصدات متكررة؛ قد يستخدم الهاتف أو يتصفحه، ولا أستطيع معرفة محتوى الشاشة."
-  return EvePersonContextSnapshot(sitting, call, browse, summaries.joinToString("؛ "), e.timestampMs)
+  if (socialConfidence >= 0.55f) summaries += "ألاحظ شخصين أو أكثر قريبين مع حركة متكررة؛ لا أستطيع التمييز بثقة بين المزاح والشجار من هذه الأدلة البصرية وحدها."
+  return EvePersonContextSnapshot(
+   sittingConfidence=sitting, phoneCallConfidence=call, phoneBrowsingConfidence=browse,
+   interactionConfidence=socialConfidence, summaryArabic=summaries.joinToString("؛ "), observedAtMs=e.timestampMs
+  )
  }
  @Synchronized fun reset() { samples.clear(); lastTimestampMs = 0L }
  private fun sanitize(e: EvePersonContextEvidence) = e.copy(
   personConfidence=e.personConfidence.unit(), sittingPoseConfidence=e.sittingPoseConfidence.unit(),
   phoneConfidence=e.phoneConfidence.unit(), phoneNearEarConfidence=e.phoneNearEarConfidence.unit(),
   phoneInFrontConfidence=e.phoneInFrontConfidence.unit(), handNearPhoneConfidence=e.handNearPhoneConfidence.unit(),
-  nearbySeatConfidence=e.nearbySeatConfidence.unit(), poseObservationAtMs=e.poseObservationAtMs.coerceAtLeast(0L),
+  nearbySeatConfidence=e.nearbySeatConfidence.unit(), faceProximityConfidence=e.faceProximityConfidence.unit(),
+  motionScore=e.motionScore.unit(), visiblePersonCount=e.visiblePersonCount.coerceIn(0,20),
+  motionObservationAtMs=e.motionObservationAtMs.coerceAtLeast(0L), poseObservationAtMs=e.poseObservationAtMs.coerceAtLeast(0L),
   objectObservationAtMs=e.objectObservationAtMs.coerceAtLeast(0L), handObservationAtMs=e.handObservationAtMs.coerceAtLeast(0L)
  )
  private fun Float.unit()=takeIf { it.isFinite() }?.coerceIn(0f,1f) ?: 0f

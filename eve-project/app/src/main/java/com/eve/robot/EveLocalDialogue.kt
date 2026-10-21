@@ -137,8 +137,13 @@ object OfflineEveResponder {
                 "current_visual_label", EveMood.CURIOUS
             )
         }
-        if (contains(q, "ما اسمك", "من انت", "من انتي", "من تكونين", "who are you", "what is your name"))
-            return EveOfflineAnswer("أنا إيف، شخصية روبوتية على هذا الهاتف. أستخدم الرؤية والكلام المحليين وأعبّر عن حالتي بعينيّ؛ هذا سلوك محاكى وليس وعيًا بشريًا.", "identity", EveMood.HAPPY)
+        if (contains(q, "ما اسمك", "اسمك ايه", "ما اسمك ايه", "من انت", "من انتي", "من تكونين",
+                "من هي ايف", "عرفيني بنفسك", "عرفي بنفسك", "حدثيني عن نفسك", "هل تعرفين نفسك",
+                "who are you", "what is your name", "introduce yourself", "do you know yourself"))
+            return EveOfflineAnswer(
+                "اسمي إيف. أنا شخصية روبوتية تعمل داخل هذا الهاتف؛ أستخدم الكاميرا وبعض النماذج المحلية لفهم أشياء وأنشطة محددة، وأستجيب للكلام بالعربية عند تفعيل الميكروفون. أستطيع تذكّر بعض ما يُقال لي محليًا، لكنني لا أملك وعيًا بشريًا ولا أعرف ما لم أره أو يخبرني به أحد.",
+                "identity", EveMood.HAPPY
+            )
         if (contains(q, "هل تعملين بدون انترنت", "هل تعملين دون انترنت", "هل تعملين بدون اتصال",
                 "هل تعملين دون اتصال", "هل انت متصله بالانترنت", "do you work offline", "can you work offline", "are you online"))
             return EveOfflineAnswer("تعمل الرؤية وبعض الإجابات المحفوظة محليًا دون إنترنت. معرفتي محدودة بما هو مضمّن في التطبيق، ولا أستطيع البحث عن معلومات جديدة وأنا غير متصلة.", "offline_capability", EveMood.FOCUSED)
@@ -151,7 +156,7 @@ object OfflineEveResponder {
         return EveOfflineAnswer("لا أملك إجابة محلية موثوقة عن هذا السؤال الآن. لن أختلق معلومة؛ أستطيع الإجابة عمّا أراه بوضوح أو عمّا أعرفه عن قدراتي دون إنترنت.", "unknown_offline_question", EveMood.CONCERNED)
     }
 
-    private val QUESTION_MARKERS = listOf("ما ", "ماهذا", "ماذا", "كيف", "لماذا", "هل ", "من ", "اين", "أين", "متى", "كم ", "وش ", "ايش ", "what", "how", "why", "where", "when", "who", "which", "can you")
+    private val QUESTION_MARKERS = listOf("ما ", "ماهذا", "ماذا", "كيف", "لماذا", "هل ", "من ", "اين", "أين", "متى", "كم ", "وش ", "ايش ", "عرفيني بنفسك", "عرفي بنفسك", "حدثيني عن نفسك", "what", "how", "why", "where", "when", "who", "which", "can you")
     private fun contains(text: String, vararg options: String) = options.any(text::contains)
     private fun normalize(value: String): String = value.trim().lowercase(Locale.ROOT)
         .replace(Regex("[\\u064B-\\u065F\\u0670]"), "")
