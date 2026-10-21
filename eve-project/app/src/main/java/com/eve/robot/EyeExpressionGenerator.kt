@@ -154,96 +154,99 @@ object EyeExpressionGenerator {
         // never from diagnostic prose. The brain may describe an event in any language
         // without that wording directly forcing a visual expression.
         val intent = decision.intent
-        val clearSilhouette = when (intent) {
-            EveIntent.EXPLORE -> when {
-                curiosity >= 0.86f && arousal >= 0.72f && valence >= 0.18f -> EyeSilhouette.AWE
-                curiosity >= 0.82f && valence <= -0.28f -> EyeSilhouette.SUSPICIOUS
-                curiosity >= 0.80f && valence < 0.10f -> EyeSilhouette.SKEPTIC
-                else -> EyeSilhouette.CURIOUS
+        // The emotional state owns the primary facial read. A goal may refine a neutral
+        // expression, but "connect" or "play" must never erase clear anger, surprise, or joy.
+        val clearSilhouette = when (decision.mood) {
+            EveMood.AWAKE -> when (intent) {
+                EveIntent.EXPLORE -> EyeSilhouette.CURIOUS
+                EveIntent.CONNECT -> EyeSilhouette.SOFT
+                EveIntent.PLAY -> EyeSilhouette.PLAYFUL
+                EveIntent.REST -> EyeSilhouette.DROOPY
+                EveIntent.FOCUS -> EyeSilhouette.FOCUSED
+                EveIntent.REGULATE -> EyeSilhouette.WORRIED
+                null -> EyeSilhouette.NEUTRAL
             }
-            EveIntent.CONNECT -> when {
-                valence >= 0.62f && familiarity >= 0.25f && characterPlayfulness >= 0.45f -> EyeSilhouette.GLEE
-                valence <= -0.55f && fatigue >= 0.52f -> EyeSilhouette.SAD_DOWN
-                valence <= -0.55f -> EyeSilhouette.SAD_UP
-                else -> EyeSilhouette.SOFT
-            }
-            EveIntent.PLAY -> when {
-                decision.frustration >= 0.55f -> EyeSilhouette.ANNOYED
-                characterPlayfulness < 0.30f -> EyeSilhouette.SOFT
-                valence < 0.10f -> EyeSilhouette.SKEPTIC
-                valence >= 0.66f && characterPlayfulness >= 0.55f -> EyeSilhouette.GLEE
-                else -> EyeSilhouette.PLAYFUL
-            }
-            EveIntent.REST -> when {
-                // REST is a sustained state: use sleepy lids, not the transient low-blink slit.
-                fatigue >= 0.78f -> EyeSilhouette.DROOPY
-                fatigue < 0.16f && arousal >= 0.48f -> EyeSilhouette.SOFT
-                else -> EyeSilhouette.DROOPY
-            }
-            EveIntent.FOCUS -> when {
-                decision.frustration >= 0.58f -> EyeSilhouette.UNIMPRESSED
-                // Fatigue changes the eyelids; blink slits are reserved for blink-like poses.
-                fatigue >= 0.76f -> EyeSilhouette.DROOPY
-                arousal < 0.30f -> EyeSilhouette.SQUINT
-                else -> EyeSilhouette.FOCUSED
-            }
-            EveIntent.REGULATE -> when {
-                decision.frustration >= 0.78f && arousal >= 0.72f -> EyeSilhouette.FURIOUS
-                decision.frustration >= 0.50f -> EyeSilhouette.ANNOYED
-                valence <= -0.55f && fatigue >= 0.52f -> EyeSilhouette.SAD_DOWN
-                valence <= -0.55f -> EyeSilhouette.SAD_UP
-                else -> EyeSilhouette.WORRIED
-            }
-            null -> when (decision.mood) {
-                EveMood.AWAKE -> EyeSilhouette.NEUTRAL
-                EveMood.NEUTRAL -> when {
-                    fatigue >= 0.76f -> EyeSilhouette.BLINK_LOW
-                    arousal <= 0.16f -> EyeSilhouette.BLINK_HIGH
-                    else -> EyeSilhouette.ALMOND
-                }
-                EveMood.CURIOUS -> when {
+            EveMood.NEUTRAL -> when (intent) {
+                EveIntent.EXPLORE -> when {
                     curiosity >= 0.86f && arousal >= 0.72f && valence >= 0.18f -> EyeSilhouette.AWE
                     curiosity >= 0.82f && valence <= -0.28f -> EyeSilhouette.SUSPICIOUS
                     curiosity >= 0.80f && valence < 0.10f -> EyeSilhouette.SKEPTIC
                     else -> EyeSilhouette.CURIOUS
                 }
-                EveMood.HAPPY -> if (valence >= 0.66f && arousal >= 0.48f &&
-                    characterPlayfulness >= 0.50f) EyeSilhouette.GLEE else EyeSilhouette.SMILE
-                EveMood.SURPRISED -> if (valence >= 0.45f) EyeSilhouette.AWE
-                    else EyeSilhouette.ROUND_SURPRISE
-                EveMood.CONCERNED -> when {
-                    valence <= -0.28f && arousal >= 0.82f -> EyeSilhouette.SCARED
+                EveIntent.CONNECT -> when {
                     valence <= -0.55f && fatigue >= 0.52f -> EyeSilhouette.SAD_DOWN
                     valence <= -0.55f -> EyeSilhouette.SAD_UP
-                    arousal < 0.28f -> EyeSilhouette.UNIMPRESSED
-                    else -> EyeSilhouette.WORRIED
+                    valence >= 0.62f && familiarity >= 0.25f && characterPlayfulness >= 0.45f -> EyeSilhouette.GLEE
+                    else -> EyeSilhouette.SOFT
                 }
-                EveMood.FAMILIAR -> if (valence >= 0.62f && familiarity >= 0.25f &&
-                    characterPlayfulness >= 0.45f) EyeSilhouette.GLEE else EyeSilhouette.SOFT
-                // Sleep is a sustained eyelid pose, not the one-frame low-blink slit.
-                // BLINK_LOW remains a separate transient expression for a deliberate blink.
-                EveMood.SLEEPY -> EyeSilhouette.DROOPY
-                EveMood.FOCUSED -> when {
-                    decision.frustration >= 0.58f -> EyeSilhouette.UNIMPRESSED
-                    fatigue >= 0.76f -> EyeSilhouette.BLINK_LOW
-                    arousal < 0.30f -> EyeSilhouette.SQUINT
-                    else -> EyeSilhouette.FOCUSED
-                }
-                EveMood.PLAYFUL -> when {
+                EveIntent.PLAY -> when {
                     decision.frustration >= 0.55f -> EyeSilhouette.ANNOYED
                     characterPlayfulness < 0.30f -> EyeSilhouette.SOFT
                     valence < 0.10f -> EyeSilhouette.SKEPTIC
                     valence >= 0.66f && characterPlayfulness >= 0.55f -> EyeSilhouette.GLEE
                     else -> EyeSilhouette.PLAYFUL
                 }
-                EveMood.IRRITATED -> when {
-                    decision.frustration >= 0.55f -> EyeSilhouette.UNIMPRESSED
-                    arousal < 0.30f -> EyeSilhouette.BORED
-                    else -> EyeSilhouette.ANNOYED
+                EveIntent.REST -> if (fatigue < 0.16f && arousal >= 0.48f)
+                    EyeSilhouette.SOFT else EyeSilhouette.DROOPY
+                EveIntent.FOCUS -> when {
+                    decision.frustration >= 0.58f -> EyeSilhouette.UNIMPRESSED
+                    fatigue >= 0.76f -> EyeSilhouette.DROOPY
+                    arousal < 0.30f -> EyeSilhouette.SQUINT
+                    else -> EyeSilhouette.FOCUSED
                 }
-                EveMood.ANGRY -> if (arousal >= 0.72f || decision.frustration >= 0.70f)
-                    EyeSilhouette.FURIOUS else EyeSilhouette.SHARP
+                EveIntent.REGULATE -> when {
+                    decision.frustration >= 0.78f && arousal >= 0.72f -> EyeSilhouette.FURIOUS
+                    decision.frustration >= 0.50f -> EyeSilhouette.ANNOYED
+                    valence <= -0.55f && fatigue >= 0.52f -> EyeSilhouette.SAD_DOWN
+                    valence <= -0.55f -> EyeSilhouette.SAD_UP
+                    else -> EyeSilhouette.WORRIED
+                }
+                null -> when {
+                    fatigue >= 0.76f -> EyeSilhouette.BLINK_LOW
+                    arousal <= 0.16f -> EyeSilhouette.BLINK_HIGH
+                    else -> EyeSilhouette.ALMOND
+                }
             }
+            EveMood.CURIOUS -> when {
+                curiosity >= 0.86f && arousal >= 0.72f && valence >= 0.18f -> EyeSilhouette.AWE
+                curiosity >= 0.82f && valence <= -0.28f -> EyeSilhouette.SUSPICIOUS
+                curiosity >= 0.80f && valence < 0.10f -> EyeSilhouette.SKEPTIC
+                else -> EyeSilhouette.CURIOUS
+            }
+            EveMood.HAPPY -> if (valence >= 0.66f && arousal >= 0.48f &&
+                characterPlayfulness >= 0.50f) EyeSilhouette.GLEE else EyeSilhouette.SMILE
+            EveMood.SURPRISED -> if (valence >= 0.45f) EyeSilhouette.AWE
+                else EyeSilhouette.ROUND_SURPRISE
+            EveMood.CONCERNED -> when {
+                valence <= -0.28f && arousal >= 0.82f -> EyeSilhouette.SCARED
+                valence <= -0.55f && fatigue >= 0.52f -> EyeSilhouette.SAD_DOWN
+                valence <= -0.55f -> EyeSilhouette.SAD_UP
+                arousal < 0.28f -> EyeSilhouette.UNIMPRESSED
+                else -> EyeSilhouette.WORRIED
+            }
+            EveMood.FAMILIAR -> if (valence >= 0.62f && familiarity >= 0.25f &&
+                characterPlayfulness >= 0.45f) EyeSilhouette.GLEE else EyeSilhouette.SOFT
+            EveMood.SLEEPY -> EyeSilhouette.DROOPY
+            EveMood.FOCUSED -> when {
+                decision.frustration >= 0.58f -> EyeSilhouette.UNIMPRESSED
+                fatigue >= 0.76f -> EyeSilhouette.DROOPY
+                arousal < 0.30f -> EyeSilhouette.SQUINT
+                else -> EyeSilhouette.FOCUSED
+            }
+            EveMood.PLAYFUL -> when {
+                decision.frustration >= 0.55f -> EyeSilhouette.ANNOYED
+                characterPlayfulness < 0.30f -> EyeSilhouette.SOFT
+                valence < 0.10f -> EyeSilhouette.SKEPTIC
+                valence >= 0.66f && characterPlayfulness >= 0.55f -> EyeSilhouette.GLEE
+                else -> EyeSilhouette.PLAYFUL
+            }
+            EveMood.IRRITATED -> when {
+                decision.frustration >= 0.55f -> EyeSilhouette.UNIMPRESSED
+                arousal < 0.30f -> EyeSilhouette.BORED
+                else -> EyeSilhouette.ANNOYED
+            }
+            EveMood.ANGRY -> if (arousal >= 0.72f || decision.frustration >= 0.70f)
+                EyeSilhouette.FURIOUS else EyeSilhouette.SHARP
         }
 
         // Open or compress each glyph as its own expression preset. Several previous
