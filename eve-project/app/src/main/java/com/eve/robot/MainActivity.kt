@@ -164,6 +164,11 @@ class MainActivity : ComponentActivity() {
     @Volatile private var lastObjectLabel = ""
     @Volatile private var lastObjectLabelConfidence = 0f
     @Volatile private var lastObjectLabelAt = 0L
+    @Volatile private var latestVisualObjects: List<EveVisualObject> = emptyList()
+    @Volatile private var latestPersonContextSummary = ""
+    @Volatile private var lastPersonContextSummaryAt = 0L
+    @Volatile private var latestPersonContextSnapshot: EvePersonContextSnapshot? = null
+    @Volatile private var lastPersonContextCaptureAt = 0L
     @Volatile private var handGestureRecognizer: GestureRecognizer? = null
     @Volatile private var handGestureReady = false
     private val handGestureInferenceRunning = AtomicBoolean(false)
@@ -186,6 +191,10 @@ class MainActivity : ComponentActivity() {
     private val ferInferenceRunning = AtomicBoolean(false)
     private val faceCueSmoother = EveFaceCueSmoother(windowSize = 3, requiredVotes = 2)
     private val activityUnderstanding = EveActivityUnderstanding()
+    private val personContextUnderstanding = EvePersonContextUnderstanding()
+    private val personalTravelMemory by lazy {
+        EveTravelMemory(getSharedPreferences("eve_personal_travel_memory", MODE_PRIVATE).getString("records", "").orEmpty())
+    }
     private val wellbeingUnderstanding = EveHumanWellbeingUnderstanding()
     private val environmentUnderstanding = EveEnvironmentUnderstanding()
     private val roomUnderstanding = EveRoomUnderstanding()
@@ -808,6 +817,56 @@ class MainActivity : ComponentActivity() {
         return false
     }
 
+
+    private fun handleTravelMemorySpeech(text: String, addressedToEve: Boolean, activeConversation: Boolean, nowElapsed: Long): Boolean {
+        val q = normalizeArabicSpeech(text)
+        val clear = listOf("امسحي ذاكرة السفر","احذفي ذاكرة السفر","امسحي معلومات السفر","احذفي معلومات السفر","انسي ذاكرة السفر","انسي معلومات السفر").any(q::contains)
+        if (clear && (addressedToEve || activeConversation)) {
+            personalTravelMemory.clear()
+            getSharedPreferences("eve_personal_travel_memory", MODE_PRIVATE).edit().putString("records", personalTravelMemory.serialize()).apply()
+            val reply = "حذفت ذاكرة السفر المحلية من هذا الهاتف."
+            showDialogueText(reply, durationMs = 6_000L); memory.rememberDialogue(text, reply); lastConversationalExchangeAt = nowElapsed
+            return true
+        }
+        val answer = personalTravelMemory.answerQuestion(q)
+        if (answer != null) {
+            showDialogueText(answer, durationMs = 8_000L); memory.rememberDialogue(text, answer); lastConversationalExchangeAt = nowElapsed
+            return true
+        }
+        if (!addressedToEve && !activeConversation) return false
+        val fact = personalTravelMemory.recordStatement(text, System.currentTimeMillis()) ?: return false
+        getSharedPreferences("eve_personal_travel_memory", MODE_PRIVATE).edit().putString("records", personalTravelMemory.serialize()).apply()
+        val reply = when (fact.type) {
+            EveTravelFactType.TRAVEL_HISTORY -> "حفظت على هذا الهاتف أنك ذكرت: «" + fact.statement + "». هذا تذكّر لما قلته، وليس تحققًا مستقلًا من السفر."
+            EveTravelFactType.TRAVEL_INTENTION -> "تذكرت محليًا أنك عبّرت عن رغبتك أو موقفك من السفر: «" + fact.statement + "». يمكنك أن تطلب مني حذف ذاكرة السفر في أي وقت."
+        }
+        showDialogueText(reply, durationMs = 8_000L); memory.rememberDialogue(text, reply); lastConversationalExchangeAt = nowElapsed
+        Log.i("EVE_TRAVEL", "TRAVEL_MEMORY_SAVED type=" + fact.type + " localOnly=true statementChars=" + fact.statement.length)
+        return true
+    }
+
+    private fun answerPersonContextQuestion(text: String, addressedToEve: Boolean, activeConversation: Boolean): Boolean {
+        if (!OfflineEveResponder.isQuestion(text) && !addressedToEve && !activeConversation) return false
+        val q = normalizeArabicSpeech(text)
+        val kind = when {
+            listOf("هل الشخص جالس","هل هو جالس","هل هي جالسه","هل يجلس","هل تجلس","قاعد","جالس","جالسه","sitting").any(q::contains) -> EvePersonContextActivity.SITTING_POSSIBLE
+            listOf("مكالمة","يتصل عبر الهاتف","يتحدث عبر الهاتف","يكلم احد عبر الهاتف","يجري اتصال","phone call","calling").any(q::contains) -> EvePersonContextActivity.PHONE_CALL_POSSIBLE
+            listOf("يتصفح الهاتف","يتصفح جواله","يتصفح هاتفه","يستخدم الهاتف","يستخدم جواله","يمسك الهاتف","browsing phone","using the phone").any(q::contains) -> EvePersonContextActivity.PHONE_BROWSING_POSSIBLE
+            else -> null
+        } ?: return false
+        val now = SystemClock.elapsedRealtime()
+        val snap = latestPersonContextSnapshot
+        val fresh = snap != null && now - lastPersonContextCaptureAt in 0L..3_500L
+        val confidence = if (fresh) snap!!.confidenceFor(kind) else 0f
+        val reply = if (confidence >= 0.55f) when (kind) {
+            EvePersonContextActivity.SITTING_POSSIBLE -> "من وضعية الجسم عبر إطارات حديثة، يبدو أن الشخص قد يكون جالسًا أو في وضعية قرفصاء (تقدير بصري فقط)."
+            EvePersonContextActivity.PHONE_CALL_POSSIBLE -> "رصدت هاتفًا قرب جانب الرأس في أكثر من لقطة؛ قد يكون الشخص في مكالمة، لكن الكاميرا لا تثبت أن هناك اتصالًا فعليًا."
+            EvePersonContextActivity.PHONE_BROWSING_POSSIBLE -> "رصدت هاتفًا أمام الشخص مع حركة يد قريبة منه؛ قد يكون يستخدمه أو يتصفحه، ولا أستطيع قراءة محتوى الشاشة."
+        } else "لا تتوفر لدي الآن أدلة بصرية متكررة وكافية لأحدد ذلك. ظهور الهاتف أو انحناء الركبة في لقطة واحدة لا يكفي، وعدم توفر دليل لا يعني أن النشاط غير حاصل."
+        showDialogueText(reply, durationMs = 7_500L); memory.rememberDialogue(text, reply); lastConversationalExchangeAt = now
+        return true
+    }
+
     private fun answerLocalBirthdayQuestion(question: String) {
         showDialogueText(EveLocalCalendarEvents.answerBirthdayQuestion(this, question), durationMs = 8500L)
     }
@@ -1053,6 +1112,9 @@ class MainActivity : ComponentActivity() {
             now - lastConversationalExchangeAt in 0L..90_000L
         val conversationalTurn = isQuestion || addressedToEve ||
             (wordCount >= 3 && activeConversation)
+
+        if (handleTravelMemorySpeech(text, addressedToEve, activeConversation, now)) return
+        if (answerPersonContextQuestion(text, addressedToEve, activeConversation)) return
 
         // Resolve known safe local questions first; never make an FAQ wait behind slow inference.
         val currentVisualAge = if (lastMeaningfulLabelAt > 0L) now - lastMeaningfulLabelAt else Long.MAX_VALUE
@@ -2344,6 +2406,7 @@ class MainActivity : ComponentActivity() {
         // An empty current detector result must clear old animal labels so they cannot authorize
         // a contradictory whole-image guess on the next frame.
         latestObjectLabels = sceneObjects.map { EveSceneGeometry.normalizeLabel(it.label) }.toSet()
+        latestVisualObjects = sceneObjects
         if (sceneObjects.isNotEmpty()) {
             latestObjectSummary = "أجسام محددة: " + sceneObjects.joinToString("؛ ") {
                 EveSceneGeometry.describe(
@@ -2362,6 +2425,7 @@ class MainActivity : ComponentActivity() {
             )
         } else {
             latestObjectSummary = ""
+            latestVisualObjects = emptyList()
             lastObjectSceneAt = 0L
             refreshLatestSceneSummary(now)
         }
@@ -2539,6 +2603,66 @@ class MainActivity : ComponentActivity() {
             )
         )
         applyHumanActivityInterpretation(result, now)
+        observePersonContextFromFace(face, now, pose, handIsFresh)
+    }
+
+    private fun isPhoneObject(label: String) = EveSceneGeometry.normalizeLabel(label) in setOf("cell phone", "mobile phone", "smartphone", "phone")
+    private fun isSeatObject(label: String) = EveSceneGeometry.normalizeLabel(label) in setOf("chair", "couch", "bench", "bed")
+
+    private fun observePersonContextFromFace(face: Face, now: Long, pose: EvePoseAngles?, handIsFresh: Boolean) {
+        val age = if (lastObjectSceneAt > 0L) now - lastObjectSceneAt else Long.MAX_VALUE
+        val freshObjects = age in 0L..2_200L
+        val objects = if (freshObjects) latestVisualObjects else emptyList()
+        val phones = objects.filter { isPhoneObject(it.label) && it.confidence >= 0.42f }
+        val seats = objects.filter { isSeatObject(it.label) && it.confidence >= 0.42f }
+        val fw = latestAnalysisWidth.toFloat().coerceAtLeast(1f)
+        val fh = latestAnalysisHeight.toFloat().coerceAtLeast(1f)
+        val box = face.boundingBox
+        val fx = (box.centerX() / fw).coerceIn(0f, 1f)
+        val fy = (box.centerY() / fh).coerceIn(0f, 1f)
+        val faceW = (box.width() / fw).coerceIn(0.01f, 1f)
+        val faceH = (box.height() / fh).coerceIn(0.01f, 1f)
+        fun nearEar(p: EveVisualObject): Float {
+            val dx = kotlin.math.abs(p.centerX - fx)
+            val dy = kotlin.math.abs(p.centerY - fy)
+            val xl = (faceW * 1.45f + p.widthFraction * 0.25f + 0.025f).coerceAtLeast(0.075f)
+            val yl = (faceH * 0.78f + p.heightFraction * 0.25f + 0.025f).coerceAtLeast(0.09f)
+            if (dx > xl || dy > yl) return 0f
+            val proximity = maxOf(dx / xl, dy / yl).coerceIn(0f, 1f)
+            return (p.confidence * (0.55f + 0.45f * (1f - proximity))).coerceIn(0f, 1f)
+        }
+        fun inFront(p: EveVisualObject): Float {
+            val below = p.centerY - (fy + faceH * 0.28f)
+            if (below <= 0f || p.centerY >= fy + faceH * 2.8f) return 0f
+            val vertical = (1f - below / (faceH * 2.55f + 0.08f)).coerceIn(0f, 1f)
+            return (p.confidence * (0.5f + 0.5f * vertical)).coerceIn(0f, 1f)
+        }
+        fun handNear(p: EveVisualObject): Float {
+            if (!handIsFresh || !latestHandCenterX.isFinite() || !latestHandCenterY.isFinite()) return 0f
+            val dx = (kotlin.math.abs(latestHandCenterX - p.centerX) - p.widthFraction / 2f).coerceAtLeast(0f)
+            val dy = (kotlin.math.abs(latestHandCenterY - p.centerY) - p.heightFraction / 2f).coerceAtLeast(0f)
+            val distance = kotlin.math.hypot(dx.toDouble(), dy.toDouble()).toFloat()
+            val radius = (maxOf(p.widthFraction, p.heightFraction) * 1.7f + 0.045f).coerceAtLeast(0.06f)
+            return if (distance <= radius) (0.35f + 0.65f * (1f - distance / radius)).coerceIn(0f, 1f) else 0f
+        }
+        val phone = phones.maxByOrNull { it.confidence * (0.8f + 0.2f * it.areaFraction) }
+        val near = phone?.let(::nearEar) ?: 0f
+        val snap = personContextUnderstanding.observe(EvePersonContextEvidence(
+            timestampMs = now, personConfidence = 0.88f,
+            poseObservationAtMs = if (pose != null) latestPoseObservedAt else 0L,
+            sittingPoseConfidence = pose?.sittingPoseConfidence ?: 0f,
+            objectObservationAtMs = if (freshObjects) lastObjectSceneAt else 0L,
+            phoneConfidence = phone?.confidence ?: 0f, phoneNearEarConfidence = near,
+            phoneInFrontConfidence = if (near >= 0.52f) 0f else phone?.let(::inFront) ?: 0f,
+            handObservationAtMs = if (handIsFresh) latestHandObservedAt else 0L,
+            handNearPhoneConfidence = phone?.let(::handNear) ?: 0f,
+            nearbySeatConfidence = seats.maxOfOrNull { it.confidence } ?: 0f
+        ))
+        latestPersonContextSnapshot = snap
+        lastPersonContextCaptureAt = now
+        latestPersonContextSummary = snap.summaryArabic
+        lastPersonContextSummaryAt = if (snap.summaryArabic.isNotBlank()) now else 0L
+        refreshLatestSceneSummary(now)
     }
 
     private fun applyHumanActivityInterpretation(result: EveActivityInterpretation, now: Long) {
@@ -2599,19 +2723,17 @@ class MainActivity : ComponentActivity() {
             latestRoomSummary = ""
             latestRoomType = EveRoomType.UNKNOWN
         }
+        if (lastPersonContextSummaryAt == 0L || now - lastPersonContextSummaryAt > activitySummaryTtlMs) latestPersonContextSummary = ""
         val parts = listOf(
-            latestObjectSummary,
-            latestImageClassifierSummary,
-            latestActivitySummary,
-            latestWellbeingSummary,
-            latestEnvironmentSummary,
-            latestRoomSummary
+            latestObjectSummary, latestImageClassifierSummary, latestActivitySummary,
+            latestPersonContextSummary, latestWellbeingSummary, latestEnvironmentSummary, latestRoomSummary
         ).filter { it.isNotBlank() }
         latestSceneSummary = parts.joinToString("؛ ").take(600)
         lastSceneObservationAt = maxOf(
             if (latestObjectSummary.isNotBlank()) lastObjectSceneAt else 0L,
             if (latestImageClassifierSummary.isNotBlank()) lastImageClassifierSceneAt else 0L,
             if (latestActivitySummary.isNotBlank()) lastActivityObservationAt else 0L,
+            if (latestPersonContextSummary.isNotBlank()) lastPersonContextSummaryAt else 0L,
             if (latestWellbeingSummary.isNotBlank()) lastWellbeingObservationAt else 0L,
             if (latestEnvironmentSummary.isNotBlank()) lastEnvironmentObservationAt else 0L,
             if (latestRoomSummary.isNotBlank()) lastRoomObservationAt else 0L

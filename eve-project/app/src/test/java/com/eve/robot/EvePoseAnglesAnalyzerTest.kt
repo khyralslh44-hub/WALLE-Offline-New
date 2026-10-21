@@ -47,6 +47,15 @@ class EvePoseAnglesAnalyzerTest {
         assertNull(EvePoseAnglesAnalyzer.analyze(points, 640, 480))
     }
 
+    @Test fun bentKneesRaiseOnlyASeatedLikePostureConfidence() {
+        val seated = EvePoseAnglesAnalyzer.sittingPoseConfidenceFromKneeAngles(94f, 101f)
+        val standing = EvePoseAnglesAnalyzer.sittingPoseConfidenceFromKneeAngles(174f, 169f)
+        val oneVisibleKnee = EvePoseAnglesAnalyzer.sittingPoseConfidenceFromKneeAngles(92f, null)
+        assertTrue(seated > 0.85f)
+        assertEquals(0f, standing, 0f)
+        assertTrue(oneVisibleKnee < seated)
+    }
+
     @Test fun repeatedJointChangesProduceNonZeroMotionScore() {
         val points = MutableList(33) { EvePosePoint(0.5f, 0.5f) }
         points[23] = EvePosePoint(0.3f, 0.3f)

@@ -11,7 +11,8 @@ data class EvePoseAngles(
     val rightKnee: Float?,
     val leftElbow: Float?,
     val rightElbow: Float?,
-    val jointMotionScore: Float
+    val jointMotionScore: Float,
+    val sittingPoseConfidence: Float = 0f
 ) {
     fun toActivityEvidence(): PoseActivityEvidence = PoseActivityEvidence(
         leftKneeAngleDegrees = leftKnee,
@@ -60,7 +61,24 @@ object EvePoseAnglesAnalyzer {
         }
         val motion = if (changes.isEmpty()) 0f else
             (changes.average().toFloat() / 55f).coerceIn(0f, 1f)
-        return EvePoseAngles(leftKnee, rightKnee, leftElbow, rightElbow, motion)
+        return EvePoseAngles(leftKnee, rightKnee, leftElbow, rightElbow, motion,
+            sittingPoseConfidenceFromKneeAngles(leftKnee, rightKnee))
+    }
+
+    /** Bent knees may resemble sitting or crouching; this is a cue, not proof of posture. */
+    fun sittingPoseConfidenceFromKneeAngles(leftKnee: Float?, rightKnee: Float?): Float {
+        fun flexion(angle: Float?): Float {
+            val value = angle?.takeIf { it.isFinite() } ?: return 0f
+            if (value !in 65f..140f) return 0f
+            return (1f - kotlin.math.abs(value - 96f) / 75f).coerceIn(0f, 1f)
+        }
+        val left = flexion(leftKnee)
+        val right = flexion(rightKnee)
+        return when {
+            leftKnee != null && rightKnee != null -> ((left + right) / 2f).coerceIn(0f, 1f)
+            leftKnee != null || rightKnee != null -> (maxOf(left, right) * 0.70f).coerceIn(0f, 1f)
+            else -> 0f
+        }
     }
 
     fun angleDegrees(a: EvePosePoint, b: EvePosePoint, c: EvePosePoint): Float? {
