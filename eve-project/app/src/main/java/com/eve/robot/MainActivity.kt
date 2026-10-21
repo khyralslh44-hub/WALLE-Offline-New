@@ -2557,7 +2557,7 @@ class MainActivity : ComponentActivity() {
             meanLuminance = meanLuminance,
             localHour = localHour,
             localMonth = Calendar.getInstance().get(Calendar.MONTH) + 1,
-            hemisphere = EveEnvironmentUnderstanding.inferHemisphere(
+            hemisphere = environmentUnderstanding.inferHemisphere(
                 Locale.getDefault().country,
                 java.util.TimeZone.getDefault().id
             )
