@@ -69,7 +69,19 @@ class EyeExpressionGalleryTest {
         GlyphCase(EyeSilhouette.SCARED, "SCARED", decision(EveMood.CONCERNED, "fearful", valence = -0.50f, arousal = 0.86f)),
         GlyphCase(EyeSilhouette.AWE, "AWE", decision(EveMood.SURPRISED, "surprised", valence = 0.85f)),
         GlyphCase(EyeSilhouette.PLAYFUL, "PLAYFUL", decision(EveMood.PLAYFUL, valence = 0.40f)),
-        GlyphCase(EyeSilhouette.SOFT, "WARM / SOFT", decision(EveMood.FAMILIAR, valence = 0.25f))
+        GlyphCase(EyeSilhouette.SOFT, "WARM / SOFT", decision(EveMood.FAMILIAR, valence = 0.25f)),
+        GlyphCase(
+            EyeSilhouette.CONFUSED, "CONFUSED",
+            decision(EveMood.CONCERNED, valence = -0.05f, arousal = 0.40f, frustration = 0.10f)
+        ),
+        GlyphCase(
+            EyeSilhouette.ANTICIPATING, "ANTICIPATING",
+            decision(EveMood.CURIOUS, valence = 0.32f, arousal = 0.66f, curiosity = 0.78f)
+        ),
+        GlyphCase(
+            EyeSilhouette.DISAPPOINTED, "DISAPPOINTED",
+            decision(EveMood.CONCERNED, valence = -0.40f, arousal = 0.40f, fatigue = 0.12f)
+        )
     )
 
     @Test
@@ -217,6 +229,9 @@ class EyeExpressionGalleryTest {
                 EyeSilhouette.NEUTRAL, EyeSilhouette.ALMOND, EyeSilhouette.SOFT -> 12
                 EyeSilhouette.ROUND_SURPRISE, EyeSilhouette.AWE -> 14
                 EyeSilhouette.SCARED -> 19
+                EyeSilhouette.CONFUSED -> 11
+                EyeSilhouette.ANTICIPATING -> 12
+                EyeSilhouette.DISAPPOINTED -> 8
             }
             assertTrue(
                 "${item.label} raster is too thin: ${renderedWidth}x${renderedHeight}, minHeight=$minimumHeight",
@@ -236,7 +251,7 @@ class EyeExpressionGalleryTest {
         }
 
         assertTrue(
-            "Expected 20+ visually distinct rasterized patterns from 24 glyphs; got ${signatures.size}",
+            "Expected 20+ visually distinct rasterized patterns from every glyph; got ${signatures.size}",
             signatures.size >= 20
         )
         val output = File(appContext.filesDir, "eye-expression-sheet.png")
