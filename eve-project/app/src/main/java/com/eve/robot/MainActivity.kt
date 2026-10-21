@@ -216,6 +216,7 @@ class MainActivity : ComponentActivity() {
     @Volatile private var lastHumanActivityAt = 0L
     @Volatile private var latestActivitySummary = ""
     @Volatile private var latestEnvironmentSummary = ""
+    private var pendingCalendarQuestion = ""
     @Volatile private var latestRoomSummary = ""
     @Volatile private var latestRoomType = EveRoomType.UNKNOWN
     @Volatile private var lastRoomObservationAt = 0L
@@ -360,6 +361,14 @@ class MainActivity : ComponentActivity() {
             .putBoolean("notificationPermissionAsked", true)
             .apply()
         Log.i("EVE_NOTIFY", "notification permission granted=$granted")
+    }
+
+    private val calendarPermissionRequest = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { _ ->
+        val question = pendingCalendarQuestion
+        pendingCalendarQuestion = ""
+        if (question.isNotBlank()) answerLocalBirthdayQuestion(question)
     }
 
     private val baseBluetoothPermissionRequest = registerForActivityResult(
