@@ -6,6 +6,26 @@ import org.junit.Test
 import kotlin.math.sin
 
 class EyeExpressionGeneratorTest {
+    @Test fun strongShakeUsesItsOwnDizzyDrawingNotTheConfusedDrawing() {
+        val context = EveDecision(
+            mood = EveMood.CONCERNED,
+            reason = "strong physical shake",
+            valence = -0.3f,
+            arousal = 0.9f
+        )
+        val dizzy = EyeExpressionGenerator.generateDizzy(context)
+        val confused = EyeExpressionGenerator.generate(
+            context.copy(mood = EveMood.CURIOUS),
+            77L
+        )
+
+        assertEquals(EyeSilhouette.DIZZY, dizzy.silhouette)
+        assertTrue("Dizzy eyes need a distinct profile, not a reused confused face.",
+            dizzy.silhouette != confused.silhouette)
+        assertTrue("The unique dizzy glyph should remain visibly open.",
+            dizzy.opening >= 0.86f)
+    }
+
     @Test fun sameStateAndSeedProduceRepeatablePose() {
         val state = EveDecision(
             mood = EveMood.CURIOUS,

@@ -36,9 +36,8 @@ class RobotFaceView(context: Context) : View(context) {
     private var mood = EveMood.AWAKE
     private var intent: EveIntent? = null
     private var silhouette = EyeSilhouette.ALMOND
-    private var previousSilhouette = silhouette
-    private var silhouetteTransitionStartedAt = 0L
-    private val silhouetteTransitionDurationMs = 260L
+    private var latestStableDecision = EveDecision(EveMood.AWAKE, "initial face")
+    private var dizzyUntilUptimeMs = 0L
     private var contour = contourFor(EyeSilhouette.ALMOND)
     private var targetContour = contour
     private var fromContour = contour
@@ -89,21 +88,34 @@ class RobotFaceView(context: Context) : View(context) {
     }
 
     fun setMood(next: EveMood, seed: Long = SystemClock.uptimeMillis()) {
-        applyProfile(EyeExpressionGenerator.generate(EveDecision(next, "mood expression"), seed))
+        latestStableDecision = EveDecision(next, "mood expression")
+        dizzyUntilUptimeMs = 0L
+        applyProfile(EyeExpressionGenerator.generate(latestStableDecision, seed))
     }
 
     /** Eye geometry is generated from the same affect snapshot used by the offline brain and voice. */
     fun setExpression(decision: EveDecision, seed: Long = SystemClock.uptimeMillis()) {
+        latestStableDecision = decision
+        dizzyUntilUptimeMs = 0L
         applyProfile(EyeExpressionGenerator.generate(decision, seed))
+    }
+
+    /**
+     * A hard shake temporarily switches to its own asymmetric spiral-eye drawing.
+     * The prior emotional expression is restored afterward; ordinary taps do not trigger this.
+     */
+    fun showDizzyReaction(durationMs: Long = 2400L) {
+        val now = SystemClock.uptimeMillis()
+        dizzyUntilUptimeMs = now + durationMs.coerceIn(900L, 4000L)
+        applyProfile(EyeExpressionGenerator.generateDizzy(latestStableDecision))
+        invalidate()
     }
 
     private fun applyProfile(profile: EyeExpressionProfile) {
         val now = SystemClock.uptimeMillis()
         // If another event arrives mid-transition, first finish parameter interpolation at the current time.
         updateTransition(now)
-        previousSilhouette = silhouette
         silhouette = profile.silhouette
-        silhouetteTransitionStartedAt = now
         mood = profile.mood
         intent = profile.intent
         targetContour = contourFor(profile.silhouette)
@@ -170,6 +182,10 @@ class RobotFaceView(context: Context) : View(context) {
         super.onDraw(canvas)
         canvas.drawColor(Color.rgb(2, 7, 10))
         val now = SystemClock.uptimeMillis()
+        if (dizzyUntilUptimeMs > 0L && now >= dizzyUntilUptimeMs) {
+            dizzyUntilUptimeMs = 0L
+            applyProfile(EyeExpressionGenerator.generate(latestStableDecision, now))
+        }
         updateTransition(now)
         if (animate && now >= blinkAt) {
             blinkStarted = now
@@ -230,23 +246,30 @@ class RobotFaceView(context: Context) : View(context) {
         val h = min(height * 0.12f, w * 0.86f) * eyeHeight
         val gap = min(width * 0.20f, w * 0.64f) * spacing
         val cy = height * 0.50f
-        val silhouetteRaw = if (silhouetteTransitionStartedAt == 0L) 1f else
-            ((now - silhouetteTransitionStartedAt).toFloat() / silhouetteTransitionDurationMs).coerceIn(0f, 1f)
-        val silhouetteBlend = silhouetteRaw * silhouetteRaw * (3f - 2f * silhouetteRaw)
-        if (silhouetteRaw >= 1f) silhouetteTransitionStartedAt = 0L
+        // Only one silhouette is rendered per frame. No previous/current eye layers are
+        // composited, so two expressions never appear merged during a transition.
+        val dizzyActive = dizzyUntilUptimeMs > now
+        val dizzySwayX = if (dizzyActive) 0.018f * sin(now / 92f) else 0f
+        val dizzySwayY = if (dizzyActive) 0.008f * sin(now / 137f + 0.6f) else 0f
+        val dizzyRoll = if (dizzyActive) 7.5f * sin(now / 105f) else 0f
 
-        fun drawExpressionLayer(style: EyeSilhouette, alpha: Float) {
-            if (alpha <= 0.005f) return
-            drawEye(canvas, width * 0.5f - gap + (gazeX + idleGaze) * width,
-                cy + (gazeY + idleGazeY + 0f) * height, w * (1f + asymmetry * 0.24f), h,
-                opening * blink * breath * (1f + asymmetry * 0.30f), tilt * 0.06f, glow, squint, contour, -1, style, alpha)
-            drawEye(canvas, width * 0.5f + gap + (gazeX + idleGaze + asymmetry * 0.025f) * width,
-                cy + (gazeY + idleGazeY + 0f - asymmetry * 0.035f) * height, w * (1f - asymmetry * 0.24f), h,
-                opening * blink * breath * (1f - asymmetry * 0.30f), -tilt * 0.06f, glow, squint, contour, 1, style, alpha)
+        fun drawExpressionLayer(style: EyeSilhouette) {
+            val activeDizzyPose = dizzyActive && style == EyeSilhouette.DIZZY
+            val swayX = if (activeDizzyPose) dizzySwayX else 0f
+            val swayY = if (activeDizzyPose) dizzySwayY else 0f
+            val roll = if (activeDizzyPose) dizzyRoll else 0f
+            drawEye(canvas, width * 0.5f - gap + (gazeX + idleGaze + swayX) * width,
+                cy + (gazeY + idleGazeY + swayY) * height, w * (1f + asymmetry * 0.24f), h,
+                opening * blink * breath * (1f + asymmetry * 0.30f), tilt * 0.06f + roll,
+                glow, squint, contour, -1, style, 1f)
+            drawEye(canvas, width * 0.5f + gap + (gazeX + idleGaze - swayX + asymmetry * 0.025f) * width,
+                cy + (gazeY + idleGazeY - swayY * 0.65f - asymmetry * 0.035f) * height,
+                w * (1f - asymmetry * 0.24f), h,
+                opening * blink * breath * (1f - asymmetry * 0.30f), -tilt * 0.06f - roll * 0.82f,
+                glow, squint, contour, 1, style, 1f)
         }
 
-        if (silhouetteBlend < 1f) drawExpressionLayer(previousSilhouette, 1f - silhouetteBlend)
-        drawExpressionLayer(silhouette, silhouetteBlend)
+        drawExpressionLayer(silhouette);
         if (animate) postInvalidateDelayed(32L)
     }
 
@@ -612,6 +635,49 @@ class RobotFaceView(context: Context) : View(context) {
                 shape.close()
             }
 
+            EyeSilhouette.DIZZY -> {
+                // Dedicated dizzy spiral glyphs. The left eye curls inward; the right is a
+                // separately drawn, mirrored wobble. This is not the ordinary confused face.
+                if (side < 0) {
+                    shape.moveTo(cx - hw * 0.96f, centerY - glyphHh * 0.10f)
+                    shape.cubicTo(cx - hw * 1.08f, centerY - glyphHh * 0.90f,
+                        cx - hw * 0.06f, centerY - glyphHh * 1.10f,
+                        cx + hw * 0.58f, centerY - glyphHh * 0.52f)
+                    shape.cubicTo(cx + hw * 1.02f, centerY - glyphHh * 0.02f,
+                        cx + hw * 0.78f, centerY + glyphHh * 0.72f,
+                        cx + hw * 0.10f, centerY + glyphHh * 0.72f)
+                    shape.cubicTo(cx - hw * 0.58f, centerY + glyphHh * 0.72f,
+                        cx - hw * 0.72f, centerY + glyphHh * 0.16f,
+                        cx - hw * 0.22f, centerY + glyphHh * 0.08f)
+                    shape.cubicTo(cx + hw * 0.12f, centerY + glyphHh * 0.02f,
+                        cx + hw * 0.39f, centerY + glyphHh * 0.36f,
+                        cx + hw * 0.10f, centerY + glyphHh * 0.48f)
+                    shape.cubicTo(cx - hw * 0.12f, centerY + glyphHh * 0.55f,
+                        cx - hw * 0.28f, centerY + glyphHh * 0.26f,
+                        cx - hw * 0.02f, centerY + glyphHh * 0.22f)
+                    shape.lineTo(cx - hw * 0.28f, centerY + glyphHh * 0.02f)
+                } else {
+                    shape.moveTo(cx + hw * 0.96f, centerY + glyphHh * 0.08f)
+                    shape.cubicTo(cx + hw * 1.08f, centerY - glyphHh * 0.78f,
+                        cx + hw * 0.08f, centerY - glyphHh * 1.12f,
+                        cx - hw * 0.56f, centerY - glyphHh * 0.50f)
+                    shape.cubicTo(cx - hw * 1.03f, centerY + glyphHh * 0.02f,
+                        cx - hw * 0.76f, centerY + glyphHh * 0.74f,
+                        cx - hw * 0.08f, centerY + glyphHh * 0.70f)
+                    shape.cubicTo(cx + hw * 0.55f, centerY + glyphHh * 0.66f,
+                        cx + hw * 0.72f, centerY + glyphHh * 0.14f,
+                        cx + hw * 0.22f, centerY + glyphHh * 0.08f)
+                    shape.cubicTo(cx - hw * 0.12f, centerY + glyphHh * 0.02f,
+                        cx - hw * 0.38f, centerY + glyphHh * 0.36f,
+                        cx - hw * 0.08f, centerY + glyphHh * 0.47f)
+                    shape.cubicTo(cx + hw * 0.13f, centerY + glyphHh * 0.54f,
+                        cx + hw * 0.28f, centerY + glyphHh * 0.25f,
+                        cx + hw * 0.02f, centerY + glyphHh * 0.21f)
+                    shape.lineTo(cx + hw * 0.29f, centerY + glyphHh * 0.02f)
+                }
+                shape.close()
+            }
+
             EyeSilhouette.DISAPPOINTED -> {
                 // Disappointment has a falling upper lid and a subdued lower bowl; it is not anger.
                 shape.moveTo(cx - hw, centerY - glyphHh * 0.22f)
@@ -674,6 +740,7 @@ class RobotFaceView(context: Context) : View(context) {
         EyeSilhouette.CURIOUS, EyeSilhouette.PLAYFUL, EyeSilhouette.SKEPTIC, EyeSilhouette.SUSPICIOUS -> EyeContour(0.94f, 0.49f, 0.72f, 0.53f, 0f)
         EyeSilhouette.ANTICIPATING -> EyeContour(1.04f, 0.54f, 0.86f, 0.61f, 0f)
         EyeSilhouette.CONFUSED -> EyeContour(0.78f, 0.40f, 0.66f, 0.51f, 0.07f)
+        EyeSilhouette.DIZZY -> EyeContour(1.02f, 0.74f, 0.90f, 0.71f, 0.04f)
         EyeSilhouette.DISAPPOINTED -> EyeContour(0.56f, 0.36f, 0.73f, 0.54f, 0f)
         EyeSilhouette.SOFT -> EyeContour(0.96f, 0.47f, 0.84f, 0.56f, 0f)
         EyeSilhouette.ALMOND -> EyeContour(0.90f, 0.46f, 0.80f, 0.54f, 0f)

@@ -8,6 +8,10 @@ import android.graphics.ImageFormat
 import android.graphics.Matrix
 import android.graphics.Rect
 import android.graphics.drawable.GradientDrawable
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -48,6 +52,7 @@ import java.util.concurrent.atomic.AtomicLong
 import java.util.Calendar
 import java.util.Locale
 import java.util.UUID
+import kotlin.math.sqrt
 
 /**
  * EVE face experience: camera labeling and behavior operate locally while the activity is open.
@@ -89,6 +94,47 @@ class MainActivity : ComponentActivity() {
         }
     }
     private val main = Handler(Looper.getMainLooper())
+    private var motionSensorManager: SensorManager? = null
+    private var motionAccelerometer: Sensor? = null
+    private var shakeSensorRegistered = false
+    private var shakeGravityReady = false
+    private var shakeGravityX = 0f
+    private var shakeGravityY = 0f
+    private var shakeGravityZ = 0f
+    private var lastStrongShakeAtMs = 0L
+    private val strongShakeListener = object : SensorEventListener {
+        override fun onSensorChanged(event: SensorEvent) {
+            if (event.sensor.type != Sensor.TYPE_ACCELEROMETER || event.values.size < 3) return
+            val x = event.values[0]
+            val y = event.values[1]
+            val z = event.values[2]
+            if (!shakeGravityReady) {
+                shakeGravityX = x
+                shakeGravityY = y
+                shakeGravityZ = z
+                shakeGravityReady = true
+                return
+            }
+            // Low-pass gravity estimate; subtract it so tilting the phone is not itself a shake.
+            val gravityRetention = 0.82f
+            shakeGravityX = gravityRetention * shakeGravityX + (1f - gravityRetention) * x
+            shakeGravityY = gravityRetention * shakeGravityY + (1f - gravityRetention) * y
+            shakeGravityZ = gravityRetention * shakeGravityZ + (1f - gravityRetention) * z
+            val ax = x - shakeGravityX
+            val ay = y - shakeGravityY
+            val az = z - shakeGravityZ
+            val strength = sqrt(ax * ax + ay * ay + az * az)
+            val now = SystemClock.elapsedRealtime()
+            // Require a forceful shake and enforce a cooldown to avoid repeating the pose every frame.
+            if (strength >= 16.5f && now - lastStrongShakeAtMs >= 2600L) {
+                lastStrongShakeAtMs = now
+                faceOrNull()?.showDizzyReaction(2400L)
+                Log.i("EVE", "PHYSICAL_SHAKE dizzy expression strength=${"%.1f".format(Locale.ROOT, strength)}")
+            }
+        }
+
+        override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
+    }
     private val cameraExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private val emotionExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     // Recognizer creation, inference and release all occur on this one worker.
@@ -1164,6 +1210,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        registerStrongShakeDetection()
         if (::face.isInitialized) {
             face.startAnimation()
             main.removeCallbacks(idleLoop)
@@ -1183,6 +1230,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onPause() {
+        unregisterStrongShakeDetection()
         main.removeCallbacks(idleLoop)
         if (baseAutonomyRequested) {
             // A backgrounded phone must not continue commanding wheel motion.
@@ -1198,6 +1246,32 @@ class MainActivity : ComponentActivity() {
         cameraStarted = false
         if (::cameraStatus.isInitialized) showCameraStatus("الكاميرا متوقفة مؤقتًا خارج التطبيق", active = false)
         super.onPause()
+    }
+
+    private fun registerStrongShakeDetection() {
+        if (shakeSensorRegistered) return
+        if (motionSensorManager == null) {
+            motionSensorManager = getSystemService(SENSOR_SERVICE) as? SensorManager
+            motionAccelerometer = motionSensorManager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+        }
+        val manager = motionSensorManager ?: return
+        val sensor = motionAccelerometer ?: run {
+            Log.i("EVE", "PHYSICAL_SHAKE unavailable: no accelerometer")
+            return
+        }
+        shakeGravityReady = false
+        shakeSensorRegistered = manager.registerListener(
+            strongShakeListener,
+            sensor,
+            SensorManager.SENSOR_DELAY_GAME
+        )
+    }
+
+    private fun unregisterStrongShakeDetection() {
+        if (!shakeSensorRegistered) return
+        motionSensorManager?.unregisterListener(strongShakeListener)
+        shakeSensorRegistered = false
+        shakeGravityReady = false
     }
 
     private fun faceOrNull(): RobotFaceView? = if (::face.isInitialized) face else null

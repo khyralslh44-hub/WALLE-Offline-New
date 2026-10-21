@@ -10,7 +10,7 @@ enum class EyeSilhouette {
     SAD_DOWN, SAD_UP, WORRIED, FOCUSED, ANNOYED, ROUND_SURPRISE,
     SKEPTIC, BORED, UNIMPRESSED, DROOPY, SUSPICIOUS, SQUINT,
     SHARP, FURIOUS, SCARED, AWE, PLAYFUL, SOFT,
-    CONFUSED, ANTICIPATING, DISAPPOINTED
+    CONFUSED, DIZZY, ANTICIPATING, DISAPPOINTED
 }
 
 data class EyeExpressionProfile(
@@ -308,6 +308,7 @@ object EyeExpressionGenerator {
             EyeSilhouette.PLAYFUL -> maxOf(clearOpening, 0.85f)
             EyeSilhouette.SOFT -> maxOf(clearOpening, 0.82f)
             EyeSilhouette.CONFUSED -> maxOf(clearOpening, 0.76f)
+            EyeSilhouette.DIZZY -> maxOf(clearOpening, 0.86f)
             EyeSilhouette.ANTICIPATING -> maxOf(clearOpening, 0.98f)
             EyeSilhouette.DISAPPOINTED -> maxOf(clearOpening, 0.68f)
         }.coerceIn(0.14f, 1.20f)
@@ -353,6 +354,32 @@ object EyeExpressionGenerator {
             spacing = spacing,
             silhouette = expressionSilhouette,
             intent = decision.intent
+        )
+    }
+
+    /**
+     * A separate, unmistakable pose for strong physical shaking. It deliberately does not reuse
+     * CONFUSED or cross-fade two eye drawings; the renderer draws the dedicated DIZZY glyph.
+     */
+    fun generateDizzy(decision: EveDecision): EyeExpressionProfile {
+        val base = generate(
+            decision.copy(
+                mood = EveMood.CONCERNED,
+                valence = minOf(decision.valence, -0.10f),
+                arousal = maxOf(decision.arousal, 0.82f)
+            ),
+            0L
+        )
+        return base.copy(
+            silhouette = EyeSilhouette.DIZZY,
+            opening = 0.90f,
+            tilt = 0f,
+            gazeX = 0f,
+            gazeY = 0f,
+            squint = 0.96f,
+            asymmetry = 0.08f,
+            eyeWidth = 1.05f,
+            eyeHeight = 1.02f
         )
     }
 }
