@@ -420,19 +420,35 @@ class RobotFaceView(context: Context) : View(context) {
             }
 
             EyeSilhouette.AWE -> {
-                // The reference's awe pose is an enlarged rounded LED block, not a circular eye.
-                val aweRect = RectF(cx - hw * 0.90f, centerY - glyphHh * 0.92f,
-                    cx + hw * 0.90f, centerY + glyphHh * 0.92f)
-                val radius = min(hw * 0.42f, glyphHh * 0.58f)
-                shape.addRoundRect(aweRect, radius, radius, Path.Direction.CW)
+                // Awe is a tall, softly swelling oval; ordinary surprise remains a rounded rectangle.
+                shape.moveTo(cx - hw * 0.82f, centerY - glyphHh * 0.06f)
+                shape.cubicTo(cx - hw * 0.94f, centerY - glyphHh * 0.92f,
+                    cx - hw * 0.24f, centerY - glyphHh * 1.14f,
+                    cx, centerY - glyphHh * 1.02f)
+                shape.cubicTo(cx + hw * 0.24f, centerY - glyphHh * 1.14f,
+                    cx + hw * 0.94f, centerY - glyphHh * 0.92f,
+                    cx + hw * 0.82f, centerY - glyphHh * 0.06f)
+                shape.cubicTo(cx + hw * 0.94f, centerY + glyphHh * 0.82f,
+                    cx + hw * 0.32f, centerY + glyphHh * 1.08f,
+                    cx, centerY + glyphHh * 0.96f)
+                shape.cubicTo(cx - hw * 0.32f, centerY + glyphHh * 1.08f,
+                    cx - hw * 0.94f, centerY + glyphHh * 0.82f,
+                    cx - hw * 0.82f, centerY - glyphHh * 0.06f)
+                shape.close()
             }
 
             EyeSilhouette.SCARED -> {
-                // The Cozmo-style scared pose keeps two bright LED blocks; height/gaze convey alarm.
-                val scaredRect = RectF(cx - hw * 0.88f, centerY - glyphHh * 0.94f,
-                    cx + hw * 0.88f, centerY + glyphHh * 0.94f)
-                val radius = min(hw * 0.34f, glyphHh * 0.36f)
-                shape.addRoundRect(scaredRect, radius, radius, Path.Direction.CW)
+                // Fear has a peaked, tense upper lid and a narrow lower jaw: not an enlarged surprise block.
+                val inner = cx - side * hw
+                val outer = cx + side * hw
+                shape.moveTo(outer, centerY - glyphHh * 0.68f)
+                shape.quadTo(cx, centerY - glyphHh * 1.18f,
+                    inner, centerY - glyphHh * 0.72f)
+                shape.lineTo(inner, centerY + glyphHh * 0.40f)
+                shape.quadTo(cx, centerY + glyphHh * 0.82f,
+                    outer, centerY + glyphHh * 0.48f)
+                shape.lineTo(outer, centerY + glyphHh * 0.10f)
+                shape.close()
             }
 
             // Happy is a clearly upward arch/crescent rather than a neutral block.
@@ -744,13 +760,14 @@ class RobotFaceView(context: Context) : View(context) {
             }
 
             EyeSilhouette.DISAPPOINTED -> {
-                // Disappointment has a falling upper lid and a subdued lower bowl; it is not anger.
-                shape.moveTo(cx - hw, centerY - glyphHh * 0.22f)
-                shape.quadTo(cx, centerY + glyphHh * 0.34f,
-                    cx + hw, centerY + glyphHh * 0.02f)
-                shape.lineTo(cx + hw, centerY + glyphHh * 0.48f)
-                shape.quadTo(cx, centerY + glyphHh * 0.64f,
-                    cx - hw, centerY + glyphHh * 0.44f)
+                // Disappointment uses a sloped inner lid and a compressed, downward-facing lower edge.
+                val inner = cx - side * hw
+                val outer = cx + side * hw
+                shape.moveTo(outer, centerY - glyphHh * 0.24f)
+                shape.lineTo(inner, centerY + glyphHh * 0.12f)
+                shape.lineTo(inner, centerY + glyphHh * 0.58f)
+                shape.quadTo(cx, centerY + glyphHh * 0.46f,
+                    outer, centerY + glyphHh * 0.30f)
                 shape.close()
             }
         }
