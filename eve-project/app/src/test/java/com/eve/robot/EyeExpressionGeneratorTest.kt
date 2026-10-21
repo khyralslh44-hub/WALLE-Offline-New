@@ -249,6 +249,7 @@ class EyeExpressionGeneratorTest {
             EveDecision(
                 mood = EveMood.CURIOUS,
                 reason = "a new unfamiliar object",
+                valence = 0.30f,
                 curiosity = 0.78f,
                 arousal = 0.68f,
                 intent = EveIntent.EXPLORE
