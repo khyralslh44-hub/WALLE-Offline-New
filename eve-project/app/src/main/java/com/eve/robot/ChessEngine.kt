@@ -240,9 +240,10 @@ internal class ChessEngine {
                 'R' -> {
                     phase += 2
                     val friendlyPawns = if (white) whitePawnsByFile[col] else blackPawnsByFile[col]
-                    // Rooks become more active on files with no friendly pawn.
-                    if (friendlyPawns == 0) score += sign * 9
-                    if (row == if (white) 1 else 6) score += sign * 12
+                    val enemyPawns = if (white) blackPawnsByFile[col] else whitePawnsByFile[col]
+                    // Open files are better than semi-open ones, but both can activate a rook.
+                    if (friendlyPawns == 0) score += sign * if (enemyPawns == 0) 14 else 6
+                    if (row == (if (white) 1 else 6)) score += sign * 12
                 }
                 'Q' -> {
                     phase += 4
