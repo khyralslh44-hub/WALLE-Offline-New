@@ -2555,7 +2555,12 @@ class MainActivity : ComponentActivity() {
             timestampMs = now,
             candidates = categories,
             meanLuminance = meanLuminance,
-            localHour = localHour
+            localHour = localHour,
+            localMonth = Calendar.getInstance().get(Calendar.MONTH) + 1,
+            hemisphere = EveEnvironmentUnderstanding.inferHemisphere(
+                Locale.getDefault().country,
+                java.util.TimeZone.getDefault().id
+            )
         )
         latestEnvironmentSummary = listOf(environment.summaryArabic, environment.clockPeriodArabic)
             .filter { it.isNotBlank() }
@@ -2566,7 +2571,10 @@ class MainActivity : ComponentActivity() {
             lastEnvironmentDiagnosticAt = now
             Log.i(
                 "EVE_ENV",
-                "ENVIRONMENT weather=${environment.weather} weatherConfidence=${environment.weatherConfidence} " +
+                "ENVIRONMENT season=${environment.season} seasonConfidence=${environment.seasonConfidence} " +
+                    "hemisphere=${environment.hemisphere} visualSeasonCue=${environment.seasonalClue} " +
+                    "visualSeasonConfidence=${environment.seasonalClueConfidence} " +
+                    "weather=${environment.weather} weatherConfidence=${environment.weatherConfidence} " +
                     "light=${environment.visualLight} lightConfidence=${environment.lightConfidence} " +
                     "clock=${environment.clockPeriodArabic.ifBlank { "unknown" }} " +
                     "summary=${environment.summaryArabic.ifBlank { "no confident visual hypothesis" }} offline=true"
