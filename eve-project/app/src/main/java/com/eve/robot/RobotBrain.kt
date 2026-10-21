@@ -316,7 +316,12 @@ class RobotBrain(personality: EvePersonality = EvePersonality()) {
         jealousy = (jealousy - 0.28f * certainty).coerceAtLeast(0f)
         valence = (valence + 0.09f * certainty).coerceAtMost(1f)
         arousal = (arousal * 0.60f + 0.18f).coerceIn(0.12f, 0.66f)
-        return snapshot(EveMood.FAMILIAR, "reassurance-like response after confirmed $safeSource cue", false, EveIntent.CONNECT)
+        val easedMood = when {
+            frustration >= 0.80f -> EveMood.ANGRY
+            frustration >= 0.55f -> EveMood.IRRITATED
+            else -> EveMood.FAMILIAR
+        }
+        return snapshot(easedMood, "reassurance-like response after confirmed $safeSource cue", false, EveIntent.CONNECT)
     }
 
     /**
@@ -826,7 +831,8 @@ class RobotBrain(personality: EvePersonality = EvePersonality()) {
         val patience = personality.patience.coerceIn(0f, 1f)
         val scores = linkedMapOf(
             EveIntent.REGULATE to (
-                frustration * 1.12f + (-valence).coerceAtLeast(0f) * 0.22f
+                frustration * 1.12f + jealousy * 0.28f +
+                    (-valence).coerceAtLeast(0f) * 0.22f - reassurance * 0.18f
                 ),
             EveIntent.REST to (
                 0.08f + fatigue * 0.90f +
@@ -834,8 +840,8 @@ class RobotBrain(personality: EvePersonality = EvePersonality()) {
                     (if (arousal < 0.22f) 0.10f else 0f)
                 ),
             EveIntent.CONNECT to (
-                warmth * 0.12f + familiarity * 0.70f +
-                    (-valence).coerceAtLeast(0f) * 0.72f +
+                warmth * 0.12f + familiarity * 0.70f + reassurance * 0.28f +
+                    jealousy * 0.10f + (-valence).coerceAtLeast(0f) * 0.72f +
                     (if (currentMood == EveMood.HAPPY || currentMood == EveMood.FAMILIAR) 0.12f else 0f)
                 ),
             EveIntent.EXPLORE to (
@@ -844,8 +850,9 @@ class RobotBrain(personality: EvePersonality = EvePersonality()) {
                     (if (valence < -0.45f) 0.08f else 0f)
                 ),
             EveIntent.PLAY to (
-                playfulness * 0.48f + valence.coerceAtLeast(0f) * 0.16f +
-                    arousal * 0.12f - fatigue * 0.65f - frustration * (0.70f + (1f - patience) * 0.20f)
+                playfulness * 0.48f + pride * 0.16f + valence.coerceAtLeast(0f) * 0.16f +
+                    arousal * 0.12f - fatigue * 0.65f -
+                    frustration * (0.70f + (1f - patience) * 0.20f) - jealousy * 0.24f
                 ),
             EveIntent.FOCUS to (
                 arousal * 0.30f + curiosity * 0.22f + (1f - playfulness) * 0.11f -
@@ -892,6 +899,7 @@ class RobotBrain(personality: EvePersonality = EvePersonality()) {
             }
             EveIntent.REST -> if (fatigue >= 0.36f || quietFor >= 150_000L) EveMood.SLEEPY else currentMood
             EveIntent.CONNECT -> when {
+                reassurance >= 0.62f && frustration < 0.55f -> EveMood.FAMILIAR
                 valence < -0.30f -> EveMood.CONCERNED
                 familiarity >= 0.25f -> EveMood.FAMILIAR
                 else -> currentMood
