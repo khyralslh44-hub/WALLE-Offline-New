@@ -827,6 +827,8 @@ class MainActivity : ComponentActivity() {
             return
         }
 
+        if (handleCalendarQuestion(text)) return
+
         // EVE's drive base is her embodied locomotion layer, not a separate assistant.
         // Keep connection explicit and never move just because a body link becomes available.
         if (listOf(
