@@ -567,6 +567,7 @@ class RobotGamesActivity : ComponentActivity() {
         addWideButton("🎯  إصابة الهدف — هل ردّ فعلك أسرع؟", ::startTarget)
         addWideButton("◈  ذاكرة الأنماط — كرّر تسلسل الإضاءة", ::startMemory)
         addWideButton("⚡  اختبار سرعة الاستجابة", ::startReflex)
+        addWideButton("🙈  الغميضة وألعاب الجسد المتصل", { startActivity(Intent(this, EmbodiedGamesActivity::class.java)) }, true)
         addWideButton("🤖  ألعاب الجسد — الغميضة والتحديات البصرية", {
             startActivity(Intent(this, EmbodiedGamesActivity::class.java))
         }, true)
