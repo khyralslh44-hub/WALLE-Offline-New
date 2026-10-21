@@ -326,12 +326,16 @@ object EyeExpressionGenerator {
         val expressionGazeX = when (expressionSilhouette) {
             EyeSilhouette.ANTICIPATING -> clearGazeX.coerceIn(0.025f, 0.095f)
             EyeSilhouette.CONFUSED -> if (curiosity >= 0.5f) 0.055f else -0.055f
+            EyeSilhouette.SUSPICIOUS -> if (decision.jealousy >= 0.62f) -0.075f else clearGazeX
+            EyeSilhouette.SOFT -> if (decision.reassurance >= 0.62f) 0f else clearGazeX
             else -> clearGazeX
         }.coerceIn(-0.16f, 0.16f)
         val expressionTilt = when (expressionSilhouette) {
             EyeSilhouette.CONFUSED -> if (valence < 0f) 8f else -8f
             EyeSilhouette.ANTICIPATING -> minOf(clearTilt, -4f)
             EyeSilhouette.DISAPPOINTED -> maxOf(clearTilt, 7f)
+            EyeSilhouette.SUSPICIOUS -> if (decision.jealousy >= 0.62f) clearTilt.coerceIn(-8f, 8f) else clearTilt
+            EyeSilhouette.SOFT -> if (decision.reassurance >= 0.62f) clearTilt.coerceIn(-3f, 3f) else clearTilt
             else -> clearTilt
         }.coerceIn(-22f, 22f)
 
