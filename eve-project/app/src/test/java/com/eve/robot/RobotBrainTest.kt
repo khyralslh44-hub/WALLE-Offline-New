@@ -391,6 +391,86 @@ class RobotBrainTest {
     }
 
     @Test
+    fun jealousyRequiresAnExplicitHighConfidenceSocialCue() {
+        val localBrain = RobotBrain()
+        val uncertain = localBrain.observeSocialCompetition("social_competition", 0.40f)
+        assertTrue("Low confidence must not create jealousy.", uncertain.jealousy < 0.01f)
+
+        val unsupported = localBrain.observeSocialCompetition("another_person_detected", 0.99f)
+        assertTrue("Seeing another person alone must not create jealousy.", unsupported.jealousy < 0.01f)
+
+        val jealous = localBrain.observeSocialCompetition("social_competition", 0.90f)
+        assertTrue("An explicit, confident cue should update the jealousy drive.", jealous.jealousy >= 0.62f)
+        assertEquals(
+            "The same social affect state should select a readable skeptical eye pose.",
+            EyeSilhouette.SUSPICIOUS,
+            EyeExpressionGenerator.generate(jealous, 14L).silhouette
+        )
+    }
+
+    @Test
+    fun confirmedAchievementCreatesPrideAndAPlayfulEyePose() {
+        val localBrain = RobotBrain()
+        val unconfirmed = localBrain.recordAchievement("checkmate", 0.40f)
+        assertTrue("Unconfirmed success must not create pride.", unconfirmed.pride < 0.01f)
+
+        val proud = localBrain.recordAchievement("checkmate", 0.96f)
+        assertTrue(proud.pride >= 0.62f)
+        assertEquals(EveMood.PLAYFUL, proud.mood)
+        assertEquals(EyeSilhouette.GLEE, EyeExpressionGenerator.generate(proud, 15L).silhouette)
+
+        val gameWin = RobotBrain().gameOutcome("chess", "robot")
+        assertTrue("A recorded EVE win should contribute to pride.", gameWin.pride >= 0.62f)
+    }
+
+    @Test
+    fun reassuranceRequiresGroundedCueCalmsTensionAndSoftensEyes() {
+        val localBrain = RobotBrain()
+        listOf(1_000L, 1_800L, 2_600L, 3_400L, 4_200L)
+            .forEach { localBrain.touched(longPress = false, eventTimeMs = it) }
+        val tense = localBrain.touched(longPress = false, eventTimeMs = 4_900L)
+
+        val unsupported = localBrain.receiveReassurance("random_guess", 0.99f)
+        assertTrue("An unsupported cue must not claim reassurance.", unsupported.reassurance < 0.01f)
+
+        val reassured = localBrain.receiveReassurance("calm_voice", 0.92f)
+        assertTrue(reassured.reassurance >= 0.62f)
+        assertTrue(reassured.frustration < tense.frustration)
+        assertEquals(EveMood.FAMILIAR, reassured.mood)
+        assertEquals(EyeSilhouette.SOFT, EyeExpressionGenerator.generate(reassured, 16L).silhouette)
+    }
+
+    @Test
+    fun offlineLanguageHintsCanUpdateTheThreeBoundedSocialAffectDrives() {
+        val jealous = RobotBrain().integrateLanguageInsight(
+            moodHint = "jealous",
+            intentHint = "connect",
+            confidence = 0.92f,
+            note = "explicit social context was described",
+            source = "speech_context"
+        )
+        assertTrue(jealous.jealousy >= 0.62f)
+
+        val proud = RobotBrain().integrateLanguageInsight(
+            moodHint = "proud",
+            intentHint = "play",
+            confidence = 0.92f,
+            note = "a confirmed EVE achievement was described",
+            source = "game_context"
+        )
+        assertTrue(proud.pride >= 0.62f)
+
+        val reassured = RobotBrain().integrateLanguageInsight(
+            moodHint = "reassured",
+            intentHint = "connect",
+            confidence = 0.92f,
+            note = "a grounded calming interaction was described",
+            source = "speech_context"
+        )
+        assertTrue(reassured.reassurance >= 0.62f)
+    }
+
+    @Test
     fun localLanguageMoodCannotOverrideHighFrustrationSafetyState() {
         val localBrain = RobotBrain()
         repeat(5) { localBrain.touched(longPress = false, eventTimeMs = 1_000L + it * 500L) }
