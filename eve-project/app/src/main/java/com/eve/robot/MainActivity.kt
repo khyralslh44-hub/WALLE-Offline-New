@@ -535,9 +535,12 @@ class MainActivity : ComponentActivity() {
         val relationshipPreferences = getSharedPreferences("eve_relationship", MODE_PRIVATE)
         autonomousExplorationEnabled = relationshipPreferences.getBoolean("autonomousExplorationEnabled", true)
         val priorReflectionKey = relationshipPreferences.getString("lastAutonomyReflectionKey", "").orEmpty()
-        if (priorReflectionKey.isNotBlank()) {
-            // Restore a tiny non-image summary so a restart does not trigger the same reflection again.
-            autonomousMind.recordFeedback(
+        val mindMemoryRestored = autonomousMind.restoreMemory(
+            relationshipPreferences.getString("autonomousMindMemory", "").orEmpty()
+        )
+        if (!mindMemoryRestored && priorReflectionKey.isNotBlank()) {
+            // Backward-compatible restore for installs created before versioned mind memory existed.
+            recordMindFeedback(
                 EveMindFeedback(
                     EveMindGoal.REFLECT_ON_NEW_EVIDENCE,
                     EveMindAction.REQUEST_LOCAL_REFLECTION,
@@ -546,7 +549,17 @@ class MainActivity : ComponentActivity() {
                     atMs = SystemClock.elapsedRealtime()
                 )
             )
-            lastAutonomyReflectionAt = SystemClock.elapsedRealtime()
+        }
+        val priorReflectionWallAt = relationshipPreferences.getLong("lastAutonomyReflectionWallAt", 0L)
+        val reflectionAge = if (priorReflectionWallAt > 0L) {
+            (System.currentTimeMillis() - priorReflectionWallAt).coerceAtLeast(0L)
+        } else {
+            Long.MAX_VALUE
+        }
+        lastAutonomyReflectionAt = if (reflectionAge <= EveAutonomousMind.REFLECTION_COOLDOWN_MS) {
+            (SystemClock.elapsedRealtime() - reflectionAge).coerceAtLeast(0L)
+        } else {
+            0L
         }
         brain = RobotBrain(memory.learnedPersonality())
         voice = RobotVoice()
@@ -3250,6 +3263,14 @@ class MainActivity : ComponentActivity() {
      * chooses whether to observe, review an activity hypothesis, reflect with the local LLM,
      * explore the current view, or wait. The planner never switches camera lenses by itself.
      */
+    /** Record action outcomes and persist the bounded cognitive history on this device only. */
+    private fun recordMindFeedback(item: EveMindFeedback) {
+        autonomousMind.recordFeedback(item)
+        getSharedPreferences("eve_relationship", MODE_PRIVATE).edit()
+            .putString("autonomousMindMemory", autonomousMind.exportMemory())
+            .apply()
+    }
+
     private fun runAutonomousCognition(inactiveMs: Long) {
         if (isFinishing || isDestroyed || !::brain.isInitialized || !::memory.isInitialized) return
         val now = SystemClock.elapsedRealtime()
@@ -3342,7 +3363,7 @@ class MainActivity : ComponentActivity() {
                 )
             }
             EveMindAction.WAIT_FOR_FRESH_FRAME -> {
-                autonomousMind.recordFeedback(
+                recordMindFeedback(
                     EveMindFeedback(
                         goal = plan.goal,
                         action = step.action,
@@ -3383,7 +3404,7 @@ class MainActivity : ComponentActivity() {
                     main.postDelayed({
                         if (isFinishing || isDestroyed) return@postDelayed
                         val succeeded = cameraStarted && activeCameraLens == CameraLens.BACK
-                        autonomousMind.recordFeedback(
+                        recordMindFeedback(
                             EveMindFeedback(
                                 goal = plan.goal,
                                 action = step.action,
@@ -3399,7 +3420,7 @@ class MainActivity : ComponentActivity() {
                         )
                     }, 1_500L)
                 } else {
-                    autonomousMind.recordFeedback(
+                    recordMindFeedback(
                         EveMindFeedback(
                             goal = plan.goal,
                             action = step.action,
@@ -3570,7 +3591,7 @@ class MainActivity : ComponentActivity() {
             if (isFinishing || isDestroyed) return@reflectOnObservation
             val insight = outcome.getOrNull() ?: run {
                 mindEvidenceKey?.let { key ->
-                    autonomousMind.recordFeedback(
+                    recordMindFeedback(
                         EveMindFeedback(
                             EveMindGoal.REFLECT_ON_NEW_EVIDENCE,
                             EveMindAction.REQUEST_LOCAL_REFLECTION,
@@ -3588,7 +3609,7 @@ class MainActivity : ComponentActivity() {
                 SystemClock.elapsedRealtime() - lastMeaningfulLabelAt !in 0L..90_000L
             ) {
                 mindEvidenceKey?.let { key ->
-                    autonomousMind.recordFeedback(
+                    recordMindFeedback(
                         EveMindFeedback(
                             EveMindGoal.REFLECT_ON_NEW_EVIDENCE,
                             EveMindAction.REQUEST_LOCAL_REFLECTION,
@@ -3605,7 +3626,7 @@ class MainActivity : ComponentActivity() {
             if (reflection.isNotBlank()) memory.rememberReflection(reflection)
             mindEvidenceKey?.let { key ->
                 val reflectionSucceeded = insight.confidence >= 0.45f && reflection.isNotBlank()
-                autonomousMind.recordFeedback(
+                recordMindFeedback(
                     EveMindFeedback(
                         EveMindGoal.REFLECT_ON_NEW_EVIDENCE,
                         EveMindAction.REQUEST_LOCAL_REFLECTION,
