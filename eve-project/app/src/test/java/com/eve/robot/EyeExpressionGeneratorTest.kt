@@ -244,6 +244,33 @@ class EyeExpressionGeneratorTest {
         assertTrue(setOf(confused.silhouette, anticipating.silhouette, disappointed.silhouette).size == 3)
     }
 
+    @Test fun generatedFaceKeepsItsGoalForStateDrivenMicroMovement() {
+        val exploring = EyeExpressionGenerator.generate(
+            EveDecision(
+                mood = EveMood.CURIOUS,
+                reason = "a new unfamiliar object",
+                curiosity = 0.78f,
+                arousal = 0.68f,
+                intent = EveIntent.EXPLORE
+            ),
+            seed = 20261021L
+        )
+        val resting = EyeExpressionGenerator.generate(
+            EveDecision(
+                mood = EveMood.SLEEPY,
+                reason = "energy recovery",
+                fatigue = 0.85f,
+                intent = EveIntent.REST
+            ),
+            seed = 20261021L
+        )
+
+        assertEquals(EveIntent.EXPLORE, exploring.intent)
+        assertEquals(EveIntent.REST, resting.intent)
+        assertEquals(EyeSilhouette.ANTICIPATING, exploring.silhouette)
+        assertEquals(EyeSilhouette.DROOPY, resting.silhouette)
+    }
+
     @Test fun intentCanChangeEyesWithoutChangingTheCurrentMood() {
         val neutral = EveDecision(mood = EveMood.NEUTRAL, reason = "same mood")
         val explore = EyeExpressionGenerator.generate(neutral.copy(intent = EveIntent.EXPLORE), 8L)
