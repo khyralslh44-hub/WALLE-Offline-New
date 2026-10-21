@@ -22,6 +22,10 @@ private data class EyeContour(
 /** Draws two expressive cyan robot eyes only: no pupils, mouth, text, or visible control buttons. */
 class RobotFaceView(context: Context) : View(context) {
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
+    // A restrained LED halo makes the eyes read as luminous pixels, not flat painted blocks.
+    private val halo = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+    }
     private val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeCap = Paint.Cap.ROUND
@@ -204,10 +208,11 @@ class RobotFaceView(context: Context) : View(context) {
         // Scale both axes independently so the eyes keep their proportions on tall phone screens.
         // Keep the display pixels horizontally rectangular like the Cozmo sheet.
         // The old near-square eye height made the face read as two large tiles instead of LED eyes.
-        val w = min(width * 0.23f, height * 0.15f) * eyeWidth
-        // Neutral Cozmo-style LED blocks are close to square; each expression then changes its own aperture.
-        val h = min(height * 0.11f, w * 0.82f) * eyeHeight
-        val gap = min(width * 0.21f, w * 0.62f) * spacing
+        // A slightly larger glyph leaves room for the eyelid geometry to remain readable on a phone.
+        // Keep a clear dark bridge between the eyes; never let the two pixels merge.
+        val w = min(width * 0.245f, height * 0.16f) * eyeWidth
+        val h = min(height * 0.12f, w * 0.86f) * eyeHeight
+        val gap = min(width * 0.20f, w * 0.64f) * spacing
         val cy = height * 0.50f
         val silhouetteRaw = if (silhouetteTransitionStartedAt == 0L) 1f else
             ((now - silhouetteTransitionStartedAt).toFloat() / silhouetteTransitionDurationMs).coerceIn(0f, 1f)
@@ -550,22 +555,38 @@ class RobotFaceView(context: Context) : View(context) {
         c.save()
         c.rotate(angle, cx, cy)
 
-        // Cozmo/Vector-style face reference: flat cyan LED glyphs, nearly black screen,
-        // no white glints, no shiny gradient, and only a faint halo around the pixels.
+        // Soft cyan halo + crisp solid core: clear LED eyes without pupils or white shine.
+        // Intensity is driven by EVE's current affect profile, not random colour cycling.
+        halo.shader = null
+        halo.color = Color.argb((25f + 25f * intensity).toInt().coerceIn(0, 55), 0, 218, 236)
+        halo.setShadowLayer(
+            max(2f, w * (0.08f + 0.045f * intensity)),
+            0f, 0f,
+            Color.argb((48f * intensity).toInt().coerceIn(0, 55), 0, 220, 238)
+        )
+        c.drawPath(shape, halo)
+        halo.clearShadowLayer()
+
         edge.shader = null
         edge.strokeWidth = max(1f, w * 0.025f)
-        edge.color = Color.argb((18f * intensity).toInt().coerceIn(0, 24), 0, 225, 236)
+        edge.color = Color.argb((24f * intensity).toInt().coerceIn(0, 32), 0, 232, 244)
         c.drawPath(shape, edge)
 
         fill.style = Paint.Style.FILL
         fill.shader = null
         fill.alpha = 255
         fill.color = when (mood) {
-            EveMood.SLEEPY, EveMood.CONCERNED, EveMood.IRRITATED, EveMood.ANGRY ->
-                Color.rgb(0, 158, 174)
-            EveMood.HAPPY, EveMood.SURPRISED, EveMood.PLAYFUL ->
-                Color.rgb(0, 205, 215)
-            else -> Color.rgb(0, 181, 193)
+            // Familiarity and joy lean mint-green; curiosity and surprise lean ice-blue.
+            EveMood.HAPPY, EveMood.FAMILIAR, EveMood.PLAYFUL ->
+                Color.rgb(34, 232, 205)
+            EveMood.CURIOUS, EveMood.SURPRISED ->
+                Color.rgb(70, 222, 255)
+            // Concern and low energy remain teal; irritation stays brighter but restrained.
+            EveMood.SLEEPY, EveMood.CONCERNED ->
+                Color.rgb(0, 154, 180)
+            EveMood.IRRITATED, EveMood.ANGRY ->
+                Color.rgb(0, 190, 213)
+            else -> Color.rgb(0, 202, 220)
         }
         c.drawPath(shape, fill)
 
