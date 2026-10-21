@@ -111,6 +111,20 @@ class EveAutonomousMind(
         }?.let { now - it.atMs in 0L..REFLECTION_FAILURE_BACKOFF_MS } == true
 
         val candidate = when {
+            context.explorationEnabled && context.cameraIsFront && context.cameraSwitchAllowed &&
+                !context.faceSeenRecently && context.inactiveMs >= AUTO_CAMERA_SWITCH_IDLE_MS &&
+                hasRecentFailureStreak(EveMindGoal.EXPLORE_CURRENT_VIEW, EveMindAction.SWITCH_TO_WORLD_CAMERA) ->
+                makePlan(
+                    EveMindGoal.WAIT_QUIETLY,
+                    "تعلمت من محاولات سابقة أن تبديل الكاميرا لم ينجح مرارًا؛ أوقف التكرار الآن وأنتظر تغيرًا أو تدخلًا بدل إعادة الخطأ نفسه.",
+                    listOf(step(
+                        EveMindAction.MAINTAIN_QUIET_ATTENTION,
+                        "تجنب تكرار فعل فشل عدة مرات",
+                        "تصل أدلة جديدة أو يعاد تفعيل المحاولة بعد فترة تهدئة",
+                        0.86f
+                    )),
+                    0.86f, now
+                )
             context.familiarPersonRecognized -> makePlan(
                 EveMindGoal.CONNECT_WITH_RECOGNIZED_PERSON,
                 "تعرّفت إيف على مرجع وجه محفوظ بدرجة مطابقة كافية؛ الأولوية لتحية هادئة واحدة.",
@@ -199,16 +213,54 @@ class EveAutonomousMind(
             )
         }
 
-        val signature = "${candidate.goal}|${candidate.steps.firstOrNull()?.action}|${evidenceKey.hashCode()}"
+        // Outcome history alters future confidence/priority; successful strategies earn a small
+        // preference, while failed strategies lose weight. The effect is bounded and requires
+        // more than one observed outcome, so one noisy event cannot teach a permanent rule.
+        val learnedSteps = candidate.steps.map { item ->
+            val outcomes = feedback.asReversed().asSequence()
+                .filter { it.goal == candidate.goal && it.action == item.action }
+                .take(8).toList()
+            val learnedPriority = if (outcomes.size >= MIN_OUTCOMES_FOR_ADAPTATION) {
+                val rate = (outcomes.count { it.succeeded } + 1f) / (outcomes.size + 2f)
+                item.priority + (rate - 0.5f) * MAX_PRIORITY_LEARNING_SHIFT
+            } else item.priority
+            item.copy(priority = learnedPriority.coerceIn(0f, 1f))
+        }
+        val firstAction = candidate.steps.first().action
+        val candidateOutcomes = feedback.asReversed().asSequence()
+            .filter { it.goal == candidate.goal && it.action == firstAction }
+            .take(8).toList()
+        val learnedConfidence = if (candidateOutcomes.size >= MIN_OUTCOMES_FOR_ADAPTATION) {
+            val rate = (candidateOutcomes.count { it.succeeded } + 1f) / (candidateOutcomes.size + 2f)
+            candidate.confidence + (rate - 0.5f) * MAX_CONFIDENCE_LEARNING_SHIFT
+        } else candidate.confidence
+        val learnedCandidate = candidate.copy(
+            steps = learnedSteps,
+            confidence = learnedConfidence.coerceIn(0f, 1f)
+        )
+
+        val signature = "${learnedCandidate.goal}|${learnedCandidate.steps.firstOrNull()?.action}|${evidenceKey.hashCode()}"
         val previous = lastPlan
         if (previous != null && now - lastPlanAtMs < planCooldownMs &&
             signature == lastPlanSignature && previous.expiresAtMs > now
         ) return previous
 
-        lastPlan = candidate
+        lastPlan = learnedCandidate
         lastPlanSignature = signature
         lastPlanAtMs = now
-        return candidate
+        return learnedCandidate
+    }
+
+    /** True only for a recent consecutive run of failed experiences for the exact same action. */
+    private fun hasRecentFailureStreak(goal: EveMindGoal, action: EveMindAction): Boolean {
+        val outcomes = feedback.asReversed().asSequence()
+            .filter { it.goal == goal && it.action == action }
+            .take(3).toList()
+        if (outcomes.size < FAILURE_STREAK_MIN) return false
+        val latest = outcomes.first()
+        if (latest.succeeded || latest.atMs < 0L) return false
+        if (lastPlanAtMs > 0L && latest.atMs < lastPlanAtMs - FAILURE_MEMORY_WINDOW_MS) return false
+        return outcomes.take(FAILURE_STREAK_MIN).all { !it.succeeded }
     }
 
     @Synchronized
@@ -313,6 +365,11 @@ class EveAutonomousMind(
         const val PLAN_TTL_MS = 22_000L
         const val REFLECTION_FAILURE_BACKOFF_MS = 180_000L
         const val MAX_REFLECTED_KEYS = 32
+        private const val FAILURE_STREAK_MIN = 2
+        private const val FAILURE_MEMORY_WINDOW_MS = 8 * 60_000L
+        private const val MIN_OUTCOMES_FOR_ADAPTATION = 2
+        private const val MAX_PRIORITY_LEARNING_SHIFT = 0.12f
+        private const val MAX_CONFIDENCE_LEARNING_SHIFT = 0.10f
         private const val MEMORY_HEADER = "EVE_MIND_MEMORY_V1"
         private const val MAX_MEMORY_RECORDS = 64
         private const val MAX_MEMORY_CHARS = 24_000
