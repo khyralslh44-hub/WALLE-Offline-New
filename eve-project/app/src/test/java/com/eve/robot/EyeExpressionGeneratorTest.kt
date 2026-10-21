@@ -281,4 +281,48 @@ class EyeExpressionGeneratorTest {
         assertEquals(EyeSilhouette.DROOPY, tiredRest.silhouette)
         assertEquals(EyeSilhouette.DROOPY, tiredFocus.silhouette)
     }
+
+    @Test fun primaryEmotionRemainsReadableWhenIntentSuggestsSomethingElse() {
+        fun pose(
+            mood: EveMood,
+            intent: EveIntent,
+            valence: Float = 0.12f,
+            arousal: Float = 0.40f,
+            fatigue: Float = 0f,
+            frustration: Float = 0.20f
+        ) = EyeExpressionGenerator.generate(
+            EveDecision(
+                mood = mood,
+                reason = "emotion-legibility regression test",
+                valence = valence,
+                arousal = arousal,
+                fatigue = fatigue,
+                frustration = frustration,
+                intent = intent
+            ),
+            seed = 20261021L
+        )
+
+        assertEquals(
+            "A social goal must not hide a happy smile.",
+            EyeSilhouette.SMILE,
+            pose(EveMood.HAPPY, EveIntent.CONNECT, valence = 0.25f).silhouette
+        )
+        assertEquals(
+            "A social goal must not hide an angry expression.",
+            EyeSilhouette.SHARP,
+            pose(EveMood.ANGRY, EveIntent.CONNECT, arousal = 0.50f).silhouette
+        )
+        assertEquals(
+            "A play goal must not hide sustained sleepiness.",
+            EyeSilhouette.DROOPY,
+            pose(EveMood.SLEEPY, EveIntent.PLAY, fatigue = 0.92f).silhouette
+        )
+        assertEquals(
+            "A rest goal must not hide surprise.",
+            EyeSilhouette.ROUND_SURPRISE,
+            pose(EveMood.SURPRISED, EveIntent.REST, valence = 0.12f).silhouette
+        )
+    }
+
 }
