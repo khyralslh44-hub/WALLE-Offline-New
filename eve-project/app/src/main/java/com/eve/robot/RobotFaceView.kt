@@ -615,10 +615,29 @@ class RobotFaceView(context: Context) : View(context) {
             }
 
             EyeSilhouette.CONFUSED -> {
-                // Confusion is intentionally asymmetric: one raised eye, one hesitant, lowered eye.
+                // Confusion: asymmetric brows/eye heights, with one lifted and one hesitant lid.
+                if (side < 0) {
+                    shape.moveTo(cx - hw, centerY + glyphHh * 0.22f)
+                    shape.quadTo(cx - hw * 0.82f, centerY - glyphHh * 0.88f,
+                        cx - hw * 0.10f, centerY - glyphHh * 0.72f)
+                    shape.quadTo(cx + hw * 0.78f, centerY - glyphHh * 0.78f,
+                        cx + hw, centerY - glyphHh * 0.35f)
+                    shape.lineTo(cx + hw * 0.92f, centerY + glyphHh * 0.48f)
+                    shape.quadTo(cx, centerY + glyphHh * 0.72f,
+                        cx - hw, centerY + glyphHh * 0.35f)
+                } else {
+                    shape.moveTo(cx - hw, centerY - glyphHh * 0.38f)
+                    shape.quadTo(cx, centerY - glyphHh * 0.66f,
+                        cx + hw, centerY - glyphHh * 0.08f)
+                    shape.lineTo(cx + hw * 0.94f, centerY + glyphHh * 0.44f)
+                    shape.quadTo(cx, centerY + glyphHh * 0.58f,
+                        cx - hw, centerY + glyphHh * 0.38f)
+                }
+                shape.close()
+            }
+
             EyeSilhouette.JEALOUS -> {
-                // Jealousy reads as a deliberately uneven half-lid plus a strong side glance,
-                // not the symmetric inward-sloping suspicion glyph.
+                // Jealousy: one suspicious half-lid paired with a sharp side-looking wedge.
                 if (side < 0) {
                     shape.moveTo(cx - hw, centerY - glyphHh * 0.08f)
                     shape.quadTo(cx, centerY - glyphHh * 0.48f,
@@ -637,7 +656,7 @@ class RobotFaceView(context: Context) : View(context) {
             }
 
             EyeSilhouette.PROUD -> {
-                // Pride is a confident, lifted lid with a broad lower bowl: not the thin joy crescent.
+                // Pride: an assertive roof-shaped upper lid and a broad, steady lower bowl.
                 shape.moveTo(cx - hw, centerY + glyphHh * 0.06f)
                 shape.lineTo(cx - hw * 0.66f, centerY - glyphHh * 0.48f)
                 shape.quadTo(cx, centerY - glyphHh * 0.34f,
@@ -650,7 +669,7 @@ class RobotFaceView(context: Context) : View(context) {
             }
 
             EyeSilhouette.AFFECTIONATE -> {
-                // Affection uses a soft, almond-like cushion, visibly different from the SOFT capsule.
+                // Affection: a soft, plump almond/cushion; deliberately not the SOFT capsule.
                 shape.moveTo(cx - hw, centerY - glyphHh * 0.04f)
                 shape.cubicTo(cx - hw * 0.92f, centerY - glyphHh * 0.76f,
                     cx - hw * 0.24f, centerY - glyphHh * 0.98f,
@@ -664,26 +683,6 @@ class RobotFaceView(context: Context) : View(context) {
                 shape.cubicTo(cx - hw * 0.25f, centerY + glyphHh * 0.94f,
                     cx - hw * 0.90f, centerY + glyphHh * 0.70f,
                     cx - hw, centerY - glyphHh * 0.04f)
-                shape.close()
-            }
-
-                if (side < 0) {
-                    shape.moveTo(cx - hw, centerY + glyphHh * 0.22f)
-                    shape.quadTo(cx - hw * 0.82f, centerY - glyphHh * 0.88f,
-                        cx - hw * 0.10f, centerY - glyphHh * 0.72f)
-                    shape.quadTo(cx + hw * 0.78f, centerY - glyphHh * 0.78f,
-                        cx + hw, centerY - glyphHh * 0.35f)
-                    shape.lineTo(cx + hw * 0.92f, centerY + glyphHh * 0.48f)
-                    shape.quadTo(cx, centerY + glyphHh * 0.72f,
-                        cx - hw, centerY + glyphHh * 0.35f)
-                } else {
-                    shape.moveTo(cx - hw, centerY - glyphHh * 0.38f)
-                    shape.quadTo(cx, centerY - glyphHh * 0.66f,
-                        cx + hw, centerY - glyphHh * 0.08f)
-                    shape.lineTo(cx + hw * 0.94f, centerY + glyphHh * 0.44f)
-                    shape.quadTo(cx, centerY + glyphHh * 0.58f,
-                        cx - hw, centerY + glyphHh * 0.38f)
-                }
                 shape.close()
             }
 
