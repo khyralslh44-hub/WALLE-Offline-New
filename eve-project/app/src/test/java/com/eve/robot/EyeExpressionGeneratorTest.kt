@@ -335,6 +335,43 @@ class EyeExpressionGeneratorTest {
         assertEquals(EyeSilhouette.DROOPY, tiredFocus.silhouette)
     }
 
+    @Test
+    fun socialAffectDrivesSelectJealousProudAndReassuredEyePoses() {
+        val jealous = EyeExpressionGenerator.generate(
+            EveDecision(
+                mood = EveMood.IRRITATED,
+                reason = "explicit social competition cue",
+                jealousy = 0.90f
+            ),
+            seed = 20261021L
+        )
+        val proud = EyeExpressionGenerator.generate(
+            EveDecision(
+                mood = EveMood.PLAYFUL,
+                reason = "confirmed achievement",
+                pride = 0.90f
+            ),
+            seed = 20261021L
+        )
+        val reassured = EyeExpressionGenerator.generate(
+            EveDecision(
+                mood = EveMood.FAMILIAR,
+                reason = "confirmed reassurance cue",
+                reassurance = 0.90f
+            ),
+            seed = 20261021L
+        )
+
+        assertEquals(EyeSilhouette.SUSPICIOUS, jealous.silhouette)
+        assertEquals(EyeSilhouette.GLEE, proud.silhouette)
+        assertEquals(EyeSilhouette.SOFT, reassured.silhouette)
+        assertEquals(
+            "The new social-affect layer must reuse the established cyan LED expression system.",
+            EveMood.IRRITATED,
+            jealous.mood
+        )
+    }
+
     @Test fun primaryEmotionRemainsReadableWhenIntentSuggestsSomethingElse() {
         fun pose(
             mood: EveMood,
