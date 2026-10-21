@@ -17,17 +17,6 @@ class EveActivityUnderstandingTest {
         assertEquals("identity", intro!!.topic)
     }
 
-    @Test fun offlineIdentityAnswerUsesConfiguredEveNameAndDisclaimsHumanConsciousness() {
-        val answer = OfflineEveResponder.answer("ما اسمك", null, 0f, Long.MAX_VALUE)
-        assertNotNull(answer)
-        assertEquals("identity", answer!!.topic)
-        assertTrue(answer.text.contains("اسمي إيف"))
-        assertTrue(answer.text.contains("لا أملك وعيًا بشريًا"))
-        val intro = OfflineEveResponder.answer("عرفيني بنفسك", null, 0f, Long.MAX_VALUE)
-        assertNotNull(intro)
-        assertEquals("identity", intro!!.topic)
-    }
-
     @Test fun insufficientOrMissingPersonEvidenceNeverInventsAnActivity() {
         val engine = EveActivityUnderstanding()
         val result = engine.observe(
