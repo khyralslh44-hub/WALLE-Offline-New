@@ -8,12 +8,36 @@ import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.sin
 
+
+data class EveHomeMapStoredCell(
+    val x: Int,
+    val y: Int,
+    val evidence: Int,
+    val roomVotes: Map<EveRoomType, Int> = emptyMap()
+)
+
+data class EveHomeRoutePoint(
+    val xMm: Int,
+    val yMm: Int,
+    val headingDegrees: Float
+)
+
+data class EveHomeMapPersistedState(
+    val version: Int,
+    val cellSizeMm: Int,
+    val capacity: Int,
+    val cells: List<EveHomeMapStoredCell>,
+    val routePoints: List<EveHomeRoutePoint>,
+    val savedAtEpochMs: Long
+)
+
 data class EveHomeMapSnapshot(
     val knownCells: Int,
     val freeCells: Int,
     val obstacleCells: Int,
     val namedRoomCells: Int,
     val currentRoom: EveRoomType,
+    val routePointCount: Int = 0,
     /** Room categories supported by repeated visual hypotheses in this session's map. */
     val knownRooms: Set<EveRoomType> = emptySet(),
     val observedAtMs: Long
@@ -35,6 +59,7 @@ class EveHomeMapMemory(
 
     private val occupancy = LinkedHashMap<Cell, Int>()
     private val roomVotes = LinkedHashMap<Cell, RoomVote>()
+    private val routePoints = ArrayList<EveHomeRoutePoint>()
     private var activeFrontier: Cell? = null
     private var lastObservedAtMs = 0L
     private var currentRoom = EveRoomType.UNKNOWN
@@ -66,6 +91,7 @@ class EveHomeMapMemory(
         lastObservedAtMs = nowMs
 
         val position = cellFor(pose.xMm.toFloat(), pose.yMm.toFloat())
+        recordRoutePoint(pose)
         updateOccupancy(position, +1)
         val heading = pose.headingDegrees
         traceRange(pose, heading, telemetry.frontDistanceMm)
@@ -136,6 +162,7 @@ class EveHomeMapMemory(
             obstacleCells = obstacles,
             namedRoomCells = roomVotes.size,
             currentRoom = currentRoom,
+            routePointCount = routePoints.size,
             knownRooms = roomVotes.values
                 .flatMap { it.counts.filterValues { count -> count > 0 }.keys }
                 .filter { it != EveRoomType.UNKNOWN }
@@ -144,10 +171,105 @@ class EveHomeMapMemory(
         )
     }
 
+
+    /** Export bounded map evidence and sampled trajectory points for private on-device storage. */
+    @Synchronized
+    fun exportState(savedAtEpochMs: Long = System.currentTimeMillis()): EveHomeMapPersistedState {
+        val cells = LinkedHashSet<Cell>().apply {
+            addAll(occupancy.keys)
+            addAll(roomVotes.keys)
+        }.map { cell ->
+            EveHomeMapStoredCell(
+                x = cell.x,
+                y = cell.y,
+                evidence = occupancy[cell] ?: 0,
+                roomVotes = roomVotes[cell]?.counts?.toMap() ?: emptyMap()
+            )
+        }
+        return EveHomeMapPersistedState(
+            version = PERSISTED_STATE_VERSION,
+            cellSizeMm = cellSizeMm,
+            capacity = maxCells,
+            cells = cells,
+            routePoints = routePoints.toList(),
+            savedAtEpochMs = savedAtEpochMs
+        )
+    }
+
+    /**
+     * Restores only well-formed state compatible with this grid configuration.
+     * Time-based freshness and active frontiers are deliberately discarded: after loading,
+     * a new safe pose/telemetry pair must be observed before the map can guide movement.
+     */
+    @Synchronized
+    fun restoreState(state: EveHomeMapPersistedState): Boolean {
+        if (state.version != PERSISTED_STATE_VERSION ||
+            state.cellSizeMm != cellSizeMm ||
+            state.capacity != maxCells ||
+            state.cells.size > maxCells ||
+            state.routePoints.size > MAX_ROUTE_POINTS ||
+            state.savedAtEpochMs < 0L
+        ) return false
+
+        val restoredOccupancy = LinkedHashMap<Cell, Int>()
+        val restoredRooms = LinkedHashMap<Cell, RoomVote>()
+        val seenCells = HashSet<Cell>()
+        val maxCellCoordinate = EveRobotBaseProtocol.MAX_MAP_COORDINATE_MM / cellSizeMm
+        for (stored in state.cells) {
+            if (kotlin.math.abs(stored.x.toLong()) > maxCellCoordinate ||
+                kotlin.math.abs(stored.y.toLong()) > maxCellCoordinate ||
+                stored.evidence !in -MAX_CELL_EVIDENCE..MAX_CELL_EVIDENCE ||
+                stored.roomVotes.size > EveRoomType.values().size
+            ) return false
+            val cell = Cell(stored.x, stored.y)
+            if (!seenCells.add(cell)) return false
+            if (stored.evidence != 0) restoredOccupancy[cell] = stored.evidence
+            val votes = RoomVote()
+            for ((room, count) in stored.roomVotes) {
+                if (room == EveRoomType.UNKNOWN || count !in 1..MAX_ROOM_VOTES) return false
+                votes.counts[room] = count
+            }
+            if (votes.counts.isNotEmpty()) restoredRooms[cell] = votes
+        }
+        if (restoredOccupancy.size > maxCells) return false
+        if (state.routePoints.any {
+                kotlin.math.abs(it.xMm.toLong()) > EveRobotBaseProtocol.MAX_MAP_COORDINATE_MM ||
+                    kotlin.math.abs(it.yMm.toLong()) > EveRobotBaseProtocol.MAX_MAP_COORDINATE_MM ||
+                    !it.headingDegrees.isFinite() || it.headingDegrees !in 0f..360f
+            }
+        ) return false
+
+        occupancy.clear()
+        occupancy.putAll(restoredOccupancy)
+        roomVotes.clear()
+        roomVotes.putAll(restoredRooms)
+        routePoints.clear()
+        routePoints.addAll(state.routePoints)
+        activeFrontier = null
+        lastObservedAtMs = 0L
+        currentRoom = EveRoomType.UNKNOWN
+        return true
+    }
+
+    private fun recordRoutePoint(pose: EveRobotBaseProtocol.Pose) {
+        val point = EveHomeRoutePoint(pose.xMm, pose.yMm, normalizeDegrees(pose.headingDegrees))
+        val previous = routePoints.lastOrNull()
+        val shouldAdd = previous == null ||
+            hypot(
+                (point.xMm - previous.xMm).toDouble(),
+                (point.yMm - previous.yMm).toDouble()
+            ) >= MIN_ROUTE_POINT_SPACING_MM ||
+            kotlin.math.abs(signedAngleDelta(point.headingDegrees, previous.headingDegrees)) >= ROUTE_TURN_SAMPLE_DEGREES
+        if (!shouldAdd) return
+        routePoints.add(point)
+        while (routePoints.size > MAX_ROUTE_POINTS) routePoints.removeAt(0)
+    }
+
     @Synchronized
     fun reset() {
         occupancy.clear()
         roomVotes.clear()
+        routePoints.clear()
         activeFrontier = null
         lastObservedAtMs = 0L
         currentRoom = EveRoomType.UNKNOWN
@@ -229,6 +351,10 @@ class EveHomeMapMemory(
     }
 
     companion object {
+        const val PERSISTED_STATE_VERSION = 1
+        const val MAX_ROUTE_POINTS = 1_200
+        const val MIN_ROUTE_POINT_SPACING_MM = 200.0
+        const val ROUTE_TURN_SAMPLE_DEGREES = 35f
         const val MAP_FRESH_MS = 1_500L
         const val MAX_RANGE_TO_MAP_MM = 2_000
         const val MIN_OBSTACLE_MAP_RANGE_MM = 90

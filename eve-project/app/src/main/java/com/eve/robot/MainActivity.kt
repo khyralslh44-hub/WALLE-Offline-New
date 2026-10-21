@@ -145,6 +145,13 @@ class MainActivity : ComponentActivity() {
     private val autonomousMind = EveAutonomousMind()
     private val robotBaseNavigator = EveBaseNavigator()
     private val homeMapMemory = EveHomeMapMemory()
+    private lateinit var homeMapStore: EveHomeMapStore
+    @Volatile private var savedHomeMapState: EveHomeMapPersistedState? = null
+    @Volatile private var homeMapFrameDecisionMade = false
+    @Volatile private var homeMapPersistenceEnabled = false
+    @Volatile private var lastHomeMapPersistenceSaveAt = 0L
+    @Volatile private var warnedAboutNonPersistentHomeFrame = false
+    private val HOME_MAP_SAVE_INTERVAL_MS = 5_000L
     private lateinit var robotBaseLink: EveBleRobotBase
     @Volatile private var baseAutonomyRequested = false
     @Volatile private var pendingBaseAutonomyAfterPermission = false
@@ -367,6 +374,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        homeMapStore = EveHomeMapStore(applicationContext)
+        savedHomeMapState = homeMapStore.load()
+        savedHomeMapState?.let {
+            Log.i("EVE_MAP", "PERSISTED_HOME_MAP loaded cells=${it.cells.size} routePoints=${it.routePoints.size} savedAt=${it.savedAtEpochMs}")
+        }
         window.decorView.systemUiVisibility = (
             View.SYSTEM_UI_FLAG_FULLSCREEN or
                 View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
@@ -743,7 +755,8 @@ class MainActivity : ComponentActivity() {
             val status = if (::robotBaseLink.isInitialized) robotBaseLink.lastDetail else "طبقة القاعدة لم تجهز بعد."
             val movement = if (baseAutonomyRequested) "الاستكشاف مطلوب" else "المحركات متوقفة"
             val map = homeMapMemory.snapshot()
-            val mapLine = "خريطة محلية: خلايا معروفة ${map.knownCells}، عوائق ${map.obstacleCells}، غرف مسماة ${map.namedRoomCells}."
+            val persistenceText = if (homeMapPersistenceEnabled) "الحفظ الدائم مفعّل بإطار منزل ثابت" else "الحفظ الدائم ينتظر قاعدة تدعم إطار منزل ثابت"
+            val mapLine = "خريطة محلية: خلايا ${map.knownCells}، عوائق ${map.obstacleCells}، مناطق مسماة ${map.namedRoomCells}، نقاط مسار ${map.routePointCount}. $persistenceText."
             showDialogueText("$status $movement $mapLine", durationMs = 7000L)
             return
         }
@@ -3268,9 +3281,17 @@ class MainActivity : ComponentActivity() {
             override fun onStateChanged(state: EveBaseLinkState, detail: String) {
                 Log.i("EVE_BASE", "BASE_LINK state=$state detail=$detail")
                 if (state == EveBaseLinkState.SCANNING) {
+                    // A reconnect can change odometry frames. Save first, then wait for the
+                    // next pose to confirm whether the previous home-map frame can be reused.
+                    persistHomeMapIfAligned(force = true)
                     homeMapMemory.reset()
+                    savedHomeMapState = homeMapStore.load() ?: savedHomeMapState
+                    homeMapFrameDecisionMade = false
+                    homeMapPersistenceEnabled = false
+                    lastHomeMapPersistenceSaveAt = 0L
                     lastHomeMapDiagnosticSignature = ""
                     lastBaseAnnouncedRoom = EveRoomType.UNKNOWN
+                    warnedAboutNonPersistentHomeFrame = false
                 }
                 when (state) {
                     EveBaseLinkState.READY -> {
@@ -3425,6 +3446,62 @@ class MainActivity : ComponentActivity() {
         return freshFace || visiblePersonBox
     }
 
+
+    /**
+     * A saved grid is safe to merge only if the base explicitly guarantees a persistent home
+     * coordinate frame. Otherwise keep this run's map isolated and leave the previous saved map
+     * untouched. This flag is supplied by firmware in pose-frame byte 14 bit 1.
+     */
+    private fun prepareHomeMapFrame(pose: EveRobotBaseProtocol.Pose) {
+        if (homeMapFrameDecisionMade) {
+            if (homeMapPersistenceEnabled && !pose.persistentHomeFrame) {
+                homeMapMemory.reset()
+                homeMapPersistenceEnabled = false
+                Log.e("EVE_MAP", "Persistent home-frame guarantee was withdrawn; cleared active map and disabled saving.")
+                showDialogueText("تغيّر إطار إحداثيات القاعدة؛ مسحت الخريطة النشطة ولن أدمجها بالخريطة المحفوظة.", durationMs = 7000L)
+            }
+            return
+        }
+        homeMapFrameDecisionMade = true
+        homeMapPersistenceEnabled = pose.persistentHomeFrame
+        if (pose.persistentHomeFrame) {
+            val saved = savedHomeMapState
+            if (saved != null && !homeMapMemory.restoreState(saved)) {
+                Log.w("EVE_MAP", "Stored map rejected due to incompatible or invalid state; starting a new local map.")
+                homeMapMemory.reset()
+                savedHomeMapState = null
+            } else if (saved != null) {
+                Log.i("EVE_MAP", "PERSISTED_HOME_MAP restored cells=${saved.cells.size} routePoints=${saved.routePoints.size}")
+                showDialogueText("تذكّرت خريطة المنزل ومسارات سابقة. سأحدّثها فقط ببيانات الموقع والحساسات الآمنة.", durationMs = 6500L)
+            } else {
+                Log.i("EVE_MAP", "Persistent home frame confirmed; recording a new private home map.")
+            }
+            warnedAboutNonPersistentHomeFrame = false
+        } else {
+            // The stored map may belong to another coordinate origin. Never use it to steer.
+            homeMapMemory.reset()
+            if (savedHomeMapState != null && !warnedAboutNonPersistentHomeFrame) {
+                warnedAboutNonPersistentHomeFrame = true
+                showDialogueText("هذه القاعدة لا تؤكد إطار إحداثيات منزليًا ثابتًا؛ لن أستخدم الخريطة القديمة للحركة ولن أستبدلها.", durationMs = 7500L)
+            }
+            Log.w("EVE_MAP", "Pose lacks persistent-home-frame flag; mapping is session-only and will not overwrite saved map.")
+        }
+    }
+
+    private fun persistHomeMapIfAligned(force: Boolean) {
+        if (!homeMapPersistenceEnabled || !::homeMapStore.isInitialized) return
+        val nowElapsed = SystemClock.elapsedRealtime()
+        if (!force && nowElapsed - lastHomeMapPersistenceSaveAt < HOME_MAP_SAVE_INTERVAL_MS) return
+        val state = homeMapMemory.exportState(System.currentTimeMillis())
+        if (homeMapStore.save(state)) {
+            savedHomeMapState = state
+            lastHomeMapPersistenceSaveAt = nowElapsed
+            Log.d("EVE_MAP", "PERSISTED_HOME_MAP saved cells=${state.cells.size} routePoints=${state.routePoints.size}")
+        } else {
+            Log.w("EVE_MAP", "PERSISTED_HOME_MAP save skipped because state failed bounds checks.")
+        }
+    }
+
     private fun runBaseControlTick() {
         if (!baseAutonomyRequested || !::robotBaseLink.isInitialized) return
         if (robotBaseLink.state != EveBaseLinkState.READY) {
@@ -3445,11 +3522,13 @@ class MainActivity : ComponentActivity() {
             !telemetryFresh ->
                 EveBaseMotionDecision(0, 0, 0, "base sensors are missing or stale", false)
             else -> {
+                val activePose = pose!!
+                prepareHomeMapFrame(activePose)
                 val freshRoom = if (
                     lastRoomObservationAt > 0L && now - lastRoomObservationAt in 0L..roomSummaryTtlMs
                 ) latestRoomType else EveRoomType.UNKNOWN
                 val mapSnapshot = homeMapMemory.observe(
-                    pose = pose!!,
+                    pose = activePose,
                     telemetry = telemetry!!,
                     room = freshRoom,
                     nowMs = now
@@ -3457,17 +3536,21 @@ class MainActivity : ComponentActivity() {
                 if (mapSnapshot == null) {
                     EveBaseMotionDecision(0, 0, 0, "home map rejected stale or unsafe base data", false)
                 } else {
-                    val frontierHeading = homeMapMemory.bestFrontierHeadingDegrees(pose, now)
+                    val frontierHeading = homeMapMemory.bestFrontierHeadingDegrees(activePose, now)
                     val mapSignature = "${mapSnapshot.knownCells}|${mapSnapshot.obstacleCells}|" +
                         "${mapSnapshot.knownRooms.sortedBy { it.name }.joinToString(",")}|${mapSnapshot.currentRoom}"
+                    if (homeMapPersistenceEnabled && now - lastHomeMapPersistenceSaveAt >= HOME_MAP_SAVE_INTERVAL_MS) {
+                        persistHomeMapIfAligned(force = false)
+                    }
                     if (mapSignature != lastHomeMapDiagnosticSignature) {
                         lastHomeMapDiagnosticSignature = mapSignature
                         Log.i(
                             "EVE_MAP",
                             "HOME_MAP cells=${mapSnapshot.knownCells} free=${mapSnapshot.freeCells} " +
                                 "obstacles=${mapSnapshot.obstacleCells} namedRooms=${mapSnapshot.knownRooms} " +
+                                "routePoints=${mapSnapshot.routePointCount} persistent=$homeMapPersistenceEnabled " +
                                 "currentRoom=${mapSnapshot.currentRoom} frontierHeading=${frontierHeading ?: "none"} " +
-                                "frame=local_odometry"
+                                "frame=home_odometry"
                         )
                     }
                     if (
@@ -3505,7 +3588,7 @@ class MainActivity : ComponentActivity() {
                             autonomyEnabled = baseAutonomyRequested,
                             personInPath = robotBasePersonInPath(now),
                             preferredHeadingDegrees = frontierHeading,
-                            currentHeadingDegrees = pose.headingDegrees
+                            currentHeadingDegrees = activePose.headingDegrees
                         )
                     }
                 }
@@ -3580,6 +3663,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        persistHomeMapIfAligned(force = true)
         main.removeCallbacks(idleLoop)
         main.removeCallbacks(baseControlLoop)
         if (::robotBaseLink.isInitialized) robotBaseLink.close()

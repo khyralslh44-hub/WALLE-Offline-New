@@ -23,6 +23,7 @@ object EveRobotBaseProtocol {
     const val POSE_FRAME_BYTES: Int = 16
     const val POSE_TYPE: Int = 0x81
     const val POSE_VALID_FLAG: Int = 1 shl 0
+    const val POSE_PERSISTENT_HOME_FRAME_FLAG: Int = 1 shl 1
     const val COMMAND_FRAME_BYTES: Int = 8
 
     const val FLAG_FRONT_VALID = 1 shl 0
@@ -63,8 +64,10 @@ object EveRobotBaseProtocol {
         val receivedAtMs: Long,
         val xMm: Int,
         val yMm: Int,
-        /** 0° points along +X; positive angles rotate counter-clockwise in the local map. */
-        val headingDegrees: Float
+        /** 0° points along +X; positive angles rotate counter-clockwise in the home map frame. */
+        val headingDegrees: Float,
+        /** True only when firmware preserves this coordinate origin across app/base restarts. */
+        val persistentHomeFrame: Boolean = false
     ) {
         fun isFresh(nowMs: Long, maxAgeMs: Long = MAX_TELEMETRY_AGE_MS): Boolean =
             receivedAtMs > 0L && nowMs >= receivedAtMs && nowMs - receivedAtMs <= maxAgeMs
@@ -137,7 +140,8 @@ object EveRobotBaseProtocol {
             receivedAtMs = receivedAtMs,
             xMm = x,
             yMm = y,
-            headingDegrees = headingCentiDegrees / 100f
+            headingDegrees = headingCentiDegrees / 100f,
+            persistentHomeFrame = (frame[14].toInt() and POSE_PERSISTENT_HOME_FRAME_FLAG) != 0
         )
     }
 

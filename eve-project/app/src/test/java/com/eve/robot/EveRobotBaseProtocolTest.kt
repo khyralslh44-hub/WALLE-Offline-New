@@ -153,6 +153,12 @@ class EveRobotBaseProtocolTest {
         assertEquals(1_250, pose!!.xMm)
         assertEquals(-750, pose.yMm)
         assertEquals(90f, pose.headingDegrees, 0.01f)
+        assertFalse(pose.persistentHomeFrame)
+        val persistentPose = EveRobotBaseProtocol.decodePose(
+            poseFrame(flags = EveRobotBaseProtocol.POSE_VALID_FLAG or EveRobotBaseProtocol.POSE_PERSISTENT_HOME_FRAME_FLAG),
+            1_000L
+        )
+        assertTrue(persistentPose!!.persistentHomeFrame)
         assertTrue(pose.isFresh(1_500L))
         assertFalse(pose.isFresh(1_700L))
     }

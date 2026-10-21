@@ -80,10 +80,10 @@ The base must reject invalid magic/version/length/checksum and unknown command t
 | 4–7 | Signed little-endian (x) position in millimetres |
 | 8–11 | Signed little-endian (y) position in millimetres |
 | 12–13 | Signed little-endian heading in centidegrees (−18000…18000) |
-| 14 | Bit 0 means the fused pose is valid |
+| 14 | Bit 0 means the fused pose is valid; bit 1 means firmware guarantees a persistent home coordinate frame across app restarts and base power cycles |
 | 15 | XOR of bytes 0–14 |
 
-Map convention: (0°=+X), with positive heading counter-clockwise. The base must keep the pose origin stable during a mapping session and publish pose and sensor frames at least 10 Hz. The app rejects wrong size/version/checksum frames and considers telemetry or pose unsafe after 600 ms without a fresh frame. The grid is bounded and held locally for the current connected exploration session; it does not yet promise a persistent map across app restarts, reconnects, or base reboots.
+Map convention: (0°=+X), with positive heading counter-clockwise. The base must publish pose and sensor frames at least 10 Hz. To support long-term learning, firmware must keep the same home-map coordinate origin and axis orientation across app restarts, BLE reconnects, and base power cycles, and set pose byte 14 bit 1 on every valid pose only when that guarantee holds. A per-session odometry reset must leave this bit clear. If the bit is absent, EVE may build a session-only map from fresh poses, but she will not load an old map, merge it with a possibly shifted coordinate frame, or overwrite the saved home map. The app rejects wrong size/version/checksum frames and considers telemetry or pose unsafe after 600 ms without a fresh frame. The map, room hypotheses, and sampled safe route points are stored locally in the app's private storage; no map data is uploaded.
 
 A detected drop is latched until a safe-reset command is accepted; reconnection alone never clears it.
 
@@ -100,6 +100,8 @@ No connection scan runs at app launch. The user can say:
 Android Bluetooth permissions are requested only when the optional feature is invoked. When the app is backgrounded, it stops issuing wheel commands.
 
 ## Room recognition and map limitations
+
+When the persistent-home-frame bit is present, the app stores map occupancy evidence, room votes, and a bounded sample of safe observed route points on the phone. On restart it restores those records but discards time freshness and the old frontier target; a new safe pose and sensor sample is required before navigation uses the map again. The grid and route history are bounded, and this is still not full SLAM or guaranteed place recognition. Existing base firmware must be updated to implement the persistent-frame flag before cross-session mapping can work.
 
 Room type is inferred locally from repeated whole-image/object labels—for example, bed plus pillow may support a bedroom hypothesis, while a fridge plus oven/microwave may support a kitchen hypothesis. A single cup or table is not enough. Room labels remain hypotheses, not certainties. Narrow passages, stairs, glass, reflective surfaces, dynamic obstacles, or miscalibrated sensors require hardware-specific tuning and supervised validation. This is not a production SLAM system.
 

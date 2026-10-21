@@ -122,6 +122,47 @@ class EveHomeMapMemoryTest {
         assertEquals(EveRoomType.KITCHEN, later.currentRoom)
     }
 
+    @Test fun persistedMapRestoresRoomVotesAndRouteButRequiresFreshObservation() {
+        val original = EveHomeMapMemory()
+        original.observe(pose(), telemetry(), EveRoomType.LIVING_ROOM, 1_000L)
+        original.observe(
+            pose(at = 1_500L, x = 900, y = 0, heading = 0f),
+            telemetry(at = 1_500L),
+            EveRoomType.KITCHEN,
+            1_500L
+        )
+        val saved = original.exportState(savedAtEpochMs = 123L)
+        assertTrue(saved.routePoints.size >= 2)
+
+        val restored = EveHomeMapMemory()
+        assertTrue(restored.restoreState(saved))
+        assertEquals(original.snapshot().knownCells, restored.snapshot().knownCells)
+        assertEquals(saved.routePoints.size, restored.snapshot().routePointCount)
+        assertNull("Stale time and frontier state must not survive a process restart.",
+            restored.bestFrontierHeadingDegrees(pose(at = 1_500L), 2_000L))
+
+        val updated = restored.observe(
+            pose(at = 2_000L, x = 900, y = 0, heading = 0f),
+            telemetry(at = 2_000L),
+            EveRoomType.KITCHEN,
+            2_000L
+        )
+        assertNotNull(updated)
+        assertEquals(EveRoomType.KITCHEN, updated!!.currentRoom)
+        assertTrue(updated.routePointCount >= 2)
+    }
+
+    @Test fun invalidPersistentMapStateIsRejectedWithoutReplacingTheCurrentMap() {
+        val map = EveHomeMapMemory()
+        map.observe(pose(), telemetry(), EveRoomType.KITCHEN, 1_000L)
+        val before = map.snapshot().knownCells
+        val invalid = map.exportState().copy(cells = listOf(
+            EveHomeMapStoredCell(x = 0, y = 0, evidence = 99)
+        ))
+        assertTrue(!map.restoreState(invalid))
+        assertEquals(before, map.snapshot().knownCells)
+    }
+
     @Test fun mappedFrontierHeadingIsAWorldAngleInDegrees() {
         val map = EveHomeMapMemory()
         val start = pose()
