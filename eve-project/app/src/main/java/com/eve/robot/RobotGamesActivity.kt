@@ -1071,11 +1071,10 @@ class RobotGamesActivity : ComponentActivity() {
                                 thinkingSession != gameSessionId
                             ) return@post
                             if (searchResult.isFailure) {
-                                chessThinking = false
-                                renderChess("احتجت إلى إعادة حساب النقلات. حرّك قطعتك التالية عندما تكون جاهزًا.")
-                                return@post
+                                gameDialogueView?.text = "أعيد التفكير بسرعة حتى لا تتوقف المباراة."
                             }
-                            val robotMove = searchResult.getOrNull()
+                            // If deep search fails, use a legal fallback instead of leaving the turn locked.
+                            val robotMove = searchResult.getOrNull() ?: chess.legalMoves().firstOrNull()
                             if (robotMove == null) {
                                 chessThinking = false
                                 chessFinished = true
