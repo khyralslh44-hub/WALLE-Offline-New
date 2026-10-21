@@ -275,6 +275,10 @@ class EmbodiedGamesActivity : ComponentActivity() {
         cameraExecutor = Executors.newSingleThreadExecutor()
         val future = ProcessCameraProvider.getInstance(this)
         future.addListener({
+            // Ignore delayed provider callbacks if the user already left the game screen.
+            if (isFinishing || isDestroyed || detector == null || this.previewView !== previewView) {
+                return@addListener
+            }
             val readiness = EveEmbodiedGameGate.evaluate(this)
             if (!readiness.allowed) {
                 showLocked(readiness)
