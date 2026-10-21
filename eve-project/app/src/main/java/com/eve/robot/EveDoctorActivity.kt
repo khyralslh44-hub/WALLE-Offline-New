@@ -1,6 +1,10 @@
 package com.eve.robot
 
 import android.Manifest
+import android.app.AlertDialog
+import android.content.ActivityNotFoundException
+import android.content.Intent
+import android.net.Uri
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.os.Bundle
@@ -23,6 +27,9 @@ import androidx.camera.core.ImageProxy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.content.ContextCompat
 import java.nio.ByteBuffer
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import kotlin.math.max
@@ -38,6 +45,8 @@ class EveDoctorActivity : ComponentActivity() {
     private lateinit var qualityView: TextView
     private lateinit var startButton: Button
     private lateinit var stopButton: Button
+    private lateinit var saveReadingButton: Button
+    private lateinit var historyView: TextView
 
     private val handler = Handler(Looper.getMainLooper())
     private val processor = EvePulseSignalProcessor()
@@ -51,6 +60,8 @@ class EveDoctorActivity : ComponentActivity() {
     private var lastGuidanceAt = 0L
     private var framesUntilEstimate = 0
     @Volatile private var latestEstimate: EvePulseEstimate? = null
+    private var readingReadyToSave: EvePulseEstimate? = null
+    private val doctorPrefs by lazy { getSharedPreferences("eve_doctor_local_history", MODE_PRIVATE) }
 
     private val permissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -99,6 +110,7 @@ class EveDoctorActivity : ComponentActivity() {
         setContentView(ScrollView(this).apply { addView(root) })
 
         root.addView(text("E V E  •  إيف الطبيب", 13f, CYAN, true))
+        root.addView(text("مساحة صحية مستقلة عن الألعاب", 14f, MUTED))
         root.addView(text("تقدير النبض بالكاميرا", 25f, WHITE, true))
         root.addView(text(
             "ضع طرف إصبعك برفق فوق عدسة الكاميرا الخلفية والفلاش، دون ضغط قوي. أبقِ يدك ثابتة حتى ينتهي القياس.",
@@ -135,6 +147,73 @@ class EveDoctorActivity : ComponentActivity() {
         root.addView(stopButton, LinearLayout.LayoutParams(-1, -2).apply {
             bottomMargin = dp(8)
         })
+        root.addView(text("سجل المتابعة المحلي", 19f, CYAN, true))
+        root.addView(text(
+            "لا يُحفظ أي قياس تلقائيًا. بعد انتهاء القياس اضغط حفظ إذا أردت الاحتفاظ به على هذا الهاتف.",
+            13f, MUTED
+        ))
+        historyView = text(loadHistoryText(), 14f, WHITE)
+        root.addView(historyView, LinearLayout.LayoutParams(-1, -2).apply {
+            topMargin = dp(8)
+            bottomMargin = dp(8)
+        })
+        saveReadingButton = button("حفظ القراءة في السجل المحلي") { savePendingReading() }
+        saveReadingButton.visibility = View.GONE
+        root.addView(saveReadingButton, LinearLayout.LayoutParams(-1, -2).apply {
+            bottomMargin = dp(8)
+        })
+        root.addView(button("مسح السجل الصحي المحلي") { confirmClearHistory() }, LinearLayout.LayoutParams(-1, -2).apply {
+            bottomMargin = dp(16)
+        })
+
+        root.addView(text("خدمة طبية متخصصة لفحص نظم القلب", 19f, CYAN, true))
+        root.addView(text(
+            "FibriCheck خدمة منفصلة لتحليل النبض واضطراب النظم ضمن مسار طبي. لم تُدمج خوارزميتها التشخيصية داخل إيف بعد؛ يتطلب ذلك وصول شريك رسمي وبيانات اعتماد وتفعيل الخدمة. التحليل الرسمي قد يتطلب إرسال القياس إلى السحابة، بخلاف القياس التجريبي المحلي أدناه.",
+            13f, MUTED
+        ))
+        val fibriCheckButton = button("التعرّف على تكامل FibriCheck الرسمي") {
+            AlertDialog.Builder(this)
+                .setTitle("خدمة FibriCheck الرسمية")
+                .setMessage(
+                    "سيفتح الموقع الرسمي لمراجعة شروط التكامل. يلزم الوصول المصرّح إلى SDK/API، وقد يلزم حساب مستخدم ووصفة أو تفعيل خدمة. لم يتم تفعيل التحليل الطبي داخل إيف، ولن يُرسل أي قياس من إيف تلقائيًا."
+                )
+                .setNegativeButton("إلغاء", null)
+                .setPositiveButton("فتح الموقع الرسمي") { _, _ ->
+                    try {
+                        startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.fibricheck.com/integrations/")))
+                    } catch (_: ActivityNotFoundException) {
+                        setStatus("لم أجد تطبيقًا لفتح الرابط؛ افتح موقع FibriCheck من المتصفح.")
+                    }
+                }
+                .show()
+        }
+        root.addView(fibriCheckButton, LinearLayout.LayoutParams(-1, -2).apply {
+            bottomMargin = dp(8)
+        })
+
+        val anuraButton = button("عرض سجل FDA لنظام Anura (معلومات فقط)") {
+            AlertDialog.Builder(this)
+                .setTitle("Anura Mobile Core SDK")
+                .setMessage(
+                    "هذا رابط للسجل التنظيمي الرسمي فقط، وليس دمجًا للـSDK داخل إيف. يلزم الحصول على SDK وشروط استخدامه من الشركة وإجراء تحقق مستقل قبل استخدامه صحيًا."
+                )
+                .setNegativeButton("إلغاء", null)
+                .setPositiveButton("فتح سجل FDA") { _, _ ->
+                    try {
+                        startActivity(Intent(
+                            Intent.ACTION_VIEW,
+                            Uri.parse("https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfpmn/pmn.cfm?ID=K253650")
+                        ))
+                    } catch (_: ActivityNotFoundException) {
+                        setStatus("تعذّر فتح سجل FDA؛ افتح الرابط من المتصفح.")
+                    }
+                }
+                .show()
+        }
+        root.addView(anuraButton, LinearLayout.LayoutParams(-1, -2).apply {
+            bottomMargin = dp(14)
+        })
+
         root.addView(text(
             "الخصوصية: يعالج الهاتف عينات الألوان في الذاكرة فقط؛ لا يُعرض الفيديو ولا تُحفظ الصور أو القراءة. هذه أداة تجريبية لا تشخّص مرضًا ولا تقيس الأكسجين أو ضغط الدم. إذا ظهرت أعراض شديدة مثل ألم الصدر أو صعوبة التنفس أو الإغماء، اطلب المساعدة الطبية العاجلة ولا تنتظر التطبيق.",
             13f, MUTED
@@ -158,6 +237,8 @@ class EveDoctorActivity : ComponentActivity() {
         if (measuring) return
         processor.reset()
         latestEstimate = null
+        readingReadyToSave = null
+        saveReadingButton.visibility = View.GONE
         consecutiveUncoveredFrames = 0
         framesUntilEstimate = 0
         measurementStartedAt = SystemClock.elapsedRealtime()
@@ -298,6 +379,9 @@ class EveDoctorActivity : ComponentActivity() {
         // Final output must come from the current sample window, never from a stale earlier estimate.
         val accepted = estimate.takeIf { it.bpm != null }
         if (accepted?.bpm != null) {
+            readingReadyToSave = accepted
+            saveReadingButton.text = "حفظ القراءة في السجل المحلي"
+            saveReadingButton.visibility = View.VISIBLE
             bpmView.text = accepted.bpm.toString()
             qualityView.text =
                 "انتظام الإشارة: ${(accepted.periodicity * 100).toInt()} / 100 — ليس احتمالًا أو نسبة دقة طبية"
@@ -306,6 +390,8 @@ class EveDoctorActivity : ComponentActivity() {
                     "ولا تستخدمه لاتخاذ قرار علاجي."
             )
         } else {
+            readingReadyToSave = null
+            saveReadingButton.visibility = View.GONE
             bpmView.text = "--"
             qualityView.text = "جودة الإشارة: غير كافية لعرض رقم"
             setStatus(
@@ -313,6 +399,51 @@ class EveDoctorActivity : ComponentActivity() {
                     "حافظ على ثبات الإصبع وجرّب ثانية."
             )
         }
+    }
+
+
+    private fun savePendingReading() {
+        val reading = readingReadyToSave
+        if (reading?.bpm == null || !::historyView.isInitialized) {
+            setStatus("لا توجد قراءة موثوقة حاليًا لحفظها.")
+            return
+        }
+        val oldRecords = doctorPrefs.getString("records", "").orEmpty()
+            .lineSequence().filter { it.isNotBlank() }.toList()
+        val line = "${System.currentTimeMillis()}|${reading.bpm}|${(reading.periodicity * 100).toInt()}"
+        doctorPrefs.edit().putString("records", (oldRecords + line).takeLast(30).joinToString("\n")).apply()
+        readingReadyToSave = null
+        saveReadingButton.visibility = View.GONE
+        historyView.text = loadHistoryText()
+        setStatus("حُفظت القراءة محليًا على هذا الهاتف. لم يتم إرسالها إلى جهة خارجية.")
+    }
+
+    private fun loadHistoryText(): String {
+        val rows = doctorPrefs.getString("records", "").orEmpty()
+            .lineSequence().filter { it.isNotBlank() }.toList()
+        if (rows.isEmpty()) return "لا توجد قراءات محفوظة. يمكنك حفظ قراءة يدويًا بعد القياس."
+        val formatter = SimpleDateFormat("yyyy-MM-dd  HH:mm", Locale.getDefault())
+        return rows.takeLast(8).asReversed().mapNotNull { row ->
+            val parts = row.split("|")
+            if (parts.size != 3) return@mapNotNull null
+            val time = parts[0].toLongOrNull() ?: return@mapNotNull null
+            val bpm = parts[1].toIntOrNull() ?: return@mapNotNull null
+            val periodicity = parts[2].toIntOrNull() ?: return@mapNotNull null
+            "${formatter.format(Date(time))}  •  ${bpm} نبضة/دقيقة  •  انتظام الإشارة ${periodicity}/100"
+        }.joinToString("\n")
+    }
+
+    private fun confirmClearHistory() {
+        AlertDialog.Builder(this)
+            .setTitle("مسح السجل المحلي؟")
+            .setMessage("سيتم حذف القراءات الصحية المحفوظة على هذا الهاتف فقط. لا يمكن التراجع عن ذلك.")
+            .setNegativeButton("إلغاء", null)
+            .setPositiveButton("مسح السجل") { _, _ ->
+                doctorPrefs.edit().remove("records").apply()
+                historyView.text = loadHistoryText()
+                setStatus("مُسح السجل المحلي.")
+            }
+            .show()
     }
 
     private fun releaseCamera() {

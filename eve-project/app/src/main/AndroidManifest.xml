@@ -48,7 +48,14 @@
         <activity
             android:name=".EveDoctorActivity"
             android:screenOrientation="portrait"
-            android:exported="false" />
+            android:label="إيف الطبيب"
+            android:icon="@drawable/ic_eve_doctor_launcher"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
         <activity
             android:name=".EmbodiedGamesActivity"
             android:screenOrientation="portrait"
