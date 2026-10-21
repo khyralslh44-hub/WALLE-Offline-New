@@ -25,7 +25,9 @@ data class EyeExpressionProfile(
     val eyeWidth: Float,
     val eyeHeight: Float,
     val spacing: Float,
-    val silhouette: EyeSilhouette = defaultSilhouette(mood)
+    val silhouette: EyeSilhouette = defaultSilhouette(mood),
+    /** Intent steers only subtle gaze micro-motion; it never replaces the emotional pose. */
+    val intent: EveIntent? = null
 )
 
 private fun defaultSilhouette(mood: EveMood): EyeSilhouette = when (mood) {
@@ -332,7 +334,8 @@ object EyeExpressionGenerator {
             eyeWidth = eyeWidth,
             eyeHeight = eyeHeight,
             spacing = spacing,
-            silhouette = expressionSilhouette
+            silhouette = expressionSilhouette,
+            intent = decision.intent
         )
     }
 }
