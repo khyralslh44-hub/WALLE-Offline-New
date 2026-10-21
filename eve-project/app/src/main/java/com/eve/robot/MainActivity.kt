@@ -2655,6 +2655,8 @@ class MainActivity : ComponentActivity() {
         }
         val phone = phones.maxByOrNull { it.confidence * (0.8f + 0.2f * it.areaFraction) }
         val near = phone?.let(::nearEar) ?: 0f
+        // The caller passes a pose only when it is still fresh; keep freshness scoped here.
+        val poseIsFresh = pose != null
         val proximity = faceProximityConfidence(detectedFaces)
         val motionAt = maxOf(if (poseIsFresh) latestPoseObservedAt else 0L, if (handIsFresh) latestHandObservedAt else 0L)
         val motionScore = maxOf(if (poseIsFresh) pose?.jointMotionScore ?: 0f else 0f,
