@@ -163,7 +163,7 @@ object EyeExpressionGenerator {
         // Anger/focus/fatigue retain priority so jealousy or reassurance cannot hide urgent states.
         val clearSilhouette = when {
             decision.jealousy >= 0.62f &&
-                decision.mood !in setOf(EveMood.ANGRY, EveMood.IRRITATED, EveMood.SLEEPY, EveMood.FOCUSED) ->
+                decision.mood !in setOf(EveMood.ANGRY, EveMood.SLEEPY, EveMood.FOCUSED) ->
                 EyeSilhouette.SUSPICIOUS
             decision.pride >= 0.62f &&
                 decision.mood in setOf(EveMood.HAPPY, EveMood.PLAYFUL, EveMood.FAMILIAR, EveMood.NEUTRAL) ->
