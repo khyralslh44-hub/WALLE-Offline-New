@@ -119,10 +119,12 @@ class RobotBrain(personality: EvePersonality = EvePersonality()) {
             "proud", "pride" -> {
                 pride = (pride + 0.72f * certainty).coerceAtMost(1f)
                 jealousy = (jealousy - 0.20f * certainty).coerceAtLeast(0f)
+                reassurance = (reassurance - 0.18f * certainty).coerceAtLeast(0f)
                 valence = (valence + 0.08f * certainty).coerceAtMost(1f)
             }
             "reassured", "secure", "safe" -> {
                 reassurance = (reassurance + 0.70f * certainty).coerceAtMost(1f)
+                pride = (pride - 0.20f * certainty).coerceAtLeast(0f)
                 jealousy = (jealousy - 0.24f * certainty).coerceAtLeast(0f)
                 frustration = (frustration - 0.22f * certainty).coerceAtLeast(0f)
                 valence = (valence + 0.08f * certainty).coerceAtMost(1f)
@@ -312,6 +314,7 @@ class RobotBrain(personality: EvePersonality = EvePersonality()) {
             return snapshot(currentMood, "reassurance cue not confirmed; calm state unchanged", false, lastIdleIntent)
         }
         reassurance = (reassurance + 0.72f * certainty).coerceAtMost(1f)
+        pride = (pride - 0.30f * certainty).coerceAtLeast(0f)
         frustration = (frustration - 0.48f * certainty).coerceAtLeast(0f)
         jealousy = (jealousy - 0.28f * certainty).coerceAtLeast(0f)
         valence = (valence + 0.09f * certainty).coerceAtMost(1f)
@@ -641,7 +644,7 @@ class RobotBrain(personality: EvePersonality = EvePersonality()) {
                 arousal = (0.55f + 0.34f * certainty).coerceIn(0.35f, 0.92f)
                 curiosity = (curiosity * 0.70f + 0.18f).coerceIn(0f, 1f)
                 // A fearful expression in the observed person calls for a calmer, reassuring response.
-                reassurance = (reassurance + 0.24f * certainty).coerceAtMost(1f)
+                reassurance = (reassurance + 0.80f * certainty).coerceAtMost(1f)
                 EveMood.CONCERNED
             }
             "surprised" -> {
@@ -737,7 +740,7 @@ class RobotBrain(personality: EvePersonality = EvePersonality()) {
             valence = (valence + 0.30f * personality.warmth.coerceIn(0f, 1f)).coerceAtMost(1f)
             arousal = 0.68f
             curiosity = 0.66f
-            reassurance = (reassurance + 0.72f * personality.warmth.coerceIn(0f, 1f)).coerceAtMost(1f)
+            reassurance = (reassurance + 0.90f * personality.warmth.coerceIn(0f, 1f)).coerceAtMost(1f)
             jealousy = (jealousy - 0.24f).coerceAtLeast(0f)
             return snapshot(EveMood.HAPPY, "comforting long touch; frustration eased", true)
         }
