@@ -558,35 +558,31 @@ class RobotFaceView(context: Context) : View(context) {
         // Soft cyan halo + crisp solid core: clear LED eyes without pupils or white shine.
         // Intensity is driven by EVE's current affect profile, not random colour cycling.
         halo.shader = null
-        halo.color = Color.argb((25f + 25f * intensity).toInt().coerceIn(0, 55), 0, 218, 236)
+        halo.color = Color.argb((20f + 22f * intensity).toInt().coerceIn(0, 48), 0, 205, 215)
         halo.setShadowLayer(
             max(2f, w * (0.08f + 0.045f * intensity)),
             0f, 0f,
-            Color.argb((48f * intensity).toInt().coerceIn(0, 55), 0, 220, 238)
+            Color.argb((42f * intensity).toInt().coerceIn(0, 48), 0, 205, 215)
         )
         c.drawPath(shape, halo)
         halo.clearShadowLayer()
 
         edge.shader = null
         edge.strokeWidth = max(1f, w * 0.025f)
-        edge.color = Color.argb((24f * intensity).toInt().coerceIn(0, 32), 0, 232, 244)
+        edge.color = Color.argb((20f * intensity).toInt().coerceIn(0, 28), 0, 205, 215)
         c.drawPath(shape, edge)
 
         fill.style = Paint.Style.FILL
         fill.shader = null
         fill.alpha = 255
+        // Preserve EVE's original, consistent cyan palette. Emotional nuance comes from
+        // geometry, gaze, eyelids and timing—not from recolouring the eyes by mood.
         fill.color = when (mood) {
-            // Familiarity and joy lean mint-green; curiosity and surprise lean ice-blue.
-            EveMood.HAPPY, EveMood.FAMILIAR, EveMood.PLAYFUL ->
-                Color.rgb(34, 232, 205)
-            EveMood.CURIOUS, EveMood.SURPRISED ->
-                Color.rgb(70, 222, 255)
-            // Concern and low energy remain teal; irritation stays brighter but restrained.
-            EveMood.SLEEPY, EveMood.CONCERNED ->
-                Color.rgb(0, 154, 180)
-            EveMood.IRRITATED, EveMood.ANGRY ->
-                Color.rgb(0, 190, 213)
-            else -> Color.rgb(0, 202, 220)
+            EveMood.SLEEPY, EveMood.CONCERNED, EveMood.IRRITATED, EveMood.ANGRY ->
+                Color.rgb(0, 158, 174)
+            EveMood.HAPPY, EveMood.SURPRISED, EveMood.PLAYFUL ->
+                Color.rgb(0, 205, 215)
+            else -> Color.rgb(0, 181, 193)
         }
         c.drawPath(shape, fill)
 
