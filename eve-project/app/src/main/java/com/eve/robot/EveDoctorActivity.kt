@@ -50,7 +50,7 @@ class EveDoctorActivity : ComponentActivity() {
     private var consecutiveUncoveredFrames = 0
     private var lastGuidanceAt = 0L
     private var framesUntilEstimate = 0
-    private var latestEstimate: EvePulseEstimate? = null
+    @Volatile private var latestEstimate: EvePulseEstimate? = null
 
     private val permissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -69,8 +69,13 @@ class EveDoctorActivity : ComponentActivity() {
                 bpmView.text = estimate.bpm.toString()
                 qualityView.text = "انتظام الإشارة: ${(estimate.periodicity * 100).toInt()} / 100 — مؤشر إشارة لا نسبة دقة طبية"
                 setStatus("تقدير أولي؛ حافظ على ثبات الإصبع.")
-            } else if (elapsed > 2_500L && remaining > 0L && estimate.bpm == null) {
-                qualityView.text = "جودة الإشارة: لم تُعتمد قراءة بعد"
+            } else {
+                // Do not keep an earlier number visible if current frames no longer support it.
+                latestEstimate = null
+                if (elapsed >= 8_000L) bpmView.text = "--"
+                if (elapsed > 2_500L && remaining > 0L && estimate.bpm == null) {
+                    qualityView.text = "جودة الإشارة: لم تُعتمد قراءة بعد"
+                }
             }
             statusView.contentDescription = statusView.text
             if (remaining <= 0L) {
@@ -250,7 +255,10 @@ class EveDoctorActivity : ComponentActivity() {
 
         if (!covered) {
             consecutiveUncoveredFrames++
-            if (consecutiveUncoveredFrames >= 4) processor.reset()
+            if (consecutiveUncoveredFrames >= 4) {
+                processor.reset()
+                latestEstimate = null
+            }
             if (timestampMs - lastGuidanceAt >= 1_000L) {
                 lastGuidanceAt = timestampMs
                 val hint = when {
@@ -287,8 +295,8 @@ class EveDoctorActivity : ComponentActivity() {
         if (!wasMeasuring) return
 
         val estimate = processor.estimate(SystemClock.elapsedRealtime())
-        val accepted = latestEstimate?.takeIf { it.bpm != null }
-            ?: estimate.takeIf { it.bpm != null }
+        // Final output must come from the current sample window, never from a stale earlier estimate.
+        val accepted = estimate.takeIf { it.bpm != null }
         if (accepted?.bpm != null) {
             bpmView.text = accepted.bpm.toString()
             qualityView.text =
