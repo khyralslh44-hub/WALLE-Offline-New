@@ -240,4 +240,55 @@ class EveAutonomousMindTest {
         assertTrue(mind.recentFeedback().isEmpty())
     }
 
+
+    @Test fun repeatedSuccessfulExperienceRaisesPriorityOfThatUsefulStep() {
+        val mind = EveAutonomousMind()
+        repeat(2) { index ->
+            mind.recordFeedback(
+                EveMindFeedback(
+                    goal = EveMindGoal.REFLECT_ON_NEW_EVIDENCE,
+                    action = EveMindAction.REQUEST_LOCAL_REFLECTION,
+                    succeeded = true,
+                    note = "previous-cup-observation-$index",
+                    atMs = 20_000L + index
+                )
+            )
+        }
+
+        val plan = mind.plan(context(now = 30_000L, explore = true, llmReady = true))
+        val learnedPriority = plan.steps.first { it.action == EveMindAction.REQUEST_LOCAL_REFLECTION }.priority
+        assertTrue("Successful experience should increase this action's priority", learnedPriority > 0.76f)
+    }
+
+    @Test fun repeatedFailureOfCameraSwitchMakesMindWaitInsteadOfRepeatingIt() {
+        val mind = EveAutonomousMind()
+        repeat(2) { index ->
+            mind.recordFeedback(
+                EveMindFeedback(
+                    goal = EveMindGoal.EXPLORE_CURRENT_VIEW,
+                    action = EveMindAction.SWITCH_TO_WORLD_CAMERA,
+                    succeeded = false,
+                    note = "camera switch unavailable",
+                    atMs = 26_000L + index * 1_000L
+                )
+            )
+        }
+
+        val plan = mind.plan(
+            context(
+                now = 30_000L,
+                inactive = EveAutonomousMind.AUTO_CAMERA_SWITCH_IDLE_MS,
+                sceneAge = Long.MAX_VALUE,
+                scene = "",
+                label = "",
+                confidence = 0f,
+                explore = true,
+                cameraFront = true,
+                switchAllowed = true
+            )
+        )
+        assertEquals(EveMindGoal.WAIT_QUIETLY, plan.goal)
+        assertFalse(plan.steps.any { it.action == EveMindAction.SWITCH_TO_WORLD_CAMERA })
+    }
+
 }
