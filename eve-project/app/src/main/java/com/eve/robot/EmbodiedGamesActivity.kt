@@ -53,6 +53,7 @@ class EmbodiedGamesActivity : ComponentActivity() {
     private var cameraExecutor: ExecutorService? = null
     @Volatile private var visibleFaceCount = 0
     private var countdownRemaining = 5
+    private var nextCountdownTickAt = 0L
     private var searchingStartedAt = 0L
     private var firstNoFaceAt = 0L
     private var signalAt = 0L
@@ -186,7 +187,7 @@ class EmbodiedGamesActivity : ComponentActivity() {
             requestCameraOrStart()
         }, true)
         root.addView(text("تحدّي الظهور السريع", 19f, 0xFF14D7E6.toInt(), true))
-        root.addView(text("انتظر الإشارة ثم أظهر وجهك أمام الكاميرا؛ لا تُحسب المحاولة المبكرة.", 14f))
+        root.addView(text("ابتعد عن مجال الكاميرا، وانتظر الإشارة ثم أظهر وجهك أمامها؛ لا تُحسب المحاولة المبكرة.", 14f))
         addButton("⚡ بدء تحدّي الظهور", {
             mode = Mode.REACTION
             requestCameraOrStart()
@@ -343,6 +344,7 @@ class EmbodiedGamesActivity : ComponentActivity() {
         }
         phase = Phase.COUNTDOWN
         countdownRemaining = 5
+        nextCountdownTickAt = SystemClock.elapsedRealtime() + 1_000L
         updateStatus("سأغلق عينيّ… ${countdownRemaining}")
     }
 
@@ -369,14 +371,17 @@ class EmbodiedGamesActivity : ComponentActivity() {
         val now = SystemClock.elapsedRealtime()
         when (phase) {
             Phase.COUNTDOWN -> {
-                countdownRemaining--
-                if (countdownRemaining > 0) {
-                    updateStatus("سأغلق عينيّ… ${countdownRemaining}")
-                } else {
-                    phase = Phase.SEARCHING
-                    searchingStartedAt = now
-                    firstNoFaceAt = 0L
-                    updateStatus("افسحي عن مجال الكاميرا واختبئي، ثم عودي أمامها لأرى إن كنت وجدتك!")
+                if (now >= nextCountdownTickAt) {
+                    countdownRemaining--
+                    nextCountdownTickAt += 1_000L
+                    if (countdownRemaining > 0) {
+                        updateStatus("سأغلق عينيّ… ${countdownRemaining}")
+                    } else {
+                        phase = Phase.SEARCHING
+                        searchingStartedAt = now
+                        firstNoFaceAt = 0L
+                        updateStatus("افسحي عن مجال الكاميرا واختبئي، ثم عودي أمامها لأرى إن كنت وجدتك!")
+                    }
                 }
             }
             Phase.SEARCHING, Phase.HIDDEN -> {
@@ -420,7 +425,7 @@ class EmbodiedGamesActivity : ComponentActivity() {
     }
 
     private fun stopCamera() {
-        roundTask?.let(handler::removeCallbacks)
+        handler.removeCallbacksAndMessages(null)
         roundTask = null
         try {
             cameraAnalysis?.clearAnalyzer()
@@ -432,5 +437,7 @@ class EmbodiedGamesActivity : ComponentActivity() {
         gameProvider = null
         previewView = null
         visibleFaceCount = 0
+        cameraExecutor?.shutdownNow()
+        cameraExecutor = null
     }
 }
