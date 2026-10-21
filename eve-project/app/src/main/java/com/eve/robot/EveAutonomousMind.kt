@@ -238,11 +238,11 @@ class EveAutonomousMind(
     fun exportMemory(): String = buildString {
         append(MEMORY_HEADER).append('\n')
         feedback.forEach { item ->
-            append("F\\t")
-                .append(item.goal.name).append('\\t')
-                .append(item.action.name).append('\\t')
-                .append(item.succeeded).append('\\t')
-                .append(item.atMs.coerceAtLeast(0L)).append('\\t')
+            append("F\t")
+                .append(item.goal.name).append('\t')
+                .append(item.action.name).append('\t')
+                .append(item.succeeded).append('\t')
+                .append(item.atMs.coerceAtLeast(0L)).append('\t')
                 .append(encodeMemoryField(item.note.take(180)))
                 .append('\n')
         }
@@ -265,8 +265,8 @@ class EveAutonomousMind(
         lastPlanAtMs = 0L
 
         serialized.lineSequence().drop(1).take(MAX_MEMORY_RECORDS).forEach { line ->
-            if (!line.startsWith("F\\t")) return@forEach
-            val fields = line.split('\\t', limit = 6)
+            if (!line.startsWith("F\t")) return@forEach
+            val fields = line.split('\t', limit = 6)
             if (fields.size != 6) return@forEach
             val goal = runCatching { EveMindGoal.valueOf(fields[1]) }.getOrNull() ?: return@forEach
             val action = runCatching { EveMindAction.valueOf(fields[2]) }.getOrNull() ?: return@forEach
