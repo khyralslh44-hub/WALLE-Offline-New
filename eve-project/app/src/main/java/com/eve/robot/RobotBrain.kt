@@ -312,7 +312,7 @@ class RobotBrain(personality: EvePersonality = EvePersonality()) {
             return snapshot(currentMood, "reassurance cue not confirmed; calm state unchanged", false, lastIdleIntent)
         }
         reassurance = (reassurance + 0.72f * certainty).coerceAtMost(1f)
-        frustration = (frustration - 0.28f * certainty).coerceAtLeast(0f)
+        frustration = (frustration - 0.48f * certainty).coerceAtLeast(0f)
         jealousy = (jealousy - 0.28f * certainty).coerceAtLeast(0f)
         valence = (valence + 0.09f * certainty).coerceAtMost(1f)
         arousal = (arousal * 0.60f + 0.18f).coerceIn(0.12f, 0.66f)
