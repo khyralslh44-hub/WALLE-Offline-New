@@ -116,6 +116,20 @@ jobs:
             echo "FAIL: portrait fixture hash mismatch: $ACTUAL_FIXTURE"
             exit 1
           fi
+          # The face-identity negative-control test needs its second portrait in this same APK build.
+          IDENTITY_FIXTURE="eve-project/app/src/androidTest/assets/face_fixture_biden.jpg"
+          mkdir -p "$(dirname "$IDENTITY_FIXTURE")"
+          curl --fail --location --retry 3 --connect-timeout 20 --max-time 120 \
+            "https://raw.githubusercontent.com/ageitgey/face_recognition/9f3061aaeed9a8756d2c970f5dfe066617a8281d/examples/biden.jpg" \
+            --output "$IDENTITY_FIXTURE"
+          EXPECTED_IDENTITY_FIXTURE="3a0bdc974e9067b1595a6a623a3d898265b0a7a2"
+          ACTUAL_IDENTITY_FIXTURE="$(git hash-object "$IDENTITY_FIXTURE")"
+          if [ "$ACTUAL_IDENTITY_FIXTURE" != "$EXPECTED_IDENTITY_FIXTURE" ]; then
+            echo "FAIL: different-person face fixture hash mismatch: $ACTUAL_IDENTITY_FIXTURE"
+            exit 1
+          fi
+          echo "PASS: pinned second-person portrait verified."
+
           curl --fail --location --retry 3 \
             "https://raw.githubusercontent.com/EnricoZanetti/moodstream/af59e5cdbd45936051a27e694b160996526f11bb/models/emotion_model.tflite" \
             --output "$MODEL"

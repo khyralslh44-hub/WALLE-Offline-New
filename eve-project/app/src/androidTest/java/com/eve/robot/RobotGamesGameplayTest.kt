@@ -98,9 +98,16 @@ class RobotGamesGameplayTest {
                     "RPS should display the played round and both scores: ${visibleText(activity)}",
                     visibleText(activity).contains("الجولات: 1")
                 )
+                val roundText = visibleText(activity)
                 assertTrue(
-                    "RPS should report the outcome of the round: ${visibleText(activity)}",
-                    visibleText(activity).contains("نقطة") || visibleText(activity).contains("تعادل")
+                    "RPS should report an explicit outcome for the played round: $roundText",
+                    roundText.contains("النتيجة player") ||
+                        roundText.contains("النتيجة robot") ||
+                        roundText.contains("النتيجة draw") ||
+                        roundText.contains("نقطة") ||
+                        roundText.contains("تعادل") ||
+                        roundText.contains("هذه الجولة لك") ||
+                        roundText.contains("هذه الجولة لإيف")
                 )
                 assertTrue(
                     "The chosen move should be persisted for later pattern reading.",

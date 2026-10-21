@@ -308,11 +308,38 @@ class LocalLanguageBrain(
             latestSceneSummary = "",
             sceneObservationAgeMs = Long.MAX_VALUE
         )
+        val localFallbackReply = when (outcome.lowercase(Locale.ROOT)) {
+            "player", "success", "hit" ->
+                "أحسنت! هذه الجولة لك. سأغيّر خطتي في الجولة القادمة."
+            "robot" ->
+                "فزت بهذه الجولة، لكن يمكنك قلب النتيجة في الجولة التالية."
+            "draw" ->
+                "تعادل جميل! سأجرّب أسلوبًا مختلفًا في الجولة القادمة."
+            else ->
+                "سأستخدم نتيجة هذه الجولة لاختيار خطتي التالية."
+        }
         runInference(
             buildPrompt("GAME", gameEvent, gameContext),
             // The JSON schema itself consumes tokens; leave enough room for a real Arabic comment.
             maxOutputTokens = 40,
-            callback = callback
+            callback = { result ->
+                val generated = result.getOrNull()
+                if (generated != null && generated.replyArabic.isBlank()) {
+                    // Small local models can obey the JSON schema but still leave reply_ar empty.
+                    // Preserve the model's mood/intent hints, but never let a game event go silent.
+                    Log.w(TAG, "LOCAL_LLM_GAME_REPLY_FALLBACK outcome=${outcome.take(24)} reason=empty_reply")
+                    callback(
+                        Result.success(
+                            generated.copy(
+                                replyArabic = localFallbackReply,
+                                intentHint = generated.intentHint ?: "play"
+                            )
+                        )
+                    )
+                } else {
+                    callback(result)
+                }
+            }
         )
     }
 
