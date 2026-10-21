@@ -341,6 +341,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: EVE-Expression-Gallery-API-${{ matrix.api-level }}
-          path: eve-deep-results/eye-expression-contact-sheet.png
+          path: eve-deep-results/api-29/eye-expression-contact-sheet.png
           if-no-files-found: warn
           retention-days: 14
