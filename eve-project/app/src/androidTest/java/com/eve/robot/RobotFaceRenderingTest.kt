@@ -37,7 +37,10 @@ class RobotFaceRenderingTest {
         arousal: Float = 0.32f,
         curiosity: Float = 0.55f,
         fatigue: Float = 0f,
-        frustration: Float = 0f
+        frustration: Float = 0f,
+        jealousy: Float = 0f,
+        pride: Float = 0f,
+        reassurance: Float = 0f
     ) = Spec(
         label,
         EveDecision(
@@ -48,7 +51,10 @@ class RobotFaceRenderingTest {
             curiosity = curiosity,
             familiarity = 0.10f,
             fatigue = fatigue,
-            frustration = frustration
+            frustration = frustration,
+            jealousy = jealousy,
+            pride = pride,
+            reassurance = reassurance
         ),
         expected
     )
@@ -62,6 +68,7 @@ class RobotFaceRenderingTest {
             spec("Blink high", EveMood.NEUTRAL, EyeSilhouette.BLINK_HIGH, reason = "blink high", arousal = 0.10f),
             spec("Happy", EveMood.HAPPY, EyeSilhouette.SMILE, reason = "happy", valence = 0.25f, arousal = 0.75f),
             spec("Glee", EveMood.HAPPY, EyeSilhouette.GLEE, reason = "happy", valence = 0.85f, arousal = 0.85f),
+            spec("Proud", EveMood.PLAYFUL, EyeSilhouette.PROUD, reason = "proud", valence = 0.70f, arousal = 0.72f, pride = 0.95f),
             spec("Blink low", EveMood.NEUTRAL, EyeSilhouette.BLINK_LOW, reason = "blink low", fatigue = 0.80f),
             spec("Sad down", EveMood.CONCERNED, EyeSilhouette.SAD_DOWN, reason = "sad down", valence = -0.70f, fatigue = 0.70f),
             spec("Sad up", EveMood.CONCERNED, EyeSilhouette.SAD_UP, reason = "sad up", valence = -0.70f, fatigue = 0.10f),
@@ -74,6 +81,7 @@ class RobotFaceRenderingTest {
             spec("Unimpressed", EveMood.CONCERNED, EyeSilhouette.UNIMPRESSED, reason = "unimpressed", arousal = 0.20f),
             spec("Sleepy", EveMood.SLEEPY, EyeSilhouette.DROOPY, reason = "sleepy", fatigue = 0.30f),
             spec("Suspicious", EveMood.CURIOUS, EyeSilhouette.SUSPICIOUS, reason = "suspicious", valence = -0.50f, curiosity = 0.92f),
+            spec("Jealous", EveMood.IRRITATED, EyeSilhouette.JEALOUS, reason = "jealous", valence = -0.25f, arousal = 0.45f, jealousy = 0.95f),
             spec("Squint", EveMood.FOCUSED, EyeSilhouette.SQUINT, reason = "low focus", arousal = 0.10f),
             spec("Angry", EveMood.ANGRY, EyeSilhouette.SHARP, reason = "angry", arousal = 0.50f, frustration = 0.20f),
             spec("Furious", EveMood.ANGRY, EyeSilhouette.FURIOUS, reason = "angry", arousal = 0.88f, frustration = 0.88f),
@@ -81,6 +89,7 @@ class RobotFaceRenderingTest {
             spec("Awe", EveMood.SURPRISED, EyeSilhouette.AWE, reason = "surprised", valence = 0.85f, arousal = 0.86f),
             spec("Playful", EveMood.PLAYFUL, EyeSilhouette.PLAYFUL, reason = "playful", valence = 0.40f),
             spec("Warm", EveMood.FAMILIAR, EyeSilhouette.SOFT, reason = "familiar", valence = 0.25f),
+            spec("Affectionate", EveMood.FAMILIAR, EyeSilhouette.AFFECTIONATE, reason = "affection", valence = 0.45f, reassurance = 0.95f),
             spec(
                 "Confused", EveMood.CONCERNED, EyeSilhouette.CONFUSED,
                 reason = "confused", valence = -0.05f, arousal = 0.40f, frustration = 0.10f

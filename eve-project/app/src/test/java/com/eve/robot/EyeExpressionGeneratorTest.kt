@@ -35,9 +35,9 @@ class EyeExpressionGeneratorTest {
         val pridePose = EyeExpressionGenerator.generate(proud, 202L).silhouette
         val affectionPose = EyeExpressionGenerator.generate(affectionate, 203L).silhouette
 
-        assertEquals(EyeSilhouette.SUSPICIOUS, jealousyPose)
-        assertEquals(EyeSilhouette.GLEE, pridePose)
-        assertEquals(EyeSilhouette.SOFT, affectionPose)
+        assertEquals(EyeSilhouette.JEALOUS, jealousyPose)
+        assertEquals(EyeSilhouette.PROUD, pridePose)
+        assertEquals(EyeSilhouette.AFFECTIONATE, affectionPose)
         assertEquals(
             "Jealousy, pride, and affection must not reuse or layer the same eye drawing.",
             3,
@@ -259,6 +259,18 @@ class EyeExpressionGeneratorTest {
             EyeExpressionGenerator.generateDizzy(
                 EveDecision(EveMood.CONCERNED, "confirmed strong physical shake")
             ).silhouette                                                        // dedicated dizzy pose
+,
+            EyeExpressionGenerator.generate(
+                EveDecision(EveMood.IRRITATED, "high-confidence social competition", jealousy = 0.95f), 11L
+            ).silhouette                                                        // unique jealousy glyph
+,
+            EyeExpressionGenerator.generate(
+                EveDecision(EveMood.PLAYFUL, "confirmed achievement", pride = 0.95f), 12L
+            ).silhouette                                                        // unique pride glyph
+,
+            EyeExpressionGenerator.generate(
+                EveDecision(EveMood.FAMILIAR, "confirmed reassurance", reassurance = 0.95f), 13L
+            ).silhouette                                                        // unique affection glyph
         )
         assertEquals(
             "Every reference-inspired glyph should be reachable from affect state and intent, not text labels.",

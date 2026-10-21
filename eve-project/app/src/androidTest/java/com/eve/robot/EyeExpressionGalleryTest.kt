@@ -33,7 +33,10 @@ class EyeExpressionGalleryTest {
         arousal: Float = 0.32f,
         curiosity: Float = 0.55f,
         fatigue: Float = 0f,
-        frustration: Float = 0f
+        frustration: Float = 0f,
+        jealousy: Float = 0f,
+        pride: Float = 0f,
+        reassurance: Float = 0f
     ) = EveDecision(
         mood = mood,
         reason = reason,
@@ -41,7 +44,10 @@ class EyeExpressionGalleryTest {
         arousal = arousal,
         curiosity = curiosity,
         fatigue = fatigue,
-        frustration = frustration
+        frustration = frustration,
+        jealousy = jealousy,
+        pride = pride,
+        reassurance = reassurance
     )
 
     private fun cases() = listOf(
@@ -51,6 +57,7 @@ class EyeExpressionGalleryTest {
         GlyphCase(EyeSilhouette.BLINK_HIGH, "BLINK HIGH", decision(EveMood.NEUTRAL, "blink high", arousal = 0.10f)),
         GlyphCase(EyeSilhouette.SMILE, "HAPPY", decision(EveMood.HAPPY, "happy", valence = 0.25f)),
         GlyphCase(EyeSilhouette.GLEE, "GLEE", decision(EveMood.HAPPY, "happy", valence = 0.85f, arousal = 0.85f)),
+        GlyphCase(EyeSilhouette.PROUD, "PROUD", decision(EveMood.PLAYFUL, "proud", valence = 0.70f, arousal = 0.72f, pride = 0.95f)),
         GlyphCase(EyeSilhouette.BLINK_LOW, "BLINK LOW", decision(EveMood.NEUTRAL, "blink low", fatigue = 0.80f)),
         GlyphCase(EyeSilhouette.SAD_DOWN, "SAD DOWN", decision(EveMood.CONCERNED, "sad down", valence = -0.70f, fatigue = 0.70f)),
         GlyphCase(EyeSilhouette.SAD_UP, "SAD UP", decision(EveMood.CONCERNED, "sad up", valence = -0.70f, fatigue = 0.10f)),
@@ -63,6 +70,7 @@ class EyeExpressionGalleryTest {
         GlyphCase(EyeSilhouette.UNIMPRESSED, "UNIMPRESSED", decision(EveMood.CONCERNED, "unimpressed", arousal = 0.20f)),
         GlyphCase(EyeSilhouette.DROOPY, "SLEEPY", decision(EveMood.SLEEPY, fatigue = 0.3f)),
         GlyphCase(EyeSilhouette.SUSPICIOUS, "SUSPICIOUS", decision(EveMood.CURIOUS, "suspicious", valence = -0.50f, curiosity = 0.92f)),
+        GlyphCase(EyeSilhouette.JEALOUS, "JEALOUS", decision(EveMood.IRRITATED, "jealous", valence = -0.25f, arousal = 0.45f, jealousy = 0.95f)),
         GlyphCase(EyeSilhouette.SQUINT, "SQUINT", decision(EveMood.FOCUSED, arousal = 0.1f)),
         GlyphCase(EyeSilhouette.SHARP, "ANGRY", decision(EveMood.ANGRY, "angry", arousal = 0.5f)),
         GlyphCase(EyeSilhouette.FURIOUS, "FURIOUS", decision(EveMood.ANGRY, "angry", arousal = 0.85f, frustration = 0.85f)),
@@ -71,6 +79,7 @@ class EyeExpressionGalleryTest {
         GlyphCase(EyeSilhouette.AWE, "AWE", decision(EveMood.SURPRISED, "surprised", valence = 0.85f)),
         GlyphCase(EyeSilhouette.PLAYFUL, "PLAYFUL", decision(EveMood.PLAYFUL, valence = 0.40f)),
         GlyphCase(EyeSilhouette.SOFT, "WARM / SOFT", decision(EveMood.FAMILIAR, valence = 0.25f)),
+        GlyphCase(EyeSilhouette.AFFECTIONATE, "AFFECTIONATE", decision(EveMood.FAMILIAR, "affection", valence = 0.45f, reassurance = 0.95f)),
         GlyphCase(
             EyeSilhouette.CONFUSED, "CONFUSED",
             decision(EveMood.CONCERNED, valence = -0.05f, arousal = 0.40f, frustration = 0.10f)
@@ -237,6 +246,9 @@ class EyeExpressionGalleryTest {
                 EyeSilhouette.SCARED -> 19
                 EyeSilhouette.CONFUSED -> 11
                 EyeSilhouette.DIZZY -> 12
+                EyeSilhouette.JEALOUS -> 8
+                EyeSilhouette.PROUD -> 10
+                EyeSilhouette.AFFECTIONATE -> 12
                 EyeSilhouette.ANTICIPATING -> 12
                 EyeSilhouette.DISAPPOINTED -> 8
             }

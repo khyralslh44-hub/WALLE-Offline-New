@@ -294,6 +294,9 @@ class RobotFaceView(context: Context) : View(context) {
             EyeSilhouette.SKEPTIC, EyeSilhouette.SUSPICIOUS -> 0.92f
             EyeSilhouette.ANTICIPATING -> 0.98f
             EyeSilhouette.DISAPPOINTED -> 0.96f
+            EyeSilhouette.JEALOUS -> 0.94f
+            EyeSilhouette.PROUD -> 1.02f
+            EyeSilhouette.AFFECTIONATE -> 0.98f
             else -> 1f
         }
         val heightScale = when (eyeSilhouette) {
@@ -306,6 +309,9 @@ class RobotFaceView(context: Context) : View(context) {
             EyeSilhouette.CONFUSED -> 1.10f
             EyeSilhouette.ANTICIPATING -> 1.22f
             EyeSilhouette.DISAPPOINTED -> 1.06f
+            EyeSilhouette.JEALOUS -> 0.92f
+            EyeSilhouette.PROUD -> 0.96f
+            EyeSilhouette.AFFECTIONATE -> 1.12f
             else -> 1f
         }
         val hw = baseHalfWidth * widthScale
@@ -334,6 +340,9 @@ class RobotFaceView(context: Context) : View(context) {
             EyeSilhouette.CONFUSED -> 1.04f
             EyeSilhouette.ANTICIPATING -> 1.10f
             EyeSilhouette.DISAPPOINTED -> 1.08f
+            EyeSilhouette.JEALOUS -> 0.82f
+            EyeSilhouette.PROUD -> 0.92f
+            EyeSilhouette.AFFECTIONATE -> 1.08f
             else -> 1f
         }
         val glyphHh = hh * when (eyeSilhouette) {
@@ -343,6 +352,9 @@ class RobotFaceView(context: Context) : View(context) {
             EyeSilhouette.UNIMPRESSED -> 0.58f
             EyeSilhouette.SMILE -> 0.72f
             EyeSilhouette.GLEE -> 0.42f
+            EyeSilhouette.JEALOUS -> 0.78f
+            EyeSilhouette.PROUD -> 0.88f
+            EyeSilhouette.AFFECTIONATE -> 0.98f
             else -> eyeScale
         }
         val centerY = cy + when (eyeSilhouette) {
@@ -352,6 +364,9 @@ class RobotFaceView(context: Context) : View(context) {
             EyeSilhouette.CONFUSED -> if (side < 0) -hh * 0.06f else hh * 0.12f
             EyeSilhouette.ANTICIPATING -> -hh * 0.04f
             EyeSilhouette.DISAPPOINTED -> hh * 0.18f
+            EyeSilhouette.JEALOUS -> hh * 0.10f
+            EyeSilhouette.PROUD -> -hh * 0.035f
+            EyeSilhouette.AFFECTIONATE -> -hh * 0.025f
             else -> 0f
         }
         val eyeRect = RectF(cx - hw, centerY - glyphHh, cx + hw, centerY + glyphHh)
@@ -601,6 +616,57 @@ class RobotFaceView(context: Context) : View(context) {
 
             EyeSilhouette.CONFUSED -> {
                 // Confusion is intentionally asymmetric: one raised eye, one hesitant, lowered eye.
+            EyeSilhouette.JEALOUS -> {
+                // Jealousy reads as a deliberately uneven half-lid plus a strong side glance,
+                // not the symmetric inward-sloping suspicion glyph.
+                if (side < 0) {
+                    shape.moveTo(cx - hw, centerY - glyphHh * 0.08f)
+                    shape.quadTo(cx, centerY - glyphHh * 0.48f,
+                        cx + hw, centerY - glyphHh * 0.16f)
+                    shape.lineTo(cx + hw, centerY + glyphHh * 0.22f)
+                    shape.quadTo(cx, centerY + glyphHh * 0.34f,
+                        cx - hw, centerY + glyphHh * 0.20f)
+                } else {
+                    shape.moveTo(cx - hw, centerY - glyphHh * 0.38f)
+                    shape.lineTo(cx + hw, centerY - glyphHh * 0.18f)
+                    shape.lineTo(cx + hw * 0.94f, centerY + glyphHh * 0.30f)
+                    shape.quadTo(cx, centerY + glyphHh * 0.43f,
+                        cx - hw, centerY + glyphHh * 0.34f)
+                }
+                shape.close()
+            }
+
+            EyeSilhouette.PROUD -> {
+                // Pride is a confident, lifted lid with a broad lower bowl: not the thin joy crescent.
+                shape.moveTo(cx - hw, centerY + glyphHh * 0.06f)
+                shape.lineTo(cx - hw * 0.66f, centerY - glyphHh * 0.48f)
+                shape.quadTo(cx, centerY - glyphHh * 0.34f,
+                    cx + hw * 0.66f, centerY - glyphHh * 0.48f)
+                shape.lineTo(cx + hw, centerY + glyphHh * 0.06f)
+                shape.lineTo(cx + hw * 0.86f, centerY + glyphHh * 0.40f)
+                shape.quadTo(cx, centerY + glyphHh * 0.62f,
+                    cx - hw * 0.86f, centerY + glyphHh * 0.40f)
+                shape.close()
+            }
+
+            EyeSilhouette.AFFECTIONATE -> {
+                // Affection uses a soft, almond-like cushion, visibly different from the SOFT capsule.
+                shape.moveTo(cx - hw, centerY - glyphHh * 0.04f)
+                shape.cubicTo(cx - hw * 0.92f, centerY - glyphHh * 0.76f,
+                    cx - hw * 0.24f, centerY - glyphHh * 0.98f,
+                    cx, centerY - glyphHh * 0.62f)
+                shape.cubicTo(cx + hw * 0.24f, centerY - glyphHh * 0.98f,
+                    cx + hw * 0.92f, centerY - glyphHh * 0.76f,
+                    cx + hw, centerY - glyphHh * 0.04f)
+                shape.cubicTo(cx + hw * 0.90f, centerY + glyphHh * 0.70f,
+                    cx + hw * 0.25f, centerY + glyphHh * 0.94f,
+                    cx, centerY + glyphHh * 0.55f)
+                shape.cubicTo(cx - hw * 0.25f, centerY + glyphHh * 0.94f,
+                    cx - hw * 0.90f, centerY + glyphHh * 0.70f,
+                    cx - hw, centerY - glyphHh * 0.04f)
+                shape.close()
+            }
+
                 if (side < 0) {
                     shape.moveTo(cx - hw, centerY + glyphHh * 0.22f)
                     shape.quadTo(cx - hw * 0.82f, centerY - glyphHh * 0.88f,
@@ -742,6 +808,9 @@ class RobotFaceView(context: Context) : View(context) {
         EyeSilhouette.CONFUSED -> EyeContour(0.78f, 0.40f, 0.66f, 0.51f, 0.07f)
         EyeSilhouette.DIZZY -> EyeContour(1.02f, 0.74f, 0.90f, 0.71f, 0.04f)
         EyeSilhouette.DISAPPOINTED -> EyeContour(0.56f, 0.36f, 0.73f, 0.54f, 0f)
+        EyeSilhouette.JEALOUS -> EyeContour(0.68f, 0.34f, 0.54f, 0.38f, 0.10f)
+        EyeSilhouette.PROUD -> EyeContour(0.92f, 0.58f, 0.72f, 0.60f, 0f)
+        EyeSilhouette.AFFECTIONATE -> EyeContour(0.96f, 0.66f, 0.90f, 0.68f, 0f)
         EyeSilhouette.SOFT -> EyeContour(0.96f, 0.47f, 0.84f, 0.56f, 0f)
         EyeSilhouette.ALMOND -> EyeContour(0.90f, 0.46f, 0.80f, 0.54f, 0f)
         EyeSilhouette.NEUTRAL, EyeSilhouette.BLINK_HIGH, EyeSilhouette.BORED,
