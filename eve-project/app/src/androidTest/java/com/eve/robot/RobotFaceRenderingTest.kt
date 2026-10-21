@@ -135,7 +135,6 @@ class RobotFaceRenderingTest {
                 View.MeasureSpec.makeMeasureSpec(faceHeight, View.MeasureSpec.EXACTLY)
             )
             face.layout(0, 0, cellWidth, faceHeight)
-            face.setExpression(item.decision, 77L)
             if (item.expected == EyeSilhouette.DIZZY) {
                 face.showDizzyReaction(4000L)
             } else {
