@@ -253,6 +253,8 @@ class RobotFaceView(context: Context) : View(context) {
             EyeSilhouette.AWE -> 0.96f
             EyeSilhouette.SCARED -> 0.90f
             EyeSilhouette.SKEPTIC, EyeSilhouette.SUSPICIOUS -> 0.92f
+            EyeSilhouette.ANTICIPATING -> 0.98f
+            EyeSilhouette.DISAPPOINTED -> 0.96f
             else -> 1f
         }
         val heightScale = when (eyeSilhouette) {
@@ -262,6 +264,9 @@ class RobotFaceView(context: Context) : View(context) {
             EyeSilhouette.ROUND_SURPRISE -> 1.00f
             EyeSilhouette.AWE -> 1.18f
             EyeSilhouette.SCARED -> 1.12f
+            EyeSilhouette.CONFUSED -> 1.10f
+            EyeSilhouette.ANTICIPATING -> 1.22f
+            EyeSilhouette.DISAPPOINTED -> 1.06f
             else -> 1f
         }
         val hw = baseHalfWidth * widthScale
@@ -287,6 +292,9 @@ class RobotFaceView(context: Context) : View(context) {
             EyeSilhouette.ANNOYED, EyeSilhouette.SHARP, EyeSilhouette.FURIOUS -> 0.98f
             EyeSilhouette.PLAYFUL, EyeSilhouette.SKEPTIC, EyeSilhouette.SUSPICIOUS -> 0.96f
             EyeSilhouette.SQUINT, EyeSilhouette.BORED, EyeSilhouette.UNIMPRESSED -> 0.72f
+            EyeSilhouette.CONFUSED -> 1.04f
+            EyeSilhouette.ANTICIPATING -> 1.10f
+            EyeSilhouette.DISAPPOINTED -> 1.08f
             else -> 1f
         }
         val glyphHh = hh * when (eyeSilhouette) {
@@ -302,6 +310,9 @@ class RobotFaceView(context: Context) : View(context) {
             EyeSilhouette.BLINK_HIGH -> -hh * 0.50f
             EyeSilhouette.BLINK_LOW, EyeSilhouette.SAD_DOWN -> hh * 0.30f
             EyeSilhouette.BORED, EyeSilhouette.UNIMPRESSED -> hh * 0.12f
+            EyeSilhouette.CONFUSED -> if (side < 0) -hh * 0.06f else hh * 0.12f
+            EyeSilhouette.ANTICIPATING -> -hh * 0.04f
+            EyeSilhouette.DISAPPOINTED -> hh * 0.18f
             else -> 0f
         }
         val eyeRect = RectF(cx - hw, centerY - glyphHh, cx + hw, centerY + glyphHh)
@@ -548,6 +559,53 @@ class RobotFaceView(context: Context) : View(context) {
                     rounded(min(hw * 0.28f, glyphHh * 0.36f))
                 }
             }
+
+            EyeSilhouette.CONFUSED -> {
+                // Confusion is intentionally asymmetric: one raised eye, one hesitant, lowered eye.
+                if (side < 0) {
+                    shape.moveTo(cx - hw, centerY + glyphHh * 0.22f)
+                    shape.quadTo(cx - hw * 0.82f, centerY - glyphHh * 0.88f,
+                        cx - hw * 0.10f, centerY - glyphHh * 0.72f)
+                    shape.quadTo(cx + hw * 0.78f, centerY - glyphHh * 0.78f,
+                        cx + hw, centerY - glyphHh * 0.35f)
+                    shape.lineTo(cx + hw * 0.92f, centerY + glyphHh * 0.48f)
+                    shape.quadTo(cx, centerY + glyphHh * 0.72f,
+                        cx - hw, centerY + glyphHh * 0.35f)
+                } else {
+                    shape.moveTo(cx - hw, centerY - glyphHh * 0.38f)
+                    shape.quadTo(cx, centerY - glyphHh * 0.66f,
+                        cx + hw, centerY - glyphHh * 0.08f)
+                    shape.lineTo(cx + hw * 0.94f, centerY + glyphHh * 0.44f)
+                    shape.quadTo(cx, centerY + glyphHh * 0.58f,
+                        cx - hw, centerY + glyphHh * 0.38f)
+                }
+                shape.close()
+            }
+
+            EyeSilhouette.ANTICIPATING -> {
+                // Expectant eyes are lifted and open, with a gentle upper arch rather than alarm-round eyes.
+                shape.moveTo(cx - hw, centerY + glyphHh * 0.42f)
+                shape.cubicTo(cx - hw * 1.02f, centerY - glyphHh * 0.42f,
+                    cx - hw * 0.34f, centerY - glyphHh * 1.02f,
+                    cx, centerY - glyphHh * 0.82f)
+                shape.cubicTo(cx + hw * 0.34f, centerY - glyphHh * 1.02f,
+                    cx + hw * 1.02f, centerY - glyphHh * 0.42f,
+                    cx + hw, centerY + glyphHh * 0.42f)
+                shape.quadTo(cx, centerY + glyphHh * 0.84f,
+                    cx - hw, centerY + glyphHh * 0.42f)
+                shape.close()
+            }
+
+            EyeSilhouette.DISAPPOINTED -> {
+                // Disappointment has a falling upper lid and a subdued lower bowl; it is not anger.
+                shape.moveTo(cx - hw, centerY - glyphHh * 0.22f)
+                shape.quadTo(cx, centerY + glyphHh * 0.34f,
+                    cx + hw, centerY + glyphHh * 0.02f)
+                shape.lineTo(cx + hw, centerY + glyphHh * 0.48f)
+                shape.quadTo(cx, centerY + glyphHh * 0.64f,
+                    cx - hw, centerY + glyphHh * 0.44f)
+                shape.close()
+            }
         }
         if (opacity <= 0.005f) return
         val layerBounds = RectF(cx - hw * 1.8f, cy - hh * 1.8f, cx + hw * 1.8f, cy + hh * 1.8f)
@@ -598,6 +656,9 @@ class RobotFaceView(context: Context) : View(context) {
         EyeSilhouette.WORRIED -> EyeContour(0.83f, 0.47f, 0.76f, 0.61f, 0f)
         EyeSilhouette.SHARP, EyeSilhouette.FURIOUS, EyeSilhouette.ANNOYED -> EyeContour(0.70f, 0.29f, 0.48f, 0.35f, -0.11f)
         EyeSilhouette.CURIOUS, EyeSilhouette.PLAYFUL, EyeSilhouette.SKEPTIC, EyeSilhouette.SUSPICIOUS -> EyeContour(0.94f, 0.49f, 0.72f, 0.53f, 0f)
+        EyeSilhouette.ANTICIPATING -> EyeContour(1.04f, 0.54f, 0.86f, 0.61f, 0f)
+        EyeSilhouette.CONFUSED -> EyeContour(0.78f, 0.40f, 0.66f, 0.51f, 0.07f)
+        EyeSilhouette.DISAPPOINTED -> EyeContour(0.56f, 0.36f, 0.73f, 0.54f, 0f)
         EyeSilhouette.SOFT -> EyeContour(0.96f, 0.47f, 0.84f, 0.56f, 0f)
         EyeSilhouette.ALMOND -> EyeContour(0.90f, 0.46f, 0.80f, 0.54f, 0f)
         EyeSilhouette.NEUTRAL, EyeSilhouette.BLINK_HIGH, EyeSilhouette.BORED,
