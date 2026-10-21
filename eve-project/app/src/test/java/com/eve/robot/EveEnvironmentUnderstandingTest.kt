@@ -82,4 +82,98 @@ class EveEnvironmentUnderstandingTest {
         assertEquals(EveWeatherCondition.UNKNOWN, result.weather)
         assertTrue(result.summaryArabic.contains("قديم"))
     }
+
+
+    @Test fun calendarSeasonsFollowNorthernHemisphereMonths() {
+        val interpreter = EveEnvironmentUnderstanding()
+        fun season(month: Int) = interpreter.observe(
+            timestampMs = month * 1_000L,
+            candidates = emptyList(),
+            meanLuminance = 100f,
+            localMonth = month,
+            hemisphere = EveHemisphere.NORTHERN
+        ).season
+
+        assertEquals(EveSeason.WINTER, season(1))
+        assertEquals(EveSeason.SPRING, season(4))
+        assertEquals(EveSeason.SUMMER, season(7))
+        assertEquals(EveSeason.AUTUMN, season(10))
+    }
+
+    @Test fun southernHemisphereUsesOppositeCalendarSeasons() {
+        val interpreter = EveEnvironmentUnderstanding()
+        fun season(month: Int) = interpreter.observe(
+            timestampMs = month * 1_000L,
+            candidates = emptyList(),
+            meanLuminance = 100f,
+            localMonth = month,
+            hemisphere = EveHemisphere.SOUTHERN
+        ).season
+
+        assertEquals(EveSeason.SUMMER, season(1))
+        assertEquals(EveSeason.AUTUMN, season(4))
+        assertEquals(EveSeason.WINTER, season(7))
+        assertEquals(EveSeason.SPRING, season(10))
+    }
+
+    @Test fun hemisphereInferenceUsesKnownDeviceTimezoneOrRegion() {
+        val interpreter = EveEnvironmentUnderstanding()
+        assertEquals(EveHemisphere.NORTHERN, interpreter.inferHemisphere("NL", "Europe/Amsterdam"))
+        assertEquals(EveHemisphere.SOUTHERN, interpreter.inferHemisphere("AU", "Australia/Sydney"))
+        assertEquals(EveHemisphere.UNKNOWN, interpreter.inferHemisphere("", "Etc/UTC"))
+    }
+
+    @Test fun explicitAutumnVisualEvidenceDoesNotSilentlyOverrideCalendar() {
+        val result = EveEnvironmentUnderstanding().observe(
+            timestampMs = 1_000L,
+            candidates = listOf(EveImageClass("autumn leaves", 0.88f)),
+            meanLuminance = 110f,
+            localMonth = 4,
+            hemisphere = EveHemisphere.NORTHERN
+        )
+
+        assertEquals(EveSeason.SPRING, result.season)
+        assertEquals(EveSeason.AUTUMN, result.seasonalClue)
+        assertTrue(result.seasonConfidence > 0f)
+        assertTrue(result.seasonalClueConfidence >= 0.80f)
+        assertTrue(result.summaryArabic.contains("الربيع"))
+        assertTrue(result.summaryArabic.contains("الخريف"))
+        assertTrue(result.summaryArabic.contains("لا تكفي الصورة وحدها"))
+    }
+
+    @Test fun genericSnowWeatherIsNotMistakenForCertainWinterSeason() {
+        val result = EveEnvironmentUnderstanding().observe(
+            timestampMs = 1_000L,
+            candidates = listOf(EveImageClass("snow", 0.98f)),
+            meanLuminance = 100f,
+            localMonth = 7,
+            hemisphere = EveHemisphere.NORTHERN
+        )
+
+        assertEquals(EveSeason.SUMMER, result.season)
+        assertEquals(EveSeason.UNKNOWN, result.seasonalClue)
+        assertEquals(EveWeatherCondition.SNOW, result.weather)
+    }
+
+    @Test fun moderateVisualSeasonClueNeedsRepeatedEvidence() {
+        val interpreter = EveEnvironmentUnderstanding()
+        val first = interpreter.observe(
+            timestampMs = 1_000L,
+            candidates = listOf(EveImageClass("autumn", 0.50f)),
+            meanLuminance = 100f,
+            localMonth = 10,
+            hemisphere = EveHemisphere.NORTHERN
+        )
+        val second = interpreter.observe(
+            timestampMs = 5_000L,
+            candidates = listOf(EveImageClass("autumn", 0.54f)),
+            meanLuminance = 102f,
+            localMonth = 10,
+            hemisphere = EveHemisphere.NORTHERN
+        )
+
+        assertEquals(EveSeason.UNKNOWN, first.seasonalClue)
+        assertEquals(EveSeason.AUTUMN, second.seasonalClue)
+    }
+
 }
