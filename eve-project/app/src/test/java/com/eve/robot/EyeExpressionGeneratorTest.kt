@@ -210,13 +210,38 @@ class EyeExpressionGeneratorTest {
             glyph(EveMood.CONCERNED, valence = -0.45f, arousal = 0.90f),       // scared
             glyph(EveMood.SURPRISED, valence = 0.85f),                         // awe
             glyph(EveMood.PLAYFUL, valence = 0.40f),                           // playful
-            glyph(EveMood.FAMILIAR, valence = 0.25f, familiarity = 0.50f)      // warm / soft
+            glyph(EveMood.FAMILIAR, valence = 0.25f, familiarity = 0.50f),     // warm / soft
+            glyph(EveMood.CONCERNED, valence = -0.08f, arousal = 0.36f,
+                frustration = 0.10f),                                           // confused
+            glyph(EveMood.CURIOUS, valence = 0.30f, arousal = 0.68f,
+                curiosity = 0.70f),                                             // anticipating
+            glyph(EveMood.CONCERNED, valence = -0.42f, arousal = 0.35f,
+                fatigue = 0.10f, frustration = 0.10f)                            // disappointed
         )
         assertEquals(
             "Every reference-inspired glyph should be reachable from affect state and intent, not text labels.",
             EyeSilhouette.values().toSet(),
             actual
         )
+    }
+
+    @Test fun subtleEmotionStatesHaveDistinctReadableExpressions() {
+        val confused = EyeExpressionGenerator.generate(
+            EveDecision(EveMood.CONCERNED, "uncertain", valence = -0.08f, arousal = 0.36f,
+                curiosity = 0.55f, fatigue = 0.10f, frustration = 0.10f), 1L)
+        val anticipating = EyeExpressionGenerator.generate(
+            EveDecision(EveMood.CURIOUS, "expecting a familiar event", valence = 0.30f,
+                arousal = 0.68f, curiosity = 0.70f), 1L)
+        val disappointed = EyeExpressionGenerator.generate(
+            EveDecision(EveMood.CONCERNED, "mild disappointment", valence = -0.42f,
+                arousal = 0.35f, fatigue = 0.10f, frustration = 0.10f), 1L)
+
+        assertEquals(EyeSilhouette.CONFUSED, confused.silhouette)
+        assertEquals(EyeSilhouette.ANTICIPATING, anticipating.silhouette)
+        assertEquals(EyeSilhouette.DISAPPOINTED, disappointed.silhouette)
+        assertEquals("Affect nuances change eye poses, not the established mood label.",
+            EveMood.CONCERNED, confused.mood)
+        assertTrue(setOf(confused.silhouette, anticipating.silhouette, disappointed.silhouette).size == 3)
     }
 
     @Test fun intentCanChangeEyesWithoutChangingTheCurrentMood() {
