@@ -740,6 +740,72 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun currentCalendarHemisphere(): EveHemisphere =
+        environmentUnderstanding.inferHemisphere(
+            Locale.getDefault().country,
+            java.util.TimeZone.getDefault().id
+        )
+
+    private fun handleCalendarQuestion(text: String): Boolean {
+        val now = System.currentTimeMillis()
+        val eidAnswer = EveCalendarKnowledge.holidayAnswer(text, now)
+        if (eidAnswer != null) {
+            showDialogueText(eidAnswer, durationMs = 8500L)
+            return true
+        }
+
+        if (listOf(
+                "فصول السنة", "الفصل الحالي", "الفصل الآن", "اي فصل", "أي فصل",
+                "ما هو الفصل", "ما الفصل", "أي فصل نحن", "what season", "current season"
+            ).any(text::contains)
+        ) {
+            showDialogueText(EveCalendarKnowledge.seasonAnswer(now, currentCalendarHemisphere()), durationMs = 8500L)
+            return true
+        }
+
+        if (listOf(
+                "عيد ميلاد", "أعياد الميلاد", "اعياد الميلاد", "تاريخ ميلاد", "متى ميلاد",
+                "عيد ميلادي", "birthday", "birthdays"
+            ).any(text::contains)
+        ) {
+            val permissionsNeeded = mutableListOf<String>()
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
+                permissionsNeeded += Manifest.permission.READ_CONTACTS
+            }
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CALENDAR) != PackageManager.PERMISSION_GRANTED) {
+                permissionsNeeded += Manifest.permission.READ_CALENDAR
+            }
+            if (permissionsNeeded.isNotEmpty()) {
+                pendingCalendarQuestion = text
+                showDialogueText(
+                    "لأبحث عن أعياد الميلاد المحفوظة، سأطلب إذن قراءة جهات الاتصال والتقويم على هذا الهاتف فقط. لن أرسل بيانات المناسبات إلى الإنترنت.",
+                    durationMs = 8500L
+                )
+                calendarPermissionRequest.launch(permissionsNeeded.toTypedArray())
+            } else {
+                answerLocalBirthdayQuestion(text)
+            }
+            return true
+        }
+
+        if (listOf(
+                "تاريخ اليوم", "ما تاريخ اليوم", "كم التاريخ", "ما اليوم", "التاريخ الهجري",
+                "كم رمضان", "ما التاريخ الهجري", "today's date", "what date is it"
+            ).any(text::contains)
+        ) {
+            showDialogueText(
+                EveCalendarKnowledge.todaySummary(now, currentCalendarHemisphere()),
+                durationMs = 8500L
+            )
+            return true
+        }
+        return false
+    }
+
+    private fun answerLocalBirthdayQuestion(question: String) {
+        showDialogueText(EveLocalCalendarEvents.answerBirthdayQuestion(this, question), durationMs = 8500L)
+    }
+
     private fun handleRecognizedSpeech(rawText: String, source: String) {
         val text = normalizeArabicSpeech(rawText)
         if (text.isBlank()) return
