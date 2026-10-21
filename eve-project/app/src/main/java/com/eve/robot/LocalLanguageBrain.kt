@@ -49,7 +49,9 @@ data class LocalLlmContext(
     val knownPeople: String = "",
     /** Short, recent object-detection scene summary; no raw camera frames are sent to the model. */
     val latestSceneSummary: String = "",
-    val sceneObservationAgeMs: Long = Long.MAX_VALUE
+    val sceneObservationAgeMs: Long = Long.MAX_VALUE,
+    /** Current on-device date, season, and approximate Hijri context; no network lookup. */
+    val calendarContext: String = ""
 )
 
 data class LocalLlmResult(
@@ -482,6 +484,9 @@ class LocalLanguageBrain(
         }
         if (freshScene && mode != "GAME") {
             fields += "SCENE=${context.latestSceneSummary.trim().take(180)}"
+        }
+        if (context.calendarContext.isNotBlank() && mode == "USER") {
+            fields += "CALENDAR=${context.calendarContext.trim().take(260)}"
         }
         context.recentObservations.lastOrNull()?.trim()?.takeIf { it.isNotBlank() }?.let {
             fields += "MEM=${it.take(48)}"
