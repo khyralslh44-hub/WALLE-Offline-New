@@ -115,10 +115,16 @@ class RobotFaceView(context: Context) : View(context) {
         val now = SystemClock.uptimeMillis()
         // If another event arrives mid-transition, first finish parameter interpolation at the current time.
         updateTransition(now)
+        val nextContour = contourFor(profile.silhouette)
+        val silhouetteChanged = profile.silhouette != silhouette
+        // A new expression gets its own exact lid contour immediately. Interpolating the old
+        // contour through a different glyph made some transitions look like a hybrid expression.
+        // Width, opening, gaze, tilt, glow and spacing still animate smoothly below.
+        if (silhouetteChanged) contour = nextContour
         silhouette = profile.silhouette
         mood = profile.mood
         intent = profile.intent
-        targetContour = contourFor(profile.silhouette)
+        targetContour = nextContour
         targetOpening = profile.opening
         targetTilt = profile.tilt
         targetGazeX = profile.gazeX
