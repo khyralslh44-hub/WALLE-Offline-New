@@ -186,6 +186,7 @@ class MainActivity : ComponentActivity() {
     private val ferInferenceRunning = AtomicBoolean(false)
     private val faceCueSmoother = EveFaceCueSmoother(windowSize = 3, requiredVotes = 2)
     private val activityUnderstanding = EveActivityUnderstanding()
+    private val wellbeingUnderstanding = EveHumanWellbeingUnderstanding()
     private val environmentUnderstanding = EveEnvironmentUnderstanding()
     private val roomUnderstanding = EveRoomUnderstanding()
     private val autonomousMind = EveAutonomousMind()
@@ -215,6 +216,11 @@ class MainActivity : ComponentActivity() {
     @Volatile private var activeHumanActivityConfidence = 0f
     @Volatile private var lastHumanActivityAt = 0L
     @Volatile private var latestActivitySummary = ""
+    @Volatile private var latestWellbeingSummary = ""
+    @Volatile private var lastWellbeingObservationAt = 0L
+    @Volatile private var latestStableFaceEmotionLabel = ""
+    @Volatile private var latestStableFaceEmotionConfidence = 0f
+    @Volatile private var latestStableFaceEmotionAt = 0L
     @Volatile private var latestEnvironmentSummary = ""
     private var pendingCalendarQuestion = ""
     @Volatile private var latestRoomSummary = ""
@@ -1959,6 +1965,9 @@ class MainActivity : ComponentActivity() {
                                             } else {
                                                 main.post {
                                                     if (isFinishing || isDestroyed) return@post
+                                                    latestStableFaceEmotionLabel = stableEmotion.label
+                                                    latestStableFaceEmotionConfidence = stableEmotion.confidence
+                                                    latestStableFaceEmotionAt = SystemClock.elapsedRealtime()
                                                     if (SystemClock.elapsedRealtime() - lastFaceReactionAt < 1800L) return@post
                                                     val decision = brain.observeFacialEmotion(
                                                         stableEmotion.label,
@@ -2563,6 +2572,7 @@ class MainActivity : ComponentActivity() {
 
     private val sceneSummaryTtlMs = 15_000L
     private val activitySummaryTtlMs = 12_000L
+    private val wellbeingSummaryTtlMs = 12_000L
     private val environmentSummaryTtlMs = 45_000L
 
     /** Combines spatial object boxes with broader ImageNet scene hypotheses, discarding stale evidence. */
@@ -2579,6 +2589,9 @@ class MainActivity : ComponentActivity() {
             activeHumanActivity = EveHumanActivity.UNKNOWN
             activeHumanActivityConfidence = 0f
         }
+        if (lastWellbeingObservationAt == 0L || now - lastWellbeingObservationAt > wellbeingSummaryTtlMs) {
+            latestWellbeingSummary = ""
+        }
         if (lastEnvironmentObservationAt == 0L || now - lastEnvironmentObservationAt > environmentSummaryTtlMs) {
             latestEnvironmentSummary = ""
         }
@@ -2590,6 +2603,7 @@ class MainActivity : ComponentActivity() {
             latestObjectSummary,
             latestImageClassifierSummary,
             latestActivitySummary,
+            latestWellbeingSummary,
             latestEnvironmentSummary,
             latestRoomSummary
         ).filter { it.isNotBlank() }
@@ -2598,6 +2612,7 @@ class MainActivity : ComponentActivity() {
             if (latestObjectSummary.isNotBlank()) lastObjectSceneAt else 0L,
             if (latestImageClassifierSummary.isNotBlank()) lastImageClassifierSceneAt else 0L,
             if (latestActivitySummary.isNotBlank()) lastActivityObservationAt else 0L,
+            if (latestWellbeingSummary.isNotBlank()) lastWellbeingObservationAt else 0L,
             if (latestEnvironmentSummary.isNotBlank()) lastEnvironmentObservationAt else 0L,
             if (latestRoomSummary.isNotBlank()) lastRoomObservationAt else 0L
         )
@@ -2610,6 +2625,28 @@ class MainActivity : ComponentActivity() {
     private fun applyImageClassifierObservations(categories: List<EveImageClass>, meanLuminance: Float) {
         if (isFinishing || isDestroyed) return
         val now = SystemClock.elapsedRealtime()
+        val freshFaceEmotion = if (
+            latestStableFaceEmotionAt > 0L && now - latestStableFaceEmotionAt in 0L..6_000L
+        ) latestStableFaceEmotionLabel else null
+        val wellbeing = wellbeingUnderstanding.observe(
+            timestampMs = now,
+            personPresent = isPersonFaceRecent(now),
+            faceEmotionLabel = freshFaceEmotion,
+            faceEmotionConfidence = latestStableFaceEmotionConfidence,
+            candidates = categories
+        )
+        if (wellbeing.isActionable) {
+            latestWellbeingSummary = wellbeing.explanationArabic +
+                " (احتمال " + (wellbeing.confidence * 100f).toInt() + "٪؛ لا يثبت مرضًا)"
+            lastWellbeingObservationAt = now
+            Log.i(
+                "EVE_WELLBEING",
+                "WELLBEING_CUE cue=" + wellbeing.cue + " confidence=" + wellbeing.confidence +
+                    " frames=" + wellbeing.evidenceFrames + "; medicalDiagnosis=false offline=true"
+            )
+        } else if (lastWellbeingObservationAt == 0L || now - lastWellbeingObservationAt > wellbeingSummaryTtlMs) {
+            latestWellbeingSummary = ""
+        }
         val localHour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
         val freshObjectsForRoom = if (
             lastObjectSceneAt > 0L && now - lastObjectSceneAt in 0L..3_000L
