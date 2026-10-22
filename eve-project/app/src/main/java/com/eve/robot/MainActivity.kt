@@ -232,8 +232,11 @@ class MainActivity : ComponentActivity() {
     @Volatile private var lastAutonomyOutcome = "لم تُنفّذ دورة قرار بعد"
     @Volatile private var lastAutonomyRationale = ""
     private val autonomyDecisionCooldownMs = 20_000L
+    // Check only once a minute whether RAM has recovered after safely deferring the large local LLM.
+    private val lastDeferredBrainWarmupCheckAt = AtomicLong(0L)
     private companion object {
         const val LANGUAGE_BRAIN_WARMUP_DELAY_MS = 15_000L
+        const val LANGUAGE_BRAIN_DEFERRED_RECHECK_MS = 60_000L
         const val LANGUAGE_BRAIN_WARMUP_MIN_RAM_BYTES = 1_400_000_000L
     }
     private val lastAutonomyCameraSwitchAt = AtomicLong(0L)
@@ -465,6 +468,7 @@ class MainActivity : ComponentActivity() {
             }
             val directIdle = (SystemClock.elapsedRealtime() - lastDirectUserActionAt).coerceAtLeast(0L)
             if (directIdle >= 8_000L) runAutonomousCognition(directIdle)
+            maybeRetryDeferredLanguageBrainWarmup()
             main.postDelayed(this, 6000L)
         }
     }
@@ -1417,7 +1421,11 @@ class MainActivity : ComponentActivity() {
             // Keep the language model available for open-ended conversation when memory allows it,
             // but wait briefly after foregrounding so the face/camera can settle first.
             main.removeCallbacks(warmLanguageBrainTask)
-            if (!localLanguageBrain.isReady) main.postDelayed(warmLanguageBrainTask, LANGUAGE_BRAIN_WARMUP_DELAY_MS)
+            if (!localLanguageBrain.isReady) {
+                // Keep the initial grace period so camera/face startup settles before loading Qwen.
+                lastDeferredBrainWarmupCheckAt.set(SystemClock.elapsedRealtime())
+                main.postDelayed(warmLanguageBrainTask, LANGUAGE_BRAIN_WARMUP_DELAY_MS)
+            }
             localLanguageBrain.refreshStatus()
         }
     }
@@ -4091,6 +4099,21 @@ class MainActivity : ComponentActivity() {
                 " foreground=true offlineAsset=true"
         )
         localLanguageBrain.start()
+    }
+
+    /**
+     * If the first warm-up was deferred for low free RAM, recheck sparsely while EVE is foregrounded.
+     * This lets autonomous reasoning become available later without keeping a polling worker or
+     * repeatedly trying to load a large model. Explicit user questions still start it immediately.
+     */
+    private fun maybeRetryDeferredLanguageBrainWarmup() {
+        if (isFinishing || isDestroyed || !::localLanguageBrain.isInitialized) return
+        if (localLanguageBrain.isReady || localLanguageBrain.currentState != LocalLlmState.DEFERRED) return
+        val now = SystemClock.elapsedRealtime()
+        val previous = lastDeferredBrainWarmupCheckAt.get()
+        if (previous > 0L && now - previous < LANGUAGE_BRAIN_DEFERRED_RECHECK_MS) return
+        if (!lastDeferredBrainWarmupCheckAt.compareAndSet(previous, now)) return
+        warmLocalLanguageBrainIfSafe()
     }
 
     private fun isLocalLanguageBrainStarting(): Boolean =
