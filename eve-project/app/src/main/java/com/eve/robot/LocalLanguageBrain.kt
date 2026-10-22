@@ -377,6 +377,38 @@ class LocalLanguageBrain(
         )
     }
 
+    private fun allowedPlannerActions(prompt: String): List<String> =
+        prompt.lineSequence()
+            .firstOrNull { it.startsWith("ALLOWED=") }
+            ?.removePrefix("ALLOWED=")
+            ?.split(",")
+            ?.map { it.trim() }
+            ?.filter { it in AUTONOMY_ACTIONS }
+            ?.distinct()
+            .orEmpty()
+
+    private fun hasCompleteAutonomyPlan(result: LocalLlmResult, prompt: String): Boolean {
+        val allowed = allowedPlannerActions(prompt)
+        return result.planningAction in allowed &&
+            !result.planningGoal.isNullOrBlank() &&
+            !result.planningReason.isNullOrBlank() &&
+            !result.successCriterion.isNullOrBlank()
+    }
+
+    private fun buildAutonomyPlannerRetryPrompt(originalPrompt: String): String {
+        val allowed = allowedPlannerActions(originalPrompt).ifEmpty {
+            listOf("observe_scene", "quiet_attention")
+        }
+        val defaultAction = allowed.first()
+        return """
+            MODE=PLAN_REPAIR
+            Output exactly one valid JSON object. No prose, markdown, or extra keys.
+            next_action must exactly match one token in: ${allowed.joinToString(",")}.
+            Keep goal, reason, success_criterion short. No line breaks inside JSON strings.
+            {"reply_ar":"","reflection_ar":"","mood":"curious","intent":"observe","confidence":0.5,"goal":"مراجعة الدليل الحديث","next_action":"$defaultAction","reason":"التحقق من الدليل المحلي","success_criterion":"اكتمال خطة واضحة"}
+        """.trimIndent()
+    }
+
     private fun buildAutonomyPlannerPrompt(
         context: LocalLlmContext,
         allowedActions: List<String>,
@@ -518,6 +550,60 @@ class LocalLanguageBrain(
 
                     var parsed = parseResponse(responseText, outputCap)
                     var reportedResponseText = responseText
+
+                    // A compact planner response is validated strictly. Small local models may
+                    // return malformed JSON on the first try; give planning exactly one isolated,
+                    // short-schema retry instead of silently accepting an empty/invalid action.
+                    if (prompt.lineSequence().firstOrNull() == "MODE=PLAN" &&
+                        !hasCompleteAutonomyPlan(parsed, prompt)
+                    ) {
+                        Log.w(
+                            TAG,
+                            "LOCAL_LLM_PLAN_REPAIR_START chars=${responseText.length} " +
+                                "actionPresent=${!parsed.planningAction.isNullOrBlank()} " +
+                                "goalPresent=${!parsed.planningGoal.isNullOrBlank()} " +
+                                "reasonPresent=${!parsed.planningReason.isNullOrBlank()} " +
+                                "criterionPresent=${!parsed.successCriterion.isNullOrBlank()}"
+                        )
+                        try { requestConversation?.close() } catch (_: Exception) { }
+                        requestConversation = null
+                        val repairConversation = activeEngine.createConversation(conversationConfig())
+                        requestConversation = repairConversation
+                        val repairStartedAt = SystemClock.elapsedRealtime()
+                        val repairText = repairConversation.sendMessage(
+                            buildAutonomyPlannerRetryPrompt(prompt),
+                            maxOutputToken = MAX_OUTPUT_TOKENS
+                        ).contents.contents
+                            .filterIsInstance<com.google.ai.edge.litertlm.Content.Text>()
+                            .joinToString(separator = "") { it.text }
+                            .trim()
+                        if (repairText.isNotBlank()) {
+                            val repaired = parseResponse(repairText, MAX_OUTPUT_TOKENS)
+                            if (hasCompleteAutonomyPlan(repaired, prompt)) {
+                                parsed = repaired
+                                reportedResponseText = repairText
+                                Log.i(
+                                    TAG,
+                                    "LOCAL_LLM_PLAN_REPAIR_PASS elapsedMs=${SystemClock.elapsedRealtime() - repairStartedAt} " +
+                                        "action=${repaired.planningAction} goalPresent=true reasonPresent=true criterionPresent=true"
+                                )
+                            } else {
+                                Log.w(
+                                    TAG,
+                                    "LOCAL_LLM_PLAN_REPAIR_INVALID elapsedMs=${SystemClock.elapsedRealtime() - repairStartedAt} " +
+                                        "chars=${repairText.length} actionPresent=${!repaired.planningAction.isNullOrBlank()} " +
+                                        "goalPresent=${!repaired.planningGoal.isNullOrBlank()} " +
+                                        "reasonPresent=${!repaired.planningReason.isNullOrBlank()} " +
+                                        "criterionPresent=${!repaired.successCriterion.isNullOrBlank()}"
+                                )
+                            }
+                        }
+                        if (!hasCompleteAutonomyPlan(parsed, prompt)) {
+                            throw IllegalStateException(
+                                "The local model returned no valid allow-listed action and complete goal/reason/success criterion after one planner repair attempt."
+                            )
+                        }
+                    }
 
                     // Small local models sometimes copy the schema's empty reply field. GAME
                     // mode gets one short, focused second attempt rather than silently returning
