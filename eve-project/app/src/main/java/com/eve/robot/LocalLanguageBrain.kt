@@ -372,6 +372,7 @@ class LocalLanguageBrain(
         previousGoal: String,
         previousAction: String,
         previousOutcome: String,
+        recentActionOutcomes: List<String> = emptyList(),
         callback: (Result<LocalLlmResult>) -> Unit
     ) {
         val allowed = allowedActions.distinct().filter { it in AUTONOMY_ACTIONS }.take(AUTONOMY_ACTIONS.size)
@@ -385,7 +386,8 @@ class LocalLanguageBrain(
                 allowedActions = allowed,
                 previousGoal = previousGoal,
                 previousAction = previousAction,
-                previousOutcome = previousOutcome
+                previousOutcome = previousOutcome,
+                recentActionOutcomes = recentActionOutcomes
             ),
             maxOutputTokens = 96,
             callback = callback
@@ -397,7 +399,8 @@ class LocalLanguageBrain(
         allowedActions: List<String>,
         previousGoal: String,
         previousAction: String,
-        previousOutcome: String
+        previousOutcome: String,
+        recentActionOutcomes: List<String>
     ): String {
         val confidence = context.visionConfidence.takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: 0f
         val freshVision = context.visionObservationAgeMs in 0L..12_000L &&
@@ -438,6 +441,9 @@ class LocalLanguageBrain(
             appendLine("PREVIOUS_GOAL=" + previousGoal.take(80))
             appendLine("PREVIOUS_ACTION=" + previousAction.take(40))
             appendLine("PREVIOUS_OUTCOME=" + previousOutcome.take(180))
+            if (recentActionOutcomes.isNotEmpty()) {
+                appendLine("RECENT_ACTION_OUTCOMES=" + recentActionOutcomes.takeLast(6).joinToString(" | ").take(420))
+            }
             appendLine(
                 """JSON only: {"reply_ar":"","reflection_ar":"مراجعة قصيرة للدليل","mood":"curious","intent":"observe","confidence":0.7,"goal":"understand_current_evidence","next_action":"${allowedActions.first()}","reason":"سبب مرتبط بالأدلة والذاكرة","success_criterion":"ما الذي سيبين نجاح الخطوة"}"""
             )
