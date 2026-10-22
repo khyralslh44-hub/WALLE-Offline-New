@@ -289,6 +289,14 @@ class MainActivity : ComponentActivity() {
     @Volatile private var latestObjectLabels: Set<String> = emptySet()
     @Volatile private var latestImageClassifierLabels: Set<String> = emptySet()
     @Volatile private var lastSceneObservationAt = 0L
+    // Visible, low-frequency feedback closes the gap between internal perception and what the
+    // person can actually observe. It is event-driven, not a repeating narration loop.
+    @Volatile private var lastVisibleCueKey = ""
+    @Volatile private var lastVisibleCueAt = 0L
+    @Volatile private var lastPresenceCueAt = 0L
+    private val visibleCueGlobalCooldownMs = 12_000L
+    private val visibleCueSameLabelCooldownMs = 75_000L
+    private val presenceCueCooldownMs = 45_000L
 
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
         val action = event.actionMasked
@@ -1766,10 +1774,13 @@ class MainActivity : ComponentActivity() {
                         "affinity=$affinity mood=${decision.mood}"
                 )
                 react(decision, decision.playSound && isMeaningfulLabel(label))
-                // Curiosity questions take priority over silent reflections: the local LLM can
-                // only execute one generation at a time, so never start two requests for one frame.
+                // Curiosity questions take priority. When EVE has no grounded question to ask,
+                // show a brief observation cue so successful local perception is not invisible.
                 val askedOrQueued = maybeAskFromCuriosity(label, best.confidence, sightings)
-                if (!askedOrQueued) maybeReflectWithLocalLanguage(label, best.confidence, sightings)
+                if (!askedOrQueued) {
+                    maybeShowVisibleObservationCue(label, best.confidence, elapsed)
+                    maybeReflectWithLocalLanguage(label, best.confidence, sightings)
+                }
             }
             .addOnFailureListener(mainExecutor) { error ->
                 Log.w("EVE", "Offline image labeling frame failed.", error)
@@ -1994,7 +2005,13 @@ class MainActivity : ComponentActivity() {
                     }
 
                     val elapsed = SystemClock.elapsedRealtime()
+                    val previousFaceSeenAt = lastFaceSeenAt
                     lastFaceSeenAt = elapsed
+                    // A detected person should produce one visible acknowledgement; otherwise
+                    // face tracking can run successfully while the screen appears completely idle.
+                    if (previousFaceSeenAt == 0L || elapsed - previousFaceSeenAt >= 7_000L) {
+                        maybeAcknowledgeObservedPerson(elapsed)
+                    }
                     observeHumanActivityFromFace(bestFace, elapsed, faces)
                     val rawCue = EveFaceCue(
                         smilingProbability = bestFace.smilingProbability,
@@ -2503,10 +2520,65 @@ class MainActivity : ComponentActivity() {
         objectLabelReactionAt[label] = now
         val decision = brain.observe(label, best.confidence, sightings, memory.learnedAffinity(label))
         react(decision, playSound = decision.playSound && isMeaningfulLabel(label))
-        if (best.confidence >= 0.82f) {
-            val askedOrQueued = maybeAskFromCuriosity(label, best.confidence, sightings)
-            if (!askedOrQueued && changed) maybeReflectWithLocalLanguage(label, best.confidence, sightings)
+        val askedOrQueued = best.confidence >= 0.82f &&
+            maybeAskFromCuriosity(label, best.confidence, sightings)
+        if (!askedOrQueued) {
+            maybeShowVisibleObservationCue(label, best.confidence, now)
+            if (best.confidence >= 0.82f && changed) {
+                maybeReflectWithLocalLanguage(label, best.confidence, sightings)
+            }
         }
+    }
+
+    /**
+     * Delivers a brief, evidence-grounded cue when a clear new category is detected.
+     * Same-label and global cooldowns prevent narration from repeating on every camera frame.
+     */
+    private fun maybeShowVisibleObservationCue(label: String, confidence: Float, now: Long) {
+        if (isFinishing || isDestroyed || !::dialogueBubble.isInitialized) return
+        if (!confidence.isFinite() || confidence < 0.72f) return
+
+        val key = EveSceneGeometry.normalizeLabel(label)
+            .trim()
+            .lowercase(Locale.ROOT)
+        if (key.isBlank() || (!isMeaningfulLabel(key) && !isCuriosityWorthyLabel(key))) return
+
+        if (lastVisibleCueAt > 0L && now - lastVisibleCueAt < visibleCueGlobalCooldownMs) return
+        if (key == lastVisibleCueKey && lastVisibleCueAt > 0L &&
+            now - lastVisibleCueAt < visibleCueSameLabelCooldownMs
+        ) return
+
+        val name = arabicVisualObjectName(key).trim().take(36)
+        val message = when (key) {
+            "person" -> "أرى شخصًا أمامي."
+            "dog" -> "أرى كلبًا في المشهد."
+            "cat" -> "أرى قطة في المشهد."
+            "bird" -> "ألاحظ طائرًا أمامي."
+            "food" -> "ألاحظ طعامًا في المشهد."
+            "cell phone", "mobile phone", "phone" -> "أرى هاتفًا أمامي."
+            else -> if (name.isNotBlank()) "لاحظت $name في المشهد." else return
+        }
+
+        lastVisibleCueKey = key
+        lastVisibleCueAt = now
+        showDialogueText(message, durationMs = 4_200L)
+        Log.i(
+            "EVE_VISIBLE_BEHAVIOR",
+            "OBSERVATION_CUE label=$key confidence=$confidence source=offline_vision"
+        )
+    }
+
+    /** Briefly acknowledges a person detected by the on-device face detector without claiming identity. */
+    private fun maybeAcknowledgeObservedPerson(now: Long) {
+        if (isFinishing || isDestroyed || !::dialogueBubble.isInitialized) return
+        if (lastPresenceCueAt > 0L && now - lastPresenceCueAt < presenceCueCooldownMs) return
+        if (lastVisibleCueAt > 0L && now - lastVisibleCueAt < visibleCueGlobalCooldownMs) return
+
+        lastPresenceCueAt = now
+        lastVisibleCueKey = "person_presence"
+        lastVisibleCueAt = now
+        showDialogueText("أراك أمامي. سأنتبه لتعابيرك.", durationMs = 4_200L)
+        Log.i("EVE_VISIBLE_BEHAVIOR", "PRESENCE_ACKNOWLEDGED source=offline_face_detector")
     }
 
     private val objectDetectionIntervalMs = 1400L
