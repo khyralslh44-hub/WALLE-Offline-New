@@ -294,6 +294,7 @@ class MainActivity : ComponentActivity() {
     @Volatile private var lastVisibleCueKey = ""
     @Volatile private var lastVisibleCueAt = 0L
     @Volatile private var lastPresenceCueAt = 0L
+    private val observationResponseRunning = AtomicBoolean(false)
     private val visibleCueGlobalCooldownMs = 12_000L
     private val visibleCueSameLabelCooldownMs = 75_000L
     private val presenceCueCooldownMs = 45_000L
@@ -1778,8 +1779,10 @@ class MainActivity : ComponentActivity() {
                 // show a brief observation cue so successful local perception is not invisible.
                 val askedOrQueued = maybeAskFromCuriosity(label, best.confidence, sightings)
                 if (!askedOrQueued) {
-                    maybeShowVisibleObservationCue(label, best.confidence, elapsed)
-                    maybeReflectWithLocalLanguage(label, best.confidence, sightings)
+                    val generatedReactionStarted = maybeShowVisibleObservationCue(label, best.confidence, elapsed)
+                    if (!generatedReactionStarted) {
+                        maybeReflectWithLocalLanguage(label, best.confidence, sightings)
+                    }
                 }
             }
             .addOnFailureListener(mainExecutor) { error ->
@@ -2523,62 +2526,144 @@ class MainActivity : ComponentActivity() {
         val askedOrQueued = best.confidence >= 0.82f &&
             maybeAskFromCuriosity(label, best.confidence, sightings)
         if (!askedOrQueued) {
-            maybeShowVisibleObservationCue(label, best.confidence, now)
-            if (best.confidence >= 0.82f && changed) {
+            val generatedReactionStarted = maybeShowVisibleObservationCue(label, best.confidence, now)
+            if (!generatedReactionStarted && best.confidence >= 0.82f && changed) {
                 maybeReflectWithLocalLanguage(label, best.confidence, sightings)
             }
         }
     }
 
     /**
-     * Delivers a brief, evidence-grounded cue when a clear new category is detected.
-     * Same-label and global cooldowns prevent narration from repeating on every camera frame.
+     * Requests an original local-model response from current perception and remembered context.
+     * There is deliberately no canned fallback: if the generative brain is not ready or fails,
+     * EVE does not pretend a scripted line came from independent understanding.
      */
-    private fun maybeShowVisibleObservationCue(label: String, confidence: Float, now: Long) {
-        if (isFinishing || isDestroyed || !::dialogueBubble.isInitialized) return
-        if (!confidence.isFinite() || confidence < 0.72f) return
+    private fun maybeShowVisibleObservationCue(label: String, confidence: Float, now: Long): Boolean {
+        if (isFinishing || isDestroyed || !::dialogueBubble.isInitialized) return false
+        if (!confidence.isFinite() || confidence < 0.72f) return false
 
         val key = EveSceneGeometry.normalizeLabel(label)
             .trim()
             .lowercase(Locale.ROOT)
-        if (key.isBlank() || (!isMeaningfulLabel(key) && !isCuriosityWorthyLabel(key))) return
+        if (key.isBlank() || (!isMeaningfulLabel(key) && !isCuriosityWorthyLabel(key))) return false
+        if (!::localLanguageBrain.isInitialized || !localLanguageBrain.isReady) return false
+        if (observationResponseRunning.get()) return false
 
-        if (lastVisibleCueAt > 0L && now - lastVisibleCueAt < visibleCueGlobalCooldownMs) return
+        if (lastVisibleCueAt > 0L && now - lastVisibleCueAt < visibleCueGlobalCooldownMs) return false
         if (key == lastVisibleCueKey && lastVisibleCueAt > 0L &&
             now - lastVisibleCueAt < visibleCueSameLabelCooldownMs
-        ) return
+        ) return false
 
-        val name = arabicVisualObjectName(key).trim().take(36)
-        val message = when (key) {
-            "person" -> "أرى شخصًا أمامي."
-            "dog" -> "أرى كلبًا في المشهد."
-            "cat" -> "أرى قطة في المشهد."
-            "bird" -> "ألاحظ طائرًا أمامي."
-            "food" -> "ألاحظ طعامًا في المشهد."
-            "cell phone", "mobile phone", "phone" -> "أرى هاتفًا أمامي."
-            else -> if (name.isNotBlank()) "لاحظت $name في المشهد." else return
+        val sceneIsFresh = lastSceneObservationAt > 0L &&
+            now - lastSceneObservationAt in 0L..EveAutonomousMind.SCENE_FRESH_MS
+        val sceneEvidence = if (sceneIsFresh && latestSceneSummary.isNotBlank()) {
+            latestSceneSummary.trim().take(600)
+        } else {
+            "التصنيف البصري المحلي الحالي: " + key +
+                "؛ ثقة النموذج=" + (confidence * 100f).toInt() + "٪؛ " +
+                "عدد مرات الرصد=" + memory.sightings(key) +
+                ". هذا احتمال تصنيفي وليس وصفًا يقينيًا لكل المشهد."
         }
-
-        lastVisibleCueKey = key
-        lastVisibleCueAt = now
-        showDialogueText(message, durationMs = 4_200L)
-        Log.i(
-            "EVE_VISIBLE_BEHAVIOR",
-            "OBSERVATION_CUE label=$key confidence=$confidence source=offline_vision"
+        val context = localLanguageContext().copy(
+            latestVisionLabel = key,
+            visionConfidence = confidence,
+            visionObservationAgeMs = 0L,
+            sightingCount = memory.sightings(key),
+            latestSceneSummary = sceneEvidence,
+            sceneObservationAgeMs = 0L
+        )
+        return requestGeneratedObservationResponse(
+            key = key,
+            confidence = confidence,
+            now = now,
+            evidence = sceneEvidence,
+            context = context
         )
     }
 
-    /** Briefly acknowledges a person detected by the on-device face detector without claiming identity. */
+    /** Face presence is evidence of a person, not evidence of their name or relationship. */
     private fun maybeAcknowledgeObservedPerson(now: Long) {
         if (isFinishing || isDestroyed || !::dialogueBubble.isInitialized) return
+        if (!::localLanguageBrain.isInitialized || !localLanguageBrain.isReady) return
         if (lastPresenceCueAt > 0L && now - lastPresenceCueAt < presenceCueCooldownMs) return
         if (lastVisibleCueAt > 0L && now - lastVisibleCueAt < visibleCueGlobalCooldownMs) return
+        if (observationResponseRunning.get()) return
 
-        lastPresenceCueAt = now
-        lastVisibleCueKey = "person_presence"
+        val freshScene = lastSceneObservationAt > 0L &&
+            now - lastSceneObservationAt in 0L..EveAutonomousMind.SCENE_FRESH_MS &&
+            latestSceneSummary.isNotBlank()
+        val faceEvidence = if (freshScene) {
+            latestSceneSummary.trim().take(420) +
+                "؛ كاشف الوجه المحلي وجد وجهًا بشريًا في الإطار الحالي، لكن الهوية غير مثبتة بمجرد وجود الوجه."
+        } else {
+            "كاشف الوجه المحلي وجد وجهًا بشريًا في الإطار الحالي. لا يوجد دليل كافٍ لتحديد الاسم أو العلاقة."
+        }
+        val context = localLanguageContext().copy(
+            latestVisionLabel = "person",
+            visionConfidence = 0.88f,
+            visionObservationAgeMs = 0L,
+            latestSceneSummary = faceEvidence,
+            sceneObservationAgeMs = 0L
+        )
+        if (requestGeneratedObservationResponse(
+                key = "person_presence",
+                confidence = 0.88f,
+                now = now,
+                evidence = faceEvidence,
+                context = context
+            )
+        ) {
+            lastPresenceCueAt = now
+        }
+    }
+
+    private fun requestGeneratedObservationResponse(
+        key: String,
+        confidence: Float,
+        now: Long,
+        evidence: String,
+        context: LocalLlmContext
+    ): Boolean {
+        if (!observationResponseRunning.compareAndSet(false, true)) return false
+        lastVisibleCueKey = key
         lastVisibleCueAt = now
-        showDialogueText("أراك أمامي. سأنتبه لتعابيرك.", durationMs = 4_200L)
-        Log.i("EVE_VISIBLE_BEHAVIOR", "PRESENCE_ACKNOWLEDGED source=offline_face_detector")
+
+        localLanguageBrain.commentOnObservation(context, evidence) { outcome ->
+            try {
+                if (isFinishing || isDestroyed) return@commentOnObservation
+                val generated = outcome.getOrNull()
+                val reply = generated?.replyArabic?.trim()?.take(180).orEmpty()
+                if (reply.isBlank() || generated == null) {
+                    Log.w(
+                        "EVE_VISIBLE_BEHAVIOR",
+                        "GENERATED_REACTION_FAILED label=" + key + " confidence=" + confidence,
+                        outcome.exceptionOrNull()
+                    )
+                    return@commentOnObservation
+                }
+
+                generated.reflectionArabic.trim().takeIf { it.isNotBlank() }
+                    ?.let(memory::rememberReflection)
+                memory.rememberDialogue("دليل بصري محلي: " + evidence.take(160), reply)
+                val decision = brain.integrateLanguageInsight(
+                    moodHint = generated.moodHint,
+                    intentHint = generated.intentHint,
+                    confidence = generated.confidence,
+                    note = generated.reflectionArabic,
+                    source = "offline_visual_awareness"
+                )
+                react(decision, playSound = false)
+                showDialogueText(reply, durationMs = 5_200L)
+                Log.i(
+                    "EVE_VISIBLE_BEHAVIOR",
+                    "GENERATED_REACTION_OK label=" + key + " confidence=" + confidence +
+                        " modelConfidence=" + generated.confidence + " localOnly=true"
+                )
+            } finally {
+                observationResponseRunning.set(false)
+            }
+        }
+        return true
     }
 
     private val objectDetectionIntervalMs = 1400L
