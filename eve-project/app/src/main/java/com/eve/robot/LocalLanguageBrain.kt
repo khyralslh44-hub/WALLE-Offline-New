@@ -31,7 +31,7 @@ import java.util.Locale
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
-enum class LocalLlmState { WAITING_FOR_WIFI, DOWNLOADING, LOADING, READY, ERROR }
+enum class LocalLlmState { DEFERRED, WAITING_FOR_WIFI, DOWNLOADING, LOADING, READY, ERROR }
 
 data class LocalLlmContext(
     val latestVisionLabel: String? = null,
@@ -94,7 +94,7 @@ class LocalLanguageBrain(
     private val modelFile = File(modelDirectory, MODEL_FILE_NAME)
     private val partialFile = File(modelDirectory, "$MODEL_FILE_NAME.part")
 
-    @Volatile private var state: LocalLlmState = LocalLlmState.WAITING_FOR_WIFI
+    @Volatile private var state: LocalLlmState = LocalLlmState.DEFERRED
     @Volatile private var engine: Engine? = null
     @Volatile private var lastStatusMessage = ""
     @Volatile private var lastProgress = -1
