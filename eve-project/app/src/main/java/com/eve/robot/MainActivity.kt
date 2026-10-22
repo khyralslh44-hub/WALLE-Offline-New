@@ -585,7 +585,10 @@ class MainActivity : ComponentActivity() {
         localLanguageBrain = LocalLanguageBrain(applicationContext) { state, percent, message ->
             handleLocalLanguageStatus(state, percent, message)
         }
-        localLanguageBrain.start()
+        // Resource-saving startup: keep the large generative model unloaded until an open-ended
+        // user question actually needs it. Camera, expressions, memory and local speech remain
+        // available; LiteRT-LM initializes on its own worker only on demand.
+        Log.i("EVE_LLM", "LOCAL_LLM_DEFERRED reason=resource_saving_until_user_query")
         initializeHandGestureRecognizer()
         initializeOfflineObjectDetector()
         initializeRobotBaseLink()
@@ -1181,15 +1184,16 @@ class MainActivity : ComponentActivity() {
         }
 
         // Open-ended questions go to the local generator only after deterministic memory/FAQ paths.
+        // The large local language model is initialized on demand to reduce launch-time RAM/CPU
+        // pressure on mid-range phones. No user text leaves the device.
         if (conversationalTurn && ::localLanguageBrain.isInitialized) {
             if (localLanguageBrain.isReady) {
                 requestLocalLanguageReply(text, addressedToEve)
                 return
             }
-            if (isLocalLanguageBrainStarting()) {
-                queueLocalQuestion(text, addressedToEve, "recognized speech before model ready")
-                return
-            }
+            queueLocalQuestion(text, addressedToEve, "recognized speech; lazy local model initialization")
+            localLanguageBrain.start()
+            return
         }
 
         // If the local generator is unavailable, return an honest grounded fallback immediately.
@@ -1400,7 +1404,8 @@ class MainActivity : ComponentActivity() {
         }
         if (::face.isInitialized && hasCameraPermission() && !cameraStarted) startCamera()
         if (::localLanguageBrain.isInitialized) {
-            localLanguageBrain.ensureReady()
+            // Do not initialize the ~345 MB language model merely because the app returns to
+            // foreground. A real open-ended user query starts it lazily.
             localLanguageBrain.refreshStatus()
         }
     }
@@ -4054,8 +4059,9 @@ class MainActivity : ComponentActivity() {
         val baseline = brain.respondToSpeech(text, addressedToEve)
         react(baseline, playSound = false)
         if (!::localLanguageBrain.isInitialized || !localLanguageBrain.isReady) {
-            if (::localLanguageBrain.isInitialized && isLocalLanguageBrainStarting()) {
+            if (::localLanguageBrain.isInitialized) {
                 queueLocalQuestion(text, addressedToEve, "reply requested before model ready")
+                localLanguageBrain.start()
             } else {
                 showDialogueText(
                     "الدماغ اللغوي المحلي غير جاهز الآن. انقر على حالة التشغيل أعلى الشاشة لمعرفة السبب.",
