@@ -59,7 +59,12 @@ data class LocalLlmResult(
     val moodHint: String?,
     val intentHint: String?,
     val reflectionArabic: String,
-    val confidence: Float
+    val confidence: Float,
+    /** Untrusted model proposal; callers must validate it against an explicit allow-list. */
+    val planningAction: String? = null,
+    val planningGoal: String? = null,
+    val planningReason: String? = null,
+    val successCriterion: String? = null
 )
 
 /**
@@ -104,6 +109,10 @@ class LocalLanguageBrain(
 
     val isReady: Boolean
         get() = state == LocalLlmState.READY && conversation != null
+
+    /** Used by the executive to avoid overlapping expensive local generations. */
+    val isGenerating: Boolean
+        get() = generating.get()
 
     val currentState: LocalLlmState
         get() = state
@@ -351,6 +360,98 @@ class LocalLanguageBrain(
             callback = callback
         )
     }
+
+    /**
+     * EVE's generative executive proposes one cognitive step from a strict allow-list.
+     * This method never executes actions itself; MainActivity re-checks the live safety
+     * conditions after generation and rejects every action not explicitly offered.
+     */
+    fun planAutonomousStep(
+        context: LocalLlmContext,
+        allowedActions: List<String>,
+        previousGoal: String,
+        previousAction: String,
+        previousOutcome: String,
+        callback: (Result<LocalLlmResult>) -> Unit
+    ) {
+        val allowed = allowedActions.distinct().filter { it in AUTONOMY_ACTIONS }.take(AUTONOMY_ACTIONS.size)
+        if (allowed.isEmpty()) {
+            deliver(callback, Result.failure(IllegalArgumentException("لا توجد خطوات معرفية مسموحة لهذه الحالة.")))
+            return
+        }
+        runInference(
+            buildAutonomyPlannerPrompt(
+                context = context,
+                allowedActions = allowed,
+                previousGoal = previousGoal,
+                previousAction = previousAction,
+                previousOutcome = previousOutcome
+            ),
+            maxOutputTokens = 64,
+            callback = callback
+        )
+    }
+
+    private fun buildAutonomyPlannerPrompt(
+        context: LocalLlmContext,
+        allowedActions: List<String>,
+        previousGoal: String,
+        previousAction: String,
+        previousOutcome: String
+    ): String {
+        val confidence = context.visionConfidence.takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: 0f
+        val freshVision = context.visionObservationAgeMs in 0L..12_000L &&
+            !context.latestVisionLabel.isNullOrBlank() && confidence >= 0.45f
+        val freshScene = context.sceneObservationAgeMs in 0L..10_000L &&
+            context.latestSceneSummary.isNotBlank()
+        val p = context.personality
+        return buildString {
+            appendLine("MODE=AUTONOMY_PLAN")
+            appendLine("ROLE=EVE local executive; choose the next cognitive step, not a canned reaction.")
+            appendLine("TASK=Infer one useful next goal from fresh evidence, memory, personality, and the previous outcome.")
+            appendLine("ALLOWED_ACTIONS=" + allowedActions.joinToString(","))
+            appendLine("RULE=next_action must exactly equal one ALLOWED_ACTIONS token; no other action is permitted.")
+            appendLine("RULE=Prefer learning and evidence-checking when uncertainty is high; quiet_attention is valid.")
+            appendLine("RULE=Do not infer identity, intent, emotion, activity, or danger from a generic object label alone.")
+            appendLine("RULE=Do not invent scene details; stale or missing evidence means observe_scene or quiet_attention.")
+            appendLine("RULE=Do not repeat an action whose previous outcome failed unless the evidence has materially changed.")
+            appendLine("RULE=No network, no external commands, no hardware movement. This is cognitive planning only.")
+            appendLine("MOOD=" + context.currentMood.take(20))
+            appendLine("PERSONALITY=warmth:${p.warmth};curiosity:${p.curiosityBias};playfulness:${p.playfulness}")
+            if (freshVision) {
+                appendLine("VISION=" + context.latestVisionLabel.orEmpty().take(36) +
+                    ";confidence=" + String.format(Locale.ROOT, "%.2f", confidence) +
+                    ";sightings=" + context.sightingCount.coerceIn(0, 100000))
+            } else appendLine("VISION=STALE_OR_UNCERTAIN")
+            if (freshScene) appendLine("SCENE=" + context.latestSceneSummary.trim().take(520))
+            else appendLine("SCENE=STALE_OR_UNAVAILABLE")
+            if (context.recentObservations.isNotEmpty()) {
+                appendLine("MEMORY=" + context.recentObservations.takeLast(4).joinToString(" | ").take(260))
+            }
+            if (context.recentReflections.isNotEmpty()) {
+                appendLine("PAST_REFLECTIONS=" + context.recentReflections.takeLast(2).joinToString(" | ").take(200))
+            }
+            if (context.recentDialogues.isNotEmpty()) {
+                appendLine("RECENT_DIALOGUE=" + context.recentDialogues.takeLast(2).joinToString(" | ").take(160))
+            }
+            if (context.knownPeople.isNotBlank()) appendLine("KNOWN_PEOPLE=" + context.knownPeople.take(140))
+            appendLine("PREVIOUS_GOAL=" + previousGoal.take(80))
+            appendLine("PREVIOUS_ACTION=" + previousAction.take(40))
+            appendLine("PREVIOUS_OUTCOME=" + previousOutcome.take(180))
+            appendLine(
+                """JSON only: {"reply_ar":"","reflection_ar":"مراجعة قصيرة للدليل","mood":"curious","intent":"observe","confidence":0.7,"goal":"understand_current_evidence","next_action":"${allowedActions.first()}","reason":"سبب مرتبط بالأدلة والذاكرة","success_criterion":"ما الذي سيبين نجاح الخطوة"}"""
+            )
+            appendLine("Use concise Arabic for goal, reason, success_criterion. No markdown. Valid JSON only.")
+        }
+    }
+
+    private val AUTONOMY_ACTIONS = setOf(
+        "observe_scene",
+        "reflect_on_scene",
+        "ask_curiosity_question",
+        "quiet_attention",
+        "switch_to_world_camera"
+    )
 
     /**
      * Generates an original, short reaction from recent on-device evidence and EVE's saved context.
@@ -603,7 +704,15 @@ class LocalLanguageBrain(
             moodHint = mood,
             intentHint = intent,
             reflectionArabic = reflection,
-            confidence = confidence
+            confidence = confidence,
+            planningAction = json?.optString("next_action", "").orEmpty().trim()
+                .takeIf { it in AUTONOMY_ACTIONS },
+            planningGoal = json?.optString("goal", "").orEmpty().trim()
+                .take(80).takeIf { it.isNotBlank() },
+            planningReason = json?.optString("reason", "").orEmpty().trim()
+                .take(180).takeIf { it.isNotBlank() },
+            successCriterion = json?.optString("success_criterion", "").orEmpty().trim()
+                .take(180).takeIf { it.isNotBlank() }
         )
     }
 
