@@ -389,7 +389,8 @@ class LocalLanguageBrain(
 
     private fun hasCompleteAutonomyPlan(result: LocalLlmResult, prompt: String): Boolean {
         val allowed = allowedPlannerActions(prompt)
-        return result.planningAction in allowed &&
+        return result.planningAction != null &&
+            result.planningAction in allowed &&
             !result.planningGoal.isNullOrBlank() &&
             !result.planningReason.isNullOrBlank() &&
             !result.successCriterion.isNullOrBlank()
