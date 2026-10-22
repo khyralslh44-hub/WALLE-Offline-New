@@ -352,6 +352,32 @@ class LocalLanguageBrain(
         )
     }
 
+    /**
+     * Generates an original, short reaction from recent on-device evidence and EVE's saved context.
+     * No fixed label-to-sentence mapping is used. The caller must supply only current, grounded
+     * evidence and should remain silent when the local model is unavailable.
+     */
+    fun commentOnObservation(
+        context: LocalLlmContext,
+        evidence: String,
+        callback: (Result<LocalLlmResult>) -> Unit
+    ) {
+        val groundedEvidence = evidence
+            .replace(Regex("\\s+"), " ")
+            .trim()
+            .take(260)
+            .ifBlank { "لا توجد أدلة بصرية حديثة كافية لوصف المشهد." }
+        runInference(
+            buildPrompt(
+                "OBSERVATION_COMMENT",
+                groundedEvidence,
+                context
+            ),
+            maxOutputTokens = 56,
+            callback = callback
+        )
+    }
+
     private fun runInference(
         prompt: String,
         maxOutputTokens: Int,
@@ -468,6 +494,7 @@ class LocalLanguageBrain(
         val task = when (mode) {
             "USER" -> "Answer briefly in Arabic."
             "CURIOSITY" -> "Ask one very short Arabic question (4-10 words, at most 70 Arabic characters) grounded only in fresh vision. Never claim that a generic person label identifies a face or proves familiarity."
+            "OBSERVATION_COMMENT" -> "Generate one original, natural Arabic first-person reaction to the CURRENT on-device evidence. It may be a short thought or question rather than a plain label. Use saved context/personality only when relevant. Do not map labels to canned phrases. Do not claim identity, intention, emotion, weather, or activity unless the supplied evidence supports it. If uncertain, express uncertainty. reply_ar must be non-empty and concise; reflection_ar may contain a brief useful update."
             "GAME" -> "Write one short Arabic reaction in reply_ar based only on the supplied game event. It must contain Arabic words and must not be empty. reflection_ar must be empty."
             else -> "Write a brief reflection; reply_ar must be empty."
         }
@@ -516,12 +543,14 @@ class LocalLanguageBrain(
             "GAME" -> """JSON only. reply_ar MUST be a non-empty Arabic sentence: {"reply_ar":"كانت جولة حماسية! سأحاول الفوز في المرة القادمة.","reflection_ar":"","mood":"playful","intent":"play","confidence":0.8}"""
             "USER" -> """JSON only: {"reply_ar":"مرحبًا! كيف أستطيع مساعدتك؟","reflection_ar":"","mood":"neutral","intent":"connect","confidence":0.8}"""
             "CURIOSITY" -> """JSON only: {"reply_ar":"ما هذا الشيء؟","reflection_ar":"","mood":"curious","intent":"observe","confidence":0.7}"""
+            "OBSERVATION_COMMENT" -> """JSON only: {"reply_ar":"تغيّر المشهد أمامي، أريد أن ألاحظ ما الذي اختلف.","reflection_ar":"","mood":"curious","intent":"observe","confidence":0.6}"""
             else -> """JSON only: {"reply_ar":"","reflection_ar":"ملاحظة موجزة من الدليل المتاح فقط.","mood":"neutral","intent":"observe","confidence":0.5}"""
         }
         fields += responseExample
         fields += when (mode) {
             "OBSERVATION" -> "Never invent facts. OBSERVATION reply_ar empty."
             "CURIOSITY" -> "reply_ar must be one concise Arabic question (at most 84 characters) supported by fresh visual evidence. A generic person label is not face identity; never imply known name or familiarity."
+            "OBSERVATION_COMMENT" -> "reply_ar must be newly generated in Arabic from VISION, SCENE and USER evidence only. Do not use a memorized canned label sentence. Do not claim a person's identity from face presence alone. If context lacks current evidence, say the evidence is insufficient. Keep it at most two short sentences."
             "GAME" -> "reply_ar must contain a non-empty Arabic game comment; reflection_ar must be empty. Never invent score or events; follow the supplied outcome only."
             else -> "Never invent observations or memories. If fresh vision is absent, do not describe a scene."
         }
