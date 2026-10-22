@@ -68,9 +68,9 @@ class MainActivity : ComponentActivity() {
     private lateinit var localLanguageBrain: LocalLanguageBrain
     private val lastLocalLlmVisionAt = AtomicLong(0L)
     @Volatile private var lastLocalLlmVisionLabel = ""
-    @Volatile private var currentLocalLlmState = LocalLlmState.WAITING_FOR_WIFI
+    @Volatile private var currentLocalLlmState = LocalLlmState.DEFERRED
     @Volatile private var currentLocalLlmPercent = 0
-    @Volatile private var currentLocalLlmDetail = "لم تكتمل تهيئة الدماغ اللغوي"
+    @Volatile private var currentLocalLlmDetail = "سيبدأ الدماغ اللغوي المحلي عند الحاجة لتقليل استهلاك الذاكرة والمعالج"
     private var offlineArabicSpeech: OfflineArabicSpeech? = null
     @Volatile private var offlineSpeechStatus = "OFFLINE_SPEECH_NOT_STARTED"
     private var lastSpeechText = ""
@@ -1336,6 +1336,7 @@ class MainActivity : ComponentActivity() {
                 "الكاميرا الخلفية تعمل"
             }
             val brainLine = when (currentLocalLlmState) {
+                LocalLlmState.DEFERRED -> "الدماغ اللغوي المحلي: مؤجل حتى الحاجة لتخفيف الحمل"
                 LocalLlmState.READY -> "الدماغ اللغوي المحلي: جاهز دون إنترنت"
                 LocalLlmState.DOWNLOADING -> "الدماغ اللغوي: تنزيل $currentLocalLlmPercent%"
                 LocalLlmState.LOADING -> "الدماغ اللغوي: جارٍ التهيئة"
@@ -1544,6 +1545,7 @@ class MainActivity : ComponentActivity() {
             else -> message
         }
         val brainDescription = when (currentLocalLlmState) {
+            LocalLlmState.DEFERRED -> "الدماغ سيبدأ عند الحاجة"
             LocalLlmState.READY -> "الدماغ جاهز"
             LocalLlmState.DOWNLOADING -> "تنزيل الدماغ $currentLocalLlmPercent%"
             LocalLlmState.LOADING -> "تهيئة الدماغ اللغوي…"
@@ -1565,7 +1567,9 @@ class MainActivity : ComponentActivity() {
             setStroke(dp(1), if (healthy) 0x6637F5A1 else 0x667D8B92)
             cornerRadius = dp(16).toFloat()
         }
-        if (active && currentLocalLlmState == LocalLlmState.READY) {
+        if (active && (currentLocalLlmState == LocalLlmState.READY ||
+                currentLocalLlmState == LocalLlmState.DEFERRED)
+        ) {
             main.postDelayed(hideCameraStatus, 3200L)
         }
     }
@@ -3520,6 +3524,17 @@ class MainActivity : ComponentActivity() {
         currentLocalLlmDetail = detail
         if (isFinishing || isDestroyed || !::cameraStatus.isInitialized) return
         when (state) {
+            LocalLlmState.DEFERRED -> {
+                val cameraLabel = when {
+                    cameraStarted && activeCameraLens == CameraLens.FRONT -> "الكاميرا الأمامية تعمل"
+                    cameraStarted -> "الكاميرا الخلفية تعمل"
+                    else -> "الدماغ المحلي يبدأ عند الحاجة"
+                }
+                showCameraStatus(cameraLabel, active = cameraStarted)
+                cameraStatus.contentDescription =
+                    "النموذج اللغوي المحلي لم يُحمّل بعد لتقليل استهلاك الذاكرة والمعالج. سيبدأ تلقائيًا عند الحاجة، ويعمل محليًا إذا كانت أوزانه مضمّنة في التطبيق."
+                Log.i("EVE_LLM", "STATUS deferred=true lazyStart=true")
+            }
             LocalLlmState.READY -> {
                 Log.i("EVE_LLM", "STATUS ready=true onDevice=true")
                 showCameraStatus(
