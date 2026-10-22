@@ -111,9 +111,60 @@ class LocalLanguageBrainIntegrationTest {
                 "LOCAL_LLM_GAME_COMMENT_PASS source=local_qwen chars=${gameComment.replyArabic.length} " +
                     "mood=${gameComment.moodHint ?: "none"} intent=${gameComment.intentHint ?: "none"} internetValidated=false"
             )
+            val allowedActions = listOf("observe_scene", "quiet_attention")
+            val proposal = awaitAutonomousPlan(offlineBrain, allowedActions)
+            assertTrue(
+                "Autonomous planner selected an action outside the allow-list: ${proposal.planningAction}",
+                proposal.planningAction in allowedActions
+            )
+            assertTrue("Autonomous planner produced no goal: $proposal", !proposal.planningGoal.isNullOrBlank())
+            assertTrue("Autonomous planner produced no reason: $proposal", !proposal.planningReason.isNullOrBlank())
+            assertTrue("Autonomous planner produced no success criterion: $proposal", !proposal.successCriterion.isNullOrBlank())
+            Log.i(
+                TAG,
+                "LOCAL_LLM_AUTONOMOUS_PLAN_PASS action=${proposal.planningAction} goal=${proposal.planningGoal} " +
+                    "reasonChars=${proposal.planningReason?.length} criterionChars=${proposal.successCriterion?.length} internetValidated=false"
+            )
         } finally {
             offlineBrain.close()
         }
+    }
+
+    private fun awaitAutonomousPlan(
+        brain: LocalLanguageBrain,
+        allowedActions: List<String>
+    ): LocalLlmResult {
+        val latch = CountDownLatch(1)
+        val result = AtomicReference<Result<LocalLlmResult>?>(null)
+        val context = LocalLlmContext(
+            latestVisionLabel = "cup",
+            visionConfidence = 0.91f,
+            visionObservationAgeMs = 300L,
+            sightingCount = 3,
+            currentMood = "CURIOUS",
+            recentObservations = listOf("cup appeared in three recent observations"),
+            recentReflections = listOf("Previous evidence was insufficient to infer intent"),
+            latestSceneSummary = "أجسام محددة: كوب في وسط الإطار",
+            sceneObservationAgeMs = 300L
+        )
+        brain.planAutonomousStep(
+            context = context,
+            allowedActions = allowedActions,
+            previousGoal = "understand_current_evidence",
+            previousAction = "observe_scene",
+            previousOutcome = "fresh_evidence_reviewed",
+            callback = {
+                result.set(it)
+                latch.countDown()
+            }
+        )
+        assertTrue(
+            "Timed out waiting for real offline autonomous planning.",
+            latch.await(INFERENCE_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+        )
+        val outcome = result.get()
+        assertNotNull("Autonomous planner callback returned no result.", outcome)
+        return outcome!!.getOrElse { throw AssertionError("Autonomous planning failed.", it) }
     }
 
     private fun awaitGameComment(brain: LocalLanguageBrain): LocalLlmResult {
