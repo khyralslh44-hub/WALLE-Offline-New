@@ -1,5 +1,6 @@
 package com.eve.robot
 
+import android.app.ActivityManager
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
