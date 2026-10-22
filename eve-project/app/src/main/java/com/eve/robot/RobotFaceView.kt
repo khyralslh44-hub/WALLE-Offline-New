@@ -248,10 +248,21 @@ class RobotFaceView(context: Context) : View(context) {
         // The old near-square eye height made the face read as two large tiles instead of LED eyes.
         // A slightly larger glyph leaves room for the eyelid geometry to remain readable on a phone.
         // Keep a clear dark bridge between the eyes; never let the two pixels merge.
-        val w = min(width * 0.245f, height * 0.16f) * eyeWidth
-        val h = min(height * 0.12f, w * 0.86f) * eyeHeight
+        val landscape = width > height
+        // Portrait proportions stay unchanged. In landscape, the old height*0.16 cap
+        // kept the eyes tiny; increase the height-relative cap so the face uses the screen.
+        val w = if (landscape) {
+            min(width * 0.235f, height * 0.36f)
+        } else {
+            min(width * 0.245f, height * 0.16f)
+        } * eyeWidth
+        val h = if (landscape) {
+            min(height * 0.20f, w * 0.86f)
+        } else {
+            min(height * 0.12f, w * 0.86f)
+        } * eyeHeight
         val gap = min(width * 0.20f, w * 0.64f) * spacing
-        val cy = height * 0.50f
+        val cy = height * if (landscape) 0.48f else 0.50f
         // Only one silhouette is rendered per frame. No previous/current eye layers are
         // composited, so two expressions never appear merged during a transition.
         val dizzyActive = dizzyUntilUptimeMs > now
