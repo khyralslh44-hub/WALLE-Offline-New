@@ -96,7 +96,6 @@ class LocalLanguageBrain(
 
     @Volatile private var state: LocalLlmState = LocalLlmState.WAITING_FOR_WIFI
     @Volatile private var engine: Engine? = null
-    @Volatile private var conversation: Conversation? = null
     @Volatile private var lastStatusMessage = ""
     @Volatile private var lastProgress = -1
     @Volatile private var lastRetryAt = 0L
@@ -108,7 +107,7 @@ class LocalLanguageBrain(
     }
 
     val isReady: Boolean
-        get() = state == LocalLlmState.READY && conversation != null
+        get() = state == LocalLlmState.READY && engine != null
 
     /** Used by the executive to avoid overlapping expensive local generations. */
     val isGenerating: Boolean
@@ -185,7 +184,6 @@ class LocalLanguageBrain(
                     Log.i(TAG, "LOCAL_LLM_BACKEND_CANDIDATES=${backends.map { it.first }} cpuThreads=$cpuThreads")
 
                     var selectedEngine: Engine? = null
-                    var selectedConversation: Conversation? = null
                     var lastBackendError: Exception? = null
                     for ((backendName, backend) in backends) {
                         val candidate = Engine(
@@ -199,9 +197,8 @@ class LocalLanguageBrain(
                         )
                         try {
                             candidate.initialize()
-                            val candidateConversation = candidate.createConversation(conversationConfig())
+                            candidate.createConversation(conversationConfig()).close()
                             selectedEngine = candidate
-                            selectedConversation = candidateConversation
                             Log.i(TAG, "LOCAL_LLM_BACKEND_SELECTED backend=$backendName")
                             break
                         } catch (error: Exception) {
@@ -212,9 +209,6 @@ class LocalLanguageBrain(
                     }
                     engine = selectedEngine
                         ?: throw IllegalStateException("تعذر تهيئة محرك اللغة على GPU أو CPU.", lastBackendError)
-                    conversation = selectedConversation
-                        ?: throw IllegalStateException("لم تُنشأ محادثة محلية بعد تهيئة المحرك.")
-
                     state = LocalLlmState.READY
                     lastRetryAt = 0L
                     publish(LocalLlmState.READY, 100, "الدماغ اللغوي المحلي جاهز ويعمل دون إنترنت")
@@ -987,8 +981,6 @@ class LocalLanguageBrain(
         networkCallback = null
         try {
             worker.execute {
-                try { conversation?.close() } catch (_: Exception) { }
-                conversation = null
                 try { engine?.close() } catch (_: Exception) { }
                 engine = null
             }
