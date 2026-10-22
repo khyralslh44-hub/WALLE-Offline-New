@@ -4046,6 +4046,15 @@ class MainActivity : ComponentActivity() {
             .putLong("lastMoodAt", System.currentTimeMillis())
             .apply()
         face.setExpression(decision, System.currentTimeMillis())
+        // Trace the offline perception -> decision -> animated-face path for on-device verification.
+        // Camera pixels and frames are never logged or uploaded by this diagnostic.
+        Log.i(
+            "EVE_PIPELINE",
+            "DECISION_TO_FACE mood=${decision.mood} intent=${decision.intent} " +
+                "reason=${decision.reason.take(120)} sceneAgeMs=" +
+                (if (lastSceneObservationAt > 0L) (SystemClock.elapsedRealtime() - lastSceneObservationAt).coerceAtLeast(0L) else -1L) +
+                " label=${lastMeaningfulLabel.orEmpty().take(48)} confidence=${"%.2f".format(Locale.ROOT, lastMeaningfulConfidence)}"
+        )
         if (playSound) voice.speakMood(decision.mood)
         Log.i("EVE", "BEHAVIOR mood=${decision.mood} reason=${decision.reason}")
     }
