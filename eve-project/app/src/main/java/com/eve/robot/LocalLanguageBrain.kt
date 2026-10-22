@@ -1022,7 +1022,7 @@ class LocalLanguageBrain(
         private const val READ_TIMEOUT_MS = 75_000
         private const val RETRY_DELAY_MS = 30_000L
         private const val MAX_REPLY_CHARS = 300
-        private const val MAX_OUTPUT_TOKENS = 48
+        private const val MAX_OUTPUT_TOKENS = 96
         private const val MAX_RESPONSE_BUFFER_CHARS = 8_000
         /**
          * Qwen3 chat format adapted for LiteRT-LM 0.18 typed content.
