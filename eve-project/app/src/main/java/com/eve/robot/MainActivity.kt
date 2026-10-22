@@ -2936,8 +2936,8 @@ class MainActivity : ComponentActivity() {
             "هذا ليس", "هذه ليست", "ليس هذا", "ليست هذه", "الذي ترينه هو", "النشاط هو",
             "learn from my correction", "this is not"
         )
-        val confirmed = confirmPhrases.any(text::contains)
-        val correctionRequested = correctionPhrases.any(text::contains)
+        val confirmed = confirmPhrases.any { text.contains(normalizeArabicSpeech(it)) }
+        val correctionRequested = correctionPhrases.any { text.contains(normalizeArabicSpeech(it)) }
         if (!confirmed && !correctionRequested) return false
 
         val now = SystemClock.elapsedRealtime()
@@ -3016,7 +3016,7 @@ class MainActivity : ComponentActivity() {
             "eating" to EveHumanActivity.EATING_POSSIBLE
         )
         return terms.mapNotNull { (phrase, activity) ->
-            val index = text.lastIndexOf(phrase)
+            val index = text.lastIndexOf(normalizeArabicSpeech(phrase))
             if (index >= 0) Triple(index, phrase.length, activity) else null
         }.maxWithOrNull(compareBy<Triple<Int, Int, EveHumanActivity>> { it.first }.thenBy { it.second })
             ?.third
