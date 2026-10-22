@@ -115,7 +115,7 @@ class LocalLanguageBrainIntegrationTest {
             val proposal = awaitAutonomousPlan(offlineBrain, allowedActions)
             assertTrue(
                 "Autonomous planner selected an action outside the allow-list: ${proposal.planningAction}",
-                proposal.planningAction in allowedActions
+                proposal.planningAction.orEmpty() in allowedActions
             )
             assertTrue("Autonomous planner produced no goal: $proposal", !proposal.planningGoal.isNullOrBlank())
             assertTrue("Autonomous planner produced no reason: $proposal", !proposal.planningReason.isNullOrBlank())
