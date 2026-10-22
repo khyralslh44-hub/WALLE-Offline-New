@@ -199,18 +199,7 @@ class LocalLanguageBrain(
                         )
                         try {
                             candidate.initialize()
-                            val candidateConversation = candidate.createConversation(
-                                ConversationConfig(
-                                    systemInstruction = Contents.of(SYSTEM_INSTRUCTION),
-                                    samplerConfig = SamplerConfig(
-                                        topK = 24,
-                                        topP = 0.88,
-                                        temperature = 0.35
-                                    ),
-                                    maxOutputToken = MAX_OUTPUT_TOKENS,
-                                    chatTemplate = QWEN3_COMPATIBLE_CHAT_TEMPLATE
-                                )
-                            )
+                            val candidateConversation = candidate.createConversation(conversationConfig())
                             selectedEngine = candidate
                             selectedConversation = candidateConversation
                             Log.i(TAG, "LOCAL_LLM_BACKEND_SELECTED backend=$backendName")
@@ -409,45 +398,34 @@ class LocalLanguageBrain(
             context.latestSceneSummary.isNotBlank()
         val p = context.personality
         return buildString {
-            appendLine("MODE=AUTONOMY_PLAN")
-            appendLine("ROLE=EVE local executive; choose the next cognitive step, not a canned reaction.")
-            appendLine("TASK=Infer one useful next goal from fresh evidence, memory, personality, and the previous outcome.")
-            appendLine("ALLOWED_ACTIONS=" + allowedActions.joinToString(","))
-            appendLine("RULE=next_action must exactly equal one ALLOWED_ACTIONS token; no other action is permitted.")
-            appendLine("RULE=Prefer learning and evidence-checking when uncertainty is high; quiet_attention is valid.")
-            appendLine("RULE=Do not infer identity, intent, emotion, activity, or danger from a generic object label alone.")
-            appendLine("RULE=Do not invent scene details; stale or missing evidence means observe_scene or quiet_attention.")
-            appendLine("RULE=Do not repeat an action whose previous outcome failed unless the evidence has materially changed.")
-            appendLine("RULE=No network, no external commands, no hardware movement. This is cognitive planning only.")
-            appendLine("MOOD=" + context.currentMood.take(20))
-            appendLine("PERSONALITY=warmth:${p.warmth};curiosity:${p.curiosityBias};playfulness:${p.playfulness}")
-            if (freshVision) {
-                appendLine("VISION=" + context.latestVisionLabel.orEmpty().take(36) +
-                    ";confidence=" + String.format(Locale.ROOT, "%.2f", confidence) +
-                    ";sightings=" + context.sightingCount.coerceIn(0, 100000))
-            } else appendLine("VISION=STALE_OR_UNCERTAIN")
-            if (freshScene) appendLine("SCENE=" + context.latestSceneSummary.trim().take(520))
-            else appendLine("SCENE=STALE_OR_UNAVAILABLE")
-            if (context.recentObservations.isNotEmpty()) {
-                appendLine("MEMORY=" + context.recentObservations.takeLast(4).joinToString(" | ").take(260))
+            appendLine("MODE=PLAN")
+            appendLine("Choose one useful cognitive step using current evidence, local memory and previous outcomes.")
+            appendLine("ALLOWED=" + allowedActions.joinToString(","))
+            appendLine("Use exactly one ALLOWED action. Uncertain/stale evidence => observe_scene or quiet_attention.")
+            appendLine("Do not infer identity, emotion, intent or activity from a generic label. Do not repeat failed actions without changed evidence.")
+            appendLine("Cognitive planning only: no network, external commands or hardware movement.")
+            appendLine("MOOD=" + context.currentMood.take(12) + ";TRAITS=${p.warmth},${p.curiosityBias},${p.playfulness}")
+            if (freshVision) appendLine("VISION=" + context.latestVisionLabel.orEmpty().take(24) +
+                ";c=" + String.format(Locale.ROOT, "%.1f", confidence) +
+                ";n=" + context.sightingCount.coerceIn(0, 100000))
+            if (freshScene) appendLine("SCENE=" + context.latestSceneSummary.trim().take(150))
+            context.recentObservations.lastOrNull()?.trim()?.takeIf { it.isNotBlank() }?.let {
+                appendLine("MEM=" + it.take(72))
             }
-            if (context.recentReflections.isNotEmpty()) {
-                appendLine("PAST_REFLECTIONS=" + context.recentReflections.takeLast(2).joinToString(" | ").take(200))
+            context.recentReflections.lastOrNull()?.trim()?.takeIf { it.isNotBlank() }?.let {
+                appendLine("REF=" + it.take(55))
             }
-            if (context.recentDialogues.isNotEmpty()) {
-                appendLine("RECENT_DIALOGUE=" + context.recentDialogues.takeLast(2).joinToString(" | ").take(160))
+            context.recentDialogues.lastOrNull()?.trim()?.takeIf { it.isNotBlank() }?.let {
+                appendLine("CHAT=" + it.take(55))
             }
-            if (context.knownPeople.isNotBlank()) appendLine("KNOWN_PEOPLE=" + context.knownPeople.take(140))
-            appendLine("PREVIOUS_GOAL=" + previousGoal.take(80))
-            appendLine("PREVIOUS_ACTION=" + previousAction.take(40))
-            appendLine("PREVIOUS_OUTCOME=" + previousOutcome.take(180))
-            if (recentActionOutcomes.isNotEmpty()) {
-                appendLine("RECENT_ACTION_OUTCOMES=" + recentActionOutcomes.takeLast(6).joinToString(" | ").take(420))
+            context.knownPeople.trim().takeIf { it.isNotBlank() }?.let {
+                appendLine("PEOPLE=" + it.take(45))
             }
-            appendLine(
-                """JSON only: {"reply_ar":"","reflection_ar":"مراجعة قصيرة للدليل","mood":"curious","intent":"observe","confidence":0.7,"goal":"understand_current_evidence","next_action":"${allowedActions.first()}","reason":"سبب مرتبط بالأدلة والذاكرة","success_criterion":"ما الذي سيبين نجاح الخطوة"}"""
-            )
-            appendLine("Use concise Arabic for goal, reason, success_criterion. No markdown. Valid JSON only.")
+            appendLine("PREV=" + previousGoal.take(45) + ";" + previousAction.take(28) + ";" + previousOutcome.take(60))
+            recentActionOutcomes.takeLast(3).takeIf { it.isNotEmpty() }?.let {
+                appendLine("FEEDBACK=" + it.joinToString("|") { entry -> entry.take(35) }.take(110))
+            }
+            appendLine("""JSON only: {"reply_ar":"","reflection_ar":"","mood":"curious","intent":"observe","confidence":0.5,"goal":"هدف قصير","next_action":"${allowedActions.first()}","reason":"سبب موجز","success_criterion":"معيار نجاح موجز"}""")
         }
     }
 
@@ -485,6 +463,17 @@ class LocalLanguageBrain(
         )
     }
 
+    /**
+     * Conversations are deliberately short-lived. Context is passed in as bounded local memory,
+     * not retained in LiteRT-LM's KV cache across user turns or autonomous planning cycles.
+     */
+    private fun conversationConfig(): ConversationConfig = ConversationConfig(
+        systemInstruction = Contents.of(SYSTEM_INSTRUCTION),
+        samplerConfig = SamplerConfig(topK = 24, topP = 0.88, temperature = 0.35),
+        maxOutputToken = MAX_OUTPUT_TOKENS,
+        chatTemplate = QWEN3_COMPATIBLE_CHAT_TEMPLATE
+    )
+
     private fun runInference(
         prompt: String,
         maxOutputTokens: Int,
@@ -506,11 +495,17 @@ class LocalLanguageBrain(
             // latch unresolved on affected Android/LiteRT-LM combinations.
             worker.execute {
                 val startedAt = SystemClock.elapsedRealtime()
+                var requestConversation: Conversation? = null
                 try {
                     if (closed.get()) throw IllegalStateException("تم إغلاق النموذج المحلي.")
-                    val activeConversation = conversation
-                        ?: throw IllegalStateException("لا توجد محادثة محلية نشطة.")
+                    val activeEngine = engine
+                        ?: throw IllegalStateException("لا يوجد محرك لغة محلي نشط.")
                     val outputCap = maxOutputTokens.coerceIn(12, MAX_OUTPUT_TOKENS)
+                    // Each request gets a fresh KV cache: the app already injects bounded memory
+                    // explicitly, while reusing a Conversation silently accumulates old prompt tokens
+                    // until LiteRT-LM rejects later plans for lack of context capacity.
+                    val activeConversation = activeEngine.createConversation(conversationConfig())
+                    requestConversation = activeConversation
                     Log.i(TAG, "LOCAL_LLM_INFERENCE_START promptChars=${prompt.length} outputCap=$outputCap mode=sync-worker")
 
                     val response = activeConversation.sendMessage(
@@ -579,6 +574,9 @@ class LocalLanguageBrain(
                     )
                     deliver(callback, Result.failure(error))
                 } finally {
+                    try { requestConversation?.close() } catch (closeError: Exception) {
+                        Log.w(TAG, "LOCAL_LLM_REQUEST_CONVERSATION_CLOSE_FAILED", closeError)
+                    }
                     generating.set(false)
                 }
             }
