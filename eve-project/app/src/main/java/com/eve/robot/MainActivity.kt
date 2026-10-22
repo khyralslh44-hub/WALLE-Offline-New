@@ -83,7 +83,14 @@ class MainActivity : ComponentActivity() {
         val addressedToEve: Boolean,
         val queuedAtElapsed: Long
     )
+    private data class PendingLocalCuriosity(
+        val label: String,
+        val confidence: Float,
+        val sightings: Int,
+        val queuedAtElapsed: Long
+    )
     @Volatile private var pendingLocalQuestion: PendingLocalQuestion? = null
+    @Volatile private var pendingLocalCuriosity: PendingLocalCuriosity? = null
     private lateinit var cameraStatus: TextView
     private lateinit var dialogueBubble: TextView
     private val hideDialogue = Runnable {
@@ -237,6 +244,7 @@ class MainActivity : ComponentActivity() {
     private companion object {
         const val LANGUAGE_BRAIN_WARMUP_DELAY_MS = 15_000L
         const val LANGUAGE_BRAIN_DEFERRED_RECHECK_MS = 60_000L
+        const val LOCAL_CURIOSITY_QUEUE_TTL_MS = 120_000L
         const val LANGUAGE_BRAIN_WARMUP_MIN_RAM_BYTES = 1_400_000_000L
     }
     private val lastAutonomyCameraSwitchAt = AtomicLong(0L)
@@ -467,6 +475,7 @@ class MainActivity : ComponentActivity() {
                 Log.i("EVE", "AUTONOMOUS mood=${decision.mood} reason=${decision.reason} inactiveMs=$inactive")
             }
             val directIdle = (SystemClock.elapsedRealtime() - lastDirectUserActionAt).coerceAtLeast(0L)
+            drainPendingLocalCuriosityIfReady()
             if (directIdle >= 8_000L) runAutonomousCognition(directIdle)
             maybeRetryDeferredLanguageBrainWarmup()
             main.postDelayed(this, 6000L)
@@ -930,6 +939,12 @@ class MainActivity : ComponentActivity() {
         lastSpeechText = text
         lastSpeechAt = now
         lastDirectUserActionAt = now
+        // Direct interaction takes priority over an unspoken curiosity question that was waiting
+        // for model warm-up; it will not interrupt the user or compete for the LLM worker.
+        if (pendingLocalCuriosity != null) {
+            pendingLocalCuriosity = null
+            Log.i("EVE_CURIOSITY", "PENDING_QUESTION_DROPPED reason=user_interaction_has_priority")
+        }
         Log.i("EVE_AUDIO", "RECOGNIZED source=$source text=$text")
 
         // Respect a quiet request immediately: settle the eyes without answering with a tone.
@@ -3440,7 +3455,7 @@ class MainActivity : ComponentActivity() {
         onOutcome: ((Boolean, String) -> Unit)? = null
     ): Boolean {
         if (isFinishing || isDestroyed || !::dialogueBubble.isInitialized) return false
-        if (!::localLanguageBrain.isInitialized || !localLanguageBrain.isReady) return false
+        if (!::localLanguageBrain.isInitialized) return false
 
         val preferences = getSharedPreferences("eve_curiosity", MODE_PRIVATE)
         val safeKey = label.trim().lowercase(Locale.ROOT).filter { it.isLetterOrDigit() }.take(48)
@@ -3460,6 +3475,19 @@ class MainActivity : ComponentActivity() {
             previousQuestionCount = countForLabel,
             nowMs = now
         ) ?: return false
+
+        if (!localLanguageBrain.isReady) {
+            // Keep one grounded curiosity candidate while the model warms up. It does not load a
+            // second model, block the camera, or speak a scripted line as if Qwen generated it.
+            pendingLocalCuriosity = PendingLocalCuriosity(
+                label = label.trim().take(48),
+                confidence = confidence.coerceIn(0f, 1f),
+                sightings = sightings.coerceIn(0, 100_000),
+                queuedAtElapsed = SystemClock.elapsedRealtime()
+            )
+            Log.i("EVE_CURIOSITY", "QUESTION_DEFERRED label=$safeKey reason=local_brain_not_ready")
+            return true
+        }
 
         fun publishGeneratedQuestion(questionRaw: String, result: LocalLlmResult) {
             if (isFinishing || isDestroyed) return
@@ -3523,6 +3551,37 @@ class MainActivity : ComponentActivity() {
         return true
     }
 
+    /**
+     * Drains only a single fresh curiosity candidate after the on-device model is ready and idle.
+     * An explicit user question always wins. Expired or visually stale evidence is discarded.
+     */
+    private fun drainPendingLocalCuriosityIfReady() {
+        if (isFinishing || isDestroyed || !::localLanguageBrain.isInitialized ||
+            !localLanguageBrain.isReady || localLanguageBrain.isGenerating ||
+            pendingLocalQuestion != null
+        ) return
+        val pending = pendingLocalCuriosity ?: return
+        val age = SystemClock.elapsedRealtime() - pending.queuedAtElapsed
+        val observationAge = if (lastMeaningfulLabelAt > 0L) {
+            SystemClock.elapsedRealtime() - lastMeaningfulLabelAt
+        } else Long.MAX_VALUE
+        if (age !in 0L..LOCAL_CURIOSITY_QUEUE_TTL_MS ||
+            observationAge !in 0L..EveAutonomousMind.SCENE_FRESH_MS ||
+            !lastMeaningfulLabel.equals(pending.label, ignoreCase = true)
+        ) {
+            pendingLocalCuriosity = null
+            Log.i("EVE_CURIOSITY", "QUESTION_DROPPED reason=expired_or_stale_evidence ageMs=$age")
+            return
+        }
+        pendingLocalCuriosity = null
+        Log.i("EVE_CURIOSITY", "QUESTION_RESUMED label=${pending.label} queuedMs=$age")
+        maybeAskFromCuriosity(
+            label = pending.label,
+            confidence = pending.confidence,
+            sightings = maxOf(pending.sightings, memory.sightings(pending.label))
+        )
+    }
+
     private fun isUsableCuriosityQuestion(value: String): Boolean {
         val text = value.trim().take(84)
         if (text.length !in 12..84) return false
@@ -3568,6 +3627,7 @@ class MainActivity : ComponentActivity() {
                 cameraStatus.contentDescription =
                     "الدماغ اللغوي المحلي جاهز ويعمل دون إنترنت. حالة الميكروفون: $offlineSpeechStatus"
                 drainPendingLocalQuestionIfReady()
+                // The idle loop drains a queued curiosity only after any user question finishes.
             }
             LocalLlmState.WAITING_FOR_WIFI -> {
                 if (detail == "لم تكتمل تهيئة الدماغ اللغوي") {
