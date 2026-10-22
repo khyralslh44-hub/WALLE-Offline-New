@@ -3115,8 +3115,13 @@ class MainActivity : ComponentActivity() {
             )
             // Classification alone does not dictate EVE's mood; generated interpretation does.
             val askedOrQueued = maybeAskFromCuriosity(label, best.confidence, sightings)
-            if (!askedOrQueued && best.confidence >= 0.45f) {
-                maybeReflectWithLocalLanguage(label, best.confidence, sightings)
+            if (!askedOrQueued) {
+                val generatedReactionStarted = maybeShowVisibleObservationCue(
+                    label, best.confidence, SystemClock.elapsedRealtime()
+                )
+                if (!generatedReactionStarted && best.confidence >= 0.45f) {
+                    maybeReflectWithLocalLanguage(label, best.confidence, sightings)
+                }
             }
         }
     }
