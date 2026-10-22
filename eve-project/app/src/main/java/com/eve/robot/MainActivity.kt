@@ -3457,6 +3457,13 @@ class MainActivity : ComponentActivity() {
         if (isFinishing || isDestroyed || !::dialogueBubble.isInitialized) return false
         if (!::localLanguageBrain.isInitialized) return false
 
+        val idleBeforeQuestion = (SystemClock.elapsedRealtime() - lastDirectUserActionAt).coerceAtLeast(0L)
+        if (idleBeforeQuestion < 8_000L || pendingLocalQuestion != null) {
+            Log.i("EVE_CURIOSITY", "QUESTION_SUPPRESSED reason=user_active_or_reply_pending idleMs=$idleBeforeQuestion")
+            return false
+        }
+        val interactionAtRequest = lastDirectUserActionAt
+
         val preferences = getSharedPreferences("eve_curiosity", MODE_PRIVATE)
         val safeKey = label.trim().lowercase(Locale.ROOT).filter { it.isLetterOrDigit() }.take(48)
         if (safeKey.isBlank()) return false
@@ -3491,6 +3498,14 @@ class MainActivity : ComponentActivity() {
 
         fun publishGeneratedQuestion(questionRaw: String, result: LocalLlmResult) {
             if (isFinishing || isDestroyed) return
+            val idleAtPublish = (SystemClock.elapsedRealtime() - lastDirectUserActionAt).coerceAtLeast(0L)
+            if (lastDirectUserActionAt != interactionAtRequest ||
+                idleAtPublish < 8_000L || pendingLocalQuestion != null
+            ) {
+                onOutcome?.invoke(false, "suppressed_user_interaction_during_generation")
+                Log.i("EVE_CURIOSITY", "QUESTION_DROPPED reason=user_interaction_during_generation idleMs=$idleAtPublish")
+                return
+            }
             val question = questionRaw.trim().take(84).let {
                 if (it.endsWith("؟") || it.endsWith("?")) it else "$it؟"
             }
@@ -3560,6 +3575,8 @@ class MainActivity : ComponentActivity() {
             !localLanguageBrain.isReady || localLanguageBrain.isGenerating ||
             pendingLocalQuestion != null
         ) return
+        val idleMs = (SystemClock.elapsedRealtime() - lastDirectUserActionAt).coerceAtLeast(0L)
+        if (idleMs < 8_000L) return
         val pending = pendingLocalCuriosity ?: return
         val age = SystemClock.elapsedRealtime() - pending.queuedAtElapsed
         val observationAge = if (lastMeaningfulLabelAt > 0L) {
