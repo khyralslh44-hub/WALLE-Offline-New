@@ -37,7 +37,10 @@ class RobotFaceRenderingTest {
         arousal: Float = 0.32f,
         curiosity: Float = 0.55f,
         fatigue: Float = 0f,
-        frustration: Float = 0f
+        frustration: Float = 0f,
+        jealousy: Float = 0f,
+        pride: Float = 0f,
+        reassurance: Float = 0f
     ) = Spec(
         label,
         EveDecision(
@@ -48,7 +51,10 @@ class RobotFaceRenderingTest {
             curiosity = curiosity,
             familiarity = 0.10f,
             fatigue = fatigue,
-            frustration = frustration
+            frustration = frustration,
+            jealousy = jealousy,
+            pride = pride,
+            reassurance = reassurance
         ),
         expected
     )
@@ -62,6 +68,7 @@ class RobotFaceRenderingTest {
             spec("Blink high", EveMood.NEUTRAL, EyeSilhouette.BLINK_HIGH, reason = "blink high", arousal = 0.10f),
             spec("Happy", EveMood.HAPPY, EyeSilhouette.SMILE, reason = "happy", valence = 0.25f, arousal = 0.75f),
             spec("Glee", EveMood.HAPPY, EyeSilhouette.GLEE, reason = "happy", valence = 0.85f, arousal = 0.85f),
+            spec("Proud", EveMood.PLAYFUL, EyeSilhouette.PROUD, reason = "proud", valence = 0.70f, arousal = 0.72f, pride = 0.95f),
             spec("Blink low", EveMood.NEUTRAL, EyeSilhouette.BLINK_LOW, reason = "blink low", fatigue = 0.80f),
             spec("Sad down", EveMood.CONCERNED, EyeSilhouette.SAD_DOWN, reason = "sad down", valence = -0.70f, fatigue = 0.70f),
             spec("Sad up", EveMood.CONCERNED, EyeSilhouette.SAD_UP, reason = "sad up", valence = -0.70f, fatigue = 0.10f),
@@ -74,13 +81,32 @@ class RobotFaceRenderingTest {
             spec("Unimpressed", EveMood.CONCERNED, EyeSilhouette.UNIMPRESSED, reason = "unimpressed", arousal = 0.20f),
             spec("Sleepy", EveMood.SLEEPY, EyeSilhouette.DROOPY, reason = "sleepy", fatigue = 0.30f),
             spec("Suspicious", EveMood.CURIOUS, EyeSilhouette.SUSPICIOUS, reason = "suspicious", valence = -0.50f, curiosity = 0.92f),
+            spec("Jealous", EveMood.IRRITATED, EyeSilhouette.JEALOUS, reason = "jealous", valence = -0.25f, arousal = 0.45f, jealousy = 0.95f),
             spec("Squint", EveMood.FOCUSED, EyeSilhouette.SQUINT, reason = "low focus", arousal = 0.10f),
             spec("Angry", EveMood.ANGRY, EyeSilhouette.SHARP, reason = "angry", arousal = 0.50f, frustration = 0.20f),
             spec("Furious", EveMood.ANGRY, EyeSilhouette.FURIOUS, reason = "angry", arousal = 0.88f, frustration = 0.88f),
             spec("Scared", EveMood.CONCERNED, EyeSilhouette.SCARED, reason = "fearful", valence = -0.50f, arousal = 0.85f),
             spec("Awe", EveMood.SURPRISED, EyeSilhouette.AWE, reason = "surprised", valence = 0.85f, arousal = 0.86f),
             spec("Playful", EveMood.PLAYFUL, EyeSilhouette.PLAYFUL, reason = "playful", valence = 0.40f),
-            spec("Warm", EveMood.FAMILIAR, EyeSilhouette.SOFT, reason = "familiar", valence = 0.25f)
+            spec("Warm", EveMood.FAMILIAR, EyeSilhouette.SOFT, reason = "familiar", valence = 0.25f),
+            spec("Affectionate", EveMood.FAMILIAR, EyeSilhouette.AFFECTIONATE, reason = "affection", valence = 0.45f, reassurance = 0.95f),
+            spec(
+                "Confused", EveMood.CONCERNED, EyeSilhouette.CONFUSED,
+                reason = "confused", valence = -0.05f, arousal = 0.40f, frustration = 0.10f
+            ),
+            spec(
+                "Anticipating", EveMood.CURIOUS, EyeSilhouette.ANTICIPATING,
+                reason = "anticipating", valence = 0.32f, arousal = 0.66f, curiosity = 0.78f
+            ),
+            spec(
+                "Disappointed", EveMood.CONCERNED, EyeSilhouette.DISAPPOINTED,
+                reason = "disappointed", valence = -0.40f, arousal = 0.40f, fatigue = 0.12f
+            ),
+            Spec(
+                "Dizzy",
+                EveDecision(EveMood.CONCERNED, "confirmed strong physical shake", valence = -0.20f, arousal = 0.90f),
+                EyeSilhouette.DIZZY
+            )
         )
 
         assertEquals("The rendering audit must cover every declared eye glyph.", EyeSilhouette.values().toSet(), specs.map { it.expected }.toSet())
@@ -102,10 +128,17 @@ class RobotFaceRenderingTest {
             textAlign = Paint.Align.CENTER
         }
         val fingerprints = linkedMapOf<String, Long>()
+        // Keep each rendered LED mask so the audit can measure meaningful visual separation,
+        // not merely count two drawings as different because of a single pixel.
+        val binaryMasks = linkedMapOf<String, BooleanArray>()
         val boundsReport = ArrayList<String>()
 
         specs.forEachIndexed { index, item ->
-            val profile = EyeExpressionGenerator.generate(item.decision, 77L)
+            val profile = if (item.expected == EyeSilhouette.DIZZY) {
+                EyeExpressionGenerator.generateDizzy(item.decision)
+            } else {
+                EyeExpressionGenerator.generate(item.decision, 77L)
+            }
             assertEquals("Wrong glyph selected for ${item.label}", item.expected, profile.silhouette)
 
             val face = RobotFaceView(context)
@@ -114,8 +147,12 @@ class RobotFaceRenderingTest {
                 View.MeasureSpec.makeMeasureSpec(faceHeight, View.MeasureSpec.EXACTLY)
             )
             face.layout(0, 0, cellWidth, faceHeight)
-            face.setExpression(item.decision, 77L)
-            // Let the 360ms parameter transition and 260ms silhouette crossfade settle.
+            if (item.expected == EyeSilhouette.DIZZY) {
+                face.showDizzyReaction(4000L)
+            } else {
+                face.setExpression(item.decision, 77L)
+            }
+            // Let parameter interpolation settle. The renderer draws one silhouette per frame.
             SystemClock.sleep(420L)
             val rendered = Bitmap.createBitmap(cellWidth, faceHeight, Bitmap.Config.ARGB_8888)
             face.draw(Canvas(rendered))
@@ -132,6 +169,7 @@ class RobotFaceRenderingTest {
             var maxX = -1
             var maxY = -1
             var cyanPixels = 0
+            val binaryMask = BooleanArray(cellWidth * faceHeight)
             var hash = -3750763034362895579L // FNV-1a offset basis, signed in Kotlin
             for (py in 0 until faceHeight) {
                 for (px in 0 until cellWidth) {
@@ -140,6 +178,7 @@ class RobotFaceRenderingTest {
                     val green = Color.green(pixel)
                     val blue = Color.blue(pixel)
                     val isLed = green > 75 && blue > 75 && green.toFloat() > red.toFloat() * 1.25f
+                    binaryMask[py * cellWidth + px] = isLed
                     hash = (hash xor if (isLed) 1L else 0L) * 1099511628211L
                     if (isLed) {
                         cyanPixels++
@@ -165,14 +204,55 @@ class RobotFaceRenderingTest {
                 maxY - minY >= minimumHeightPixels
             )
             fingerprints[item.label] = hash
+            binaryMasks[item.label] = binaryMask
             boundsReport += "${item.label}:pixels=$cyanPixels,bbox=${minX},${minY}-${maxX},${maxY},glyph=${profile.silhouette}"
             rendered.recycle()
         }
 
         val uniqueMasks = fingerprints.values.toSet().size
         assertTrue(
-            "Too many expressions render the same binary pixel mask; unique=$uniqueMasks/24; $boundsReport",
-            uniqueMasks >= 22
+            "Every expression must render a unique binary pixel mask; unique=$uniqueMasks/${specs.size}; $boundsReport",
+            uniqueMasks == specs.size
+        )
+
+        // Compare silhouette overlap directly. A one-pixel difference is not enough to count
+        // as a clear new expression; each pair must differ across at least 7.5% of its LED union.
+        val labels = binaryMasks.keys.toList()
+        val nearDuplicates = ArrayList<String>()
+        var smallestJaccardDistance = 1f
+        var closestPair = ""
+        for (i in labels.indices) {
+            val leftMask = requireNotNull(binaryMasks[labels[i]])
+            for (j in i + 1 until labels.size) {
+                val rightMask = requireNotNull(binaryMasks[labels[j]])
+                var intersection = 0
+                var union = 0
+                for (pixel in leftMask.indices) {
+                    if (leftMask[pixel] || rightMask[pixel]) {
+                        union++
+                        if (leftMask[pixel] && rightMask[pixel]) intersection++
+                    }
+                }
+                val distance = if (union == 0) 0f else (union - intersection).toFloat() / union
+                if (distance < smallestJaccardDistance) {
+                    smallestJaccardDistance = distance
+                    closestPair = "${labels[i]} / ${labels[j]}"
+                }
+                if (distance < 0.075f) {
+                    nearDuplicates += "${labels[i]} / ${labels[j]}=${"%.3f".format(java.util.Locale.ROOT, distance)}"
+                }
+            }
+        }
+        assertTrue(
+            "Expressions are pixel-unique but too similar to read clearly; closest=$closestPair " +
+                "distance=${"%.3f".format(java.util.Locale.ROOT, smallestJaccardDistance)}; " +
+                "nearPairs=${nearDuplicates.joinToString()}; $boundsReport",
+            nearDuplicates.isEmpty()
+        )
+        Log.i(
+            "EVE_TEST",
+            "EYE_SEPARATION_PASS glyphs=${specs.size} uniqueMasks=$uniqueMasks " +
+                "minimumJaccard=${"%.3f".format(java.util.Locale.ROOT, smallestJaccardDistance)} closest=$closestPair"
         )
 
         val output = File(context.filesDir, "eye-expression-contact-sheet.png")

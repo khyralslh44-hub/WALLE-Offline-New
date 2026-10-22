@@ -104,8 +104,27 @@ class EveAutonomousMind(
         val alreadyReflected = evidenceKey in reflectedEvidence
         val reflectionCooldownDone = context.lastReflectionAtMs <= 0L ||
             now - context.lastReflectionAtMs >= REFLECTION_COOLDOWN_MS
+        val sameEvidenceReflectionFailedRecently = feedback.asReversed().firstOrNull {
+            it.goal == EveMindGoal.REFLECT_ON_NEW_EVIDENCE &&
+                it.action == EveMindAction.REQUEST_LOCAL_REFLECTION &&
+                !it.succeeded && it.note == evidenceKey
+        }?.let { now - it.atMs in 0L..REFLECTION_FAILURE_BACKOFF_MS } == true
 
         val candidate = when {
+            context.explorationEnabled && context.cameraIsFront && context.cameraSwitchAllowed &&
+                !context.faceSeenRecently && context.inactiveMs >= AUTO_CAMERA_SWITCH_IDLE_MS &&
+                hasRecentFailureStreak(EveMindGoal.EXPLORE_CURRENT_VIEW, EveMindAction.SWITCH_TO_WORLD_CAMERA, now) ->
+                makePlan(
+                    EveMindGoal.WAIT_QUIETLY,
+                    "تعلمت من محاولات سابقة أن تبديل الكاميرا لم ينجح مرارًا؛ أوقف التكرار الآن وأنتظر تغيرًا أو تدخلًا بدل إعادة الخطأ نفسه.",
+                    listOf(step(
+                        EveMindAction.MAINTAIN_QUIET_ATTENTION,
+                        "تجنب تكرار فعل فشل عدة مرات",
+                        "تصل أدلة جديدة أو يعاد تفعيل المحاولة بعد فترة تهدئة",
+                        0.86f
+                    )),
+                    0.86f, now
+                )
             context.familiarPersonRecognized -> makePlan(
                 EveMindGoal.CONNECT_WITH_RECOGNIZED_PERSON,
                 "تعرّفت إيف على مرجع وجه محفوظ بدرجة مطابقة كافية؛ الأولوية لتحية هادئة واحدة.",
@@ -139,6 +158,18 @@ class EveAutonomousMind(
                 listOf(step(EveMindAction.WAIT_FOR_FRESH_FRAME, "الدليل البصري غير حديث", "يصل مشهد موثوق أو تظل النتيجة غير معروفة", 0.94f)),
                 0.94f, now
             )
+            context.explorationEnabled && labelFresh && sameEvidenceReflectionFailedRecently ->
+                makePlan(
+                    EveMindGoal.VERIFY_UNCERTAIN_EVIDENCE,
+                    "فشلت محاولة التحليل المحلي السابقة للدليل نفسه؛ لا أكرر الطلب بلا نهاية. أنتظر تغير المشهد أو دليلًا أحدث قبل إعادة المحاولة.",
+                    listOf(step(
+                        EveMindAction.REVIEW_RECENT_EVIDENCE,
+                        "مقارنة الدليل الحالي بنتيجة المحاولة السابقة",
+                        "تصل ملاحظة مختلفة أو يصبح الدليل قديمًا؛ لا إعادة توليد على الدليل نفسه الآن",
+                        0.78f
+                    )),
+                    maxOf(0.55f, confidence * 0.80f), now
+                )
             context.explorationEnabled && labelFresh && !alreadyReflected &&
                 context.localLanguageReady && reflectionCooldownDone -> makePlan(
                 EveMindGoal.REFLECT_ON_NEW_EVIDENCE,
@@ -182,16 +213,54 @@ class EveAutonomousMind(
             )
         }
 
-        val signature = "${candidate.goal}|${candidate.steps.firstOrNull()?.action}|${evidenceKey.hashCode()}"
+        // Outcome history alters future confidence/priority; successful strategies earn a small
+        // preference, while failed strategies lose weight. The effect is bounded and requires
+        // more than one observed outcome, so one noisy event cannot teach a permanent rule.
+        val learnedSteps = candidate.steps.map { item ->
+            val outcomes = feedback.asReversed().asSequence()
+                .filter { it.goal == candidate.goal && it.action == item.action }
+                .take(8).toList()
+            val learnedPriority = if (outcomes.size >= MIN_OUTCOMES_FOR_ADAPTATION) {
+                val rate = (outcomes.count { it.succeeded } + 1f) / (outcomes.size + 2f)
+                item.priority + (rate - 0.5f) * MAX_PRIORITY_LEARNING_SHIFT
+            } else item.priority
+            item.copy(priority = learnedPriority.coerceIn(0f, 1f))
+        }
+        val firstAction = candidate.steps.first().action
+        val candidateOutcomes = feedback.asReversed().asSequence()
+            .filter { it.goal == candidate.goal && it.action == firstAction }
+            .take(8).toList()
+        val learnedConfidence = if (candidateOutcomes.size >= MIN_OUTCOMES_FOR_ADAPTATION) {
+            val rate = (candidateOutcomes.count { it.succeeded } + 1f) / (candidateOutcomes.size + 2f)
+            candidate.confidence + (rate - 0.5f) * MAX_CONFIDENCE_LEARNING_SHIFT
+        } else candidate.confidence
+        val learnedCandidate = candidate.copy(
+            steps = learnedSteps,
+            confidence = learnedConfidence.coerceIn(0f, 1f)
+        )
+
+        val signature = "${learnedCandidate.goal}|${learnedCandidate.steps.firstOrNull()?.action}|${evidenceKey.hashCode()}"
         val previous = lastPlan
         if (previous != null && now - lastPlanAtMs < planCooldownMs &&
             signature == lastPlanSignature && previous.expiresAtMs > now
         ) return previous
 
-        lastPlan = candidate
+        lastPlan = learnedCandidate
         lastPlanSignature = signature
         lastPlanAtMs = now
-        return candidate
+        return learnedCandidate
+    }
+
+    /** True only for a recent consecutive run of failed experiences for the exact same action. */
+    private fun hasRecentFailureStreak(goal: EveMindGoal, action: EveMindAction, nowMs: Long): Boolean {
+        val outcomes = feedback.asReversed().asSequence()
+            .filter { it.goal == goal && it.action == action }
+            .take(3).toList()
+        if (outcomes.size < FAILURE_STREAK_MIN) return false
+        val latest = outcomes.first()
+        if (latest.succeeded || latest.atMs < 0L) return false
+        if (nowMs - latest.atMs !in 0L..FAILURE_MEMORY_WINDOW_MS) return false
+        return outcomes.take(FAILURE_STREAK_MIN).all { !it.succeeded }
     }
 
     @Synchronized
@@ -212,6 +281,73 @@ class EveAutonomousMind(
 
     @Synchronized
     fun recentFeedback(): List<EveMindFeedback> = feedback.toList()
+
+    /**
+     * Compact, versioned state for private on-device persistence. Only bounded decision feedback
+     * and evidence keys are stored; camera frames, face embeddings, and raw audio are never saved.
+     */
+    @Synchronized
+    fun exportMemory(): String = buildString {
+        append(MEMORY_HEADER).append('\n')
+        feedback.forEach { item ->
+            append("F\t")
+                .append(item.goal.name).append('\t')
+                .append(item.action.name).append('\t')
+                .append(item.succeeded).append('\t')
+                .append(item.atMs.coerceAtLeast(0L)).append('\t')
+                .append(encodeMemoryField(item.note.take(180)))
+                .append('\n')
+        }
+        // Persist the bounded set of already-reflected evidence across app restarts.
+        reflectedEvidence.forEach { key ->
+            append("E\t").append(encodeMemoryField(key.take(180))).append('\n')
+        }
+    }.take(MAX_MEMORY_CHARS)
+
+    /**
+     * Restores a saved local history after process/activity recreation. Malformed or future-version
+     * data is ignored safely, and all restored fields are bounded before entering planner state.
+     */
+    @Synchronized
+    fun restoreMemory(serialized: String): Boolean {
+        if (serialized.length > MAX_MEMORY_CHARS ||
+            serialized.lineSequence().firstOrNull() != MEMORY_HEADER
+        ) return false
+
+        feedback.clear()
+        reflectedEvidence.clear()
+        lastPlan = null
+        lastPlanSignature = ""
+        lastPlanAtMs = 0L
+
+        serialized.lineSequence().drop(1).take(MAX_MEMORY_RECORDS).forEach { line ->
+            if (line.startsWith("E\t")) {
+                val key = runCatching { decodeMemoryField(line.substring(2)) }
+                    .getOrNull()?.trim()?.take(180)
+                if (!key.isNullOrBlank() && reflectedEvidence.size < MAX_REFLECTED_KEYS) {
+                    reflectedEvidence.add(key)
+                }
+                return@forEach
+            }
+            if (!line.startsWith("F\t")) return@forEach
+            val fields = line.split('\t', limit = 6)
+            if (fields.size != 6) return@forEach
+            val goal = runCatching { EveMindGoal.valueOf(fields[1]) }.getOrNull() ?: return@forEach
+            val action = runCatching { EveMindAction.valueOf(fields[2]) }.getOrNull() ?: return@forEach
+            val succeeded = fields[3].toBooleanStrictOrNull() ?: return@forEach
+            val atMs = fields[4].toLongOrNull()?.takeIf { it >= 0L } ?: return@forEach
+            val note = runCatching { decodeMemoryField(fields[5]) }.getOrNull()
+                ?.trim()?.take(180) ?: return@forEach
+            recordFeedback(EveMindFeedback(goal, action, succeeded, note, atMs))
+        }
+        return true
+    }
+
+    private fun encodeMemoryField(value: String): String =
+        java.net.URLEncoder.encode(value, "UTF-8")
+
+    private fun decodeMemoryField(value: String): String =
+        java.net.URLDecoder.decode(value, "UTF-8")
 
     private fun makePlan(
         goal: EveMindGoal,
@@ -239,6 +375,15 @@ class EveAutonomousMind(
         const val IDLE_REFLECTION_MS = 18_000L
         const val AUTO_CAMERA_SWITCH_IDLE_MS = 24_000L
         const val PLAN_TTL_MS = 22_000L
+        const val REFLECTION_FAILURE_BACKOFF_MS = 180_000L
         const val MAX_REFLECTED_KEYS = 32
+        private const val FAILURE_STREAK_MIN = 2
+        private const val FAILURE_MEMORY_WINDOW_MS = 8 * 60_000L
+        private const val MIN_OUTCOMES_FOR_ADAPTATION = 2
+        private const val MAX_PRIORITY_LEARNING_SHIFT = 0.12f
+        private const val MAX_CONFIDENCE_LEARNING_SHIFT = 0.10f
+        private const val MEMORY_HEADER = "EVE_MIND_MEMORY_V1"
+        private const val MAX_MEMORY_RECORDS = 64
+        private const val MAX_MEMORY_CHARS = 24_000
     }
 }

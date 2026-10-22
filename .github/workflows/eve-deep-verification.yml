@@ -335,3 +335,12 @@ jobs:
             eve-project/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: warn
           retention-days: 14
+
+      - name: Upload the rendered EVE eye-expression contact sheet separately
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EVE-Expression-Gallery-API-${{ matrix.api-level }}
+          path: eve-deep-results/api-29/eye-expression-contact-sheet.png
+          if-no-files-found: warn
+          retention-days: 14

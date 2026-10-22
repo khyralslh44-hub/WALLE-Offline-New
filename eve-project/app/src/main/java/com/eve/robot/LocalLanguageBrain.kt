@@ -49,7 +49,9 @@ data class LocalLlmContext(
     val knownPeople: String = "",
     /** Short, recent object-detection scene summary; no raw camera frames are sent to the model. */
     val latestSceneSummary: String = "",
-    val sceneObservationAgeMs: Long = Long.MAX_VALUE
+    val sceneObservationAgeMs: Long = Long.MAX_VALUE,
+    /** Current on-device date, season, and approximate Hijri context; no network lookup. */
+    val calendarContext: String = ""
 )
 
 data class LocalLlmResult(
@@ -57,7 +59,12 @@ data class LocalLlmResult(
     val moodHint: String?,
     val intentHint: String?,
     val reflectionArabic: String,
-    val confidence: Float
+    val confidence: Float,
+    /** Untrusted model proposal; callers must validate it against an explicit allow-list. */
+    val planningAction: String? = null,
+    val planningGoal: String? = null,
+    val planningReason: String? = null,
+    val successCriterion: String? = null
 )
 
 /**
@@ -89,7 +96,6 @@ class LocalLanguageBrain(
 
     @Volatile private var state: LocalLlmState = LocalLlmState.WAITING_FOR_WIFI
     @Volatile private var engine: Engine? = null
-    @Volatile private var conversation: Conversation? = null
     @Volatile private var lastStatusMessage = ""
     @Volatile private var lastProgress = -1
     @Volatile private var lastRetryAt = 0L
@@ -101,7 +107,11 @@ class LocalLanguageBrain(
     }
 
     val isReady: Boolean
-        get() = state == LocalLlmState.READY && conversation != null
+        get() = state == LocalLlmState.READY && engine != null
+
+    /** Used by the executive to avoid overlapping expensive local generations. */
+    val isGenerating: Boolean
+        get() = generating.get()
 
     val currentState: LocalLlmState
         get() = state
@@ -174,7 +184,6 @@ class LocalLanguageBrain(
                     Log.i(TAG, "LOCAL_LLM_BACKEND_CANDIDATES=${backends.map { it.first }} cpuThreads=$cpuThreads")
 
                     var selectedEngine: Engine? = null
-                    var selectedConversation: Conversation? = null
                     var lastBackendError: Exception? = null
                     for ((backendName, backend) in backends) {
                         val candidate = Engine(
@@ -188,20 +197,8 @@ class LocalLanguageBrain(
                         )
                         try {
                             candidate.initialize()
-                            val candidateConversation = candidate.createConversation(
-                                ConversationConfig(
-                                    systemInstruction = Contents.of(SYSTEM_INSTRUCTION),
-                                    samplerConfig = SamplerConfig(
-                                        topK = 24,
-                                        topP = 0.88,
-                                        temperature = 0.35
-                                    ),
-                                    maxOutputToken = MAX_OUTPUT_TOKENS,
-                                    chatTemplate = QWEN3_COMPATIBLE_CHAT_TEMPLATE
-                                )
-                            )
+                            candidate.createConversation(conversationConfig()).close()
                             selectedEngine = candidate
-                            selectedConversation = candidateConversation
                             Log.i(TAG, "LOCAL_LLM_BACKEND_SELECTED backend=$backendName")
                             break
                         } catch (error: Exception) {
@@ -212,9 +209,6 @@ class LocalLanguageBrain(
                     }
                     engine = selectedEngine
                         ?: throw IllegalStateException("تعذر تهيئة محرك اللغة على GPU أو CPU.", lastBackendError)
-                    conversation = selectedConversation
-                        ?: throw IllegalStateException("لم تُنشأ محادثة محلية بعد تهيئة المحرك.")
-
                     state = LocalLlmState.READY
                     lastRetryAt = 0L
                     publish(LocalLlmState.READY, 100, "الدماغ اللغوي المحلي جاهز ويعمل دون إنترنت")
@@ -310,8 +304,8 @@ class LocalLanguageBrain(
         )
         runInference(
             buildPrompt("GAME", gameEvent, gameContext),
-            // The JSON schema itself consumes tokens; leave enough room for a real Arabic comment.
-            maxOutputTokens = 40,
+            // Use the full bounded output budget: a short Arabic sentence and valid JSON must both fit.
+            maxOutputTokens = MAX_OUTPUT_TOKENS,
             callback = callback
         )
     }
@@ -350,6 +344,163 @@ class LocalLanguageBrain(
         )
     }
 
+    /**
+     * EVE's generative executive proposes one cognitive step from a strict allow-list.
+     * This method never executes actions itself; MainActivity re-checks the live safety
+     * conditions after generation and rejects every action not explicitly offered.
+     */
+    fun planAutonomousStep(
+        context: LocalLlmContext,
+        allowedActions: List<String>,
+        previousGoal: String,
+        previousAction: String,
+        previousOutcome: String,
+        recentActionOutcomes: List<String> = emptyList(),
+        callback: (Result<LocalLlmResult>) -> Unit
+    ) {
+        val allowed = allowedActions.distinct().filter { it in AUTONOMY_ACTIONS }.take(AUTONOMY_ACTIONS.size)
+        if (allowed.isEmpty()) {
+            deliver(callback, Result.failure(IllegalArgumentException("لا توجد خطوات معرفية مسموحة لهذه الحالة.")))
+            return
+        }
+        runInference(
+            buildAutonomyPlannerPrompt(
+                context = context,
+                allowedActions = allowed,
+                previousGoal = previousGoal,
+                previousAction = previousAction,
+                previousOutcome = previousOutcome,
+                recentActionOutcomes = recentActionOutcomes
+            ),
+            maxOutputTokens = 96,
+            callback = callback
+        )
+    }
+
+    private fun allowedPlannerActions(prompt: String): List<String> =
+        prompt.lineSequence()
+            .firstOrNull { it.startsWith("ALLOWED=") }
+            ?.removePrefix("ALLOWED=")
+            ?.split(",")
+            ?.map { it.trim() }
+            ?.filter { it in AUTONOMY_ACTIONS }
+            ?.distinct()
+            .orEmpty()
+
+    private fun hasCompleteAutonomyPlan(result: LocalLlmResult, prompt: String): Boolean {
+        val allowed = allowedPlannerActions(prompt)
+        return result.planningAction != null &&
+            result.planningAction in allowed &&
+            !result.planningGoal.isNullOrBlank() &&
+            !result.planningReason.isNullOrBlank() &&
+            !result.successCriterion.isNullOrBlank()
+    }
+
+    private fun buildAutonomyPlannerRetryPrompt(originalPrompt: String): String {
+        val allowed = allowedPlannerActions(originalPrompt).ifEmpty {
+            listOf("observe_scene", "quiet_attention")
+        }
+        val defaultAction = allowed.first()
+        return """
+            MODE=PLAN_REPAIR
+            Output exactly one valid JSON object. No prose, markdown, or extra keys.
+            next_action must exactly match one token in: ${allowed.joinToString(",")}.
+            Keep goal, reason, success_criterion short. No line breaks inside JSON strings.
+            {"reply_ar":"","reflection_ar":"","mood":"curious","intent":"observe","confidence":0.5,"goal":"مراجعة الدليل الحديث","next_action":"$defaultAction","reason":"التحقق من الدليل المحلي","success_criterion":"اكتمال خطة واضحة"}
+        """.trimIndent()
+    }
+
+    private fun buildAutonomyPlannerPrompt(
+        context: LocalLlmContext,
+        allowedActions: List<String>,
+        previousGoal: String,
+        previousAction: String,
+        previousOutcome: String,
+        recentActionOutcomes: List<String>
+    ): String {
+        val confidence = context.visionConfidence.takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: 0f
+        val freshVision = context.visionObservationAgeMs in 0L..12_000L &&
+            !context.latestVisionLabel.isNullOrBlank() && confidence >= 0.45f
+        val freshScene = context.sceneObservationAgeMs in 0L..10_000L &&
+            context.latestSceneSummary.isNotBlank()
+        val p = context.personality
+        return buildString {
+            appendLine("MODE=PLAN")
+            appendLine("Choose one useful cognitive step using current evidence, local memory and previous outcomes.")
+            appendLine("ALLOWED=" + allowedActions.joinToString(","))
+            appendLine("Use exactly one ALLOWED action. Uncertain/stale evidence => observe_scene or quiet_attention.")
+            appendLine("Do not infer identity, emotion, intent or activity from a generic label. Do not repeat failed actions without changed evidence.")
+            appendLine("Cognitive planning only: no network, external commands or hardware movement.")
+            appendLine("MOOD=" + context.currentMood.take(12) + ";TRAITS=${p.warmth},${p.curiosityBias},${p.playfulness}")
+            if (freshVision) appendLine("VISION=" + context.latestVisionLabel.orEmpty().take(24) +
+                ";c=" + String.format(Locale.ROOT, "%.1f", confidence) +
+                ";n=" + context.sightingCount.coerceIn(0, 100000))
+            if (freshScene) appendLine("SCENE=" + context.latestSceneSummary.trim().take(150))
+            context.recentObservations.lastOrNull()?.trim()?.takeIf { it.isNotBlank() }?.let {
+                appendLine("MEM=" + it.take(72))
+            }
+            context.recentReflections.lastOrNull()?.trim()?.takeIf { it.isNotBlank() }?.let {
+                appendLine("REF=" + it.take(55))
+            }
+            context.recentDialogues.lastOrNull()?.trim()?.takeIf { it.isNotBlank() }?.let {
+                appendLine("CHAT=" + it.take(55))
+            }
+            context.knownPeople.trim().takeIf { it.isNotBlank() }?.let {
+                appendLine("PEOPLE=" + it.take(45))
+            }
+            appendLine("PREV=" + previousGoal.take(45) + ";" + previousAction.take(28) + ";" + previousOutcome.take(60))
+            recentActionOutcomes.takeLast(3).takeIf { it.isNotEmpty() }?.let {
+                appendLine("FEEDBACK=" + it.joinToString("|") { entry -> entry.take(35) }.take(110))
+            }
+            appendLine("""JSON only: {"reply_ar":"","reflection_ar":"","mood":"curious","intent":"observe","confidence":0.5,"goal":"هدف قصير","next_action":"${allowedActions.first()}","reason":"سبب موجز","success_criterion":"معيار نجاح موجز"}""")
+        }
+    }
+
+    private val AUTONOMY_ACTIONS = setOf(
+        "observe_scene",
+        "reflect_on_scene",
+        "ask_curiosity_question",
+        "quiet_attention",
+        "switch_to_world_camera"
+    )
+
+    /**
+     * Generates an original, short reaction from recent on-device evidence and EVE's saved context.
+     * No fixed label-to-sentence mapping is used. The caller must supply only current, grounded
+     * evidence and should remain silent when the local model is unavailable.
+     */
+    fun commentOnObservation(
+        context: LocalLlmContext,
+        evidence: String,
+        callback: (Result<LocalLlmResult>) -> Unit
+    ) {
+        val groundedEvidence = evidence
+            .replace(Regex("\\s+"), " ")
+            .trim()
+            .take(260)
+            .ifBlank { "لا توجد أدلة بصرية حديثة كافية لوصف المشهد." }
+        runInference(
+            buildPrompt(
+                "OBSERVATION_COMMENT",
+                groundedEvidence,
+                context
+            ),
+            maxOutputTokens = 56,
+            callback = callback
+        )
+    }
+
+    /**
+     * Conversations are deliberately short-lived. Context is passed in as bounded local memory,
+     * not retained in LiteRT-LM's KV cache across user turns or autonomous planning cycles.
+     */
+    private fun conversationConfig(): ConversationConfig = ConversationConfig(
+        systemInstruction = Contents.of(SYSTEM_INSTRUCTION),
+        samplerConfig = SamplerConfig(topK = 24, topP = 0.88, temperature = 0.35),
+        maxOutputToken = MAX_OUTPUT_TOKENS,
+        chatTemplate = QWEN3_COMPATIBLE_CHAT_TEMPLATE
+    )
+
     private fun runInference(
         prompt: String,
         maxOutputTokens: Int,
@@ -371,11 +522,17 @@ class LocalLanguageBrain(
             // latch unresolved on affected Android/LiteRT-LM combinations.
             worker.execute {
                 val startedAt = SystemClock.elapsedRealtime()
+                var requestConversation: Conversation? = null
                 try {
                     if (closed.get()) throw IllegalStateException("تم إغلاق النموذج المحلي.")
-                    val activeConversation = conversation
-                        ?: throw IllegalStateException("لا توجد محادثة محلية نشطة.")
+                    val activeEngine = engine
+                        ?: throw IllegalStateException("لا يوجد محرك لغة محلي نشط.")
                     val outputCap = maxOutputTokens.coerceIn(12, MAX_OUTPUT_TOKENS)
+                    // Each request gets a fresh KV cache: the app already injects bounded memory
+                    // explicitly, while reusing a Conversation silently accumulates old prompt tokens
+                    // until LiteRT-LM rejects later plans for lack of context capacity.
+                    val activeConversation = activeEngine.createConversation(conversationConfig())
+                    requestConversation = activeConversation
                     Log.i(TAG, "LOCAL_LLM_INFERENCE_START promptChars=${prompt.length} outputCap=$outputCap mode=sync-worker")
 
                     val response = activeConversation.sendMessage(
@@ -392,13 +549,102 @@ class LocalLanguageBrain(
                         throw IllegalStateException("أكمل النموذج المحلي التوليد دون نص.")
                     }
 
-                    val parsed = parseResponse(responseText, outputCap)
+                    var parsed = parseResponse(responseText, outputCap)
+                    var reportedResponseText = responseText
+
+                    // A compact planner response is validated strictly. Small local models may
+                    // return malformed JSON on the first try; give planning exactly one isolated,
+                    // short-schema retry instead of silently accepting an empty/invalid action.
+                    if (prompt.lineSequence().firstOrNull() == "MODE=PLAN" &&
+                        !hasCompleteAutonomyPlan(parsed, prompt)
+                    ) {
+                        Log.w(
+                            TAG,
+                            "LOCAL_LLM_PLAN_REPAIR_START chars=${responseText.length} " +
+                                "actionPresent=${!parsed.planningAction.isNullOrBlank()} " +
+                                "goalPresent=${!parsed.planningGoal.isNullOrBlank()} " +
+                                "reasonPresent=${!parsed.planningReason.isNullOrBlank()} " +
+                                "criterionPresent=${!parsed.successCriterion.isNullOrBlank()}"
+                        )
+                        try { requestConversation?.close() } catch (_: Exception) { }
+                        requestConversation = null
+                        val repairConversation = activeEngine.createConversation(conversationConfig())
+                        requestConversation = repairConversation
+                        val repairStartedAt = SystemClock.elapsedRealtime()
+                        val repairText = repairConversation.sendMessage(
+                            buildAutonomyPlannerRetryPrompt(prompt),
+                            maxOutputToken = MAX_OUTPUT_TOKENS
+                        ).contents.contents
+                            .filterIsInstance<com.google.ai.edge.litertlm.Content.Text>()
+                            .joinToString(separator = "") { it.text }
+                            .trim()
+                        if (repairText.isNotBlank()) {
+                            val repaired = parseResponse(repairText, MAX_OUTPUT_TOKENS)
+                            if (hasCompleteAutonomyPlan(repaired, prompt)) {
+                                parsed = repaired
+                                reportedResponseText = repairText
+                                Log.i(
+                                    TAG,
+                                    "LOCAL_LLM_PLAN_REPAIR_PASS elapsedMs=${SystemClock.elapsedRealtime() - repairStartedAt} " +
+                                        "action=${repaired.planningAction} goalPresent=true reasonPresent=true criterionPresent=true"
+                                )
+                            } else {
+                                Log.w(
+                                    TAG,
+                                    "LOCAL_LLM_PLAN_REPAIR_INVALID elapsedMs=${SystemClock.elapsedRealtime() - repairStartedAt} " +
+                                        "chars=${repairText.length} actionPresent=${!repaired.planningAction.isNullOrBlank()} " +
+                                        "goalPresent=${!repaired.planningGoal.isNullOrBlank()} " +
+                                        "reasonPresent=${!repaired.planningReason.isNullOrBlank()} " +
+                                        "criterionPresent=${!repaired.successCriterion.isNullOrBlank()}"
+                                )
+                            }
+                        }
+                        if (!hasCompleteAutonomyPlan(parsed, prompt)) {
+                            throw IllegalStateException(
+                                "The local model returned no valid allow-listed action and complete goal/reason/success criterion after one planner repair attempt."
+                            )
+                        }
+                    }
+
+                    // Small local models sometimes copy the schema's empty reply field. GAME
+                    // mode gets one short, focused second attempt rather than silently returning
+                    // an empty comment or substituting a canned line.
+                    if (prompt.lineSequence().firstOrNull() == "MODE=GAME" && parsed.replyArabic.isBlank()) {
+                        Log.w(TAG, "LOCAL_LLM_GAME_EMPTY_REPLY_RETRY firstChars=${responseText.length}")
+                        val retryStartedAt = SystemClock.elapsedRealtime()
+                        val retryResponse = activeConversation.sendMessage(
+                            buildGameRetryPrompt(prompt),
+                            maxOutputToken = MAX_OUTPUT_TOKENS
+                        )
+                        val retryText = retryResponse.contents.contents
+                            .filterIsInstance<com.google.ai.edge.litertlm.Content.Text>()
+                            .joinToString(separator = "") { it.text }
+                            .trim()
+                        if (retryText.isNotBlank()) {
+                            val retryParsed = parseResponse(retryText, MAX_OUTPUT_TOKENS)
+                            if (retryParsed.replyArabic.isNotBlank()) {
+                                parsed = retryParsed
+                                reportedResponseText = retryText
+                                Log.i(
+                                    TAG,
+                                    "LOCAL_LLM_GAME_RETRY_PASS retryElapsedMs=${SystemClock.elapsedRealtime() - retryStartedAt} " +
+                                        "chars=${retryText.length} replyChars=${retryParsed.replyArabic.length}"
+                                )
+                            }
+                        }
+                        if (parsed.replyArabic.isBlank()) {
+                            throw IllegalStateException(
+                                "Qwen returned an empty Arabic game comment after the focused offline retry."
+                            )
+                        }
+                    }
+
                     Log.i(
                         TAG,
                         "LOCAL_LLM_INFERENCE_OK nativeElapsedMs=$nativeElapsed " +
                             "totalElapsedMs=${SystemClock.elapsedRealtime() - startedAt} " +
-                            "chars=${responseText.length} mood=${parsed.moodHint ?: "none"} " +
-                            "intent=${parsed.intentHint ?: "none"}"
+                            "chars=${reportedResponseText.length} replyChars=${parsed.replyArabic.length} " +
+                            "mood=${parsed.moodHint ?: "none"} intent=${parsed.intentHint ?: "none"}"
                     )
                     deliver(callback, Result.success(parsed))
                 } catch (error: Exception) {
@@ -409,6 +655,9 @@ class LocalLanguageBrain(
                     )
                     deliver(callback, Result.failure(error))
                 } finally {
+                    try { requestConversation?.close() } catch (closeError: Exception) {
+                        Log.w(TAG, "LOCAL_LLM_REQUEST_CONVERSATION_CLOSE_FAILED", closeError)
+                    }
                     generating.set(false)
                 }
             }
@@ -431,7 +680,8 @@ class LocalLanguageBrain(
         val task = when (mode) {
             "USER" -> "Answer briefly in Arabic."
             "CURIOSITY" -> "Ask one very short Arabic question (4-10 words, at most 70 Arabic characters) grounded only in fresh vision. Never claim that a generic person label identifies a face or proves familiarity."
-            "GAME" -> "Write one lively short Arabic sentence in reply_ar from the supplied game outcome. reply_ar MUST NOT be empty; reflection_ar must be empty."
+            "OBSERVATION_COMMENT" -> "Generate one original, natural Arabic first-person reaction to the CURRENT on-device evidence. It may be a short thought or question rather than a plain label. Use saved context/personality only when relevant. Do not map labels to canned phrases. Do not claim identity, intention, emotion, weather, or activity unless the supplied evidence supports it. If uncertain, express uncertainty. reply_ar must be non-empty and concise; reflection_ar may contain a brief useful update."
+            "GAME" -> "Write one short Arabic reaction in reply_ar based only on the supplied game event. It must contain Arabic words and must not be empty. reflection_ar must be empty."
             else -> "Write a brief reflection; reply_ar must be empty."
         }
 
@@ -447,6 +697,9 @@ class LocalLanguageBrain(
         }
         if (freshScene && mode != "GAME") {
             fields += "SCENE=${context.latestSceneSummary.trim().take(180)}"
+        }
+        if (context.calendarContext.isNotBlank() && mode == "USER") {
+            fields += "CALENDAR=${context.calendarContext.trim().take(260)}"
         }
         context.recentObservations.lastOrNull()?.trim()?.takeIf { it.isNotBlank() }?.let {
             fields += "MEM=${it.take(48)}"
@@ -472,16 +725,44 @@ class LocalLanguageBrain(
             fields += "P=w:${"%.1f".format(Locale.ROOT, p.warmth)};c:${"%.1f".format(Locale.ROOT, p.curiosityBias)};play:${"%.1f".format(Locale.ROOT, p.playfulness)}"
         }
         fields += "USER=$user"
-        fields += """JSON only: {"reply_ar":"","reflection_ar":"","mood":"neutral|curious|happy|concerned|focused|playful|sleepy|irritated|none","intent":"observe|explore|connect|play|focus|rest|regulate|none","confidence":0}"""
+        val responseExample = when (mode) {
+            "GAME" -> """JSON only. reply_ar MUST be a non-empty Arabic sentence: {"reply_ar":"كانت جولة حماسية! سأحاول الفوز في المرة القادمة.","reflection_ar":"","mood":"playful","intent":"play","confidence":0.8}"""
+            "USER" -> """JSON only: {"reply_ar":"مرحبًا! كيف أستطيع مساعدتك؟","reflection_ar":"","mood":"neutral","intent":"connect","confidence":0.8}"""
+            "CURIOSITY" -> """JSON only: {"reply_ar":"ما هذا الشيء؟","reflection_ar":"","mood":"curious","intent":"observe","confidence":0.7}"""
+            "OBSERVATION_COMMENT" -> """JSON only: {"reply_ar":"تغيّر المشهد أمامي، أريد أن ألاحظ ما الذي اختلف.","reflection_ar":"","mood":"curious","intent":"observe","confidence":0.6}"""
+            else -> """JSON only: {"reply_ar":"","reflection_ar":"ملاحظة موجزة من الدليل المتاح فقط.","mood":"neutral","intent":"observe","confidence":0.5}"""
+        }
+        fields += responseExample
         fields += when (mode) {
             "OBSERVATION" -> "Never invent facts. OBSERVATION reply_ar empty."
             "CURIOSITY" -> "reply_ar must be one concise Arabic question (at most 84 characters) supported by fresh visual evidence. A generic person label is not face identity; never imply known name or familiarity."
+            "OBSERVATION_COMMENT" -> "reply_ar must be newly generated in Arabic from VISION, SCENE and USER evidence only. Do not use a memorized canned label sentence. Do not claim a person's identity from face presence alone. If context lacks current evidence, say the evidence is insufficient. Keep it at most two short sentences."
             "GAME" -> "reply_ar must contain a non-empty Arabic game comment; reflection_ar must be empty. Never invent score or events; follow the supplied outcome only."
             else -> "Never invent observations or memories. If fresh vision is absent, do not describe a scene."
         }
 
         return fields.joinToString("\n")
     }
+    private fun buildGameRetryPrompt(originalPrompt: String): String {
+        val gameEvent = originalPrompt.lineSequence()
+            .firstOrNull { it.startsWith("USER=") }
+            ?.removePrefix("USER=")
+            ?.trim()
+            ?.take(220)
+            .orEmpty()
+            .ifBlank { "نتيجة اللعبة غير متاحة" }
+
+        return """
+            MODE=GAME_RETRY
+            اكتب تعليقًا عربيًا قصيرًا وطبيعيًا من حدث اللعبة أدناه فقط.
+            لا تخترع نتيجة أو حركة لم ترد في الحدث.
+            يجب أن يحتوي reply_ar على جملة عربية غير فارغة؛ reflection_ar يجب أن يكون فارغًا.
+            الحدث: $gameEvent
+            أخرج JSON صالحًا فقط بهذا الشكل ومحتوى reply_ar غير فارغ:
+            {"reply_ar":"كانت جولة ممتعة! سأحاول الفوز في المرة القادمة.","reflection_ar":"","mood":"playful","intent":"play","confidence":0.8}
+        """.trimIndent()
+    }
+
     private fun parseResponse(raw: String, maxOutputTokens: Int): LocalLlmResult {
         val safeRaw = raw.trim().take(1200)
         val jsonCandidate = safeRaw.indexOf('{').let { start ->
@@ -508,7 +789,15 @@ class LocalLanguageBrain(
             moodHint = mood,
             intentHint = intent,
             reflectionArabic = reflection,
-            confidence = confidence
+            confidence = confidence,
+            planningAction = json?.optString("next_action", "").orEmpty().trim()
+                .takeIf { it in AUTONOMY_ACTIONS },
+            planningGoal = json?.optString("goal", "").orEmpty().trim()
+                .take(80).takeIf { it.isNotBlank() },
+            planningReason = json?.optString("reason", "").orEmpty().trim()
+                .take(180).takeIf { it.isNotBlank() },
+            successCriterion = json?.optString("success_criterion", "").orEmpty().trim()
+                .take(180).takeIf { it.isNotBlank() }
         )
     }
 
@@ -779,8 +1068,6 @@ class LocalLanguageBrain(
         networkCallback = null
         try {
             worker.execute {
-                try { conversation?.close() } catch (_: Exception) { }
-                conversation = null
                 try { engine?.close() } catch (_: Exception) { }
                 engine = null
             }
@@ -812,7 +1099,7 @@ class LocalLanguageBrain(
         private const val READ_TIMEOUT_MS = 75_000
         private const val RETRY_DELAY_MS = 30_000L
         private const val MAX_REPLY_CHARS = 300
-        private const val MAX_OUTPUT_TOKENS = 48
+        private const val MAX_OUTPUT_TOKENS = 96
         private const val MAX_RESPONSE_BUFFER_CHARS = 8_000
         /**
          * Qwen3 chat format adapted for LiteRT-LM 0.18 typed content.
@@ -851,13 +1138,15 @@ class LocalLanguageBrain(
 {%- endif -%}
 """.trimIndent()
         private val ALLOWED_MOODS = setOf(
-            "neutral", "curious", "happy", "concerned", "focused", "playful", "sleepy", "irritated", "none"
+            "neutral", "curious", "happy", "concerned", "focused", "playful", "sleepy", "irritated",
+            "jealous", "proud", "reassured", "none"
         )
         private val ALLOWED_INTENTS = setOf(
             "observe", "explore", "connect", "play", "focus", "rest", "regulate", "none"
         )
         private const val SYSTEM_INSTRUCTION = """
 أنت إيف، رفيقة محلية بالعربية. أجيبي بإيجاز ولطف وبصيغة JSON فقط. تصنيفات الرؤية احتمالات وليست حقائق أو هويات. لا تختلقي مشاهد أو ذكريات، ولا تدّعي الوعي أو أفعالًا لم تحدث.
+استخدمي mood=jealous فقط عند وجود سياق اجتماعي صريح وموثوق يوحي بأن إيف استُبعدت أو تحوّل الاهتمام عنها؛ لا تستنتجي الغيرة من مجرد ظهور شخص آخر. استخدمي proud فقط بعد نجاح أو إنجاز موثّق لإيف، وreassured فقط بعد دليل واضح على تهدئة أو أمان. هذه حالات شخصية اصطناعية وليست مشاعر بشرية أو وعيًا حقيقيًا.
         """
     }
 }

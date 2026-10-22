@@ -6,6 +6,45 @@ import org.junit.Test
 import kotlin.math.sin
 
 class EyeExpressionGeneratorTest {
+    @Test fun strongShakeUsesItsOwnDizzyDrawingNotTheConfusedDrawing() {
+        val context = EveDecision(
+            mood = EveMood.CONCERNED,
+            reason = "strong physical shake",
+            valence = -0.3f,
+            arousal = 0.9f
+        )
+        val dizzy = EyeExpressionGenerator.generateDizzy(context)
+        val confused = EyeExpressionGenerator.generate(
+            context.copy(mood = EveMood.CURIOUS),
+            77L
+        )
+
+        assertEquals(EyeSilhouette.DIZZY, dizzy.silhouette)
+        assertTrue("Dizzy eyes need a distinct profile, not a reused confused face.",
+            dizzy.silhouette != confused.silhouette)
+        assertTrue("The unique dizzy glyph should remain visibly open.",
+            dizzy.opening >= 0.86f)
+    }
+
+    @Test fun jealousyPrideAndAffectionHaveThreeDistinctSingleDrawingSilhouettes() {
+        val jealous = RobotBrain().observeSocialCompetition("social_competition", 0.90f)
+        val proud = RobotBrain().recordAchievement("task_complete", 0.96f)
+        val affectionate = RobotBrain().receiveReassurance("calm_voice", 0.92f)
+
+        val jealousyPose = EyeExpressionGenerator.generate(jealous, 201L).silhouette
+        val pridePose = EyeExpressionGenerator.generate(proud, 202L).silhouette
+        val affectionPose = EyeExpressionGenerator.generate(affectionate, 203L).silhouette
+
+        assertEquals(EyeSilhouette.JEALOUS, jealousyPose)
+        assertEquals(EyeSilhouette.PROUD, pridePose)
+        assertEquals(EyeSilhouette.AFFECTIONATE, affectionPose)
+        assertEquals(
+            "Jealousy, pride, and affection must not reuse or layer the same eye drawing.",
+            3,
+            setOf(jealousyPose, pridePose, affectionPose).size
+        )
+    }
+
     @Test fun sameStateAndSeedProduceRepeatablePose() {
         val state = EveDecision(
             mood = EveMood.CURIOUS,
@@ -216,7 +255,22 @@ class EyeExpressionGeneratorTest {
             glyph(EveMood.CURIOUS, valence = 0.30f, arousal = 0.68f,
                 curiosity = 0.70f),                                             // anticipating
             glyph(EveMood.CONCERNED, valence = -0.42f, arousal = 0.35f,
-                fatigue = 0.10f, frustration = 0.10f)                            // disappointed
+                fatigue = 0.10f, frustration = 0.10f),                           // disappointed
+            EyeExpressionGenerator.generateDizzy(
+                EveDecision(EveMood.CONCERNED, "confirmed strong physical shake")
+            ).silhouette                                                        // dedicated dizzy pose
+,
+            EyeExpressionGenerator.generate(
+                EveDecision(EveMood.IRRITATED, "high-confidence social competition", jealousy = 0.95f), 11L
+            ).silhouette                                                        // unique jealousy glyph
+,
+            EyeExpressionGenerator.generate(
+                EveDecision(EveMood.PLAYFUL, "confirmed achievement", pride = 0.95f), 12L
+            ).silhouette                                                        // unique pride glyph
+,
+            EyeExpressionGenerator.generate(
+                EveDecision(EveMood.FAMILIAR, "confirmed reassurance", reassurance = 0.95f), 13L
+            ).silhouette                                                        // unique affection glyph
         )
         assertEquals(
             "Every reference-inspired glyph should be reachable from affect state and intent, not text labels.",
@@ -333,6 +387,43 @@ class EyeExpressionGeneratorTest {
         )
         assertEquals(EyeSilhouette.DROOPY, tiredRest.silhouette)
         assertEquals(EyeSilhouette.DROOPY, tiredFocus.silhouette)
+    }
+
+    @Test
+    fun socialAffectDrivesSelectJealousProudAndReassuredEyePoses() {
+        val jealous = EyeExpressionGenerator.generate(
+            EveDecision(
+                mood = EveMood.IRRITATED,
+                reason = "explicit social competition cue",
+                jealousy = 0.90f
+            ),
+            seed = 20261021L
+        )
+        val proud = EyeExpressionGenerator.generate(
+            EveDecision(
+                mood = EveMood.PLAYFUL,
+                reason = "confirmed achievement",
+                pride = 0.90f
+            ),
+            seed = 20261021L
+        )
+        val reassured = EyeExpressionGenerator.generate(
+            EveDecision(
+                mood = EveMood.FAMILIAR,
+                reason = "confirmed reassurance cue",
+                reassurance = 0.90f
+            ),
+            seed = 20261021L
+        )
+
+        assertEquals(EyeSilhouette.JEALOUS, jealous.silhouette)
+        assertEquals(EyeSilhouette.PROUD, proud.silhouette)
+        assertEquals(EyeSilhouette.AFFECTIONATE, reassured.silhouette)
+        assertEquals(
+            "The new social-affect layer must reuse the established cyan LED expression system.",
+            EveMood.IRRITATED,
+            jealous.mood
+        )
     }
 
     @Test fun primaryEmotionRemainsReadableWhenIntentSuggestsSomethingElse() {

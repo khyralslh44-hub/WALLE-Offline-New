@@ -5,6 +5,9 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Read-only, opt-in local birthdays and calendar events; queried only when the user asks. -->
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <uses-permission android:name="android.permission.READ_CALENDAR" />
     <!-- Optional future mobile-base BLE connection; permissions are requested only on demand. -->
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
@@ -42,6 +45,17 @@
             android:name=".RobotGamesActivity"
             android:screenOrientation="portrait"
             android:exported="false" />
+        <activity
+            android:name=".EveDoctorActivity"
+            android:screenOrientation="portrait"
+            android:label="إيف الطبيب"
+            android:icon="@drawable/ic_eve_doctor_launcher"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
         <activity
             android:name=".EmbodiedGamesActivity"
             android:screenOrientation="portrait"

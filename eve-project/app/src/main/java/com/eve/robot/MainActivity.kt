@@ -8,6 +8,10 @@ import android.graphics.ImageFormat
 import android.graphics.Matrix
 import android.graphics.Rect
 import android.graphics.drawable.GradientDrawable
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -48,6 +52,7 @@ import java.util.concurrent.atomic.AtomicLong
 import java.util.Calendar
 import java.util.Locale
 import java.util.UUID
+import kotlin.math.sqrt
 
 /**
  * EVE face experience: camera labeling and behavior operate locally while the activity is open.
@@ -89,6 +94,47 @@ class MainActivity : ComponentActivity() {
         }
     }
     private val main = Handler(Looper.getMainLooper())
+    private var motionSensorManager: SensorManager? = null
+    private var motionAccelerometer: Sensor? = null
+    private var shakeSensorRegistered = false
+    private var shakeGravityReady = false
+    private var shakeGravityX = 0f
+    private var shakeGravityY = 0f
+    private var shakeGravityZ = 0f
+    private var lastStrongShakeAtMs = 0L
+    private val strongShakeListener = object : SensorEventListener {
+        override fun onSensorChanged(event: SensorEvent) {
+            if (event.sensor.type != Sensor.TYPE_ACCELEROMETER || event.values.size < 3) return
+            val x = event.values[0]
+            val y = event.values[1]
+            val z = event.values[2]
+            if (!shakeGravityReady) {
+                shakeGravityX = x
+                shakeGravityY = y
+                shakeGravityZ = z
+                shakeGravityReady = true
+                return
+            }
+            // Low-pass gravity estimate; subtract it so tilting the phone is not itself a shake.
+            val gravityRetention = 0.82f
+            shakeGravityX = gravityRetention * shakeGravityX + (1f - gravityRetention) * x
+            shakeGravityY = gravityRetention * shakeGravityY + (1f - gravityRetention) * y
+            shakeGravityZ = gravityRetention * shakeGravityZ + (1f - gravityRetention) * z
+            val ax = x - shakeGravityX
+            val ay = y - shakeGravityY
+            val az = z - shakeGravityZ
+            val strength = sqrt(ax * ax + ay * ay + az * az)
+            val now = SystemClock.elapsedRealtime()
+            // Require a forceful shake and enforce a cooldown to avoid repeating the pose every frame.
+            if (strength >= 16.5f && now - lastStrongShakeAtMs >= 2600L) {
+                lastStrongShakeAtMs = now
+                faceOrNull()?.showDizzyReaction(2400L)
+                Log.i("EVE", "PHYSICAL_SHAKE dizzy expression strength=${"%.1f".format(Locale.ROOT, strength)}")
+            }
+        }
+
+        override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
+    }
     private val cameraExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private val emotionExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     // Recognizer creation, inference and release all occur on this one worker.
@@ -118,6 +164,11 @@ class MainActivity : ComponentActivity() {
     @Volatile private var lastObjectLabel = ""
     @Volatile private var lastObjectLabelConfidence = 0f
     @Volatile private var lastObjectLabelAt = 0L
+    @Volatile private var latestVisualObjects: List<EveVisualObject> = emptyList()
+    @Volatile private var latestPersonContextSummary = ""
+    @Volatile private var lastPersonContextSummaryAt = 0L
+    @Volatile private var latestPersonContextSnapshot: EvePersonContextSnapshot? = null
+    @Volatile private var lastPersonContextCaptureAt = 0L
     @Volatile private var handGestureRecognizer: GestureRecognizer? = null
     @Volatile private var handGestureReady = false
     private val handGestureInferenceRunning = AtomicBoolean(false)
@@ -140,6 +191,11 @@ class MainActivity : ComponentActivity() {
     private val ferInferenceRunning = AtomicBoolean(false)
     private val faceCueSmoother = EveFaceCueSmoother(windowSize = 3, requiredVotes = 2)
     private val activityUnderstanding = EveActivityUnderstanding()
+    private val personContextUnderstanding = EvePersonContextUnderstanding()
+    private val personalTravelMemory by lazy {
+        EveTravelMemory(getSharedPreferences("eve_personal_travel_memory", MODE_PRIVATE).getString("records", "").orEmpty())
+    }
+    private val wellbeingUnderstanding = EveHumanWellbeingUnderstanding()
     private val environmentUnderstanding = EveEnvironmentUnderstanding()
     private val roomUnderstanding = EveRoomUnderstanding()
     private val autonomousMind = EveAutonomousMind()
@@ -163,13 +219,26 @@ class MainActivity : ComponentActivity() {
     @Volatile private var lastDirectUserActionAt = SystemClock.elapsedRealtime()
     @Volatile private var lastAutonomyPlanSignature = ""
     @Volatile private var lastAutonomyReflectionAt = 0L
+    private val autonomyPlanningRunning = AtomicBoolean(false)
+    @Volatile private var lastAutonomyDecisionAt = 0L
+    @Volatile private var lastAutonomyGoal = ""
+    @Volatile private var lastAutonomyAction = ""
+    @Volatile private var lastAutonomyOutcome = "لم تُنفّذ دورة قرار بعد"
+    @Volatile private var lastAutonomyRationale = ""
+    private val autonomyDecisionCooldownMs = 20_000L
     private val lastAutonomyCameraSwitchAt = AtomicLong(0L)
     private val autonomousCameraSwitchCooldownMs = 60_000L
     @Volatile private var activeHumanActivity = EveHumanActivity.UNKNOWN
     @Volatile private var activeHumanActivityConfidence = 0f
     @Volatile private var lastHumanActivityAt = 0L
     @Volatile private var latestActivitySummary = ""
+    @Volatile private var latestWellbeingSummary = ""
+    @Volatile private var lastWellbeingObservationAt = 0L
+    @Volatile private var latestStableFaceEmotionLabel = ""
+    @Volatile private var latestStableFaceEmotionConfidence = 0f
+    @Volatile private var latestStableFaceEmotionAt = 0L
     @Volatile private var latestEnvironmentSummary = ""
+    private var pendingCalendarQuestion = ""
     @Volatile private var latestRoomSummary = ""
     @Volatile private var latestRoomType = EveRoomType.UNKNOWN
     @Volatile private var lastRoomObservationAt = 0L
@@ -225,7 +294,17 @@ class MainActivity : ComponentActivity() {
     @Volatile private var lastObjectSceneAt = 0L
     @Volatile private var lastImageClassifierSceneAt = 0L
     @Volatile private var latestObjectLabels: Set<String> = emptySet()
+    @Volatile private var latestImageClassifierLabels: Set<String> = emptySet()
     @Volatile private var lastSceneObservationAt = 0L
+    // Visible, low-frequency feedback closes the gap between internal perception and what the
+    // person can actually observe. It is event-driven, not a repeating narration loop.
+    @Volatile private var lastVisibleCueKey = ""
+    @Volatile private var lastVisibleCueAt = 0L
+    @Volatile private var lastPresenceCueAt = 0L
+    private val observationResponseRunning = AtomicBoolean(false)
+    private val visibleCueGlobalCooldownMs = 12_000L
+    private val visibleCueSameLabelCooldownMs = 75_000L
+    private val presenceCueCooldownMs = 45_000L
 
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
         val action = event.actionMasked
@@ -314,6 +393,14 @@ class MainActivity : ComponentActivity() {
             .putBoolean("notificationPermissionAsked", true)
             .apply()
         Log.i("EVE_NOTIFY", "notification permission granted=$granted")
+    }
+
+    private val calendarPermissionRequest = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { _ ->
+        val question = pendingCalendarQuestion
+        pendingCalendarQuestion = ""
+        if (question.isNotBlank()) answerLocalBirthdayQuestion(question)
     }
 
     private val baseBluetoothPermissionRequest = registerForActivityResult(
@@ -464,9 +551,12 @@ class MainActivity : ComponentActivity() {
         val relationshipPreferences = getSharedPreferences("eve_relationship", MODE_PRIVATE)
         autonomousExplorationEnabled = relationshipPreferences.getBoolean("autonomousExplorationEnabled", true)
         val priorReflectionKey = relationshipPreferences.getString("lastAutonomyReflectionKey", "").orEmpty()
-        if (priorReflectionKey.isNotBlank()) {
-            // Restore a tiny non-image summary so a restart does not trigger the same reflection again.
-            autonomousMind.recordFeedback(
+        val mindMemoryRestored = autonomousMind.restoreMemory(
+            relationshipPreferences.getString("autonomousMindMemory", "").orEmpty()
+        )
+        if (!mindMemoryRestored && priorReflectionKey.isNotBlank()) {
+            // Backward-compatible restore for installs created before versioned mind memory existed.
+            recordMindFeedback(
                 EveMindFeedback(
                     EveMindGoal.REFLECT_ON_NEW_EVIDENCE,
                     EveMindAction.REQUEST_LOCAL_REFLECTION,
@@ -475,7 +565,17 @@ class MainActivity : ComponentActivity() {
                     atMs = SystemClock.elapsedRealtime()
                 )
             )
-            lastAutonomyReflectionAt = SystemClock.elapsedRealtime()
+        }
+        val priorReflectionWallAt = relationshipPreferences.getLong("lastAutonomyReflectionWallAt", 0L)
+        val reflectionAge = if (priorReflectionWallAt > 0L) {
+            (System.currentTimeMillis() - priorReflectionWallAt).coerceAtLeast(0L)
+        } else {
+            Long.MAX_VALUE
+        }
+        lastAutonomyReflectionAt = if (reflectionAge <= EveAutonomousMind.REFLECTION_COOLDOWN_MS) {
+            (SystemClock.elapsedRealtime() - reflectionAge).coerceAtLeast(0L)
+        } else {
+            0L
         }
         brain = RobotBrain(memory.learnedPersonality())
         voice = RobotVoice()
@@ -685,6 +785,124 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun currentCalendarHemisphere(): EveHemisphere =
+        environmentUnderstanding.inferHemisphere(
+            Locale.getDefault().country,
+            java.util.TimeZone.getDefault().id
+        )
+
+    private fun handleCalendarQuestion(text: String): Boolean {
+        val now = System.currentTimeMillis()
+        val eidAnswer = EveCalendarKnowledge.holidayAnswer(text, now)
+        if (eidAnswer != null) {
+            showDialogueText(eidAnswer, durationMs = 8500L)
+            return true
+        }
+
+        if (listOf(
+                "فصول السنة", "الفصل الحالي", "الفصل الآن", "اي فصل", "أي فصل",
+                "ما هو الفصل", "ما الفصل", "أي فصل نحن", "what season", "current season"
+            ).any(text::contains)
+        ) {
+            showDialogueText(EveCalendarKnowledge.seasonAnswer(now, currentCalendarHemisphere()), durationMs = 8500L)
+            return true
+        }
+
+        if (listOf(
+                "عيد ميلاد", "أعياد الميلاد", "اعياد الميلاد", "تاريخ ميلاد", "متى ميلاد",
+                "عيد ميلادي", "birthday", "birthdays"
+            ).any(text::contains)
+        ) {
+            val permissionsNeeded = mutableListOf<String>()
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
+                permissionsNeeded += Manifest.permission.READ_CONTACTS
+            }
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CALENDAR) != PackageManager.PERMISSION_GRANTED) {
+                permissionsNeeded += Manifest.permission.READ_CALENDAR
+            }
+            if (permissionsNeeded.isNotEmpty()) {
+                pendingCalendarQuestion = text
+                showDialogueText(
+                    "لأبحث عن أعياد الميلاد المحفوظة، سأطلب إذن قراءة جهات الاتصال والتقويم على هذا الهاتف فقط. لن أرسل بيانات المناسبات إلى الإنترنت.",
+                    durationMs = 8500L
+                )
+                calendarPermissionRequest.launch(permissionsNeeded.toTypedArray())
+            } else {
+                answerLocalBirthdayQuestion(text)
+            }
+            return true
+        }
+
+        if (listOf(
+                "تاريخ اليوم", "ما تاريخ اليوم", "كم التاريخ", "ما اليوم", "التاريخ الهجري",
+                "كم رمضان", "ما التاريخ الهجري", "today's date", "what date is it"
+            ).any(text::contains)
+        ) {
+            showDialogueText(
+                EveCalendarKnowledge.todaySummary(now, currentCalendarHemisphere()),
+                durationMs = 8500L
+            )
+            return true
+        }
+        return false
+    }
+
+
+    private fun handleTravelMemorySpeech(text: String, addressedToEve: Boolean, activeConversation: Boolean, nowElapsed: Long): Boolean {
+        val q = normalizeArabicSpeech(text)
+        val clear = listOf("امسحي ذاكره السفر","احذفي ذاكره السفر","امسحي معلومات السفر","احذفي معلومات السفر","انسي ذاكره السفر","انسي معلومات السفر").any(q::contains)
+        if (clear && (addressedToEve || activeConversation)) {
+            personalTravelMemory.clear()
+            getSharedPreferences("eve_personal_travel_memory", MODE_PRIVATE).edit().putString("records", personalTravelMemory.serialize()).apply()
+            val reply = "حذفت ذاكرة السفر المحلية من هذا الهاتف."
+            showDialogueText(reply, durationMs = 6_000L); memory.rememberDialogue(text, reply); lastConversationalExchangeAt = nowElapsed
+            return true
+        }
+        val answer = personalTravelMemory.answerQuestion(q)
+        if (answer != null) {
+            showDialogueText(answer, durationMs = 8_000L); memory.rememberDialogue(text, answer); lastConversationalExchangeAt = nowElapsed
+            return true
+        }
+        if (!addressedToEve && !activeConversation) return false
+        val fact = personalTravelMemory.recordStatement(text, System.currentTimeMillis()) ?: return false
+        getSharedPreferences("eve_personal_travel_memory", MODE_PRIVATE).edit().putString("records", personalTravelMemory.serialize()).apply()
+        val reply = when (fact.type) {
+            EveTravelFactType.TRAVEL_HISTORY -> "حفظت على هذا الهاتف أنك ذكرت: «" + fact.statement + "». هذا تذكّر لما قلته، وليس تحققًا مستقلًا من السفر."
+            EveTravelFactType.TRAVEL_INTENTION -> "تذكرت محليًا أنك عبّرت عن رغبتك أو موقفك من السفر: «" + fact.statement + "». يمكنك أن تطلب مني حذف ذاكرة السفر في أي وقت."
+        }
+        showDialogueText(reply, durationMs = 8_000L); memory.rememberDialogue(text, reply); lastConversationalExchangeAt = nowElapsed
+        Log.i("EVE_TRAVEL", "TRAVEL_MEMORY_SAVED type=" + fact.type + " localOnly=true statementChars=" + fact.statement.length)
+        return true
+    }
+
+    private fun answerPersonContextQuestion(text: String, addressedToEve: Boolean, activeConversation: Boolean): Boolean {
+        if (!OfflineEveResponder.isQuestion(text) && !addressedToEve && !activeConversation) return false
+        val q = normalizeArabicSpeech(text)
+        val kind = when {
+            listOf("هل الشخص جالس","هل هو جالس","هل هي جالسه","هل يجلس","هل تجلس","قاعد","جالس","جالسه","sitting").any(q::contains) -> EvePersonContextActivity.SITTING_POSSIBLE
+            listOf("مكالمة","يتصل عبر الهاتف","يتحدث عبر الهاتف","يكلم احد عبر الهاتف","يجري اتصال","phone call","calling").any(q::contains) -> EvePersonContextActivity.PHONE_CALL_POSSIBLE
+            listOf("يتصفح الهاتف","يتصفح جواله","يتصفح هاتفه","يستخدم الهاتف","يستخدم جواله","يمسك الهاتف","browsing phone","using the phone").any(q::contains) -> EvePersonContextActivity.PHONE_BROWSING_POSSIBLE
+            listOf("يتشاجر","شجار","يتمازح","يمزحون","يتمازحون","يتضاربون","يتعاركون","مزاح","يتشاجرون","fighting","joking","roughhousing").any(q::contains) -> EvePersonContextActivity.INTERACTION_UNCLEAR
+            else -> null
+        } ?: return false
+        val now = SystemClock.elapsedRealtime()
+        val snap = latestPersonContextSnapshot
+        val fresh = snap != null && now - lastPersonContextCaptureAt in 0L..3_500L
+        val confidence = if (fresh) snap!!.confidenceFor(kind) else 0f
+        val reply = if (confidence >= 0.55f) when (kind) {
+            EvePersonContextActivity.SITTING_POSSIBLE -> "من وضعية الجسم عبر إطارات حديثة، يبدو أن الشخص قد يكون جالسًا أو في وضعية قرفصاء (تقدير بصري فقط)."
+            EvePersonContextActivity.PHONE_CALL_POSSIBLE -> "رصدت هاتفًا قرب جانب الرأس في أكثر من لقطة؛ قد يكون الشخص في مكالمة، لكن الكاميرا لا تثبت أن هناك اتصالًا فعليًا."
+            EvePersonContextActivity.PHONE_BROWSING_POSSIBLE -> "رصدت هاتفًا أمام الشخص مع حركة يد قريبة منه؛ قد يكون يستخدمه أو يتصفحه، ولا أستطيع قراءة محتوى الشاشة."
+            EvePersonContextActivity.INTERACTION_UNCLEAR -> "توجد حركة متكررة بين شخصين قريبين، لكن لا أستطيع التمييز بثقة بين المزاح والشجار من الرؤية الحالية. إذا بدا أن أحدًا يتأذى فتعامل مع الأمر بجدية واطلب المساعدة."
+        } else "لا تتوفر لدي الآن أدلة بصرية متكررة وكافية لأحدد ذلك. ظهور الهاتف أو انحناء الركبة في لقطة واحدة لا يكفي، وعدم توفر دليل لا يعني أن النشاط غير حاصل."
+        showDialogueText(reply, durationMs = 7_500L); memory.rememberDialogue(text, reply); lastConversationalExchangeAt = now
+        return true
+    }
+
+    private fun answerLocalBirthdayQuestion(question: String) {
+        showDialogueText(EveLocalCalendarEvents.answerBirthdayQuestion(this, question), durationMs = 8500L)
+    }
+
     private fun handleRecognizedSpeech(rawText: String, source: String) {
         val text = normalizeArabicSpeech(rawText)
         if (text.isBlank()) return
@@ -705,6 +923,8 @@ class MainActivity : ComponentActivity() {
             Log.i("EVE_AUDIO", "SPEECH_RESPONSE_SUPPRESSED reason=quiet_command")
             return
         }
+
+        if (handleCalendarQuestion(text)) return
 
         // EVE's drive base is her embodied locomotion layer, not a separate assistant.
         // Keep connection explicit and never move just because a body link becomes available.
@@ -924,6 +1144,9 @@ class MainActivity : ComponentActivity() {
             now - lastConversationalExchangeAt in 0L..90_000L
         val conversationalTurn = isQuestion || addressedToEve ||
             (wordCount >= 3 && activeConversation)
+
+        if (handleTravelMemorySpeech(text, addressedToEve, activeConversation, now)) return
+        if (answerPersonContextQuestion(text, addressedToEve, activeConversation)) return
 
         // Resolve known safe local questions first; never make an FAQ wait behind slow inference.
         val currentVisualAge = if (lastMeaningfulLabelAt > 0L) now - lastMeaningfulLabelAt else Long.MAX_VALUE
@@ -1164,6 +1387,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        registerStrongShakeDetection()
         if (::face.isInitialized) {
             face.startAnimation()
             main.removeCallbacks(idleLoop)
@@ -1183,6 +1407,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onPause() {
+        unregisterStrongShakeDetection()
         main.removeCallbacks(idleLoop)
         if (baseAutonomyRequested) {
             // A backgrounded phone must not continue commanding wheel motion.
@@ -1198,6 +1423,32 @@ class MainActivity : ComponentActivity() {
         cameraStarted = false
         if (::cameraStatus.isInitialized) showCameraStatus("الكاميرا متوقفة مؤقتًا خارج التطبيق", active = false)
         super.onPause()
+    }
+
+    private fun registerStrongShakeDetection() {
+        if (shakeSensorRegistered) return
+        if (motionSensorManager == null) {
+            motionSensorManager = getSystemService(SENSOR_SERVICE) as? SensorManager
+            motionAccelerometer = motionSensorManager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+        }
+        val manager = motionSensorManager ?: return
+        val sensor = motionAccelerometer ?: run {
+            Log.i("EVE", "PHYSICAL_SHAKE unavailable: no accelerometer")
+            return
+        }
+        shakeGravityReady = false
+        shakeSensorRegistered = manager.registerListener(
+            strongShakeListener,
+            sensor,
+            SensorManager.SENSOR_DELAY_GAME
+        )
+    }
+
+    private fun unregisterStrongShakeDetection() {
+        if (!shakeSensorRegistered) return
+        motionSensorManager?.unregisterListener(strongShakeListener)
+        shakeSensorRegistered = false
+        shakeGravityReady = false
     }
 
     private fun faceOrNull(): RobotFaceView? = if (::face.isInitialized) face else null
@@ -1524,17 +1775,22 @@ class MainActivity : ComponentActivity() {
                     Log.i("EVE_PERSONALITY", "novel observation nudged curiosity=${learnedPersonality.curiosityBias}")
                 }
                 val affinity = memory.learnedAffinity(label)
-                val decision = brain.observe(label, best.confidence, sightings, affinity)
                 Log.i(
                     "EVE",
-                    "VISION label=$label confidence=${best.confidence} sightings=$sightings " +
-                        "affinity=$affinity mood=${decision.mood}"
+                    "VISION_EVIDENCE label=" + label + " confidence=" + best.confidence +
+                        " sightings=" + sightings + " affinity=" + affinity +
+                        " source=local_image_labeler"
                 )
-                react(decision, decision.playSound && isMeaningfulLabel(label))
-                // Curiosity questions take priority over silent reflections: the local LLM can
-                // only execute one generation at a time, so never start two requests for one frame.
+                // A detected category is evidence, not an instruction to change mood.
+                // Curiosity questions take priority. When EVE has no grounded question to ask,
+                // show a brief observation cue so successful local perception is not invisible.
                 val askedOrQueued = maybeAskFromCuriosity(label, best.confidence, sightings)
-                if (!askedOrQueued) maybeReflectWithLocalLanguage(label, best.confidence, sightings)
+                if (!askedOrQueued) {
+                    val generatedReactionStarted = maybeShowVisibleObservationCue(label, best.confidence, elapsed)
+                    if (!generatedReactionStarted) {
+                        maybeReflectWithLocalLanguage(label, best.confidence, sightings)
+                    }
+                }
             }
             .addOnFailureListener(mainExecutor) { error ->
                 Log.w("EVE", "Offline image labeling frame failed.", error)
@@ -1744,6 +2000,10 @@ class MainActivity : ComponentActivity() {
                         it.boundingBox.width().toLong() * it.boundingBox.height().toLong()
                     }
                     if (bestFace == null) {
+                        personContextUnderstanding.reset()
+                        latestPersonContextSnapshot = null
+                        latestPersonContextSummary = ""
+                        lastPersonContextSummaryAt = 0L
                         faceCueSmoother.reset()
                         emotionSmoother.reset()
                         val elapsed = SystemClock.elapsedRealtime()
@@ -1755,8 +2015,14 @@ class MainActivity : ComponentActivity() {
                     }
 
                     val elapsed = SystemClock.elapsedRealtime()
+                    val previousFaceSeenAt = lastFaceSeenAt
                     lastFaceSeenAt = elapsed
-                    observeHumanActivityFromFace(bestFace, elapsed)
+                    // A detected person should produce one visible acknowledgement; otherwise
+                    // face tracking can run successfully while the screen appears completely idle.
+                    if (previousFaceSeenAt == 0L || elapsed - previousFaceSeenAt >= 7_000L) {
+                        maybeAcknowledgeObservedPerson(elapsed)
+                    }
+                    observeHumanActivityFromFace(bestFace, elapsed, faces)
                     val rawCue = EveFaceCue(
                         smilingProbability = bestFace.smilingProbability,
                         leftEyeOpenProbability = bestFace.leftEyeOpenProbability,
@@ -1808,6 +2074,9 @@ class MainActivity : ComponentActivity() {
                                             } else {
                                                 main.post {
                                                     if (isFinishing || isDestroyed) return@post
+                                                    latestStableFaceEmotionLabel = stableEmotion.label
+                                                    latestStableFaceEmotionConfidence = stableEmotion.confidence
+                                                    latestStableFaceEmotionAt = SystemClock.elapsedRealtime()
                                                     if (SystemClock.elapsedRealtime() - lastFaceReactionAt < 1800L) return@post
                                                     val decision = brain.observeFacialEmotion(
                                                         stableEmotion.label,
@@ -2184,6 +2453,7 @@ class MainActivity : ComponentActivity() {
         // An empty current detector result must clear old animal labels so they cannot authorize
         // a contradictory whole-image guess on the next frame.
         latestObjectLabels = sceneObjects.map { EveSceneGeometry.normalizeLabel(it.label) }.toSet()
+        latestVisualObjects = sceneObjects
         if (sceneObjects.isNotEmpty()) {
             latestObjectSummary = "أجسام محددة: " + sceneObjects.joinToString("؛ ") {
                 EveSceneGeometry.describe(
@@ -2202,6 +2472,7 @@ class MainActivity : ComponentActivity() {
             )
         } else {
             latestObjectSummary = ""
+            latestVisualObjects = emptyList()
             lastObjectSceneAt = 0L
             refreshLatestSceneSummary(now)
         }
@@ -2257,12 +2528,156 @@ class MainActivity : ComponentActivity() {
             now - lastReactionAt >= objectReactionCooldownMs
         if (!shouldReact) return
         objectLabelReactionAt[label] = now
-        val decision = brain.observe(label, best.confidence, sightings, memory.learnedAffinity(label))
-        react(decision, playSound = decision.playSound && isMeaningfulLabel(label))
-        if (best.confidence >= 0.82f) {
-            val askedOrQueued = maybeAskFromCuriosity(label, best.confidence, sightings)
-            if (!askedOrQueued && changed) maybeReflectWithLocalLanguage(label, best.confidence, sightings)
+        Log.i(
+            "EVE_OBJECTS",
+            "OBJECT_EVIDENCE_READY label=" + label +
+                " confidence=" + best.confidence +
+                " sightings=" + sightings +
+                " affinity=" + memory.learnedAffinity(label) +
+                " source=local_object_detector"
+        )
+        // Let the local generative model interpret evidence before it changes emotional state.
+        val askedOrQueued = best.confidence >= 0.82f &&
+            maybeAskFromCuriosity(label, best.confidence, sightings)
+        if (!askedOrQueued) {
+            val generatedReactionStarted = maybeShowVisibleObservationCue(label, best.confidence, now)
+            if (!generatedReactionStarted && best.confidence >= 0.82f && changed) {
+                maybeReflectWithLocalLanguage(label, best.confidence, sightings)
+            }
         }
+    }
+
+    /**
+     * Requests an original local-model response from current perception and remembered context.
+     * There is deliberately no canned fallback: if the generative brain is not ready or fails,
+     * EVE does not pretend a scripted line came from independent understanding.
+     */
+    private fun maybeShowVisibleObservationCue(label: String, confidence: Float, now: Long): Boolean {
+        if (isFinishing || isDestroyed || !::dialogueBubble.isInitialized) return false
+        if (!confidence.isFinite() || confidence < 0.72f) return false
+
+        val key = EveSceneGeometry.normalizeLabel(label)
+            .trim()
+            .lowercase(Locale.ROOT)
+        if (key.isBlank() || (!isMeaningfulLabel(key) && !isCuriosityWorthyLabel(key))) return false
+        if (!::localLanguageBrain.isInitialized || !localLanguageBrain.isReady) return false
+        if (observationResponseRunning.get()) return false
+
+        if (lastVisibleCueAt > 0L && now - lastVisibleCueAt < visibleCueGlobalCooldownMs) return false
+        if (key == lastVisibleCueKey && lastVisibleCueAt > 0L &&
+            now - lastVisibleCueAt < visibleCueSameLabelCooldownMs
+        ) return false
+
+        val sceneIsFresh = lastSceneObservationAt > 0L &&
+            now - lastSceneObservationAt in 0L..EveAutonomousMind.SCENE_FRESH_MS
+        val sceneEvidence = if (sceneIsFresh && latestSceneSummary.isNotBlank()) {
+            latestSceneSummary.trim().take(600)
+        } else {
+            "التصنيف البصري المحلي الحالي: " + key +
+                "؛ ثقة النموذج=" + (confidence * 100f).toInt() + "٪؛ " +
+                "عدد مرات الرصد=" + memory.sightings(key) +
+                ". هذا احتمال تصنيفي وليس وصفًا يقينيًا لكل المشهد."
+        }
+        val context = localLanguageContext().copy(
+            latestVisionLabel = key,
+            visionConfidence = confidence,
+            visionObservationAgeMs = 0L,
+            sightingCount = memory.sightings(key),
+            latestSceneSummary = sceneEvidence,
+            sceneObservationAgeMs = 0L
+        )
+        return requestGeneratedObservationResponse(
+            key = key,
+            confidence = confidence,
+            now = now,
+            evidence = sceneEvidence,
+            context = context
+        )
+    }
+
+    /** Face presence is evidence of a person, not evidence of their name or relationship. */
+    private fun maybeAcknowledgeObservedPerson(now: Long) {
+        if (isFinishing || isDestroyed || !::dialogueBubble.isInitialized) return
+        if (!::localLanguageBrain.isInitialized || !localLanguageBrain.isReady) return
+        if (lastPresenceCueAt > 0L && now - lastPresenceCueAt < presenceCueCooldownMs) return
+        if (lastVisibleCueAt > 0L && now - lastVisibleCueAt < visibleCueGlobalCooldownMs) return
+        if (observationResponseRunning.get()) return
+
+        val freshScene = lastSceneObservationAt > 0L &&
+            now - lastSceneObservationAt in 0L..EveAutonomousMind.SCENE_FRESH_MS &&
+            latestSceneSummary.isNotBlank()
+        val faceEvidence = if (freshScene) {
+            latestSceneSummary.trim().take(420) +
+                "؛ كاشف الوجه المحلي وجد وجهًا بشريًا في الإطار الحالي، لكن الهوية غير مثبتة بمجرد وجود الوجه."
+        } else {
+            "كاشف الوجه المحلي وجد وجهًا بشريًا في الإطار الحالي. لا يوجد دليل كافٍ لتحديد الاسم أو العلاقة."
+        }
+        val context = localLanguageContext().copy(
+            latestVisionLabel = "person",
+            visionConfidence = 0.88f,
+            visionObservationAgeMs = 0L,
+            latestSceneSummary = faceEvidence,
+            sceneObservationAgeMs = 0L
+        )
+        if (requestGeneratedObservationResponse(
+                key = "person_presence",
+                confidence = 0.88f,
+                now = now,
+                evidence = faceEvidence,
+                context = context
+            )
+        ) {
+            lastPresenceCueAt = now
+        }
+    }
+
+    private fun requestGeneratedObservationResponse(
+        key: String,
+        confidence: Float,
+        now: Long,
+        evidence: String,
+        context: LocalLlmContext
+    ): Boolean {
+        if (!observationResponseRunning.compareAndSet(false, true)) return false
+        lastVisibleCueKey = key
+        lastVisibleCueAt = now
+
+        localLanguageBrain.commentOnObservation(context, evidence) { outcome ->
+            try {
+                if (isFinishing || isDestroyed) return@commentOnObservation
+                val generated = outcome.getOrNull()
+                val reply = generated?.replyArabic?.trim()?.take(180).orEmpty()
+                if (reply.isBlank() || generated == null) {
+                    Log.w(
+                        "EVE_VISIBLE_BEHAVIOR",
+                        "GENERATED_REACTION_FAILED label=" + key + " confidence=" + confidence,
+                        outcome.exceptionOrNull()
+                    )
+                    return@commentOnObservation
+                }
+
+                generated.reflectionArabic.trim().takeIf { it.isNotBlank() }
+                    ?.let(memory::rememberReflection)
+                memory.rememberDialogue("دليل بصري محلي: " + evidence.take(160), reply)
+                val decision = brain.integrateLanguageInsight(
+                    moodHint = generated.moodHint,
+                    intentHint = generated.intentHint,
+                    confidence = generated.confidence,
+                    note = generated.reflectionArabic,
+                    source = "offline_visual_awareness"
+                )
+                react(decision, playSound = false)
+                showDialogueText(reply, durationMs = 5_200L)
+                Log.i(
+                    "EVE_VISIBLE_BEHAVIOR",
+                    "GENERATED_REACTION_OK label=" + key + " confidence=" + confidence +
+                        " modelConfidence=" + generated.confidence + " localOnly=true"
+                )
+            } finally {
+                observationResponseRunning.set(false)
+            }
+        }
+        return true
     }
 
     private val objectDetectionIntervalMs = 1400L
@@ -2347,16 +2762,15 @@ class MainActivity : ComponentActivity() {
     }
 
     /** Connect face/mouth cues, tracked hands, and recent object detections. */
-    private fun observeHumanActivityFromFace(face: Face, now: Long) {
+    private fun observeHumanActivityFromFace(face: Face, now: Long, detectedFaces: List<Face>) {
         val mouth = mouthGeometry(face)
         val handConfidence = handNearMouthConfidence(mouth, face.boundingBox.height(), now)
         val handIsFresh = latestHandObservedAt > 0L && now - latestHandObservedAt in 0L..1_400L
         val poseIsFresh = latestPoseObservedAt > 0L && now - latestPoseObservedAt in 0L..3_200L
         val pose = latestPoseAngles.takeIf { poseIsFresh }
-        val labels = if (lastObjectSceneAt > 0L && now - lastObjectSceneAt in 0L..6_000L) {
-            latestObjectLabels
-        } else {
-            emptySet()
+        val labels = buildSet {
+            if (lastObjectSceneAt > 0L && now - lastObjectSceneAt in 0L..6_000L) addAll(latestObjectLabels)
+            if (lastImageClassifierSceneAt > 0L && now - lastImageClassifierSceneAt in 0L..8_000L) addAll(latestImageClassifierLabels)
         }
         val result = activityUnderstanding.observe(
             EveHumanFrameEvidence(
@@ -2379,6 +2793,92 @@ class MainActivity : ComponentActivity() {
             )
         )
         applyHumanActivityInterpretation(result, now)
+        observePersonContextFromFace(face, now, pose, handIsFresh, detectedFaces)
+    }
+
+    private fun isPhoneObject(label: String) = EveSceneGeometry.normalizeLabel(label) in setOf("cell phone", "mobile phone", "smartphone", "phone")
+    private fun isSeatObject(label: String) = EveSceneGeometry.normalizeLabel(label) in setOf("chair", "couch", "bench", "bed")
+
+    private fun observePersonContextFromFace(
+        face: Face, now: Long, pose: EvePoseAngles?, handIsFresh: Boolean, detectedFaces: List<Face>
+    ) {
+        val age = if (lastObjectSceneAt > 0L) now - lastObjectSceneAt else Long.MAX_VALUE
+        val freshObjects = age in 0L..2_200L
+        val objects = if (freshObjects) latestVisualObjects else emptyList()
+        val phones = objects.filter { isPhoneObject(it.label) && it.confidence >= 0.42f }
+        val seats = objects.filter { isSeatObject(it.label) && it.confidence >= 0.42f }
+        val fw = latestAnalysisWidth.toFloat().coerceAtLeast(1f)
+        val fh = latestAnalysisHeight.toFloat().coerceAtLeast(1f)
+        val box = face.boundingBox
+        val fx = (box.centerX() / fw).coerceIn(0f, 1f)
+        val fy = (box.centerY() / fh).coerceIn(0f, 1f)
+        val faceW = (box.width() / fw).coerceIn(0.01f, 1f)
+        val faceH = (box.height() / fh).coerceIn(0.01f, 1f)
+        fun nearEar(p: EveVisualObject): Float {
+            val dx = kotlin.math.abs(p.centerX - fx)
+            val dy = kotlin.math.abs(p.centerY - fy)
+            val xl = (faceW * 1.45f + p.widthFraction * 0.25f + 0.025f).coerceAtLeast(0.075f)
+            val yl = (faceH * 0.78f + p.heightFraction * 0.25f + 0.025f).coerceAtLeast(0.09f)
+            if (dx > xl || dy > yl) return 0f
+            val proximity = maxOf(dx / xl, dy / yl).coerceIn(0f, 1f)
+            return (p.confidence * (0.55f + 0.45f * (1f - proximity))).coerceIn(0f, 1f)
+        }
+        fun inFront(p: EveVisualObject): Float {
+            val below = p.centerY - (fy + faceH * 0.28f)
+            if (below <= 0f || p.centerY >= fy + faceH * 2.8f) return 0f
+            val vertical = (1f - below / (faceH * 2.55f + 0.08f)).coerceIn(0f, 1f)
+            return (p.confidence * (0.5f + 0.5f * vertical)).coerceIn(0f, 1f)
+        }
+        fun handNear(p: EveVisualObject): Float {
+            if (!handIsFresh || !latestHandCenterX.isFinite() || !latestHandCenterY.isFinite()) return 0f
+            val dx = (kotlin.math.abs(latestHandCenterX - p.centerX) - p.widthFraction / 2f).coerceAtLeast(0f)
+            val dy = (kotlin.math.abs(latestHandCenterY - p.centerY) - p.heightFraction / 2f).coerceAtLeast(0f)
+            val distance = kotlin.math.hypot(dx.toDouble(), dy.toDouble()).toFloat()
+            val radius = (maxOf(p.widthFraction, p.heightFraction) * 1.7f + 0.045f).coerceAtLeast(0.06f)
+            return if (distance <= radius) (0.35f + 0.65f * (1f - distance / radius)).coerceIn(0f, 1f) else 0f
+        }
+        val phone = phones.maxByOrNull { it.confidence * (0.8f + 0.2f * it.areaFraction) }
+        val near = phone?.let(::nearEar) ?: 0f
+        // The caller passes a pose only when it is still fresh; keep freshness scoped here.
+        val poseIsFresh = pose != null
+        val proximity = faceProximityConfidence(detectedFaces)
+        val motionAt = maxOf(if (poseIsFresh) latestPoseObservedAt else 0L, if (handIsFresh) latestHandObservedAt else 0L)
+        val motionScore = maxOf(if (poseIsFresh) pose?.jointMotionScore ?: 0f else 0f,
+            if (handIsFresh) latestHandTrajectoryScore else 0f)
+        val snap = personContextUnderstanding.observe(EvePersonContextEvidence(
+            timestampMs = now, personConfidence = 0.88f,
+            visiblePersonCount = detectedFaces.size, faceProximityConfidence = proximity,
+            motionObservationAtMs = motionAt, motionScore = motionScore,
+            poseObservationAtMs = if (pose != null) latestPoseObservedAt else 0L,
+            sittingPoseConfidence = pose?.sittingPoseConfidence ?: 0f,
+            objectObservationAtMs = if (freshObjects) lastObjectSceneAt else 0L,
+            phoneConfidence = phone?.confidence ?: 0f, phoneNearEarConfidence = near,
+            phoneInFrontConfidence = if (near >= 0.52f) 0f else phone?.let(::inFront) ?: 0f,
+            handObservationAtMs = if (handIsFresh) latestHandObservedAt else 0L,
+            handNearPhoneConfidence = phone?.let(::handNear) ?: 0f,
+            nearbySeatConfidence = seats.maxOfOrNull { it.confidence } ?: 0f
+        ))
+        latestPersonContextSnapshot = snap
+        lastPersonContextCaptureAt = now
+        latestPersonContextSummary = snap.summaryArabic
+        lastPersonContextSummaryAt = if (snap.summaryArabic.isNotBlank()) now else 0L
+        refreshLatestSceneSummary(now)
+    }
+
+    private fun faceProximityConfidence(faces: List<Face>): Float {
+        if (faces.size < 2) return 0f
+        var closestRatio = Float.POSITIVE_INFINITY
+        for (i in faces.indices) for (j in i + 1 until faces.size) {
+            val a = faces[i].boundingBox
+            val b = faces[j].boundingBox
+            val dx = (a.centerX() - b.centerX()).toDouble()
+            val dy = (a.centerY() - b.centerY()).toDouble()
+            val distance = kotlin.math.hypot(dx, dy).toFloat()
+            val scale = ((a.height() + b.height()) * 0.5f).coerceAtLeast(1f)
+            closestRatio = minOf(closestRatio, distance / scale)
+        }
+        if (!closestRatio.isFinite() || closestRatio >= 4.5f) return 0f
+        return (1f - closestRatio / 4.5f).coerceIn(0f, 1f)
     }
 
     private fun applyHumanActivityInterpretation(result: EveActivityInterpretation, now: Long) {
@@ -2412,6 +2912,7 @@ class MainActivity : ComponentActivity() {
 
     private val sceneSummaryTtlMs = 15_000L
     private val activitySummaryTtlMs = 12_000L
+    private val wellbeingSummaryTtlMs = 12_000L
     private val environmentSummaryTtlMs = 45_000L
 
     /** Combines spatial object boxes with broader ImageNet scene hypotheses, discarding stale evidence. */
@@ -2422,11 +2923,15 @@ class MainActivity : ComponentActivity() {
         }
         if (lastImageClassifierSceneAt == 0L || now - lastImageClassifierSceneAt > sceneSummaryTtlMs) {
             latestImageClassifierSummary = ""
+            latestImageClassifierLabels = emptySet()
         }
         if (lastActivityObservationAt == 0L || now - lastActivityObservationAt > activitySummaryTtlMs) {
             latestActivitySummary = ""
             activeHumanActivity = EveHumanActivity.UNKNOWN
             activeHumanActivityConfidence = 0f
+        }
+        if (lastWellbeingObservationAt == 0L || now - lastWellbeingObservationAt > wellbeingSummaryTtlMs) {
+            latestWellbeingSummary = ""
         }
         if (lastEnvironmentObservationAt == 0L || now - lastEnvironmentObservationAt > environmentSummaryTtlMs) {
             latestEnvironmentSummary = ""
@@ -2435,18 +2940,18 @@ class MainActivity : ComponentActivity() {
             latestRoomSummary = ""
             latestRoomType = EveRoomType.UNKNOWN
         }
+        if (lastPersonContextSummaryAt == 0L || now - lastPersonContextSummaryAt > activitySummaryTtlMs) latestPersonContextSummary = ""
         val parts = listOf(
-            latestObjectSummary,
-            latestImageClassifierSummary,
-            latestActivitySummary,
-            latestEnvironmentSummary,
-            latestRoomSummary
+            latestObjectSummary, latestImageClassifierSummary, latestActivitySummary,
+            latestPersonContextSummary, latestWellbeingSummary, latestEnvironmentSummary, latestRoomSummary
         ).filter { it.isNotBlank() }
         latestSceneSummary = parts.joinToString("؛ ").take(600)
         lastSceneObservationAt = maxOf(
             if (latestObjectSummary.isNotBlank()) lastObjectSceneAt else 0L,
             if (latestImageClassifierSummary.isNotBlank()) lastImageClassifierSceneAt else 0L,
             if (latestActivitySummary.isNotBlank()) lastActivityObservationAt else 0L,
+            if (latestPersonContextSummary.isNotBlank()) lastPersonContextSummaryAt else 0L,
+            if (latestWellbeingSummary.isNotBlank()) lastWellbeingObservationAt else 0L,
             if (latestEnvironmentSummary.isNotBlank()) lastEnvironmentObservationAt else 0L,
             if (latestRoomSummary.isNotBlank()) lastRoomObservationAt else 0L
         )
@@ -2459,6 +2964,28 @@ class MainActivity : ComponentActivity() {
     private fun applyImageClassifierObservations(categories: List<EveImageClass>, meanLuminance: Float) {
         if (isFinishing || isDestroyed) return
         val now = SystemClock.elapsedRealtime()
+        val freshFaceEmotion = if (
+            latestStableFaceEmotionAt > 0L && now - latestStableFaceEmotionAt in 0L..6_000L
+        ) latestStableFaceEmotionLabel else null
+        val wellbeing = wellbeingUnderstanding.observe(
+            timestampMs = now,
+            personPresent = isPersonFaceRecent(now),
+            faceEmotionLabel = freshFaceEmotion,
+            faceEmotionConfidence = latestStableFaceEmotionConfidence,
+            candidates = categories
+        )
+        if (wellbeing.isActionable) {
+            latestWellbeingSummary = wellbeing.explanationArabic +
+                " (احتمال " + (wellbeing.confidence * 100f).toInt() + "٪؛ لا يثبت مرضًا)"
+            lastWellbeingObservationAt = now
+            Log.i(
+                "EVE_WELLBEING",
+                "WELLBEING_CUE cue=" + wellbeing.cue + " confidence=" + wellbeing.confidence +
+                    " frames=" + wellbeing.evidenceFrames + "; medicalDiagnosis=false offline=true"
+            )
+        } else if (lastWellbeingObservationAt == 0L || now - lastWellbeingObservationAt > wellbeingSummaryTtlMs) {
+            latestWellbeingSummary = ""
+        }
         val localHour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
         val freshObjectsForRoom = if (
             lastObjectSceneAt > 0L && now - lastObjectSceneAt in 0L..3_000L
@@ -2481,7 +3008,12 @@ class MainActivity : ComponentActivity() {
             timestampMs = now,
             candidates = categories,
             meanLuminance = meanLuminance,
-            localHour = localHour
+            localHour = localHour,
+            localMonth = Calendar.getInstance().get(Calendar.MONTH) + 1,
+            hemisphere = environmentUnderstanding.inferHemisphere(
+                Locale.getDefault().country,
+                java.util.TimeZone.getDefault().id
+            )
         )
         latestEnvironmentSummary = listOf(environment.summaryArabic, environment.clockPeriodArabic)
             .filter { it.isNotBlank() }
@@ -2492,7 +3024,10 @@ class MainActivity : ComponentActivity() {
             lastEnvironmentDiagnosticAt = now
             Log.i(
                 "EVE_ENV",
-                "ENVIRONMENT weather=${environment.weather} weatherConfidence=${environment.weatherConfidence} " +
+                "ENVIRONMENT season=${environment.season} seasonConfidence=${environment.seasonConfidence} " +
+                    "hemisphere=${environment.hemisphere} visualSeasonCue=${environment.seasonalClue} " +
+                    "visualSeasonConfidence=${environment.seasonalClueConfidence} " +
+                    "weather=${environment.weather} weatherConfidence=${environment.weatherConfidence} " +
                     "light=${environment.visualLight} lightConfidence=${environment.lightConfidence} " +
                     "clock=${environment.clockPeriodArabic.ifBlank { "unknown" }} " +
                     "summary=${environment.summaryArabic.ifBlank { "no confident visual hypothesis" }} offline=true"
@@ -2526,12 +3061,17 @@ class MainActivity : ComponentActivity() {
         if (ranked.isEmpty()) {
             // Do not leave an old, now-rejected animal guess in the live scene context.
             latestImageClassifierSummary = ""
+            latestImageClassifierLabels = emptySet()
             lastImageClassifierSceneAt = 0L
             refreshLatestSceneSummary(now)
             Log.i("EVE_IMAGENET", "IMAGE_CLASSIFICATION_NO_CONFIDENT_CATEGORY_AFTER_EVIDENCE_POLICY")
             return
         }
 
+        latestImageClassifierLabels = ranked
+            .filter { it.confidence >= 0.35f }
+            .map { EveSceneGeometry.normalizeLabel(it.label) }
+            .toSet()
         val supplemental = ranked.filterNot { candidate ->
             val name = EveSceneGeometry.normalizeLabel(candidate.label)
             latestObjectLabels.any { objectName ->
@@ -2575,11 +3115,20 @@ class MainActivity : ComponentActivity() {
                 .putLong("lastObservationAt", System.currentTimeMillis())
                 .putString("lastObservationSource", "efficientnet_lite0_imagenet")
                 .apply()
-            val decision = brain.observe(label, best.confidence, sightings, memory.learnedAffinity(label))
-            react(decision, playSound = false)
+            Log.i(
+                "EVE_IMAGENET",
+                "IMAGE_EVIDENCE_READY label=" + label + " confidence=" + best.confidence +
+                    " sightings=" + sightings + " source=local_image_classifier"
+            )
+            // Classification alone does not dictate EVE's mood; generated interpretation does.
             val askedOrQueued = maybeAskFromCuriosity(label, best.confidence, sightings)
-            if (!askedOrQueued && best.confidence >= 0.45f) {
-                maybeReflectWithLocalLanguage(label, best.confidence, sightings)
+            if (!askedOrQueued) {
+                val generatedReactionStarted = maybeShowVisibleObservationCue(
+                    label, best.confidence, SystemClock.elapsedRealtime()
+                )
+                if (!generatedReactionStarted && best.confidence >= 0.45f) {
+                    maybeReflectWithLocalLanguage(label, best.confidence, sightings)
+                }
             }
         }
     }
@@ -2719,8 +3268,15 @@ class MainActivity : ComponentActivity() {
         ).any(value::contains) && !isVisualNoiseLabel(value)
     }
 
-    private fun maybeAskFromCuriosity(label: String, confidence: Float, sightings: Int): Boolean {
+    private fun maybeAskFromCuriosity(
+        label: String,
+        confidence: Float,
+        sightings: Int,
+        onOutcome: ((Boolean, String) -> Unit)? = null
+    ): Boolean {
         if (isFinishing || isDestroyed || !::dialogueBubble.isInitialized) return false
+        if (!::localLanguageBrain.isInitialized || !localLanguageBrain.isReady) return false
+
         val preferences = getSharedPreferences("eve_curiosity", MODE_PRIVATE)
         val safeKey = label.trim().lowercase(Locale.ROOT).filter { it.isLetterOrDigit() }.take(48)
         if (safeKey.isBlank()) return false
@@ -2740,10 +3296,7 @@ class MainActivity : ComponentActivity() {
             nowMs = now
         ) ?: return false
 
-        val fallback = thought.text
-        val baselineDecision = brain.selfGeneratedCuriosity(label, confidence, sightings)
-
-        fun publishQuestion(questionRaw: String, llmResult: LocalLlmResult?) {
+        fun publishGeneratedQuestion(questionRaw: String, result: LocalLlmResult) {
             if (isFinishing || isDestroyed) return
             val question = questionRaw.trim().take(84).let {
                 if (it.endsWith("؟") || it.endsWith("?")) it else "$it؟"
@@ -2757,55 +3310,50 @@ class MainActivity : ComponentActivity() {
                 .putString("last_question_text", question)
                 .apply()
 
-            llmResult?.reflectionArabic?.takeIf { it.isNotBlank() }?.let(memory::rememberReflection)
-            val decision = if (llmResult != null) {
-                brain.integrateLanguageInsight(
-                    moodHint = llmResult.moodHint,
-                    intentHint = llmResult.intentHint,
-                    confidence = llmResult.confidence,
-                    note = llmResult.reflectionArabic,
-                    source = "visual_curiosity"
-                )
-            } else {
-                baselineDecision
-            }
-            // Preserve that EVE herself asked this question so the next LLM turn can follow it.
-            memory.rememberDialogue("ملاحظة بصرية حديثة: $label", question)
+            result.reflectionArabic.takeIf { it.isNotBlank() }?.let(memory::rememberReflection)
+            val decision = brain.integrateLanguageInsight(
+                moodHint = result.moodHint,
+                intentHint = result.intentHint,
+                confidence = result.confidence,
+                note = result.reflectionArabic,
+                source = "visual_curiosity"
+            )
+            memory.rememberDialogue("دليل بصري حديث: " + label, question)
             react(decision, playSound = false)
             showDialogueText(question, durationMs = 7600L)
-            val questionSource = if (llmResult != null) "local_llm" else "grounded_fallback"
+            onOutcome?.invoke(true, "generated_question_shown")
             Log.i(
                 "EVE_CURIOSITY",
-                "SELF_QUESTION label=" + label + " confidence=" + confidence + " sightings=" + sightings +
-                    " interest=" + thought.interest + " source=" + questionSource +
-                    " reason=" + thought.reason + " trait=" + learned.curiosityBias
+                "GENERATED_QUESTION label=" + label + " confidence=" + confidence +
+                    " sightings=" + sightings + " interest=" + thought.interest +
+                    " source=local_llm reason=" + thought.reason +
+                    " trait=" + learned.curiosityBias
             )
         }
 
-        if (::localLanguageBrain.isInitialized && localLanguageBrain.isReady) {
-            localLanguageBrain.askFromCuriosity(
-                context = localLanguageContext(),
-                label = label,
-                confidence = confidence,
-                sightings = sightings,
-                fallbackQuestion = fallback
-            ) { outcome ->
-                if (isFinishing || isDestroyed) return@askFromCuriosity
-                val candidate = outcome.getOrNull()
-                val generated = candidate?.replyArabic?.trim()?.takeIf(::isUsableCuriosityQuestion)
-                if (generated != null) {
-                    publishQuestion(generated, candidate)
-                } else {
-                    Log.w(
-                        "EVE_CURIOSITY",
-                        "LLM_QUESTION_FALLBACK label=$label reason=" +
-                            (outcome.exceptionOrNull()?.message ?: "empty or malformed question")
-                    )
-                    publishQuestion(fallback, null)
-                }
+        localLanguageBrain.askFromCuriosity(
+            context = localLanguageContext(),
+            label = label,
+            confidence = confidence,
+            sightings = sightings,
+            fallbackQuestion = "أنشئ سؤال فضول جديدًا ومحددًا بناءً على الأدلة البصرية الحالية والذاكرة ذات الصلة؛ لا تكرر سؤالًا جاهزًا."
+        ) { outcome ->
+            if (isFinishing || isDestroyed) return@askFromCuriosity
+            val candidate = outcome.getOrNull()
+            val generated = candidate?.replyArabic?.trim()?.takeIf(::isUsableCuriosityQuestion)
+            if (generated != null && candidate != null) {
+                publishGeneratedQuestion(generated, candidate)
+            } else {
+                val failureReason = outcome.exceptionOrNull()?.message
+                    ?: "model output was not a usable contextual question"
+                onOutcome?.invoke(false, failureReason.take(160))
+                Log.w(
+                    "EVE_CURIOSITY",
+                    "GENERATED_QUESTION_UNAVAILABLE label=" + label + " reason=" + failureReason
+                )
+                // Do not present heuristic fallback text as if the model invented it.
+                maybeShowVisibleObservationCue(label, confidence, SystemClock.elapsedRealtime())
             }
-        } else {
-            publishQuestion(fallback, null)
         }
         return true
     }
@@ -2894,25 +3442,42 @@ class MainActivity : ComponentActivity() {
      * chooses whether to observe, review an activity hypothesis, reflect with the local LLM,
      * explore the current view, or wait. The planner never switches camera lenses by itself.
      */
+    /** Record action outcomes and persist the bounded cognitive history on this device only. */
+    private fun recordMindFeedback(item: EveMindFeedback) {
+        autonomousMind.recordFeedback(item)
+        getSharedPreferences("eve_relationship", MODE_PRIVATE).edit()
+            .putString("autonomousMindMemory", autonomousMind.exportMemory())
+            .apply()
+    }
+
+    /**
+     * The local generative model chooses the next cognitive step from a constrained allow-list.
+     * The rule-based mind remains a bounded feedback/memory store, not the source of every choice.
+     * Every model suggestion is checked again against current live conditions before execution.
+     */
     private fun runAutonomousCognition(inactiveMs: Long) {
         if (isFinishing || isDestroyed || !::brain.isInitialized || !::memory.isInitialized) return
+        if (!::localLanguageBrain.isInitialized || !localLanguageBrain.isReady) {
+            Log.d("EVE_COGNITION", "DECISION_SKIPPED reason=local_brain_not_ready")
+            return
+        }
+        if (localLanguageBrain.isGenerating || !autonomyPlanningRunning.compareAndSet(false, true)) return
+
         val now = SystemClock.elapsedRealtime()
+        if (lastAutonomyDecisionAt > 0L && now - lastAutonomyDecisionAt < autonomyDecisionCooldownMs) {
+            autonomyPlanningRunning.set(false)
+            return
+        }
         val sceneAge = if (lastSceneObservationAt > 0L) {
             (now - lastSceneObservationAt).coerceAtLeast(0L)
-        } else {
-            Long.MAX_VALUE
-        }
+        } else Long.MAX_VALUE
         val label = lastMeaningfulLabel.orEmpty()
         val labelAge = if (lastMeaningfulLabelAt > 0L) {
             (now - lastMeaningfulLabelAt).coerceAtLeast(0L)
-        } else {
-            Long.MAX_VALUE
-        }
+        } else Long.MAX_VALUE
         val labelConfidence = if (labelAge in 0L..EveAutonomousMind.SCENE_FRESH_MS) {
-            lastMeaningfulConfidence
-        } else {
-            0f
-        }
+            lastMeaningfulConfidence.takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: 0f
+        } else 0f
         val faceRecent = lastFaceSeenAt > 0L && now - lastFaceSeenAt in 0L..4_500L
         val familiarPersonRecent = faceRecent &&
             lastIdentityGreetingId.isNotBlank() &&
@@ -2929,7 +3494,7 @@ class MainActivity : ComponentActivity() {
             activity = activeHumanActivity,
             activityConfidence = activeHumanActivityConfidence,
             explorationEnabled = autonomousExplorationEnabled,
-            localLanguageReady = ::localLanguageBrain.isInitialized && localLanguageBrain.isReady,
+            localLanguageReady = true,
             lastReflectionAtMs = lastAutonomyReflectionAt,
             cameraIsFront = activeCameraLens == CameraLens.FRONT,
             cameraSwitchAllowed = hasCameraPermission() && run {
@@ -2937,129 +3502,362 @@ class MainActivity : ComponentActivity() {
                 switchedAt <= 0L || now - switchedAt >= autonomousCameraSwitchCooldownMs
             }
         )
-        val plan = autonomousMind.plan(context)
-        // A reflection plan contains a review step followed by an LLM step. The frame/context
-        // has already passed freshness checks above, so execute the planned reflection step
-        // rather than stopping permanently at the first review-only step.
-        val step = plan.steps.firstOrNull { it.action == EveMindAction.REQUEST_LOCAL_REFLECTION }
-            ?: plan.steps.first()
-        val signature = "${plan.goal}|${step.action}|${label.take(48)}"
-        if (signature != lastAutonomyPlanSignature) {
-            lastAutonomyPlanSignature = signature
-            Log.i(
-                "EVE_MIND",
-                "MIND_PLAN goal=${plan.goal} action=${step.action} confidence=${plan.confidence} " +
-                    "priority=${step.priority} steps=${plan.steps.size} sceneAgeMs=$sceneAge " +
-                    "inactiveMs=$inactiveMs explore=$autonomousExplorationEnabled " +
-                    "rationale=${plan.rationaleArabic} success=${step.successCriterionArabic}"
-            )
+        val allowedActions = allowedAutonomousActions(
+            context = context,
+            labelAgeMs = labelAge,
+            labelConfidence = labelConfidence,
+            sceneAgeMs = sceneAge,
+            nowElapsedMs = now
+        )
+        if (allowedActions.isEmpty()) {
+            autonomyPlanningRunning.set(false)
+            return
         }
 
-        when (step.action) {
-            EveMindAction.REQUEST_LOCAL_REFLECTION -> {
-                if (label.isNotBlank() && labelConfidence >= EveAutonomousMind.MIN_REFLECTION_CONFIDENCE &&
-                    ::localLanguageBrain.isInitialized && localLanguageBrain.isReady &&
-                    (lastAutonomyReflectionAt == 0L ||
-                        now - lastAutonomyReflectionAt >= EveAutonomousMind.REFLECTION_COOLDOWN_MS)
-                ) {
-                    // Use the same bounded key in the planner's feedback set and the completion callback.
-                    val evidenceKey = (
-                        label.trim().lowercase(Locale.ROOT) + "|" +
-                            latestSceneSummary.trim().take(180)
-                        ).take(180)
-                    lastAutonomyReflectionAt = now
-                    maybeReflectWithLocalLanguage(
-                        label,
-                        labelConfidence,
-                        memory.sightings(label),
-                        mindEvidenceKey = evidenceKey
+        val preferences = getSharedPreferences("eve_relationship", MODE_PRIVATE)
+        val previousGoal = preferences.getString("autonomy_last_goal", lastAutonomyGoal).orEmpty()
+        val previousAction = preferences.getString("autonomy_last_action", lastAutonomyAction).orEmpty()
+        val previousOutcome = preferences.getString("autonomy_last_outcome", lastAutonomyOutcome).orEmpty()
+        lastAutonomyDecisionAt = now
+
+        Log.i(
+            "EVE_COGNITION",
+            "CYCLE_START idleMs=$inactiveMs sceneAgeMs=$sceneAge label=$label " +
+                "confidence=$labelConfidence activity=$activeHumanActivity allowed=$allowedActions"
+        )
+        localLanguageBrain.planAutonomousStep(
+            context = localLanguageContext(),
+            allowedActions = allowedActions,
+            previousGoal = previousGoal,
+            previousAction = previousAction,
+            previousOutcome = previousOutcome,
+            recentActionOutcomes = autonomousMind.recentFeedback().takeLast(6).map { item ->
+                item.goal.name + "/" + item.action.name + "=" +
+                    (if (item.succeeded) "success" else "failure") + ":" + item.note.take(54)
+            }
+        ) { result ->
+            autonomyPlanningRunning.set(false)
+            if (isFinishing || isDestroyed) return@planAutonomousStep
+
+            val proposal = result.getOrNull()
+            if (proposal == null) {
+                updateAutonomyOutcome(
+                    goal = previousGoal.ifBlank { "observe_current_evidence" },
+                    action = "none",
+                    outcome = "planner_generation_failed",
+                    reason = result.exceptionOrNull()?.message.orEmpty().take(180)
+                )
+                Log.w("EVE_COGNITION", "PLAN_REJECTED reason=generation_failed", result.exceptionOrNull())
+                return@planAutonomousStep
+            }
+
+            val action = proposal.planningAction.orEmpty()
+            val proposedGoal = proposal.planningGoal.orEmpty().ifBlank { "understand_current_evidence" }
+            val reason = proposal.planningReason.orEmpty().ifBlank { "لم يذكر النموذج سببًا واضحًا." }
+            val successCriterion = proposal.successCriterion.orEmpty().ifBlank { "مراجعة الدليل الجديد عند وصوله." }
+
+            // Recompute the allow-list after inference; face, freshness, permission, or cooldown
+            // may have changed while the model was thinking.
+            val liveNow = SystemClock.elapsedRealtime()
+            val liveSceneAge = if (lastSceneObservationAt > 0L) {
+                (liveNow - lastSceneObservationAt).coerceAtLeast(0L)
+            } else Long.MAX_VALUE
+            val liveLabelAge = if (lastMeaningfulLabelAt > 0L) {
+                (liveNow - lastMeaningfulLabelAt).coerceAtLeast(0L)
+            } else Long.MAX_VALUE
+            val liveLabelConfidence = if (liveLabelAge in 0L..EveAutonomousMind.SCENE_FRESH_MS) {
+                lastMeaningfulConfidence.takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: 0f
+            } else 0f
+            val liveFaceRecent = lastFaceSeenAt > 0L && liveNow - lastFaceSeenAt in 0L..4_500L
+            val liveContext = context.copy(
+                nowMs = liveNow,
+                inactiveMs = (liveNow - lastDirectUserActionAt).coerceAtLeast(0L),
+                sceneAgeMs = liveSceneAge,
+                sceneSummary = latestSceneSummary,
+                latestLabel = lastMeaningfulLabel.orEmpty(),
+                labelConfidence = liveLabelConfidence,
+                faceSeenRecently = liveFaceRecent,
+                cameraIsFront = activeCameraLens == CameraLens.FRONT,
+                cameraSwitchAllowed = hasCameraPermission() &&
+                    (lastAutonomyCameraSwitchAt.get() <= 0L ||
+                        liveNow - lastAutonomyCameraSwitchAt.get() >= autonomousCameraSwitchCooldownMs)
+            )
+            val liveAllowed = allowedAutonomousActions(
+                context = liveContext,
+                labelAgeMs = liveLabelAge,
+                labelConfidence = liveLabelConfidence,
+                sceneAgeMs = liveSceneAge,
+                nowElapsedMs = liveNow
+            )
+            val planFieldsComplete = !proposal.planningGoal.isNullOrBlank() &&
+                !proposal.planningReason.isNullOrBlank() &&
+                !proposal.successCriterion.isNullOrBlank()
+            if (action !in allowedActions || action !in liveAllowed || !planFieldsComplete) {
+                val rejection = if (!planFieldsComplete) "incomplete_goal_reason_or_success_criterion"
+                    else "not_currently_allowed"
+                updateAutonomyOutcome(
+                    goal = proposedGoal,
+                    action = action.ifBlank { "missing_action" },
+                    outcome = "rejected_$rejection",
+                    reason = reason
+                )
+                Log.w(
+                    "EVE_COGNITION",
+                    "PLAN_REJECTED goal=$proposedGoal action=$action complete=$planFieldsComplete " +
+                        "originallyAllowed=$allowedActions currentlyAllowed=$liveAllowed reason=$reason"
+                )
+                return@planAutonomousStep
+            }
+
+            lastAutonomyGoal = proposedGoal
+            lastAutonomyAction = action
+            lastAutonomyRationale = reason
+            preferences.edit()
+                .putString("autonomy_last_goal", proposedGoal.take(80))
+                .putString("autonomy_last_action", action)
+                .putString("autonomy_last_rationale", reason.take(180))
+                .apply()
+            Log.i(
+                "EVE_COGNITION",
+                "PLAN_ACCEPTED goal=$proposedGoal action=$action confidence=${proposal.confidence} " +
+                    "reason=$reason successCriterion=$successCriterion"
+            )
+
+            when (action) {
+                "observe_scene" -> {
+                    val fresh = liveSceneAge in 0L..EveAutonomousMind.SCENE_FRESH_MS &&
+                        latestSceneSummary.isNotBlank()
+                    val outcome = if (fresh) "fresh_evidence_reviewed" else "waiting_for_fresh_evidence"
+                    recordMindFeedback(
+                        EveMindFeedback(
+                            goal = EveMindGoal.OBSERVE_SCENE,
+                            action = EveMindAction.REVIEW_RECENT_EVIDENCE,
+                            succeeded = fresh,
+                            note = "planner:$reason;scene_fresh=$fresh",
+                            atMs = liveNow
+                        )
                     )
+                    updateAutonomyOutcome(proposedGoal, action, outcome, reason)
+                    Log.i("EVE_COGNITION", "ACTION_RESULT action=$action outcome=$outcome")
                 }
-            }
-            EveMindAction.REVIEW_RECENT_EVIDENCE -> {
-                // The vision pipeline is live; this step explicitly checks confidence/freshness
-                // instead of inventing a scene when the objects or activity have gone stale.
-                Log.d(
-                    "EVE_MIND",
-                    "MIND_REVIEW goal=${plan.goal} activity=$activeHumanActivity " +
-                        "activityConfidence=$activeHumanActivityConfidence sceneFresh=${sceneAge <= EveAutonomousMind.SCENE_FRESH_MS}"
-                )
-            }
-            EveMindAction.WAIT_FOR_FRESH_FRAME -> {
-                autonomousMind.recordFeedback(
-                    EveMindFeedback(
-                        goal = plan.goal,
-                        action = step.action,
-                        succeeded = sceneAge <= EveAutonomousMind.SCENE_FRESH_MS,
-                        note = "frame_age_ms=$sceneAge",
-                        atMs = now
+                "quiet_attention" -> {
+                    recordMindFeedback(
+                        EveMindFeedback(
+                            goal = EveMindGoal.WAIT_QUIETLY,
+                            action = EveMindAction.MAINTAIN_QUIET_ATTENTION,
+                            succeeded = true,
+                            note = "planner:$reason",
+                            atMs = liveNow
+                        )
                     )
-                )
-            }
-            EveMindAction.MAINTAIN_QUIET_ATTENTION -> Unit
-            EveMindAction.CONTINUE_EXPLORATION -> {
-                Log.d(
-                    "EVE_MIND",
-                    "MIND_EXPLORE_VIEW lens=${activeCameraLens.name} sceneAgeMs=$sceneAge " +
-                        "labels=${latestObjectLabels.size} offline=true"
-                )
-            }
-            EveMindAction.SWITCH_TO_WORLD_CAMERA -> {
-                val currentNow = SystemClock.elapsedRealtime()
-                val faceStillVisible = lastFaceSeenAt > 0L &&
-                    currentNow - lastFaceSeenAt in 0L..4_500L
-                val lastSwitch = lastAutonomyCameraSwitchAt.get()
-                val cooldownDone = lastSwitch <= 0L ||
-                    currentNow - lastSwitch >= autonomousCameraSwitchCooldownMs
-                val safeToSwitch = autonomousExplorationEnabled &&
-                    hasCameraPermission() &&
-                    activeCameraLens == CameraLens.FRONT &&
-                    !faceStillVisible &&
-                    currentNow - lastDirectUserActionAt >= EveAutonomousMind.AUTO_CAMERA_SWITCH_IDLE_MS &&
-                    cooldownDone
-                if (safeToSwitch) {
-                    lastAutonomyCameraSwitchAt.set(currentNow)
-                    Log.i(
-                        "EVE_MIND",
-                        "MIND_ACTION start=SWITCH_TO_WORLD_CAMERA from=FRONT reason=quiet_exploration"
+                    updateAutonomyOutcome(proposedGoal, action, "quiet_attention_maintained", reason)
+                    Log.i("EVE_COGNITION", "ACTION_RESULT action=$action outcome=quiet_attention_maintained")
+                }
+                "ask_curiosity_question" -> {
+                    val currentLabel = lastMeaningfulLabel.orEmpty()
+                    val requested = maybeAskFromCuriosity(
+                        label = currentLabel,
+                        confidence = liveLabelConfidence,
+                        sightings = memory.sightings(currentLabel),
+                        onOutcome = { succeeded, detail ->
+                            recordMindFeedback(
+                                EveMindFeedback(
+                                    goal = EveMindGoal.OBSERVE_SCENE,
+                                    action = EveMindAction.REVIEW_RECENT_EVIDENCE,
+                                    succeeded = succeeded,
+                                    note = "planner_question:$detail",
+                                    atMs = SystemClock.elapsedRealtime()
+                                )
+                            )
+                            updateAutonomyOutcome(
+                                proposedGoal, action,
+                                if (succeeded) "generated_question_shown" else "question_generation_failed",
+                                detail
+                            )
+                        }
                     )
-                    switchCamera()
-                    main.postDelayed({
-                        if (isFinishing || isDestroyed) return@postDelayed
-                        val succeeded = cameraStarted && activeCameraLens == CameraLens.BACK
-                        autonomousMind.recordFeedback(
+                    if (!requested) {
+                        recordMindFeedback(
                             EveMindFeedback(
-                                goal = plan.goal,
-                                action = step.action,
-                                succeeded = succeeded,
-                                note = "rear_camera_active=$succeeded",
-                                atMs = SystemClock.elapsedRealtime()
+                                goal = EveMindGoal.OBSERVE_SCENE,
+                                action = EveMindAction.REVIEW_RECENT_EVIDENCE,
+                                succeeded = false,
+                                note = "planner_question_not_eligible",
+                                atMs = liveNow
                             )
                         )
-                        Log.i(
-                            "EVE_MIND",
-                            "MIND_ACTION_RESULT action=SWITCH_TO_WORLD_CAMERA success=$succeeded " +
-                                "lens=${activeCameraLens.name}"
+                        updateAutonomyOutcome(proposedGoal, action, "question_not_eligible", reason)
+                    }
+                }
+                "reflect_on_scene" -> {
+                    val currentLabel = lastMeaningfulLabel.orEmpty()
+                    val safeToReflect = currentLabel.isNotBlank() &&
+                        liveLabelConfidence >= EveAutonomousMind.MIN_REFLECTION_CONFIDENCE &&
+                        liveLabelAge <= EveAutonomousMind.SCENE_FRESH_MS &&
+                        (lastAutonomyReflectionAt == 0L ||
+                            liveNow - lastAutonomyReflectionAt >= EveAutonomousMind.REFLECTION_COOLDOWN_MS) &&
+                        liveNow - lastLocalLlmVisionAt.get() >= EveAutonomousMind.REFLECTION_COOLDOWN_MS
+                    if (safeToReflect) {
+                        val evidenceKey = (
+                            currentLabel.trim().lowercase(Locale.ROOT) + "|" +
+                                latestSceneSummary.trim().take(180)
+                            ).take(180)
+                        maybeReflectWithLocalLanguage(
+                            currentLabel,
+                            liveLabelConfidence,
+                            memory.sightings(currentLabel),
+                            mindEvidenceKey = evidenceKey
                         )
-                    }, 1_500L)
-                } else {
-                    autonomousMind.recordFeedback(
-                        EveMindFeedback(
-                            goal = plan.goal,
-                            action = step.action,
-                            succeeded = false,
-                            note = "blocked_by_current_safety_or_cooldown",
-                            atMs = currentNow
+                        updateAutonomyOutcome(proposedGoal, action, "reflection_requested", reason)
+                    } else {
+                        recordMindFeedback(
+                            EveMindFeedback(
+                                goal = EveMindGoal.REFLECT_ON_NEW_EVIDENCE,
+                                action = EveMindAction.REQUEST_LOCAL_REFLECTION,
+                                succeeded = false,
+                                note = "planner_reflection_blocked:$reason",
+                                atMs = liveNow
+                            )
                         )
-                    )
-                    Log.i(
-                        "EVE_MIND",
-                        "MIND_ACTION_BLOCKED action=SWITCH_TO_WORLD_CAMERA face=$faceStillVisible " +
-                            "lens=${activeCameraLens.name} permission=${hasCameraPermission()} cooldown=$cooldownDone"
-                    )
+                        updateAutonomyOutcome(proposedGoal, action, "reflection_blocked_by_freshness_or_cooldown", reason)
+                    }
+                }
+                "switch_to_world_camera" -> {
+                    val switchedAt = lastAutonomyCameraSwitchAt.get()
+                    val cooldownDone = switchedAt <= 0L ||
+                        liveNow - switchedAt >= autonomousCameraSwitchCooldownMs
+                    val safeToSwitch = autonomousExplorationEnabled &&
+                        hasCameraPermission() &&
+                        activeCameraLens == CameraLens.FRONT &&
+                        !liveFaceRecent &&
+                        (liveNow - lastDirectUserActionAt) >= EveAutonomousMind.AUTO_CAMERA_SWITCH_IDLE_MS &&
+                        cooldownDone
+                    if (safeToSwitch) {
+                        lastAutonomyCameraSwitchAt.set(liveNow)
+                        switchCamera()
+                        main.postDelayed({
+                            if (isFinishing || isDestroyed) return@postDelayed
+                            val succeeded = cameraStarted && activeCameraLens == CameraLens.BACK
+                            recordMindFeedback(
+                                EveMindFeedback(
+                                    goal = EveMindGoal.EXPLORE_CURRENT_VIEW,
+                                    action = EveMindAction.SWITCH_TO_WORLD_CAMERA,
+                                    succeeded = succeeded,
+                                    note = "rear_camera_active=$succeeded;planner=$reason",
+                                    atMs = SystemClock.elapsedRealtime()
+                                )
+                            )
+                            updateAutonomyOutcome(
+                                proposedGoal, action,
+                                if (succeeded) "rear_camera_active" else "camera_switch_failed",
+                                reason
+                            )
+                            Log.i("EVE_COGNITION", "ACTION_RESULT action=$action succeeded=$succeeded")
+                        }, 1_500L)
+                    } else {
+                        recordMindFeedback(
+                            EveMindFeedback(
+                                goal = EveMindGoal.EXPLORE_CURRENT_VIEW,
+                                action = EveMindAction.SWITCH_TO_WORLD_CAMERA,
+                                succeeded = false,
+                                note = "planner_camera_switch_blocked:$reason",
+                                atMs = liveNow
+                            )
+                        )
+                        updateAutonomyOutcome(proposedGoal, action, "camera_switch_blocked_by_safety", reason)
+                    }
                 }
             }
         }
+    }
+
+    private fun allowedAutonomousActions(
+        context: EveMindContext,
+        labelAgeMs: Long,
+        labelConfidence: Float,
+        sceneAgeMs: Long,
+        nowElapsedMs: Long
+    ): List<String> {
+        val allowed = mutableListOf("observe_scene", "quiet_attention")
+        val localBrainReady = ::localLanguageBrain.isInitialized && localLanguageBrain.isReady
+        if (!localBrainReady) return allowed
+
+        val label = context.latestLabel.trim()
+        val labelFresh = label.isNotBlank() &&
+            labelAgeMs in 0L..EveAutonomousMind.SCENE_FRESH_MS &&
+            labelConfidence >= 0.72f
+        val sceneFresh = sceneAgeMs in 0L..EveAutonomousMind.SCENE_FRESH_MS &&
+            latestSceneSummary.isNotBlank()
+
+        if (labelFresh && sceneFresh) {
+            val prefs = getSharedPreferences("eve_curiosity", MODE_PRIVATE)
+            val safeKey = label.lowercase(Locale.ROOT).filter { it.isLetterOrDigit() }.take(48)
+            if (safeKey.isNotBlank()) {
+                val learned = memory.learnedPersonality()
+                val thought = EveCuriosityEngine.consider(
+                    label = label,
+                    confidence = labelConfidence,
+                    sightings = memory.sightings(label),
+                    curiosityBias = learned.curiosityBias,
+                    lastAnyQuestionAtMs = prefs.getLong("last_question_at", 0L),
+                    lastLabelQuestionAtMs = prefs.getLong("label_question_at:" + safeKey, 0L),
+                    previousQuestionCount = prefs.getInt("label_question_count:" + safeKey, 0),
+                    nowMs = System.currentTimeMillis()
+                )
+                if (thought != null) allowed += "ask_curiosity_question"
+            }
+        }
+
+        val lastReflectionWall = getSharedPreferences("eve_relationship", MODE_PRIVATE)
+            .getLong("lastAutonomyReflectionWallAt", 0L)
+        val reflectionCooldownDone = lastAutonomyReflectionAt == 0L ||
+            nowElapsedMs - lastAutonomyReflectionAt >= EveAutonomousMind.REFLECTION_COOLDOWN_MS
+        val labelIsUseful = isMeaningfulLabel(label) || isCuriosityWorthyLabel(label)
+        val evidenceKey = (label.lowercase(Locale.ROOT) + "|" + latestSceneSummary.trim().take(180)).take(180)
+        val lastReflectedKey = getSharedPreferences("eve_relationship", MODE_PRIVATE)
+            .getString("lastAutonomyReflectionKey", "").orEmpty()
+        val lastReflectionWallCooldownDone = lastReflectionWall == 0L ||
+            System.currentTimeMillis() - lastReflectionWall >= EveAutonomousMind.REFLECTION_COOLDOWN_MS
+        if (labelFresh && sceneFresh && labelConfidence >= EveAutonomousMind.MIN_REFLECTION_CONFIDENCE &&
+            labelIsUseful && reflectionCooldownDone && lastReflectionWallCooldownDone &&
+            evidenceKey != lastReflectedKey &&
+            nowElapsedMs - lastLocalLlmVisionAt.get() >= EveAutonomousMind.REFLECTION_COOLDOWN_MS
+        ) {
+            allowed += "reflect_on_scene"
+        }
+
+        val cooldownAt = lastAutonomyCameraSwitchAt.get()
+        val cameraCooldownDone = cooldownAt <= 0L ||
+            nowElapsedMs - cooldownAt >= autonomousCameraSwitchCooldownMs
+        val faceStillVisible = lastFaceSeenAt > 0L && nowElapsedMs - lastFaceSeenAt in 0L..4_500L
+        val safeCameraSwitch = autonomousExplorationEnabled &&
+            context.explorationEnabled &&
+            context.cameraIsFront &&
+            context.cameraSwitchAllowed &&
+            hasCameraPermission() &&
+            !faceStillVisible &&
+            context.inactiveMs >= EveAutonomousMind.AUTO_CAMERA_SWITCH_IDLE_MS &&
+            cameraCooldownDone
+        if (safeCameraSwitch) allowed += "switch_to_world_camera"
+        return allowed
+    }
+
+    private fun updateAutonomyOutcome(goal: String, action: String, outcome: String, reason: String) {
+        lastAutonomyGoal = goal.take(80)
+        lastAutonomyAction = action.take(40)
+        lastAutonomyOutcome = outcome.take(180)
+        lastAutonomyRationale = reason.take(180)
+        getSharedPreferences("eve_relationship", MODE_PRIVATE).edit()
+            .putString("autonomy_last_goal", lastAutonomyGoal)
+            .putString("autonomy_last_action", lastAutonomyAction)
+            .putString("autonomy_last_outcome", lastAutonomyOutcome)
+            .putString("autonomy_last_rationale", lastAutonomyRationale)
+            .apply()
+        Log.i(
+            "EVE_COGNITION",
+            "LEARNING_FEEDBACK goal=$lastAutonomyGoal action=$lastAutonomyAction " +
+                "outcome=$lastAutonomyOutcome reason=$lastAutonomyRationale"
+        )
     }
 
     private fun localLanguageContext(): LocalLlmContext {
@@ -3088,7 +3886,10 @@ class MainActivity : ComponentActivity() {
                 (SystemClock.elapsedRealtime() - lastSceneObservationAt).coerceAtLeast(0L)
             } else {
                 Long.MAX_VALUE
-            }
+            },
+            calendarContext = EveCalendarKnowledge.todaySummary(
+                System.currentTimeMillis(), currentCalendarHemisphere()
+            )
         )
     }
 
@@ -3211,7 +4012,7 @@ class MainActivity : ComponentActivity() {
             if (isFinishing || isDestroyed) return@reflectOnObservation
             val insight = outcome.getOrNull() ?: run {
                 mindEvidenceKey?.let { key ->
-                    autonomousMind.recordFeedback(
+                    recordMindFeedback(
                         EveMindFeedback(
                             EveMindGoal.REFLECT_ON_NEW_EVIDENCE,
                             EveMindAction.REQUEST_LOCAL_REFLECTION,
@@ -3229,7 +4030,7 @@ class MainActivity : ComponentActivity() {
                 SystemClock.elapsedRealtime() - lastMeaningfulLabelAt !in 0L..90_000L
             ) {
                 mindEvidenceKey?.let { key ->
-                    autonomousMind.recordFeedback(
+                    recordMindFeedback(
                         EveMindFeedback(
                             EveMindGoal.REFLECT_ON_NEW_EVIDENCE,
                             EveMindAction.REQUEST_LOCAL_REFLECTION,
@@ -3246,7 +4047,7 @@ class MainActivity : ComponentActivity() {
             if (reflection.isNotBlank()) memory.rememberReflection(reflection)
             mindEvidenceKey?.let { key ->
                 val reflectionSucceeded = insight.confidence >= 0.45f && reflection.isNotBlank()
-                autonomousMind.recordFeedback(
+                recordMindFeedback(
                     EveMindFeedback(
                         EveMindGoal.REFLECT_ON_NEW_EVIDENCE,
                         EveMindAction.REQUEST_LOCAL_REFLECTION,
@@ -3666,6 +4467,15 @@ class MainActivity : ComponentActivity() {
             .putLong("lastMoodAt", System.currentTimeMillis())
             .apply()
         face.setExpression(decision, System.currentTimeMillis())
+        // Trace the offline perception -> decision -> animated-face path for on-device verification.
+        // Camera pixels and frames are never logged or uploaded by this diagnostic.
+        Log.i(
+            "EVE_PIPELINE",
+            "DECISION_TO_FACE mood=${decision.mood} intent=${decision.intent} " +
+                "reason=${decision.reason.take(120)} sceneAgeMs=" +
+                (if (lastSceneObservationAt > 0L) (SystemClock.elapsedRealtime() - lastSceneObservationAt).coerceAtLeast(0L) else -1L) +
+                " label=${lastMeaningfulLabel.orEmpty().take(48)} confidence=${"%.2f".format(Locale.ROOT, lastMeaningfulConfidence)}"
+        )
         if (playSound) voice.speakMood(decision.mood)
         Log.i("EVE", "BEHAVIOR mood=${decision.mood} reason=${decision.reason}")
     }

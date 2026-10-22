@@ -16,6 +16,7 @@ import android.widget.ScrollView
 import android.widget.TextView
 import androidx.activity.ComponentActivity
 import java.util.Locale
+import java.util.concurrent.Executors
 import kotlin.math.max
 import kotlin.random.Random
 
@@ -37,7 +38,7 @@ class RobotGamesActivity : ComponentActivity() {
     private lateinit var robotVoice: RobotVoice
     private var eveGameFace: RobotFaceView? = null
     private var gameDialogueView: TextView? = null
-    private var gameSessionId = 0L
+    @Volatile private var gameSessionId = 0L
     private var gameLlmRequestSerial = 0L
     private var lastGameLlmRequestAt = 0L
     private var pendingGameComment: PendingGameComment? = null
@@ -70,6 +71,8 @@ class RobotGamesActivity : ComponentActivity() {
     private var chessFinished = false
     private var chessThinking = false
     private var chessPly = 0
+    private var lastChessMove: ChessEngine.Move? = null
+    private val chessWorker = Executors.newSingleThreadExecutor()
 
     // RPS adapts by choosing a winning response to the player's most common move.
     private val playerRpsHistory = mutableListOf<Int>()
@@ -166,6 +169,7 @@ class RobotGamesActivity : ComponentActivity() {
         eveGameFace?.stopAnimation()
         eveGameFace = null
         if (::robotVoice.isInitialized) robotVoice.close()
+        chessWorker.shutdownNow()
         super.onDestroy()
     }
 
@@ -909,6 +913,7 @@ class RobotGamesActivity : ComponentActivity() {
         chessFinished = false
         chessThinking = false
         chessPly = 0
+        lastChessMove = null
         reactWithEve("chess", "start", "بدأت مباراة الشطرنج من الوضع القياسي؛ أنت الأبيض وإيف الأسود.")
         renderChess("أنت الأبيض، وأنا الأسود. أراقب كل نقلة وأغيّر ردة فعلي وفق ما يحدث.")
     }
@@ -926,11 +931,21 @@ class RobotGamesActivity : ComponentActivity() {
         for (i in 0..63) {
             val selected = chessSelected == i
             val possible = i in legalFrom
+            val lastMoveFrom = lastChessMove?.from == i
+            val lastMoveTo = lastChessMove?.to == i
             val shade = if ((i / 8 + i % 8) % 2 == 0) Color.rgb(29, 54, 61) else Color.rgb(172, 207, 207)
             val cell = button(unicode[board[i]] ?: "", { selectChess(i) }, selected || possible)
             cell.textSize = 27f
             cell.setTextColor(if (board[i] != '.' && board[i].isUpperCase()) Color.WHITE else Color.BLACK)
-            cell.setBackgroundColor(if (selected) cyan else if (possible) Color.rgb(55, 100, 94) else shade)
+            cell.setBackgroundColor(
+                when {
+                    selected -> cyan
+                    possible -> Color.rgb(55, 100, 94)
+                    lastMoveTo -> Color.rgb(98, 133, 95)
+                    lastMoveFrom -> Color.rgb(68, 91, 79)
+                    else -> shade
+                }
+            )
             grid.addView(cell, GridLayout.LayoutParams().apply {
                 width = 0; height = dp(43)
                 columnSpec = GridLayout.spec(i % 8, 1f)
@@ -939,6 +954,16 @@ class RobotGamesActivity : ComponentActivity() {
             })
         }
         root.addView(grid, LinearLayout.LayoutParams(-1, -2))
+        val chessState = when {
+            chess.isCheckmate() -> "كش مات"
+            chess.isStalemate() -> "تعادل"
+            chess.isCheck() -> "كش — يجب إيجاد رد"
+            chessThinking -> "إيف تفكّر وتحلل النقلات"
+            chess.position.whiteToMove -> "دورك"
+            else -> "دور إيف"
+        }
+        val lastMoveLabel = lastChessMove?.let { chess.moveLabel(it) } ?: "بداية المباراة"
+        root.addView(text("الحالة: $chessState • آخر نقلة: $lastMoveLabel", 13f, cyan, true))
         addSpace(4)
         root.addView(text("الصعوبة: $difficulty/3 • تذكّرت مبارياتك السابقة: ${prefs.getInt("games:chess:played", 0)}", 13f, muted))
         addWideButton(if (chessThinking) "إيف تفكّر…" else "تغيير الصعوبة: $difficulty", {
@@ -992,6 +1017,7 @@ class RobotGamesActivity : ComponentActivity() {
         val playerCapture = board[move.to] != '.' ||
             (board[move.from].uppercaseChar() == 'P' && move.to == chess.position.enPassant)
         chess.play(move)
+        lastChessMove = move
         chessPly++
         val playerEvent = when {
             chess.isCheckmate() -> "player_checkmate"
@@ -1032,70 +1058,99 @@ class RobotGamesActivity : ComponentActivity() {
                     if (game != Game.CHESS || chessFinished || isFinishing ||
                         thinkingSession != gameSessionId
                     ) return@postDelayed
-                    gameDialogueView?.text = "أفكر… أبحث عن أفضل ردّ وأحمي قطعي."
-                }, 360L)
-                handler.postDelayed({
-                    if (game != Game.CHESS || chessFinished || isFinishing ||
-                        thinkingSession != gameSessionId
-                    ) return@postDelayed
-                    val robotMove = chess.robotMove(difficulty)
-                    if (robotMove == null) {
-                        chessFinished = true
-                        saveResult("chess", if (chess.isCheck()) "player" else "draw", "لا توجد نقلة قانونية لإيف.")
-                        renderChess("انتهت المباراة؛ لا توجد لديّ نقلة قانونية.")
-                        return@postDelayed
-                    }
-                    val boardBeforeRobotMove = chess.position.board
-                    val robotCapture = boardBeforeRobotMove[robotMove.to] != '.' ||
-                        (boardBeforeRobotMove[robotMove.from].lowercaseChar() == 'p' &&
-                            robotMove.to == chess.position.enPassant)
-                    chess.play(robotMove)
-                    chessPly++
-                    chessThinking = false
-                    val eveEvent = when {
-                        chess.isCheckmate() -> "eve_checkmate"
-                        chess.isCheck() -> "eve_check"
-                        robotCapture -> "eve_capture"
-                        else -> "eve_move"
-                    }
-                    val eveDetail = buildString {
-                        append("إيف لعبت نقلة ")
-                        append(chess.moveLabel(robotMove))
-                        append("؛ الحدث=")
-                        append(eveEvent)
-                        append("؛ تقييم القطع: اللاعب ")
-                        append(chessMaterial(true))
-                        append(" وإيف ")
-                        append(chessMaterial(false))
-                        append(".")
-                    }
-                    reactWithEve(
-                        "chess", eveEvent, eveDetail,
-                        chessMaterial(true), chessMaterial(false), chessPly
-                    )
-                    when {
-                        chess.isCheckmate() -> {
-                            chessFinished = true
-                            saveResult("chess", "robot", eveDetail, chessMaterial(true), chessMaterial(false), chessPly)
-                            renderChess("كش مات! نجحت خطتي هذه المرة. مباراة قوية!")
+                    gameDialogueView?.text = "أفكر… أوازن بين الهجوم وحماية الملك، وأراجع الردود المحتملة."
+                    val searchDifficulty = difficulty
+                    val variationSeed = prefs.getInt("games:chess:played", 0).toLong() * 97L + chessPly.toLong()
+                    chessWorker.execute {
+                        if (thinkingSession != gameSessionId) return@execute
+                        val searchResult = runCatching {
+                            chess.robotMove(searchDifficulty, variationSeed)
                         }
-                        chess.isStalemate() -> {
-                            chessFinished = true
-                            saveResult("chess", "draw", "انتهت مباراة الشطرنج بالتعادل بالخنق.", chessMaterial(true), chessMaterial(false), chessPly)
-                            renderChess("تعادل بالخنق. لا توجد حركة قانونية؛ أحسنت اللعب.")
-                        }
-                        else -> {
-                            val response = when {
-                                chess.isCheck() -> "كش عليك! هل تستطيع الخروج من هذا الموقف؟"
-                                robotCapture -> "التقطت قطعتك! هل لديك رد ذكي؟ دورك."
-                                else -> "لعبت ${chess.moveLabel(robotMove)}. أراقب ردك… دورك."
+                        handler.post {
+                            if (game != Game.CHESS || chessFinished || isFinishing ||
+                                thinkingSession != gameSessionId
+                            ) return@post
+                            if (searchResult.isFailure) {
+                                gameDialogueView?.text = "أعيد التفكير بسرعة حتى لا تتوقف المباراة."
                             }
-                            renderChess(response)
+                            // If deep search fails, use a legal fallback instead of leaving the turn locked.
+                            val robotMove = searchResult.getOrNull() ?: chess.legalMoves().firstOrNull()
+                            if (robotMove == null) {
+                                chessThinking = false
+                                chessFinished = true
+                                saveResult("chess", if (chess.isCheck()) "player" else "draw", "لا توجد نقلة قانونية لإيف.")
+                                renderChess("انتهت المباراة؛ لا توجد لديّ نقلة قانونية.")
+                                return@post
+                            }
+                            val boardBeforeRobotMove = chess.position.board
+                            val robotCapture = boardBeforeRobotMove[robotMove.to] != '.' ||
+                                (boardBeforeRobotMove[robotMove.from].lowercaseChar() == 'p' &&
+                                    robotMove.to == chess.position.enPassant)
+                            if (!chess.play(robotMove)) {
+                                chessThinking = false
+                                renderChess("تغيّر وضع الرقعة أثناء التفكير؛ أراجع الوضع الحالي بدل تنفيذ نقلة غير صالحة.")
+                                return@post
+                            }
+                            lastChessMove = robotMove
+                            chessPly++
+                            chessThinking = false
+                            val eveEvent = when {
+                                chess.isCheckmate() -> "eve_checkmate"
+                                chess.isCheck() -> "eve_check"
+                                robotCapture -> "eve_capture"
+                                else -> "eve_move"
+                            }
+                            val eveDetail = buildString {
+                                append("إيف لعبت نقلة ")
+                                append(chess.moveLabel(robotMove))
+                                append("؛ الحدث=")
+                                append(eveEvent)
+                                append("؛ تقييم القطع: اللاعب ")
+                                append(chessMaterial(true))
+                                append(" وإيف ")
+                                append(chessMaterial(false))
+                                append(".")
+                            }
+                            reactWithEve(
+                                "chess", eveEvent, eveDetail,
+                                chessMaterial(true), chessMaterial(false), chessPly
+                            )
+                            when {
+                                chess.isCheckmate() -> {
+                                    chessFinished = true
+                                    saveResult("chess", "robot", eveDetail, chessMaterial(true), chessMaterial(false), chessPly)
+                                    renderChess("كش مات! قرأتُ سلسلة النقلات حتى النهاية. مباراة قوية!")
+                                }
+                                chess.isStalemate() -> {
+                                    chessFinished = true
+                                    saveResult("chess", "draw", "انتهت مباراة الشطرنج بالتعادل بالخنق.", chessMaterial(true), chessMaterial(false), chessPly)
+                                    renderChess("تعادل بالخنق. لا توجد حركة قانونية؛ أحسنت اللعب.")
+                                }
+                                else -> {
+                                    val response = when {
+                                        chess.isCheck() -> "كش عليك! سأراقب كيف تنقذ ملكك في الرد التالي."
+                                        robotCapture -> "التقطت قطعة بعد مقارنة التبادل. هل تستطيع استعادة المبادرة؟"
+                                        robotMove.from == 4 && robotMove.to == 6 ||
+                                            robotMove.from == 4 && robotMove.to == 2 ->
+                                            "أمّنت ملكي بالتبييت؛ والآن لنختبر خطتك."
+                                        isCenterSquare(robotMove.to) ->
+                                            "أحاول تثبيت حضوري في الوسط. دورك—سأعيد الحساب بعد نقلتك."
+                                        else -> "لعبت ${chess.moveLabel(robotMove)}. أراجع وضع الرقعة مع كل نقلة؛ دورك."
+                                    }
+                                    renderChess(response)
+                                }
+                            }
                         }
                     }
                 }, 180L)
             }
         }
+    }
+
+    private fun isCenterSquare(square: Int): Boolean {
+        val row = square / 8
+        val col = square % 8
+        return row in 2..5 && col in 2..5
     }
 
     private fun squareName(i: Int) = "" + ('a'.code + i % 8).toChar() + (8 - i / 8)

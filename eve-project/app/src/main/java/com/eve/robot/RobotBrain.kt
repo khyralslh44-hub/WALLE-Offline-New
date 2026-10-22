@@ -46,7 +46,11 @@ data class EveDecision(
     val fatigue: Float = 0f,
     val frustration: Float = 0f,
     val playfulness: Float = 0.58f,
-    val intent: EveIntent? = null
+    val intent: EveIntent? = null,
+    /** Context-weighted social affect drives; these are simulated state values, not feelings. */
+    val jealousy: Float = 0f,
+    val pride: Float = 0f,
+    val reassurance: Float = 0f
 )
 
 /**
@@ -106,6 +110,26 @@ class RobotBrain(personality: EvePersonality = EvePersonality()) {
             }
             "sleepy" -> fatigue = (fatigue + 0.025f * certainty).coerceAtMost(1f)
             "irritated" -> frustration = (frustration + 0.020f * certainty).coerceAtMost(1f)
+            "jealous", "jealousy" -> {
+                jealousy = (jealousy + 0.70f * certainty).coerceAtMost(1f)
+                pride = (pride - 0.18f * certainty).coerceAtLeast(0f)
+                reassurance = (reassurance - 0.12f * certainty).coerceAtLeast(0f)
+                valence = (valence - 0.06f * certainty).coerceAtLeast(-1f)
+            }
+            "proud", "pride" -> {
+                pride = (pride + 0.72f * certainty).coerceAtMost(1f)
+                jealousy = (jealousy - 0.20f * certainty).coerceAtLeast(0f)
+                reassurance = (reassurance - 0.18f * certainty).coerceAtLeast(0f)
+                valence = (valence + 0.08f * certainty).coerceAtMost(1f)
+            }
+            "reassured", "secure", "safe" -> {
+                reassurance = (reassurance + 0.70f * certainty).coerceAtMost(1f)
+                pride = (pride - 0.20f * certainty).coerceAtLeast(0f)
+                jealousy = (jealousy - 0.24f * certainty).coerceAtLeast(0f)
+                frustration = (frustration - 0.22f * certainty).coerceAtLeast(0f)
+                valence = (valence + 0.08f * certainty).coerceAtMost(1f)
+                arousal = (arousal * 0.65f + 0.20f).coerceIn(0.12f, 0.70f)
+            }
             "neutral" -> Unit
         }
 
@@ -118,6 +142,9 @@ class RobotBrain(personality: EvePersonality = EvePersonality()) {
             "playful" -> EveMood.PLAYFUL
             "sleepy" -> EveMood.SLEEPY
             "irritated" -> EveMood.IRRITATED
+            "jealous", "jealousy" -> if (jealousy >= 0.48f) EveMood.IRRITATED else EveMood.CURIOUS
+            "proud", "pride" -> EveMood.PLAYFUL
+            "reassured", "secure", "safe" -> EveMood.FAMILIAR
             else -> currentMood
         }
         val safeMood = when {
@@ -142,6 +169,9 @@ class RobotBrain(personality: EvePersonality = EvePersonality()) {
     private var familiarity = 0.05f
     private var fatigue = 0f
     private var frustration = 0f
+    private var jealousy = 0f
+    private var pride = 0f
+    private var reassurance = 0f
     private var lastTouchAtMs = 0L
     private var rapidTouchCount = 0
     private var lastHumanMood: EveMood? = null
@@ -175,7 +205,9 @@ class RobotBrain(personality: EvePersonality = EvePersonality()) {
                 valence = (valence + 0.07f * personality.playfulness).coerceAtMost(0.85f)
                 arousal = 0.58f
                 curiosity = (curiosity + 0.07f).coerceAtMost(1f)
-                snapshot(EveMood.PLAYFUL, "skeptic EVE wins in $safeGame", false)
+                pride = (pride + 0.72f).coerceAtMost(1f)
+                jealousy = (jealousy - 0.10f).coerceAtLeast(0f)
+                snapshot(EveMood.PLAYFUL, "pride after documented EVE win in $safeGame", false, EveIntent.PLAY)
             }
             "draw" -> {
                 valence = (valence + 0.02f).coerceIn(-0.8f, 0.85f)
@@ -216,12 +248,83 @@ class RobotBrain(personality: EvePersonality = EvePersonality()) {
         valence = (valence + if (isIntroduction) 0.10f else 0.06f).coerceAtMost(0.95f)
         curiosity = (curiosity + 0.04f * personality.curiosityBias).coerceAtMost(1f)
         arousal = 0.48f
+        reassurance = (reassurance + if (isIntroduction) 0.10f else 0.06f).coerceAtMost(1f)
         return snapshot(
             EveMood.FAMILIAR,
             if (isIntroduction) "remembered spoken introduction: $safeRelation" else "recalled local relationship: $safeRelation",
             false,
             EveIntent.CONNECT
         )
+    }
+
+    /**
+     * A jealousy-like reaction is allowed only from an explicit, confidence-qualified social-context cue.
+     * Mere detection of another person never triggers it by itself.
+     */
+    @Synchronized
+    fun observeSocialCompetition(cue: String, confidence: Float): EveDecision {
+        val certainty = confidence.takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: 0f
+        val safeCue = cue.trim().lowercase()
+        val supportedCue = safeCue in setOf(
+            "social_competition", "attention_shift_away_from_eve", "eve_ignored_in_interaction"
+        )
+        if (!supportedCue || certainty < 0.72f) {
+            return snapshot(currentMood, "social competition cue ignored: unsupported or uncertain", false, lastIdleIntent)
+        }
+        jealousy = (jealousy + 0.72f * certainty).coerceAtMost(1f)
+        reassurance = (reassurance - 0.12f * certainty).coerceAtLeast(0f)
+        valence = (valence - 0.06f * certainty).coerceAtLeast(-1f)
+        return snapshot(
+            if (jealousy >= 0.48f) EveMood.IRRITATED else EveMood.CURIOUS,
+            "playful jealousy-like response to an explicit social-context cue; not inferred from person detection alone",
+            false,
+            EveIntent.CONNECT
+        )
+    }
+
+    /** A documented win or completed goal creates a bounded pride-like response. */
+    @Synchronized
+    fun recordAchievement(achievement: String, confidence: Float): EveDecision {
+        val certainty = confidence.takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: 0f
+        val safeAchievement = achievement.trim().lowercase()
+            .filter { it.isLetterOrDigit() || it == '_' || it == '-' }
+            .take(36)
+        if (safeAchievement !in setOf("win", "checkmate", "task_complete", "puzzle_solved", "goal_reached") ||
+            certainty < 0.65f
+        ) {
+            return snapshot(currentMood, "achievement not confirmed; pride unchanged", false, lastIdleIntent)
+        }
+        pride = (pride + 0.72f * certainty).coerceAtMost(1f)
+        jealousy = (jealousy - 0.16f * certainty).coerceAtLeast(0f)
+        valence = (valence + 0.08f * certainty).coerceAtMost(1f)
+        arousal = (arousal * 0.65f + 0.30f).coerceIn(0.25f, 0.82f)
+        return snapshot(EveMood.PLAYFUL, "pride-like character response to confirmed achievement: $safeAchievement", false, EveIntent.PLAY)
+    }
+
+    /** A concrete comfort or safety cue increases the calm/reassurance drive and reduces tension. */
+    @Synchronized
+    fun receiveReassurance(source: String, confidence: Float): EveDecision {
+        val certainty = confidence.takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: 0f
+        val safeSource = source.trim().lowercase()
+            .filter { it.isLetterOrDigit() || it == '_' || it == '-' }
+            .take(32)
+        if (safeSource !in setOf("gentle_touch", "known_person_present", "safe_context", "calm_voice", "resolved_conflict") ||
+            certainty < 0.60f
+        ) {
+            return snapshot(currentMood, "reassurance cue not confirmed; calm state unchanged", false, lastIdleIntent)
+        }
+        reassurance = (reassurance + 0.72f * certainty).coerceAtMost(1f)
+        pride = (pride - 0.30f * certainty).coerceAtLeast(0f)
+        frustration = (frustration - 0.48f * certainty).coerceAtLeast(0f)
+        jealousy = (jealousy - 0.28f * certainty).coerceAtLeast(0f)
+        valence = (valence + 0.09f * certainty).coerceAtMost(1f)
+        arousal = (arousal * 0.60f + 0.18f).coerceIn(0.12f, 0.66f)
+        val easedMood = when {
+            frustration >= 0.80f -> EveMood.ANGRY
+            frustration >= 0.55f -> EveMood.IRRITATED
+            else -> EveMood.FAMILIAR
+        }
+        return snapshot(easedMood, "reassurance-like response after confirmed $safeSource cue", false, EveIntent.CONNECT)
     }
 
     /**
@@ -240,7 +343,8 @@ class RobotBrain(personality: EvePersonality = EvePersonality()) {
         curiosity = (curiosity + certainty * 0.045f * personality.curiosityBias).coerceAtMost(1f)
         fatigue = (fatigue - certainty * 0.025f).coerceAtLeast(0f)
         return when (activity) {
-            EveHumanActivity.EATING_POSSIBLE, EveHumanActivity.DRINKING_POSSIBLE -> {
+            EveHumanActivity.EATING_POSSIBLE, EveHumanActivity.EATING_TREAT_POSSIBLE,
+            EveHumanActivity.DRINKING_POSSIBLE -> {
                 arousal = (arousal * 0.72f + 0.28f * 0.28f).coerceIn(0.12f, 0.72f)
                 snapshot(
                     EveMood.CURIOUS,
@@ -248,6 +352,14 @@ class RobotBrain(personality: EvePersonality = EvePersonality()) {
                     false,
                     EveIntent.FOCUS
                 )
+            }
+            EveHumanActivity.PLAYING_GAME_POSSIBLE -> {
+                arousal = (arousal * 0.60f + 0.40f * 0.48f).coerceIn(0.16f, 0.82f)
+                snapshot(EveMood.PLAYFUL, "possible game activity; remain quiet and do not assume screen contents", false, EveIntent.PLAY)
+            }
+            EveHumanActivity.DRAWING_OR_COLORING_POSSIBLE -> {
+                arousal = (arousal * 0.70f + 0.30f * 0.30f).coerceIn(0.12f, 0.72f)
+                snapshot(EveMood.CURIOUS, "possible drawing or colouring activity; observe without interrupting", false, EveIntent.FOCUS)
             }
             EveHumanActivity.CHEWING_MOTION_POSSIBLE -> {
                 arousal = (arousal * 0.70f + 0.30f * 0.32f).coerceIn(0.12f, 0.75f)
@@ -540,6 +652,8 @@ class RobotBrain(personality: EvePersonality = EvePersonality()) {
                 valence = (valence - 0.16f * certainty).coerceAtLeast(-1f)
                 arousal = (0.55f + 0.34f * certainty).coerceIn(0.35f, 0.92f)
                 curiosity = (curiosity * 0.70f + 0.18f).coerceIn(0f, 1f)
+                // A fearful expression in the observed person calls for a calmer, reassuring response.
+                reassurance = (reassurance + 0.80f * certainty).coerceAtMost(1f)
                 EveMood.CONCERNED
             }
             "surprised" -> {
@@ -635,6 +749,8 @@ class RobotBrain(personality: EvePersonality = EvePersonality()) {
             valence = (valence + 0.30f * personality.warmth.coerceIn(0f, 1f)).coerceAtMost(1f)
             arousal = 0.68f
             curiosity = 0.66f
+            reassurance = (reassurance + 0.90f * personality.warmth.coerceIn(0f, 1f)).coerceAtMost(1f)
+            jealousy = (jealousy - 0.24f).coerceAtLeast(0f)
             return snapshot(EveMood.HAPPY, "comforting long touch; frustration eased", true)
         }
 
@@ -702,6 +818,10 @@ class RobotBrain(personality: EvePersonality = EvePersonality()) {
         val curiosityTarget = (0.34f + 0.12f * personality.curiosityBias).coerceIn(0.30f, 0.55f)
         curiosity = (curiosityTarget + (curiosity - curiosityTarget) * 0.94f.pow(steps))
             .coerceIn(0.20f, 0.90f)
+        // Social affects fade with real quiet time rather than switching on a timer or staying forever.
+        jealousy = (jealousy * 0.90f.pow(steps)).coerceIn(0f, 1f)
+        pride = (pride * 0.93f.pow(steps)).coerceIn(0f, 1f)
+        reassurance = (reassurance * 0.985f.pow(steps)).coerceIn(0f, 1f)
 
         // After an event, hold the current affect briefly. A new goal is selected only when
         // there's enough quiet time to act on it; this prevents mood churn every six-second poll.
@@ -723,7 +843,8 @@ class RobotBrain(personality: EvePersonality = EvePersonality()) {
         val patience = personality.patience.coerceIn(0f, 1f)
         val scores = linkedMapOf(
             EveIntent.REGULATE to (
-                frustration * 1.12f + (-valence).coerceAtLeast(0f) * 0.22f
+                frustration * 1.12f + jealousy * 0.28f +
+                    (-valence).coerceAtLeast(0f) * 0.22f - reassurance * 0.18f
                 ),
             EveIntent.REST to (
                 0.08f + fatigue * 0.90f +
@@ -731,8 +852,8 @@ class RobotBrain(personality: EvePersonality = EvePersonality()) {
                     (if (arousal < 0.22f) 0.10f else 0f)
                 ),
             EveIntent.CONNECT to (
-                warmth * 0.12f + familiarity * 0.70f +
-                    (-valence).coerceAtLeast(0f) * 0.72f +
+                warmth * 0.12f + familiarity * 0.70f + reassurance * 0.28f +
+                    jealousy * 0.10f + (-valence).coerceAtLeast(0f) * 0.72f +
                     (if (currentMood == EveMood.HAPPY || currentMood == EveMood.FAMILIAR) 0.12f else 0f)
                 ),
             EveIntent.EXPLORE to (
@@ -741,8 +862,9 @@ class RobotBrain(personality: EvePersonality = EvePersonality()) {
                     (if (valence < -0.45f) 0.08f else 0f)
                 ),
             EveIntent.PLAY to (
-                playfulness * 0.48f + valence.coerceAtLeast(0f) * 0.16f +
-                    arousal * 0.12f - fatigue * 0.65f - frustration * (0.70f + (1f - patience) * 0.20f)
+                playfulness * 0.48f + pride * 0.16f + valence.coerceAtLeast(0f) * 0.16f +
+                    arousal * 0.12f - fatigue * 0.65f -
+                    frustration * (0.70f + (1f - patience) * 0.20f) - jealousy * 0.24f
                 ),
             EveIntent.FOCUS to (
                 arousal * 0.30f + curiosity * 0.22f + (1f - playfulness) * 0.11f -
@@ -789,6 +911,7 @@ class RobotBrain(personality: EvePersonality = EvePersonality()) {
             }
             EveIntent.REST -> if (fatigue >= 0.36f || quietFor >= 150_000L) EveMood.SLEEPY else currentMood
             EveIntent.CONNECT -> when {
+                reassurance >= 0.62f && frustration < 0.55f -> EveMood.FAMILIAR
                 valence < -0.30f -> EveMood.CONCERNED
                 familiarity >= 0.25f -> EveMood.FAMILIAR
                 else -> currentMood
@@ -840,7 +963,10 @@ class RobotBrain(personality: EvePersonality = EvePersonality()) {
             fatigue = fatigue.coerceIn(0f, 1f),
             frustration = frustration.coerceIn(0f, 1f),
             playfulness = personality.playfulness.coerceIn(0f, 1f),
-            intent = intent
+            intent = intent,
+            jealousy = jealousy.coerceIn(0f, 1f),
+            pride = pride.coerceIn(0f, 1f),
+            reassurance = reassurance.coerceIn(0f, 1f)
         )
     }
 }

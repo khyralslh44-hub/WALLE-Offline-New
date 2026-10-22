@@ -100,4 +100,33 @@ class ChessEngineTest {
         assertTrue(chess.isCheckmate())
         assertTrue(chess.legalMoves().isEmpty())
     }
+
+    @Test
+    fun hardSearchFindsFoolsMateInOne() {
+        val chess = ChessEngine()
+        assertTrue(chess.play(ChessEngine.Move(53, 45))) // f2-f3
+        assertTrue(chess.play(ChessEngine.Move(12, 28))) // e7-e5
+        assertTrue(chess.play(ChessEngine.Move(54, 38))) // g2-g4
+
+        val move = chess.robotMove(difficulty = 3, variationSeed = 11L)
+        assertNotNull(move)
+        assertEquals(3, requireNotNull(move).from) // queen on d8
+        assertEquals(39, requireNotNull(move).to)  // Qh4#
+        assertTrue(chess.play(requireNotNull(move)))
+        assertTrue(chess.isCheckmate())
+    }
+
+    @Test
+    fun thinkingChoosesALegalMoveWithoutChangingTheLiveBoard() {
+        val chess = ChessEngine()
+        val before = chess.position.board.copyOf()
+        val turnBefore = chess.position.whiteToMove
+
+        val move = chess.robotMove(difficulty = 1, variationSeed = 29L)
+
+        assertNotNull(move)
+        assertTrue(requireNotNull(move) in chess.legalMoves())
+        assertTrue(before.contentEquals(chess.position.board))
+        assertEquals(turnBefore, chess.position.whiteToMove)
+    }
 }

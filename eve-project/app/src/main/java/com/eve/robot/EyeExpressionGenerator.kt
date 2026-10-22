@@ -10,7 +10,8 @@ enum class EyeSilhouette {
     SAD_DOWN, SAD_UP, WORRIED, FOCUSED, ANNOYED, ROUND_SURPRISE,
     SKEPTIC, BORED, UNIMPRESSED, DROOPY, SUSPICIOUS, SQUINT,
     SHARP, FURIOUS, SCARED, AWE, PLAYFUL, SOFT,
-    CONFUSED, ANTICIPATING, DISAPPOINTED
+    CONFUSED, DIZZY, ANTICIPATING, DISAPPOINTED,
+    JEALOUS, PROUD, AFFECTIONATE
 }
 
 data class EyeExpressionProfile(
@@ -159,7 +160,19 @@ object EyeExpressionGenerator {
         val intent = decision.intent
         // The emotional state owns the primary facial read. A goal may refine a neutral
         // expression, but "connect" or "play" must never erase clear anger, surprise, or joy.
-        val clearSilhouette = when (decision.mood) {
+        // These contextual drives refine an existing mood into a readable social expression.
+        // Anger/focus/fatigue retain priority so jealousy or reassurance cannot hide urgent states.
+        val clearSilhouette = when {
+            decision.jealousy >= 0.62f &&
+                decision.mood !in setOf(EveMood.ANGRY, EveMood.SLEEPY, EveMood.FOCUSED) ->
+                EyeSilhouette.JEALOUS
+            decision.pride >= 0.62f &&
+                decision.mood in setOf(EveMood.HAPPY, EveMood.PLAYFUL, EveMood.FAMILIAR, EveMood.NEUTRAL) ->
+                EyeSilhouette.PROUD
+            decision.reassurance >= 0.62f &&
+                decision.mood in setOf(EveMood.CONCERNED, EveMood.NEUTRAL, EveMood.FAMILIAR, EveMood.AWAKE, EveMood.HAPPY) ->
+                EyeSilhouette.AFFECTIONATE
+            else -> when (decision.mood) {
             EveMood.AWAKE -> when (intent) {
                 EveIntent.EXPLORE -> EyeSilhouette.CURIOUS
                 EveIntent.CONNECT -> EyeSilhouette.SOFT
@@ -259,6 +272,7 @@ object EyeExpressionGenerator {
             }
             EveMood.ANGRY -> if (arousal >= 0.72f || decision.frustration >= 0.70f)
                 EyeSilhouette.FURIOUS else EyeSilhouette.SHARP
+            }
         }
 
         // Open or compress each glyph as its own expression preset. Several previous
@@ -295,8 +309,12 @@ object EyeExpressionGenerator {
             EyeSilhouette.PLAYFUL -> maxOf(clearOpening, 0.85f)
             EyeSilhouette.SOFT -> maxOf(clearOpening, 0.82f)
             EyeSilhouette.CONFUSED -> maxOf(clearOpening, 0.76f)
+            EyeSilhouette.DIZZY -> maxOf(clearOpening, 0.86f)
             EyeSilhouette.ANTICIPATING -> maxOf(clearOpening, 0.98f)
             EyeSilhouette.DISAPPOINTED -> maxOf(clearOpening, 0.68f)
+            EyeSilhouette.JEALOUS -> maxOf(clearOpening, 0.72f)
+            EyeSilhouette.PROUD -> maxOf(clearOpening, 0.86f)
+            EyeSilhouette.AFFECTIONATE -> maxOf(clearOpening, 0.90f)
         }.coerceIn(0.14f, 1.20f)
 
         // Gaze direction is also part of the pose. The sad-up/down variants previously
@@ -308,19 +326,38 @@ object EyeExpressionGenerator {
             EyeSilhouette.BLINK_LOW -> maxOf(clearGazeY, 0.040f)
             EyeSilhouette.ANTICIPATING -> minOf(clearGazeY, -0.050f)
             EyeSilhouette.CONFUSED -> clearGazeY.coerceIn(-0.01f, 0.035f)
+            EyeSilhouette.JEALOUS -> maxOf(clearGazeY, 0.025f)
+            EyeSilhouette.PROUD -> minOf(clearGazeY, -0.025f)
+            EyeSilhouette.AFFECTIONATE -> clearGazeY.coerceIn(-0.025f, 0.02f)
             else -> clearGazeY
         }.coerceIn(-0.12f, 0.12f)
         val expressionGazeX = when (expressionSilhouette) {
             EyeSilhouette.ANTICIPATING -> clearGazeX.coerceIn(0.025f, 0.095f)
             EyeSilhouette.CONFUSED -> if (curiosity >= 0.5f) 0.055f else -0.055f
+            EyeSilhouette.SUSPICIOUS -> clearGazeX
+            EyeSilhouette.SOFT -> clearGazeX
+            EyeSilhouette.JEALOUS -> -0.12f
+            EyeSilhouette.PROUD, EyeSilhouette.AFFECTIONATE -> 0f
             else -> clearGazeX
         }.coerceIn(-0.16f, 0.16f)
         val expressionTilt = when (expressionSilhouette) {
             EyeSilhouette.CONFUSED -> if (valence < 0f) 8f else -8f
             EyeSilhouette.ANTICIPATING -> minOf(clearTilt, -4f)
             EyeSilhouette.DISAPPOINTED -> maxOf(clearTilt, 7f)
+            EyeSilhouette.SUSPICIOUS -> clearTilt
+            EyeSilhouette.SOFT -> clearTilt
+            EyeSilhouette.JEALOUS -> clearTilt.coerceIn(5f, 13f)
+            EyeSilhouette.PROUD -> clearTilt.coerceIn(-4f, 2f)
+            EyeSilhouette.AFFECTIONATE -> clearTilt.coerceIn(-2f, 3f)
             else -> clearTilt
         }.coerceIn(-22f, 22f)
+
+        val expressionSquint = when (expressionSilhouette) {
+            EyeSilhouette.JEALOUS -> maxOf(clearSquint, 0.70f)
+            EyeSilhouette.PROUD -> maxOf(clearSquint, 0.82f)
+            EyeSilhouette.AFFECTIONATE -> maxOf(clearSquint, 0.88f)
+            else -> clearSquint
+        }.coerceIn(0.40f, 1.25f)
 
         return EyeExpressionProfile(
             mood = decision.mood,
@@ -329,13 +366,39 @@ object EyeExpressionGenerator {
             gazeX = expressionGazeX,
             gazeY = expressionGazeY,
             glow = glow,
-            squint = clearSquint,
+            squint = expressionSquint,
             asymmetry = asymmetry,
             eyeWidth = eyeWidth,
             eyeHeight = eyeHeight,
             spacing = spacing,
             silhouette = expressionSilhouette,
             intent = decision.intent
+        )
+    }
+
+    /**
+     * A separate, unmistakable pose for strong physical shaking. It deliberately does not reuse
+     * CONFUSED or cross-fade two eye drawings; the renderer draws the dedicated DIZZY glyph.
+     */
+    fun generateDizzy(decision: EveDecision): EyeExpressionProfile {
+        val base = generate(
+            decision.copy(
+                mood = EveMood.CONCERNED,
+                valence = minOf(decision.valence, -0.10f),
+                arousal = maxOf(decision.arousal, 0.82f)
+            ),
+            0L
+        )
+        return base.copy(
+            silhouette = EyeSilhouette.DIZZY,
+            opening = 0.90f,
+            tilt = 0f,
+            gazeX = 0f,
+            gazeY = 0f,
+            squint = 0.96f,
+            asymmetry = 0.08f,
+            eyeWidth = 1.05f,
+            eyeHeight = 1.02f
         )
     }
 }
