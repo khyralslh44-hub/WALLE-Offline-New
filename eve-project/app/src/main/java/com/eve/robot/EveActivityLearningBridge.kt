@@ -73,7 +73,7 @@ class EveActivityLearningBridge(stateFile: File) {
         }.toMap()
 
     private fun featuresFor(result: EveActivityInterpretation): FloatArray {
-        // Eight class slots: UNKNOWN is excluded, leaving seven coarse actionable hypotheses.
+        // Seven class slots: UNKNOWN is excluded, leaving seven coarse actionable hypotheses.
         // Fractional one-hot values keep corrections between activity classes within the learner's
         // normalized distance range while still making the original hypothesis distinguishable.
         val classVector = activities.map { if (it == result.activity) 0.25f else 0f }
