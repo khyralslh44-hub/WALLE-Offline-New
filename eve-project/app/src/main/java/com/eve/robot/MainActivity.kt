@@ -191,6 +191,8 @@ class MainActivity : ComponentActivity() {
     private val ferInferenceRunning = AtomicBoolean(false)
     private val faceCueSmoother = EveFaceCueSmoother(windowSize = 3, requiredVotes = 2)
     private val activityUnderstanding = EveActivityUnderstanding()
+    private lateinit var activityLearningBridge: EveActivityLearningBridge
+    @Volatile private var latestRawActivityInterpretation: EveActivityInterpretation? = null
     private val personContextUnderstanding = EvePersonContextUnderstanding()
     private val personalTravelMemory by lazy {
         EveTravelMemory(getSharedPreferences("eve_personal_travel_memory", MODE_PRIVATE).getString("records", "").orEmpty())
@@ -461,6 +463,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        activityLearningBridge = EveActivityLearningBridge(java.io.File(filesDir, "eve_activity_learning.properties"))
         homeMapStore = EveHomeMapStore(applicationContext)
         savedHomeMapState = homeMapStore.load()
         savedHomeMapState?.let {
@@ -923,6 +926,8 @@ class MainActivity : ComponentActivity() {
             Log.i("EVE_AUDIO", "SPEECH_RESPONSE_SUPPRESSED reason=quiet_command")
             return
         }
+
+        if (handleActivityLearningSpeech(text)) return
 
         if (handleCalendarQuestion(text)) return
 
@@ -2881,8 +2886,14 @@ class MainActivity : ComponentActivity() {
         return (1f - closestRatio / 4.5f).coerceIn(0f, 1f)
     }
 
-    private fun applyHumanActivityInterpretation(result: EveActivityInterpretation, now: Long) {
+    private fun applyHumanActivityInterpretation(rawResult: EveActivityInterpretation, now: Long) {
         if (isFinishing || isDestroyed) return
+        if (rawResult.isActionable) latestRawActivityInterpretation = rawResult
+        // The learner can only influence a fresh activity hypothesis after at least three
+        // explicit user-confirmed examples and only when its local prototype match is unambiguous.
+        val result = if (rawResult.isActionable && ::activityLearningBridge.isInitialized) {
+            activityLearningBridge.applyLearnedCorrection(rawResult)
+        } else rawResult
         if (result.isActionable) {
             lastHumanActivityAt = now
             lastActivityObservationAt = now
@@ -2898,8 +2909,9 @@ class MainActivity : ComponentActivity() {
             }
             Log.i(
                 "EVE_ACTIVITY",
-                "ACTIVITY_HYPOTHESIS activity=${result.activity} confidence=${result.confidence} " +
-                    "frames=${result.evidenceCount} durationMs=${result.durationMs} offline=true"
+                "ACTIVITY_HYPOTHESIS raw=${rawResult.activity} effective=${result.activity} " +
+                    "confidence=${result.confidence} frames=${result.evidenceCount} " +
+                    "durationMs=${result.durationMs} localLearning=true offline=true"
             )
         } else if (lastHumanActivityAt == 0L || now - lastHumanActivityAt > activitySummaryTtlMs) {
             activeHumanActivity = EveHumanActivity.UNKNOWN
@@ -2908,6 +2920,117 @@ class MainActivity : ComponentActivity() {
             lastActivityObservationAt = 0L
         }
         refreshLatestSceneSummary(now)
+    }
+
+    /**
+     * Speech-only correction path (no visible buttons). Vague "yes" is never treated as training
+     * data; the person must explicitly confirm the activity estimate or issue a correction.
+     */
+    private fun handleActivityLearningSpeech(text: String): Boolean {
+        val confirmPhrases = listOf(
+            "تقديرك صحيح", "النشاط صحيح", "هذا النشاط صحيح", "رصدك صحيح", "تحليلك صحيح"
+        )
+        val correctionPhrases = listOf(
+            "تعلمي من تصحيحي", "تعلمي أن النشاط", "علّمي نفسك", "علمي نفسك",
+            "صححي النشاط", "صححي تقديرك", "التقدير غير صحيح", "النشاط الصحيح",
+            "هذا ليس", "هذه ليست", "ليس هذا", "ليست هذه", "الذي ترينه هو", "النشاط هو",
+            "learn from my correction", "this is not"
+        )
+        val confirmed = confirmPhrases.any(text::contains)
+        val correctionRequested = correctionPhrases.any(text::contains)
+        if (!confirmed && !correctionRequested) return false
+
+        val now = SystemClock.elapsedRealtime()
+        val raw = latestRawActivityInterpretation
+        if (raw == null || !raw.isActionable ||
+            now - raw.observedAtMs !in 0L..activitySummaryTtlMs
+        ) {
+            showDialogueText(
+                "لا توجد لدي ملاحظة نشاط حديثة كافية لأتعلّم منها. انتظر حتى أعرض احتمالًا بصريًا جديدًا، ثم أكّد تقديري أو صحّحه بوضوح.",
+                durationMs = 7_500L
+            )
+            return true
+        }
+
+        val target = if (confirmed) raw.activity else activityFromCorrectionSpeech(text)
+        if (target == null || target == EveHumanActivity.UNKNOWN) {
+            showDialogueText(
+                "لم أفهم النشاط الذي تريد تصحيحه. قل مثلًا: «صححي النشاط إلى مضغ العلكة» أو «تعلمي أن النشاط هو الرسم».",
+                durationMs = 7_500L
+            )
+            return true
+        }
+
+        val count = activityLearningBridge.recordUserCorrection(raw, target)
+        if (count == null) {
+            showDialogueText("لم أحفظ هذا المثال؛ أحتاج إلى نشاط واضح وحديث وتصحيح صريح.", durationMs = 6_000L)
+            return true
+        }
+        val progress = if (count < 3) {
+            "لدي الآن $count من 3 أمثلة مطلوبة لهذا التصنيف. لن أغيّر تقديراتي تلقائيًا بعد."
+        } else {
+            "لدي الآن $count أمثلة مؤكدة. سأستخدمها محليًا فقط عندما يتطابق النمط بوضوح، وإلا سأبقي النتيجة غير محسومة."
+        }
+        val message = "حفظت تصحيحك محليًا: «${activityLearningArabicName(target)}». $progress لا أرسل هذه البيانات إلى الإنترنت."
+        showDialogueText(message, durationMs = 8_000L)
+        Log.i(
+            "EVE_ACTIVITY_LEARNING",
+            "USER_CORRECTION_SAVED target=$target examples=$count rawActivity=${raw.activity} localOnly=true"
+        )
+        return true
+    }
+
+    private fun activityFromCorrectionSpeech(text: String): EveHumanActivity? {
+        // Select the last-mentioned activity term. In phrases such as "not eating, but drinking",
+        // this tends to select the correction rather than the rejected hypothesis.
+        val terms = listOf(
+            "علكة" to EveHumanActivity.CHEWING_MOTION_POSSIBLE,
+            "لبان" to EveHumanActivity.CHEWING_MOTION_POSSIBLE,
+            "مضغ" to EveHumanActivity.CHEWING_MOTION_POSSIBLE,
+            "chewing gum" to EveHumanActivity.CHEWING_MOTION_POSSIBLE,
+            "مثلجات" to EveHumanActivity.EATING_TREAT_POSSIBLE,
+            "ايس كريم" to EveHumanActivity.EATING_TREAT_POSSIBLE,
+            "بوظة" to EveHumanActivity.EATING_TREAT_POSSIBLE,
+            "مصاصة" to EveHumanActivity.EATING_TREAT_POSSIBLE,
+            "حلوى" to EveHumanActivity.EATING_TREAT_POSSIBLE,
+            "يشرب" to EveHumanActivity.DRINKING_POSSIBLE,
+            "تشرب" to EveHumanActivity.DRINKING_POSSIBLE,
+            "شرب" to EveHumanActivity.DRINKING_POSSIBLE,
+            "drinking" to EveHumanActivity.DRINKING_POSSIBLE,
+            "يلعب" to EveHumanActivity.PLAYING_GAME_POSSIBLE,
+            "لعب" to EveHumanActivity.PLAYING_GAME_POSSIBLE,
+            "لعبة" to EveHumanActivity.PLAYING_GAME_POSSIBLE,
+            "playing game" to EveHumanActivity.PLAYING_GAME_POSSIBLE,
+            "يرسم" to EveHumanActivity.DRAWING_OR_COLORING_POSSIBLE,
+            "رسم" to EveHumanActivity.DRAWING_OR_COLORING_POSSIBLE,
+            "تلوين" to EveHumanActivity.DRAWING_OR_COLORING_POSSIBLE,
+            "يلون" to EveHumanActivity.DRAWING_OR_COLORING_POSSIBLE,
+            "drawing" to EveHumanActivity.DRAWING_OR_COLORING_POSSIBLE,
+            "تمرين" to EveHumanActivity.EXERCISE_LIKE_MOTION,
+            "رياضة" to EveHumanActivity.EXERCISE_LIKE_MOTION,
+            "يتمرن" to EveHumanActivity.EXERCISE_LIKE_MOTION,
+            "exercise" to EveHumanActivity.EXERCISE_LIKE_MOTION,
+            "يتناول الطعام" to EveHumanActivity.EATING_POSSIBLE,
+            "ياكل" to EveHumanActivity.EATING_POSSIBLE,
+            "اكل" to EveHumanActivity.EATING_POSSIBLE,
+            "eating" to EveHumanActivity.EATING_POSSIBLE
+        )
+        return terms.mapNotNull { (phrase, activity) ->
+            val index = text.lastIndexOf(phrase)
+            if (index >= 0) Triple(index, phrase.length, activity) else null
+        }.maxWithOrNull(compareBy<Triple<Int, Int, EveHumanActivity>> { it.first }.thenBy { it.second })
+            ?.third
+    }
+
+    private fun activityLearningArabicName(activity: EveHumanActivity): String = when (activity) {
+        EveHumanActivity.EATING_POSSIBLE -> "تناول الطعام"
+        EveHumanActivity.EATING_TREAT_POSSIBLE -> "تناول حلوى أو مثلجات"
+        EveHumanActivity.DRINKING_POSSIBLE -> "الشرب"
+        EveHumanActivity.CHEWING_MOTION_POSSIBLE -> "حركة المضغ"
+        EveHumanActivity.PLAYING_GAME_POSSIBLE -> "اللعب"
+        EveHumanActivity.DRAWING_OR_COLORING_POSSIBLE -> "الرسم أو التلوين"
+        EveHumanActivity.EXERCISE_LIKE_MOTION -> "حركة شبيهة بالتمرين"
+        EveHumanActivity.UNKNOWN -> "نشاط غير معروف"
     }
 
     private val sceneSummaryTtlMs = 15_000L
