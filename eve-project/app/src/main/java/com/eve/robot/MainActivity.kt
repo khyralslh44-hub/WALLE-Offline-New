@@ -1768,13 +1768,13 @@ class MainActivity : ComponentActivity() {
                     Log.i("EVE_PERSONALITY", "novel observation nudged curiosity=${learnedPersonality.curiosityBias}")
                 }
                 val affinity = memory.learnedAffinity(label)
-                val decision = brain.observe(label, best.confidence, sightings, affinity)
                 Log.i(
                     "EVE",
-                    "VISION label=$label confidence=${best.confidence} sightings=$sightings " +
-                        "affinity=$affinity mood=${decision.mood}"
+                    "VISION_EVIDENCE label=" + label + " confidence=" + best.confidence +
+                        " sightings=" + sightings + " affinity=" + affinity +
+                        " source=local_image_labeler"
                 )
-                react(decision, decision.playSound && isMeaningfulLabel(label))
+                // A detected category is evidence, not an instruction to change mood.
                 // Curiosity questions take priority. When EVE has no grounded question to ask,
                 // show a brief observation cue so successful local perception is not invisible.
                 val askedOrQueued = maybeAskFromCuriosity(label, best.confidence, sightings)
@@ -2521,8 +2521,15 @@ class MainActivity : ComponentActivity() {
             now - lastReactionAt >= objectReactionCooldownMs
         if (!shouldReact) return
         objectLabelReactionAt[label] = now
-        val decision = brain.observe(label, best.confidence, sightings, memory.learnedAffinity(label))
-        react(decision, playSound = decision.playSound && isMeaningfulLabel(label))
+        Log.i(
+            "EVE_OBJECTS",
+            "OBJECT_EVIDENCE_READY label=" + label +
+                " confidence=" + best.confidence +
+                " sightings=" + sightings +
+                " affinity=" + memory.learnedAffinity(label) +
+                " source=local_object_detector"
+        )
+        // Let the local generative model interpret evidence before it changes emotional state.
         val askedOrQueued = best.confidence >= 0.82f &&
             maybeAskFromCuriosity(label, best.confidence, sightings)
         if (!askedOrQueued) {
@@ -3101,8 +3108,12 @@ class MainActivity : ComponentActivity() {
                 .putLong("lastObservationAt", System.currentTimeMillis())
                 .putString("lastObservationSource", "efficientnet_lite0_imagenet")
                 .apply()
-            val decision = brain.observe(label, best.confidence, sightings, memory.learnedAffinity(label))
-            react(decision, playSound = false)
+            Log.i(
+                "EVE_IMAGENET",
+                "IMAGE_EVIDENCE_READY label=" + label + " confidence=" + best.confidence +
+                    " sightings=" + sightings + " source=local_image_classifier"
+            )
+            // Classification alone does not dictate EVE's mood; generated interpretation does.
             val askedOrQueued = maybeAskFromCuriosity(label, best.confidence, sightings)
             if (!askedOrQueued && best.confidence >= 0.45f) {
                 maybeReflectWithLocalLanguage(label, best.confidence, sightings)
@@ -3247,6 +3258,8 @@ class MainActivity : ComponentActivity() {
 
     private fun maybeAskFromCuriosity(label: String, confidence: Float, sightings: Int): Boolean {
         if (isFinishing || isDestroyed || !::dialogueBubble.isInitialized) return false
+        if (!::localLanguageBrain.isInitialized || !localLanguageBrain.isReady) return false
+
         val preferences = getSharedPreferences("eve_curiosity", MODE_PRIVATE)
         val safeKey = label.trim().lowercase(Locale.ROOT).filter { it.isLetterOrDigit() }.take(48)
         if (safeKey.isBlank()) return false
@@ -3266,10 +3279,7 @@ class MainActivity : ComponentActivity() {
             nowMs = now
         ) ?: return false
 
-        val fallback = thought.text
-        val baselineDecision = brain.selfGeneratedCuriosity(label, confidence, sightings)
-
-        fun publishQuestion(questionRaw: String, llmResult: LocalLlmResult?) {
+        fun publishGeneratedQuestion(questionRaw: String, result: LocalLlmResult) {
             if (isFinishing || isDestroyed) return
             val question = questionRaw.trim().take(84).let {
                 if (it.endsWith("؟") || it.endsWith("?")) it else "$it؟"
@@ -3283,55 +3293,47 @@ class MainActivity : ComponentActivity() {
                 .putString("last_question_text", question)
                 .apply()
 
-            llmResult?.reflectionArabic?.takeIf { it.isNotBlank() }?.let(memory::rememberReflection)
-            val decision = if (llmResult != null) {
-                brain.integrateLanguageInsight(
-                    moodHint = llmResult.moodHint,
-                    intentHint = llmResult.intentHint,
-                    confidence = llmResult.confidence,
-                    note = llmResult.reflectionArabic,
-                    source = "visual_curiosity"
-                )
-            } else {
-                baselineDecision
-            }
-            // Preserve that EVE herself asked this question so the next LLM turn can follow it.
-            memory.rememberDialogue("ملاحظة بصرية حديثة: $label", question)
+            result.reflectionArabic.takeIf { it.isNotBlank() }?.let(memory::rememberReflection)
+            val decision = brain.integrateLanguageInsight(
+                moodHint = result.moodHint,
+                intentHint = result.intentHint,
+                confidence = result.confidence,
+                note = result.reflectionArabic,
+                source = "visual_curiosity"
+            )
+            memory.rememberDialogue("دليل بصري حديث: " + label, question)
             react(decision, playSound = false)
             showDialogueText(question, durationMs = 7600L)
-            val questionSource = if (llmResult != null) "local_llm" else "grounded_fallback"
             Log.i(
                 "EVE_CURIOSITY",
-                "SELF_QUESTION label=" + label + " confidence=" + confidence + " sightings=" + sightings +
-                    " interest=" + thought.interest + " source=" + questionSource +
-                    " reason=" + thought.reason + " trait=" + learned.curiosityBias
+                "GENERATED_QUESTION label=" + label + " confidence=" + confidence +
+                    " sightings=" + sightings + " interest=" + thought.interest +
+                    " source=local_llm reason=" + thought.reason +
+                    " trait=" + learned.curiosityBias
             )
         }
 
-        if (::localLanguageBrain.isInitialized && localLanguageBrain.isReady) {
-            localLanguageBrain.askFromCuriosity(
-                context = localLanguageContext(),
-                label = label,
-                confidence = confidence,
-                sightings = sightings,
-                fallbackQuestion = fallback
-            ) { outcome ->
-                if (isFinishing || isDestroyed) return@askFromCuriosity
-                val candidate = outcome.getOrNull()
-                val generated = candidate?.replyArabic?.trim()?.takeIf(::isUsableCuriosityQuestion)
-                if (generated != null) {
-                    publishQuestion(generated, candidate)
-                } else {
-                    Log.w(
-                        "EVE_CURIOSITY",
-                        "LLM_QUESTION_FALLBACK label=$label reason=" +
-                            (outcome.exceptionOrNull()?.message ?: "empty or malformed question")
-                    )
-                    publishQuestion(fallback, null)
-                }
+        localLanguageBrain.askFromCuriosity(
+            context = localLanguageContext(),
+            label = label,
+            confidence = confidence,
+            sightings = sightings,
+            fallbackQuestion = "أنشئ سؤال فضول جديدًا ومحددًا بناءً على الأدلة البصرية الحالية والذاكرة ذات الصلة؛ لا تكرر سؤالًا جاهزًا."
+        ) { outcome ->
+            if (isFinishing || isDestroyed) return@askFromCuriosity
+            val candidate = outcome.getOrNull()
+            val generated = candidate?.replyArabic?.trim()?.takeIf(::isUsableCuriosityQuestion)
+            if (generated != null && candidate != null) {
+                publishGeneratedQuestion(generated, candidate)
+            } else {
+                Log.w(
+                    "EVE_CURIOSITY",
+                    "GENERATED_QUESTION_UNAVAILABLE label=" + label + " reason=" +
+                        (outcome.exceptionOrNull()?.message ?: "model output was not a usable contextual question")
+                )
+                // Do not present heuristic fallback text as if the model invented it.
+                maybeShowVisibleObservationCue(label, confidence, SystemClock.elapsedRealtime())
             }
-        } else {
-            publishQuestion(fallback, null)
         }
         return true
     }
