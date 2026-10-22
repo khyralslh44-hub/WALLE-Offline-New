@@ -3268,7 +3268,12 @@ class MainActivity : ComponentActivity() {
         ).any(value::contains) && !isVisualNoiseLabel(value)
     }
 
-    private fun maybeAskFromCuriosity(label: String, confidence: Float, sightings: Int): Boolean {
+    private fun maybeAskFromCuriosity(
+        label: String,
+        confidence: Float,
+        sightings: Int,
+        onOutcome: ((Boolean, String) -> Unit)? = null
+    ): Boolean {
         if (isFinishing || isDestroyed || !::dialogueBubble.isInitialized) return false
         if (!::localLanguageBrain.isInitialized || !localLanguageBrain.isReady) return false
 
@@ -3316,6 +3321,7 @@ class MainActivity : ComponentActivity() {
             memory.rememberDialogue("دليل بصري حديث: " + label, question)
             react(decision, playSound = false)
             showDialogueText(question, durationMs = 7600L)
+            onOutcome?.invoke(true, "generated_question_shown")
             Log.i(
                 "EVE_CURIOSITY",
                 "GENERATED_QUESTION label=" + label + " confidence=" + confidence +
@@ -3338,10 +3344,12 @@ class MainActivity : ComponentActivity() {
             if (generated != null && candidate != null) {
                 publishGeneratedQuestion(generated, candidate)
             } else {
+                val failureReason = outcome.exceptionOrNull()?.message
+                    ?: "model output was not a usable contextual question"
+                onOutcome?.invoke(false, failureReason.take(160))
                 Log.w(
                     "EVE_CURIOSITY",
-                    "GENERATED_QUESTION_UNAVAILABLE label=" + label + " reason=" +
-                        (outcome.exceptionOrNull()?.message ?: "model output was not a usable contextual question")
+                    "GENERATED_QUESTION_UNAVAILABLE label=" + label + " reason=" + failureReason
                 )
                 // Do not present heuristic fallback text as if the model invented it.
                 maybeShowVisibleObservationCue(label, confidence, SystemClock.elapsedRealtime())
