@@ -3633,11 +3633,15 @@ class MainActivity : ComponentActivity() {
      */
     private fun runAutonomousCognition(inactiveMs: Long) {
         if (isFinishing || isDestroyed || !::brain.isInitialized || !::memory.isInitialized) return
-        if (!::localLanguageBrain.isInitialized || !localLanguageBrain.isReady) {
-            Log.d("EVE_COGNITION", "DECISION_SKIPPED reason=local_brain_not_ready")
+        val localBrainReady = ::localLanguageBrain.isInitialized && localLanguageBrain.isReady
+        if (!localBrainReady || localLanguageBrain.isGenerating) {
+            // EVE's lightweight evidence-based mind remains active while the generative model is
+            // starting, temporarily busy, or deferred for RAM. Vision and reflexive behaviors never
+            // wait for the large model, and the fallback does not create a competing inference.
+            runLightweightAutonomousCognition(inactiveMs, localBrainReady)
             return
         }
-        if (localLanguageBrain.isGenerating || !autonomyPlanningRunning.compareAndSet(false, true)) return
+        if (!autonomyPlanningRunning.compareAndSet(false, true)) return
 
         val now = SystemClock.elapsedRealtime()
         if (lastAutonomyDecisionAt > 0L && now - lastAutonomyDecisionAt < autonomyDecisionCooldownMs) {
@@ -3943,6 +3947,136 @@ class MainActivity : ComponentActivity() {
                         updateAutonomyOutcome(proposedGoal, action, "camera_switch_blocked_by_safety", reason)
                     }
                 }
+            }
+        }
+    }
+
+    /**
+     * Low-cost autonomous fallback used when Qwen is not ready or is busy.
+     * The perception pipeline, emotional reactions, memory and evidence collection continue
+     * independently; this rule planner chooses a safe next focus without loading another model.
+     */
+    private fun runLightweightAutonomousCognition(inactiveMs: Long, localBrainReady: Boolean) {
+        if (isFinishing || isDestroyed || !::brain.isInitialized || !::memory.isInitialized) return
+        val now = SystemClock.elapsedRealtime()
+        if (lastAutonomyDecisionAt > 0L && now - lastAutonomyDecisionAt < autonomyDecisionCooldownMs) return
+
+        val sceneAge = if (lastSceneObservationAt > 0L) {
+            (now - lastSceneObservationAt).coerceAtLeast(0L)
+        } else Long.MAX_VALUE
+        val label = lastMeaningfulLabel.orEmpty()
+        val labelAge = if (lastMeaningfulLabelAt > 0L) {
+            (now - lastMeaningfulLabelAt).coerceAtLeast(0L)
+        } else Long.MAX_VALUE
+        val confidence = if (labelAge in 0L..EveAutonomousMind.SCENE_FRESH_MS) {
+            lastMeaningfulConfidence.takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: 0f
+        } else 0f
+        val faceRecent = lastFaceSeenAt > 0L && now - lastFaceSeenAt in 0L..4_500L
+        val context = EveMindContext(
+            nowMs = now,
+            inactiveMs = inactiveMs.coerceAtLeast(0L),
+            sceneAgeMs = sceneAge,
+            sceneSummary = latestSceneSummary,
+            latestLabel = label,
+            labelConfidence = confidence,
+            faceSeenRecently = faceRecent,
+            familiarPersonRecognized = faceRecent && lastIdentityGreetingId.isNotBlank() &&
+                now - lastIdentityGreetingAt in 0L..30_000L,
+            activity = activeHumanActivity,
+            activityConfidence = activeHumanActivityConfidence,
+            explorationEnabled = autonomousExplorationEnabled,
+            localLanguageReady = localBrainReady,
+            lastReflectionAtMs = lastAutonomyReflectionAt,
+            cameraIsFront = activeCameraLens == CameraLens.FRONT,
+            cameraSwitchAllowed = hasCameraPermission() &&
+                (lastAutonomyCameraSwitchAt.get() <= 0L ||
+                    now - lastAutonomyCameraSwitchAt.get() >= autonomousCameraSwitchCooldownMs)
+        )
+        val plan = autonomousMind.plan(context)
+        val step = plan.steps.firstOrNull() ?: return
+        // Use the same cooldown and persisted outcome history as the generative planner.
+        lastAutonomyDecisionAt = now
+        val reason = "fallback: " + plan.rationaleArabic
+        Log.i(
+            "EVE_COGNITION",
+            "LIGHTWEIGHT_PLAN goal=${plan.goal} action=${step.action} localBrainReady=$localBrainReady " +
+                "sceneAgeMs=$sceneAge activity=$activeHumanActivity"
+        )
+
+        when (step.action) {
+            EveMindAction.WAIT_FOR_FRESH_FRAME -> {
+                updateAutonomyOutcome(plan.goal.name, step.action.name, "waiting_for_fresh_local_frame", reason)
+            }
+            EveMindAction.REVIEW_RECENT_EVIDENCE -> {
+                val fresh = sceneAge in 0L..EveAutonomousMind.SCENE_FRESH_MS && latestSceneSummary.isNotBlank()
+                recordMindFeedback(
+                    EveMindFeedback(
+                        plan.goal, step.action, succeeded = fresh,
+                        note = "lightweight evidence review;sceneFresh=$fresh", atMs = now
+                    )
+                )
+                updateAutonomyOutcome(
+                    plan.goal.name, step.action.name,
+                    if (fresh) "fresh_evidence_reviewed_lightweight" else "waiting_for_better_evidence",
+                    reason
+                )
+            }
+            EveMindAction.REQUEST_LOCAL_REFLECTION -> {
+                // Do not record lack of RAM/model readiness as a failed reasoning attempt. The
+                // scheduled warm-up will request a full local reflection when the brain is ready.
+                updateAutonomyOutcome(
+                    plan.goal.name, step.action.name, "reflection_deferred_until_local_brain_ready", reason
+                )
+            }
+            EveMindAction.MAINTAIN_QUIET_ATTENTION -> {
+                recordMindFeedback(
+                    EveMindFeedback(
+                        plan.goal, step.action, succeeded = true,
+                        note = "lightweight quiet attention", atMs = now
+                    )
+                )
+                updateAutonomyOutcome(plan.goal.name, step.action.name, "quiet_attention_maintained", reason)
+            }
+            EveMindAction.CONTINUE_EXPLORATION -> {
+                updateAutonomyOutcome(
+                    plan.goal.name, step.action.name, "local_perception_continues_without_llm", reason
+                )
+            }
+            EveMindAction.SWITCH_TO_WORLD_CAMERA -> {
+                val switchedAt = lastAutonomyCameraSwitchAt.get()
+                val cooldownDone = switchedAt <= 0L || now - switchedAt >= autonomousCameraSwitchCooldownMs
+                val safeToSwitch = autonomousExplorationEnabled && hasCameraPermission() &&
+                    activeCameraLens == CameraLens.FRONT && !faceRecent &&
+                    now - lastDirectUserActionAt >= EveAutonomousMind.AUTO_CAMERA_SWITCH_IDLE_MS &&
+                    cooldownDone
+                if (!safeToSwitch) {
+                    recordMindFeedback(
+                        EveMindFeedback(
+                            plan.goal, step.action, succeeded = false,
+                            note = "lightweight camera switch blocked by live safety checks", atMs = now
+                        )
+                    )
+                    updateAutonomyOutcome(plan.goal.name, step.action.name, "camera_switch_blocked_by_safety", reason)
+                    return
+                }
+                lastAutonomyCameraSwitchAt.set(now)
+                switchCamera()
+                main.postDelayed({
+                    if (isFinishing || isDestroyed) return@postDelayed
+                    val succeeded = cameraStarted && activeCameraLens == CameraLens.BACK
+                    recordMindFeedback(
+                        EveMindFeedback(
+                            plan.goal, step.action, succeeded,
+                            "lightweight camera switch;rearCameraActive=$succeeded",
+                            SystemClock.elapsedRealtime()
+                        )
+                    )
+                    updateAutonomyOutcome(
+                        plan.goal.name, step.action.name,
+                        if (succeeded) "rear_camera_active" else "camera_switch_failed",
+                        reason
+                    )
+                }, 1_500L)
             }
         }
     }
