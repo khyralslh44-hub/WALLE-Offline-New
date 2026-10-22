@@ -219,6 +219,13 @@ class MainActivity : ComponentActivity() {
     @Volatile private var lastDirectUserActionAt = SystemClock.elapsedRealtime()
     @Volatile private var lastAutonomyPlanSignature = ""
     @Volatile private var lastAutonomyReflectionAt = 0L
+    private val autonomyPlanningRunning = AtomicBoolean(false)
+    @Volatile private var lastAutonomyDecisionAt = 0L
+    @Volatile private var lastAutonomyGoal = ""
+    @Volatile private var lastAutonomyAction = ""
+    @Volatile private var lastAutonomyOutcome = "لم تُنفّذ دورة قرار بعد"
+    @Volatile private var lastAutonomyRationale = ""
+    private val autonomyDecisionCooldownMs = 20_000L
     private val lastAutonomyCameraSwitchAt = AtomicLong(0L)
     private val autonomousCameraSwitchCooldownMs = 60_000L
     @Volatile private var activeHumanActivity = EveHumanActivity.UNKNOWN
@@ -3435,25 +3442,34 @@ class MainActivity : ComponentActivity() {
             .apply()
     }
 
+    /**
+     * The local generative model chooses the next cognitive step from a constrained allow-list.
+     * The rule-based mind remains a bounded feedback/memory store, not the source of every choice.
+     * Every model suggestion is checked again against current live conditions before execution.
+     */
     private fun runAutonomousCognition(inactiveMs: Long) {
         if (isFinishing || isDestroyed || !::brain.isInitialized || !::memory.isInitialized) return
+        if (!::localLanguageBrain.isInitialized || !localLanguageBrain.isReady) {
+            Log.d("EVE_COGNITION", "DECISION_SKIPPED reason=local_brain_not_ready")
+            return
+        }
+        if (localLanguageBrain.isGenerating || !autonomyPlanningRunning.compareAndSet(false, true)) return
+
         val now = SystemClock.elapsedRealtime()
+        if (lastAutonomyDecisionAt > 0L && now - lastAutonomyDecisionAt < autonomyDecisionCooldownMs) {
+            autonomyPlanningRunning.set(false)
+            return
+        }
         val sceneAge = if (lastSceneObservationAt > 0L) {
             (now - lastSceneObservationAt).coerceAtLeast(0L)
-        } else {
-            Long.MAX_VALUE
-        }
+        } else Long.MAX_VALUE
         val label = lastMeaningfulLabel.orEmpty()
         val labelAge = if (lastMeaningfulLabelAt > 0L) {
             (now - lastMeaningfulLabelAt).coerceAtLeast(0L)
-        } else {
-            Long.MAX_VALUE
-        }
+        } else Long.MAX_VALUE
         val labelConfidence = if (labelAge in 0L..EveAutonomousMind.SCENE_FRESH_MS) {
-            lastMeaningfulConfidence
-        } else {
-            0f
-        }
+            lastMeaningfulConfidence.takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: 0f
+        } else 0f
         val faceRecent = lastFaceSeenAt > 0L && now - lastFaceSeenAt in 0L..4_500L
         val familiarPersonRecent = faceRecent &&
             lastIdentityGreetingId.isNotBlank() &&
@@ -3470,7 +3486,7 @@ class MainActivity : ComponentActivity() {
             activity = activeHumanActivity,
             activityConfidence = activeHumanActivityConfidence,
             explorationEnabled = autonomousExplorationEnabled,
-            localLanguageReady = ::localLanguageBrain.isInitialized && localLanguageBrain.isReady,
+            localLanguageReady = true,
             lastReflectionAtMs = lastAutonomyReflectionAt,
             cameraIsFront = activeCameraLens == CameraLens.FRONT,
             cameraSwitchAllowed = hasCameraPermission() && run {
@@ -3478,129 +3494,353 @@ class MainActivity : ComponentActivity() {
                 switchedAt <= 0L || now - switchedAt >= autonomousCameraSwitchCooldownMs
             }
         )
-        val plan = autonomousMind.plan(context)
-        // A reflection plan contains a review step followed by an LLM step. The frame/context
-        // has already passed freshness checks above, so execute the planned reflection step
-        // rather than stopping permanently at the first review-only step.
-        val step = plan.steps.firstOrNull { it.action == EveMindAction.REQUEST_LOCAL_REFLECTION }
-            ?: plan.steps.first()
-        val signature = "${plan.goal}|${step.action}|${label.take(48)}"
-        if (signature != lastAutonomyPlanSignature) {
-            lastAutonomyPlanSignature = signature
-            Log.i(
-                "EVE_MIND",
-                "MIND_PLAN goal=${plan.goal} action=${step.action} confidence=${plan.confidence} " +
-                    "priority=${step.priority} steps=${plan.steps.size} sceneAgeMs=$sceneAge " +
-                    "inactiveMs=$inactiveMs explore=$autonomousExplorationEnabled " +
-                    "rationale=${plan.rationaleArabic} success=${step.successCriterionArabic}"
-            )
+        val allowedActions = allowedAutonomousActions(
+            context = context,
+            labelAgeMs = labelAge,
+            labelConfidence = labelConfidence,
+            sceneAgeMs = sceneAge,
+            nowElapsedMs = now
+        )
+        if (allowedActions.isEmpty()) {
+            autonomyPlanningRunning.set(false)
+            return
         }
 
-        when (step.action) {
-            EveMindAction.REQUEST_LOCAL_REFLECTION -> {
-                if (label.isNotBlank() && labelConfidence >= EveAutonomousMind.MIN_REFLECTION_CONFIDENCE &&
-                    ::localLanguageBrain.isInitialized && localLanguageBrain.isReady &&
-                    (lastAutonomyReflectionAt == 0L ||
-                        now - lastAutonomyReflectionAt >= EveAutonomousMind.REFLECTION_COOLDOWN_MS)
-                ) {
-                    // Use the same bounded key in the planner's feedback set and the completion callback.
-                    val evidenceKey = (
-                        label.trim().lowercase(Locale.ROOT) + "|" +
-                            latestSceneSummary.trim().take(180)
-                        ).take(180)
-                    lastAutonomyReflectionAt = now
-                    maybeReflectWithLocalLanguage(
-                        label,
-                        labelConfidence,
-                        memory.sightings(label),
-                        mindEvidenceKey = evidenceKey
-                    )
-                }
-            }
-            EveMindAction.REVIEW_RECENT_EVIDENCE -> {
-                // The vision pipeline is live; this step explicitly checks confidence/freshness
-                // instead of inventing a scene when the objects or activity have gone stale.
-                Log.d(
-                    "EVE_MIND",
-                    "MIND_REVIEW goal=${plan.goal} activity=$activeHumanActivity " +
-                        "activityConfidence=$activeHumanActivityConfidence sceneFresh=${sceneAge <= EveAutonomousMind.SCENE_FRESH_MS}"
+        val preferences = getSharedPreferences("eve_relationship", MODE_PRIVATE)
+        val previousGoal = preferences.getString("autonomy_last_goal", lastAutonomyGoal).orEmpty()
+        val previousAction = preferences.getString("autonomy_last_action", lastAutonomyAction).orEmpty()
+        val previousOutcome = preferences.getString("autonomy_last_outcome", lastAutonomyOutcome).orEmpty()
+        lastAutonomyDecisionAt = now
+
+        Log.i(
+            "EVE_COGNITION",
+            "CYCLE_START idleMs=$inactiveMs sceneAgeMs=$sceneAge label=$label " +
+                "confidence=$labelConfidence activity=$activeHumanActivity allowed=$allowedActions"
+        )
+        localLanguageBrain.planAutonomousStep(
+            context = localLanguageContext(),
+            allowedActions = allowedActions,
+            previousGoal = previousGoal,
+            previousAction = previousAction,
+            previousOutcome = previousOutcome
+        ) { result ->
+            autonomyPlanningRunning.set(false)
+            if (isFinishing || isDestroyed) return@planAutonomousStep
+
+            val proposal = result.getOrNull()
+            if (proposal == null) {
+                updateAutonomyOutcome(
+                    goal = previousGoal.ifBlank { "observe_current_evidence" },
+                    action = "none",
+                    outcome = "planner_generation_failed",
+                    reason = result.exceptionOrNull()?.message.orEmpty().take(180)
                 )
+                Log.w("EVE_COGNITION", "PLAN_REJECTED reason=generation_failed", result.exceptionOrNull())
+                return@planAutonomousStep
             }
-            EveMindAction.WAIT_FOR_FRESH_FRAME -> {
-                recordMindFeedback(
-                    EveMindFeedback(
-                        goal = plan.goal,
-                        action = step.action,
-                        succeeded = sceneAge <= EveAutonomousMind.SCENE_FRESH_MS,
-                        note = "frame_age_ms=$sceneAge",
-                        atMs = now
-                    )
+
+            val action = proposal.planningAction.orEmpty()
+            val proposedGoal = proposal.planningGoal.orEmpty().ifBlank { "understand_current_evidence" }
+            val reason = proposal.planningReason.orEmpty().ifBlank { "لم يذكر النموذج سببًا واضحًا." }
+            val successCriterion = proposal.successCriterion.orEmpty().ifBlank { "مراجعة الدليل الجديد عند وصوله." }
+
+            // Recompute the allow-list after inference; face, freshness, permission, or cooldown
+            // may have changed while the model was thinking.
+            val liveNow = SystemClock.elapsedRealtime()
+            val liveSceneAge = if (lastSceneObservationAt > 0L) {
+                (liveNow - lastSceneObservationAt).coerceAtLeast(0L)
+            } else Long.MAX_VALUE
+            val liveLabelAge = if (lastMeaningfulLabelAt > 0L) {
+                (liveNow - lastMeaningfulLabelAt).coerceAtLeast(0L)
+            } else Long.MAX_VALUE
+            val liveLabelConfidence = if (liveLabelAge in 0L..EveAutonomousMind.SCENE_FRESH_MS) {
+                lastMeaningfulConfidence.takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: 0f
+            } else 0f
+            val liveFaceRecent = lastFaceSeenAt > 0L && liveNow - lastFaceSeenAt in 0L..4_500L
+            val liveContext = context.copy(
+                nowMs = liveNow,
+                inactiveMs = (liveNow - lastDirectUserActionAt).coerceAtLeast(0L),
+                sceneAgeMs = liveSceneAge,
+                sceneSummary = latestSceneSummary,
+                latestLabel = lastMeaningfulLabel.orEmpty(),
+                labelConfidence = liveLabelConfidence,
+                faceSeenRecently = liveFaceRecent,
+                cameraIsFront = activeCameraLens == CameraLens.FRONT,
+                cameraSwitchAllowed = hasCameraPermission() &&
+                    (lastAutonomyCameraSwitchAt.get() <= 0L ||
+                        liveNow - lastAutonomyCameraSwitchAt.get() >= autonomousCameraSwitchCooldownMs)
+            )
+            val liveAllowed = allowedAutonomousActions(
+                context = liveContext,
+                labelAgeMs = liveLabelAge,
+                labelConfidence = liveLabelConfidence,
+                sceneAgeMs = liveSceneAge,
+                nowElapsedMs = liveNow
+            )
+            if (action !in allowedActions || action !in liveAllowed) {
+                updateAutonomyOutcome(
+                    goal = proposedGoal,
+                    action = action.ifBlank { "missing_action" },
+                    outcome = "rejected_not_currently_allowed",
+                    reason = reason
                 )
-            }
-            EveMindAction.MAINTAIN_QUIET_ATTENTION -> Unit
-            EveMindAction.CONTINUE_EXPLORATION -> {
-                Log.d(
-                    "EVE_MIND",
-                    "MIND_EXPLORE_VIEW lens=${activeCameraLens.name} sceneAgeMs=$sceneAge " +
-                        "labels=${latestObjectLabels.size} offline=true"
+                Log.w(
+                    "EVE_COGNITION",
+                    "PLAN_REJECTED goal=$proposedGoal action=$action originallyAllowed=$allowedActions " +
+                        "currentlyAllowed=$liveAllowed reason=$reason"
                 )
+                return@planAutonomousStep
             }
-            EveMindAction.SWITCH_TO_WORLD_CAMERA -> {
-                val currentNow = SystemClock.elapsedRealtime()
-                val faceStillVisible = lastFaceSeenAt > 0L &&
-                    currentNow - lastFaceSeenAt in 0L..4_500L
-                val lastSwitch = lastAutonomyCameraSwitchAt.get()
-                val cooldownDone = lastSwitch <= 0L ||
-                    currentNow - lastSwitch >= autonomousCameraSwitchCooldownMs
-                val safeToSwitch = autonomousExplorationEnabled &&
-                    hasCameraPermission() &&
-                    activeCameraLens == CameraLens.FRONT &&
-                    !faceStillVisible &&
-                    currentNow - lastDirectUserActionAt >= EveAutonomousMind.AUTO_CAMERA_SWITCH_IDLE_MS &&
-                    cooldownDone
-                if (safeToSwitch) {
-                    lastAutonomyCameraSwitchAt.set(currentNow)
-                    Log.i(
-                        "EVE_MIND",
-                        "MIND_ACTION start=SWITCH_TO_WORLD_CAMERA from=FRONT reason=quiet_exploration"
-                    )
-                    switchCamera()
-                    main.postDelayed({
-                        if (isFinishing || isDestroyed) return@postDelayed
-                        val succeeded = cameraStarted && activeCameraLens == CameraLens.BACK
-                        recordMindFeedback(
-                            EveMindFeedback(
-                                goal = plan.goal,
-                                action = step.action,
-                                succeeded = succeeded,
-                                note = "rear_camera_active=$succeeded",
-                                atMs = SystemClock.elapsedRealtime()
-                            )
-                        )
-                        Log.i(
-                            "EVE_MIND",
-                            "MIND_ACTION_RESULT action=SWITCH_TO_WORLD_CAMERA success=$succeeded " +
-                                "lens=${activeCameraLens.name}"
-                        )
-                    }, 1_500L)
-                } else {
+
+            lastAutonomyGoal = proposedGoal
+            lastAutonomyAction = action
+            lastAutonomyRationale = reason
+            preferences.edit()
+                .putString("autonomy_last_goal", proposedGoal.take(80))
+                .putString("autonomy_last_action", action)
+                .putString("autonomy_last_rationale", reason.take(180))
+                .apply()
+            Log.i(
+                "EVE_COGNITION",
+                "PLAN_ACCEPTED goal=$proposedGoal action=$action confidence=${proposal.confidence} " +
+                    "reason=$reason successCriterion=$successCriterion"
+            )
+
+            when (action) {
+                "observe_scene" -> {
+                    val fresh = liveSceneAge in 0L..EveAutonomousMind.SCENE_FRESH_MS &&
+                        latestSceneSummary.isNotBlank()
+                    val outcome = if (fresh) "fresh_evidence_reviewed" else "waiting_for_fresh_evidence"
                     recordMindFeedback(
                         EveMindFeedback(
-                            goal = plan.goal,
-                            action = step.action,
-                            succeeded = false,
-                            note = "blocked_by_current_safety_or_cooldown",
-                            atMs = currentNow
+                            goal = EveMindGoal.OBSERVE_SCENE,
+                            action = EveMindAction.REVIEW_RECENT_EVIDENCE,
+                            succeeded = fresh,
+                            note = "planner:$reason;scene_fresh=$fresh",
+                            atMs = liveNow
                         )
                     )
-                    Log.i(
-                        "EVE_MIND",
-                        "MIND_ACTION_BLOCKED action=SWITCH_TO_WORLD_CAMERA face=$faceStillVisible " +
-                            "lens=${activeCameraLens.name} permission=${hasCameraPermission()} cooldown=$cooldownDone"
+                    updateAutonomyOutcome(proposedGoal, action, outcome, reason)
+                    Log.i("EVE_COGNITION", "ACTION_RESULT action=$action outcome=$outcome")
+                }
+                "quiet_attention" -> {
+                    recordMindFeedback(
+                        EveMindFeedback(
+                            goal = EveMindGoal.WAIT_QUIETLY,
+                            action = EveMindAction.MAINTAIN_QUIET_ATTENTION,
+                            succeeded = true,
+                            note = "planner:$reason",
+                            atMs = liveNow
+                        )
                     )
+                    updateAutonomyOutcome(proposedGoal, action, "quiet_attention_maintained", reason)
+                    Log.i("EVE_COGNITION", "ACTION_RESULT action=$action outcome=quiet_attention_maintained")
+                }
+                "ask_curiosity_question" -> {
+                    val currentLabel = lastMeaningfulLabel.orEmpty()
+                    val requested = maybeAskFromCuriosity(
+                        label = currentLabel,
+                        confidence = liveLabelConfidence,
+                        sightings = memory.sightings(currentLabel),
+                        onOutcome = { succeeded, detail ->
+                            recordMindFeedback(
+                                EveMindFeedback(
+                                    goal = EveMindGoal.OBSERVE_SCENE,
+                                    action = EveMindAction.REVIEW_RECENT_EVIDENCE,
+                                    succeeded = succeeded,
+                                    note = "planner_question:$detail",
+                                    atMs = SystemClock.elapsedRealtime()
+                                )
+                            )
+                            updateAutonomyOutcome(
+                                proposedGoal, action,
+                                if (succeeded) "generated_question_shown" else "question_generation_failed",
+                                detail
+                            )
+                        }
+                    )
+                    if (!requested) {
+                        recordMindFeedback(
+                            EveMindFeedback(
+                                goal = EveMindGoal.OBSERVE_SCENE,
+                                action = EveMindAction.REVIEW_RECENT_EVIDENCE,
+                                succeeded = false,
+                                note = "planner_question_not_eligible",
+                                atMs = liveNow
+                            )
+                        )
+                        updateAutonomyOutcome(proposedGoal, action, "question_not_eligible", reason)
+                    }
+                }
+                "reflect_on_scene" -> {
+                    val currentLabel = lastMeaningfulLabel.orEmpty()
+                    val safeToReflect = currentLabel.isNotBlank() &&
+                        liveLabelConfidence >= EveAutonomousMind.MIN_REFLECTION_CONFIDENCE &&
+                        liveLabelAge <= EveAutonomousMind.SCENE_FRESH_MS &&
+                        (lastAutonomyReflectionAt == 0L ||
+                            liveNow - lastAutonomyReflectionAt >= EveAutonomousMind.REFLECTION_COOLDOWN_MS) &&
+                        liveNow - lastLocalLlmVisionAt.get() >= EveAutonomousMind.REFLECTION_COOLDOWN_MS
+                    if (safeToReflect) {
+                        val evidenceKey = (
+                            currentLabel.trim().lowercase(Locale.ROOT) + "|" +
+                                latestSceneSummary.trim().take(180)
+                            ).take(180)
+                        maybeReflectWithLocalLanguage(
+                            currentLabel,
+                            liveLabelConfidence,
+                            memory.sightings(currentLabel),
+                            mindEvidenceKey = evidenceKey
+                        )
+                        updateAutonomyOutcome(proposedGoal, action, "reflection_requested", reason)
+                    } else {
+                        recordMindFeedback(
+                            EveMindFeedback(
+                                goal = EveMindGoal.REFLECT_ON_NEW_EVIDENCE,
+                                action = EveMindAction.REQUEST_LOCAL_REFLECTION,
+                                succeeded = false,
+                                note = "planner_reflection_blocked:$reason",
+                                atMs = liveNow
+                            )
+                        )
+                        updateAutonomyOutcome(proposedGoal, action, "reflection_blocked_by_freshness_or_cooldown", reason)
+                    }
+                }
+                "switch_to_world_camera" -> {
+                    val switchedAt = lastAutonomyCameraSwitchAt.get()
+                    val cooldownDone = switchedAt <= 0L ||
+                        liveNow - switchedAt >= autonomousCameraSwitchCooldownMs
+                    val safeToSwitch = autonomousExplorationEnabled &&
+                        hasCameraPermission() &&
+                        activeCameraLens == CameraLens.FRONT &&
+                        !liveFaceRecent &&
+                        (liveNow - lastDirectUserActionAt) >= EveAutonomousMind.AUTO_CAMERA_SWITCH_IDLE_MS &&
+                        cooldownDone
+                    if (safeToSwitch) {
+                        lastAutonomyCameraSwitchAt.set(liveNow)
+                        switchCamera()
+                        main.postDelayed({
+                            if (isFinishing || isDestroyed) return@postDelayed
+                            val succeeded = cameraStarted && activeCameraLens == CameraLens.BACK
+                            recordMindFeedback(
+                                EveMindFeedback(
+                                    goal = EveMindGoal.EXPLORE_CURRENT_VIEW,
+                                    action = EveMindAction.SWITCH_TO_WORLD_CAMERA,
+                                    succeeded = succeeded,
+                                    note = "rear_camera_active=$succeeded;planner=$reason",
+                                    atMs = SystemClock.elapsedRealtime()
+                                )
+                            )
+                            updateAutonomyOutcome(
+                                proposedGoal, action,
+                                if (succeeded) "rear_camera_active" else "camera_switch_failed",
+                                reason
+                            )
+                            Log.i("EVE_COGNITION", "ACTION_RESULT action=$action succeeded=$succeeded")
+                        }, 1_500L)
+                    } else {
+                        recordMindFeedback(
+                            EveMindFeedback(
+                                goal = EveMindGoal.EXPLORE_CURRENT_VIEW,
+                                action = EveMindAction.SWITCH_TO_WORLD_CAMERA,
+                                succeeded = false,
+                                note = "planner_camera_switch_blocked:$reason",
+                                atMs = liveNow
+                            )
+                        )
+                        updateAutonomyOutcome(proposedGoal, action, "camera_switch_blocked_by_safety", reason)
+                    }
                 }
             }
         }
+    }
+
+    private fun allowedAutonomousActions(
+        context: EveMindContext,
+        labelAgeMs: Long,
+        labelConfidence: Float,
+        sceneAgeMs: Long,
+        nowElapsedMs: Long
+    ): List<String> {
+        val allowed = mutableListOf("observe_scene", "quiet_attention")
+        val localBrainReady = ::localLanguageBrain.isInitialized && localLanguageBrain.isReady
+        if (!localBrainReady) return allowed
+
+        val label = context.latestLabel.trim()
+        val labelFresh = label.isNotBlank() &&
+            labelAgeMs in 0L..EveAutonomousMind.SCENE_FRESH_MS &&
+            labelConfidence >= 0.72f
+        val sceneFresh = sceneAgeMs in 0L..EveAutonomousMind.SCENE_FRESH_MS &&
+            latestSceneSummary.isNotBlank()
+
+        if (labelFresh && sceneFresh) {
+            val prefs = getSharedPreferences("eve_curiosity", MODE_PRIVATE)
+            val safeKey = label.lowercase(Locale.ROOT).filter { it.isLetterOrDigit() }.take(48)
+            if (safeKey.isNotBlank()) {
+                val learned = memory.learnedPersonality()
+                val thought = EveCuriosityEngine.consider(
+                    label = label,
+                    confidence = labelConfidence,
+                    sightings = memory.sightings(label),
+                    curiosityBias = learned.curiosityBias,
+                    lastAnyQuestionAtMs = prefs.getLong("last_question_at", 0L),
+                    lastLabelQuestionAtMs = prefs.getLong("label_question_at:" + safeKey, 0L),
+                    previousQuestionCount = prefs.getInt("label_question_count:" + safeKey, 0),
+                    nowMs = System.currentTimeMillis()
+                )
+                if (thought != null) allowed += "ask_curiosity_question"
+            }
+        }
+
+        val lastReflectionWall = getSharedPreferences("eve_relationship", MODE_PRIVATE)
+            .getLong("lastAutonomyReflectionWallAt", 0L)
+        val reflectionCooldownDone = lastAutonomyReflectionAt == 0L ||
+            nowElapsedMs - lastAutonomyReflectionAt >= EveAutonomousMind.REFLECTION_COOLDOWN_MS
+        val labelIsUseful = isMeaningfulLabel(label) || isCuriosityWorthyLabel(label)
+        val evidenceKey = (label.lowercase(Locale.ROOT) + "|" + latestSceneSummary.trim().take(180)).take(180)
+        val lastReflectedKey = getSharedPreferences("eve_relationship", MODE_PRIVATE)
+            .getString("lastAutonomyReflectionKey", "").orEmpty()
+        val lastReflectionWallCooldownDone = lastReflectionWall == 0L ||
+            System.currentTimeMillis() - lastReflectionWall >= EveAutonomousMind.REFLECTION_COOLDOWN_MS
+        if (labelFresh && sceneFresh && labelConfidence >= EveAutonomousMind.MIN_REFLECTION_CONFIDENCE &&
+            labelIsUseful && reflectionCooldownDone && lastReflectionWallCooldownDone &&
+            evidenceKey != lastReflectedKey &&
+            nowElapsedMs - lastLocalLlmVisionAt.get() >= EveAutonomousMind.REFLECTION_COOLDOWN_MS
+        ) {
+            allowed += "reflect_on_scene"
+        }
+
+        val cooldownAt = lastAutonomyCameraSwitchAt.get()
+        val cameraCooldownDone = cooldownAt <= 0L ||
+            nowElapsedMs - cooldownAt >= autonomousCameraSwitchCooldownMs
+        val faceStillVisible = lastFaceSeenAt > 0L && nowElapsedMs - lastFaceSeenAt in 0L..4_500L
+        val safeCameraSwitch = autonomousExplorationEnabled &&
+            context.explorationEnabled &&
+            context.cameraIsFront &&
+            context.cameraSwitchAllowed &&
+            hasCameraPermission() &&
+            !faceStillVisible &&
+            context.inactiveMs >= EveAutonomousMind.AUTO_CAMERA_SWITCH_IDLE_MS &&
+            cameraCooldownDone
+        if (safeCameraSwitch) allowed += "switch_to_world_camera"
+        return allowed
+    }
+
+    private fun updateAutonomyOutcome(goal: String, action: String, outcome: String, reason: String) {
+        lastAutonomyGoal = goal.take(80)
+        lastAutonomyAction = action.take(40)
+        lastAutonomyOutcome = outcome.take(180)
+        lastAutonomyRationale = reason.take(180)
+        getSharedPreferences("eve_relationship", MODE_PRIVATE).edit()
+            .putString("autonomy_last_goal", lastAutonomyGoal)
+            .putString("autonomy_last_action", lastAutonomyAction)
+            .putString("autonomy_last_outcome", lastAutonomyOutcome)
+            .putString("autonomy_last_rationale", lastAutonomyRationale)
+            .apply()
+        Log.i(
+            "EVE_COGNITION",
+            "LEARNING_FEEDBACK goal=$lastAutonomyGoal action=$lastAutonomyAction " +
+                "outcome=$lastAutonomyOutcome reason=$lastAutonomyRationale"
+        )
     }
 
     private fun localLanguageContext(): LocalLlmContext {
