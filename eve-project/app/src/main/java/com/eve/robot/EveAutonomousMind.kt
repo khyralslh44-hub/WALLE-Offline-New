@@ -298,6 +298,10 @@ class EveAutonomousMind(
                 .append(encodeMemoryField(item.note.take(180)))
                 .append('\n')
         }
+        // Persist the bounded set of already-reflected evidence across app restarts.
+        reflectedEvidence.forEach { key ->
+            append("E\t").append(encodeMemoryField(key.take(180))).append('\n')
+        }
     }.take(MAX_MEMORY_CHARS)
 
     /**
@@ -317,6 +321,14 @@ class EveAutonomousMind(
         lastPlanAtMs = 0L
 
         serialized.lineSequence().drop(1).take(MAX_MEMORY_RECORDS).forEach { line ->
+            if (line.startsWith("E\t")) {
+                val key = runCatching { decodeMemoryField(line.substring(2)) }
+                    .getOrNull()?.trim()?.take(180)
+                if (!key.isNullOrBlank() && reflectedEvidence.size < MAX_REFLECTED_KEYS) {
+                    reflectedEvidence.add(key)
+                }
+                return@forEach
+            }
             if (!line.startsWith("F\t")) return@forEach
             val fields = line.split('\t', limit = 6)
             if (fields.size != 6) return@forEach
