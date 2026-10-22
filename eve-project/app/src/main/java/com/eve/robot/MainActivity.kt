@@ -3530,7 +3530,11 @@ class MainActivity : ComponentActivity() {
             allowedActions = allowedActions,
             previousGoal = previousGoal,
             previousAction = previousAction,
-            previousOutcome = previousOutcome
+            previousOutcome = previousOutcome,
+            recentActionOutcomes = autonomousMind.recentFeedback().takeLast(6).map { item ->
+                item.goal.name + "/" + item.action.name + "=" +
+                    (if (item.succeeded) "success" else "failure") + ":" + item.note.take(54)
+            }
         ) { result ->
             autonomyPlanningRunning.set(false)
             if (isFinishing || isDestroyed) return@planAutonomousStep
@@ -3585,17 +3589,22 @@ class MainActivity : ComponentActivity() {
                 sceneAgeMs = liveSceneAge,
                 nowElapsedMs = liveNow
             )
-            if (action !in allowedActions || action !in liveAllowed) {
+            val planFieldsComplete = !proposal.planningGoal.isNullOrBlank() &&
+                !proposal.planningReason.isNullOrBlank() &&
+                !proposal.successCriterion.isNullOrBlank()
+            if (action !in allowedActions || action !in liveAllowed || !planFieldsComplete) {
+                val rejection = if (!planFieldsComplete) "incomplete_goal_reason_or_success_criterion"
+                    else "not_currently_allowed"
                 updateAutonomyOutcome(
                     goal = proposedGoal,
                     action = action.ifBlank { "missing_action" },
-                    outcome = "rejected_not_currently_allowed",
+                    outcome = "rejected_$rejection",
                     reason = reason
                 )
                 Log.w(
                     "EVE_COGNITION",
-                    "PLAN_REJECTED goal=$proposedGoal action=$action originallyAllowed=$allowedActions " +
-                        "currentlyAllowed=$liveAllowed reason=$reason"
+                    "PLAN_REJECTED goal=$proposedGoal action=$action complete=$planFieldsComplete " +
+                        "originallyAllowed=$allowedActions currentlyAllowed=$liveAllowed reason=$reason"
                 )
                 return@planAutonomousStep
             }
