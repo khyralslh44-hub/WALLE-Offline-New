@@ -94,6 +94,8 @@ class MainActivity : ComponentActivity() {
         }
     }
     private val main = Handler(Looper.getMainLooper())
+    // Warm the generative brain only while EVE is foregrounded and spare RAM is available.
+    private val warmLanguageBrainTask = Runnable { warmLocalLanguageBrainIfSafe() }
     private var motionSensorManager: SensorManager? = null
     private var motionAccelerometer: Sensor? = null
     private var shakeSensorRegistered = false
@@ -229,6 +231,10 @@ class MainActivity : ComponentActivity() {
     @Volatile private var lastAutonomyOutcome = "لم تُنفّذ دورة قرار بعد"
     @Volatile private var lastAutonomyRationale = ""
     private val autonomyDecisionCooldownMs = 20_000L
+    private companion object {
+        const val LANGUAGE_BRAIN_WARMUP_DELAY_MS = 15_000L
+        const val LANGUAGE_BRAIN_WARMUP_MIN_RAM_BYTES = 1_400_000_000L
+    }
     private val lastAutonomyCameraSwitchAt = AtomicLong(0L)
     private val autonomousCameraSwitchCooldownMs = 60_000L
     @Volatile private var activeHumanActivity = EveHumanActivity.UNKNOWN
@@ -1407,8 +1413,10 @@ class MainActivity : ComponentActivity() {
         }
         if (::face.isInitialized && hasCameraPermission() && !cameraStarted) startCamera()
         if (::localLanguageBrain.isInitialized) {
-            // Do not initialize the ~345 MB language model merely because the app returns to
-            // foreground. A real open-ended user query starts it lazily.
+            // Keep the language model available for open-ended conversation when memory allows it,
+            // but wait briefly after foregrounding so the face/camera can settle first.
+            main.removeCallbacks(warmLanguageBrainTask)
+            if (!localLanguageBrain.isReady) main.postDelayed(warmLanguageBrainTask, LANGUAGE_BRAIN_WARMUP_DELAY_MS)
             localLanguageBrain.refreshStatus()
         }
     }
@@ -1421,6 +1429,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onPause() {
         unregisterStrongShakeDetection()
+        main.removeCallbacks(warmLanguageBrainTask)
         main.removeCallbacks(idleLoop)
         if (baseAutonomyRequested) {
             // A backgrounded phone must not continue commanding wheel motion.
@@ -4049,6 +4058,38 @@ class MainActivity : ComponentActivity() {
                 System.currentTimeMillis(), currentCalendarHemisphere()
             )
         )
+    }
+
+    /**
+     * Start Qwen in the background only when Android reports comfortable RAM headroom.
+     * Explicit user questions can still request startup immediately through the normal path.
+     */
+    private fun warmLocalLanguageBrainIfSafe() {
+        if (isFinishing || isDestroyed || !::localLanguageBrain.isInitialized) return
+        if (localLanguageBrain.isReady ||
+            localLanguageBrain.currentState == LocalLlmState.LOADING ||
+            localLanguageBrain.currentState == LocalLlmState.DOWNLOADING
+        ) return
+
+        val manager = getSystemService(ACTIVITY_SERVICE) as ActivityManager
+        val info = ActivityManager.MemoryInfo()
+        manager.getMemoryInfo(info)
+        if (info.lowMemory || info.availMem < LANGUAGE_BRAIN_WARMUP_MIN_RAM_BYTES) {
+            Log.i(
+                "EVE_LLM",
+                "LOCAL_LLM_WARMUP_DEFERRED availableRam=" + info.availMem +
+                    " lowMemory=" + info.lowMemory +
+                    "; will start on an explicit open-ended question"
+            )
+            return
+        }
+
+        Log.i(
+            "EVE_LLM",
+            "LOCAL_LLM_WARMUP_START availableRam=" + info.availMem +
+                " foreground=true offlineAsset=true"
+        )
+        localLanguageBrain.start()
     }
 
     private fun isLocalLanguageBrainStarting(): Boolean =
