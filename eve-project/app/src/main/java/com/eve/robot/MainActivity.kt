@@ -192,6 +192,7 @@ class MainActivity : ComponentActivity() {
     private val faceCueSmoother = EveFaceCueSmoother(windowSize = 3, requiredVotes = 2)
     private val activityUnderstanding = EveActivityUnderstanding()
     private lateinit var activityLearningBridge: EveActivityLearningBridge
+    private lateinit var activityExperienceMemory: EveAutonomousExperienceMemory
     @Volatile private var latestRawActivityInterpretation: EveActivityInterpretation? = null
     private val personContextUnderstanding = EvePersonContextUnderstanding()
     private val personalTravelMemory by lazy {
@@ -464,6 +465,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         activityLearningBridge = EveActivityLearningBridge(java.io.File(filesDir, "eve_activity_learning.properties"))
+        activityExperienceMemory = EveAutonomousExperienceMemory(java.io.File(filesDir, "eve_autonomous_experiences.properties"))
         homeMapStore = EveHomeMapStore(applicationContext)
         savedHomeMapState = homeMapStore.load()
         savedHomeMapState?.let {
@@ -2894,8 +2896,20 @@ class MainActivity : ComponentActivity() {
     private fun applyHumanActivityInterpretation(rawResult: EveActivityInterpretation, now: Long) {
         if (isFinishing || isDestroyed) return
         if (rawResult.isActionable) latestRawActivityInterpretation = rawResult
-        // The learner can only influence a fresh activity hypothesis after at least three
-        // explicit user-confirmed examples and only when its local prototype match is unambiguous.
+        // Learn from repeated strong observations automatically, without requesting a correction.
+        // This records recurrence of a coarse activity/context pattern, not a new ground-truth label.
+        val experienceNote = if (rawResult.isActionable && ::activityExperienceMemory.isInitialized) {
+            activityExperienceMemory.observe(
+                activity = rawResult.activity,
+                confidence = rawResult.confidence,
+                evidenceCount = rawResult.evidenceCount,
+                durationMs = rawResult.durationMs,
+                visibleLabels = latestObjectLabels + latestImageClassifierLabels,
+                nowEpochMs = System.currentTimeMillis()
+            )?.summaryArabic.orEmpty()
+        } else ""
+        // Explicitly corrected examples may refine a small local classifier; autonomous experience
+        // memory remains separate so EVE does not train a classifier on her own guesses.
         val result = if (rawResult.isActionable && ::activityLearningBridge.isInitialized) {
             activityLearningBridge.applyLearnedCorrection(rawResult)
         } else rawResult
@@ -2904,6 +2918,7 @@ class MainActivity : ComponentActivity() {
             lastActivityObservationAt = now
             activeHumanActivityConfidence = result.confidence
             latestActivitySummary = result.explanationArabic +
+                (if (experienceNote.isNotBlank()) "؛ $experienceNote" else "") +
                 " (احتمال ${(result.confidence * 100f).toInt()}٪؛ وليس تأكيدًا)"
             if (result.activity != activeHumanActivity) {
                 activeHumanActivity = result.activity
