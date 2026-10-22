@@ -387,7 +387,7 @@ class LocalLanguageBrain(
                 previousAction = previousAction,
                 previousOutcome = previousOutcome
             ),
-            maxOutputTokens = 64,
+            maxOutputTokens = 96,
             callback = callback
         )
     }
