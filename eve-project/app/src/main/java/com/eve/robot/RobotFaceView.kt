@@ -5,6 +5,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.RectF
 import android.os.SystemClock
 import android.view.View
 import kotlin.math.max
@@ -21,6 +22,11 @@ private data class EyeContour(
 /** Draws two expressive cyan robot eyes only: no pupils, mouth, text, or visible control buttons. */
 class RobotFaceView(context: Context) : View(context) {
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
+    }
     private val shape = Path()
     private var mood = EveMood.AWAKE
     private var silhouette = EyeSilhouette.ALMOND
