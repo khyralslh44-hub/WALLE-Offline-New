@@ -59,8 +59,11 @@ jobs:
           test -s "$APK"
           SIZE="$(stat -c '%s' "$APK")"
           echo "Nova APK bytes=$SIZE"
-          if [ "$SIZE" -gt 15000000 ]; then
-            echo "FAIL: Nova APK is unexpectedly large for the lightweight profile."
+          # Both on-device ML Kit models are bundled for offline use, so the arm64 APK
+          # is larger than a model-free shell. The ABI filter above prevents shipping unused
+          # x86 and 32-bit native libraries; cap at 50 MB to catch accidental universal APKs.
+          if [ "$SIZE" -gt 50000000 ]; then
+            echo "FAIL: Nova arm64 APK exceeded 50 MB; check that unused ABIs were excluded."
             exit 1
           fi
           apksigner verify --verbose "$APK"
