@@ -125,17 +125,15 @@ class NovaActivity : ComponentActivity() {
         ))
 
         status = TextView(this).apply {
-            text = "N O V A • TAP TO LOOK"
+            text = "N O V A • STARTING VISION"
             textSize = 10f
             letterSpacing = 0.10f
             setTextColor(0xFF94C8FF.toInt())
             gravity = Gravity.CENTER
             setPadding(dp(14), dp(7), dp(14), dp(7))
-            background = pillBackground(0xCC09162B.toInt(), 0x664B8AE8)
-            isClickable = true
-            isFocusable = true
-            contentDescription = "تشغيل أو إيقاف رؤية نوفا المحلية"
-            setOnClickListener { toggleVision() }
+            contentDescription = "حالة الرؤية المحلية لنوفا"
+            isClickable = false
+            isFocusable = false
         }
         root.addView(status, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.WRAP_CONTENT,
@@ -144,7 +142,7 @@ class NovaActivity : ComponentActivity() {
         ).apply { topMargin = dp(20) })
 
         message = TextView(this).apply {
-            text = "أنا نوفا. فضولي وهادئ، وأفضّل التحقّق قبل الاستنتاج. اضغط على شريط الأعلى لتشغيل رؤيتي المحلية."
+            text = "أنا نوفا. فضولي وهادئ، وأفضّل التحقّق قبل الاستنتاج. أستخدم الكاميرا محليًا بعد إذنك، ولا أحفظ الصور."
             textSize = 16f
             setTextColor(0xFFE5F6FF.toInt())
             gravity = Gravity.CENTER
@@ -214,6 +212,11 @@ class NovaActivity : ComponentActivity() {
             }
         }
         setContentView(root)
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+            enableVision()
+        } else {
+            cameraPermissionRequest.launch(Manifest.permission.CAMERA)
+        }
     }
 
     private fun toggleVision() {
