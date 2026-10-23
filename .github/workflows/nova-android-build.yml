@@ -51,6 +51,20 @@ jobs:
           curl --fail --location --retry 3 "https://services.gradle.org/distributions/gradle-8.9-bin.zip" --output "$RUNNER_TEMP/gradle-8.9-bin.zip"
           unzip -q "$RUNNER_TEMP/gradle-8.9-bin.zip" -d "$RUNNER_TEMP"
 
+      - name: Download pinned offline vision model assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          ASSETS="nova-project/app/src/main/assets"
+          mkdir -p "$ASSETS"
+          curl --fail --location --retry 3 "https://storage.googleapis.com/mediapipe-models/image_classifier/efficientnet_lite0/float32/1/efficientnet_lite0.tflite" --output "$ASSETS/efficientnet_lite0.tflite"
+          curl --fail --location --retry 3 "https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite" --output "$ASSETS/efficientdet_lite0.tflite"
+          curl --fail --location --retry 3 "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task" --output "$ASSETS/pose_landmarker_lite.task"
+          for model in efficientnet_lite0.tflite efficientdet_lite0.tflite pose_landmarker_lite.task; do
+            test -s "$ASSETS/$model"
+            echo "Bundled model: $model ($(stat -c '%s' "$ASSETS/$model") bytes)"
+          done
+
       - name: Run unit tests and build installable Nova APK
         shell: bash
         run: |
