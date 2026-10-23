@@ -182,13 +182,13 @@ class RobotFaceView(context: Context) : View(context) {
         val shell = RectF(width * 0.055f, height * 0.17f, width * 0.945f, height * 0.84f)
         val shellRadius = min(shell.width(), shell.height()) * 0.22f
         canvas.drawRoundRect(shell, shellRadius, shellRadius, shellPaint)
+        val highlight = RectF(shell.left + shell.width() * 0.08f, shell.top + shell.height() * 0.06f,
+            shell.right - shell.width() * 0.08f, shell.bottom - shell.height() * 0.06f)
+        canvas.drawRoundRect(highlight, shellRadius * 0.92f, shellRadius * 0.92f, shellHighlightPaint)
         val visor = RectF(width * 0.115f, height * 0.235f, width * 0.885f, height * 0.765f)
         val visorRadius = min(visor.width(), visor.height()) * 0.28f
         canvas.drawRoundRect(visor, visorRadius, visorRadius, visorPaint)
         canvas.drawRoundRect(visor, visorRadius, visorRadius, visorEdgePaint)
-        val highlight = RectF(shell.left + shell.width() * 0.08f, shell.top + shell.height() * 0.06f,
-            shell.right - shell.width() * 0.08f, shell.bottom - shell.height() * 0.06f)
-        canvas.drawRoundRect(highlight, shellRadius * 0.92f, shellRadius * 0.92f, shellHighlightPaint)
 
         val now = SystemClock.uptimeMillis()
         updateTransition(now)
