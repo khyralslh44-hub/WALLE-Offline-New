@@ -1,5 +1,7 @@
 package com.nova.robot
 
+import java.util.Locale
+
 /**
  * NovaMind's offline-first orchestration layer.
  *
@@ -68,6 +70,8 @@ class NovaMind(
     private val maxPromptChars: Int = 1800,
     private val maxOutputTokens: Int = 120
 ) {
+    private val personalMemory = NovaPersonalMemory(memory)
+    private val knowledgeMemory = NovaKnowledgeMemory(memory)
     private val ownModel: NovaOwnModel = (
         NovaOwnModel.restore(memory.read(KEY_OWN_MODEL))
             ?: NovaOwnModel.restore(BOOTSTRAP_SNAPSHOT)
@@ -100,6 +104,23 @@ class NovaMind(
         val cleanedText = input.text.trim().take(1200)
         val visual = input.visualSummary?.trim()?.take(300).orEmpty()
         val interactionCount = memory.increment("interaction_count")
+        personalMemory.handle(cleanedText, input.nowMillis)?.let { personalReply ->
+            return NovaMindReply(
+                textArabic = personalReply,
+                emotion = NovaEmotion.THINKING,
+                usedLocalModel = false,
+                memoryUpdated = true,
+                usedOwnModel = false,
+                intent = NovaIntent.MEMORY_REQUEST,
+                intentConfidence = 0.99f
+            )
+        }
+        knowledgeMemory.handleCommand(cleanedText, input.nowMillis)?.let { teachingReply ->
+            return NovaMindReply(teachingReply, NovaEmotion.THINKING, false, true, false, NovaIntent.MEMORY_REQUEST, 0.99f)
+        }
+        knowledgeMemory.answerFor(cleanedText)?.let { savedAnswer ->
+            return NovaMindReply(savedAnswer, NovaEmotion.THINKING, false, false, false, NovaIntent.QUESTION, 0.99f)
+        }
         val prediction = ownModel.classify(cleanedText)
         val previousTopic = memory.read("last_topic")
         val topic = topicFor(prediction.intent)
@@ -115,7 +136,14 @@ class NovaMind(
 
         val generated = runCatching { localModel?.generate(prompt, maxOutputTokens) }.getOrNull()
             ?.trim()?.takeIf { it.isNotEmpty() && it.length <= 2000 }
-        val reply = generated ?: fallbackReply(cleanedText, visual, interactionCount, prediction.intent)
+        // If the small offline intent classifier mislabels a plainly worded question, use a
+        // cautious question response instead of an unrelated greeting or farewell.
+        val fallbackIntent = if (visual.isBlank() && isQuestionShaped(cleanedText)) {
+            NovaIntent.QUESTION
+        } else {
+            prediction.intent
+        }
+        val reply = generated ?: fallbackReply(cleanedText, visual, interactionCount, fallbackIntent)
         val memoryUpdated = topic != previousTopic
         if (memoryUpdated) memory.write(NovaMemoryItem("last_topic", topic, input.nowMillis))
         return NovaMindReply(
@@ -127,6 +155,12 @@ class NovaMind(
             intent = prediction.intent,
             intentConfidence = prediction.confidence
         )
+    }
+
+    private fun isQuestionShaped(rawText: String): Boolean {
+        val text = rawText.trim().lowercase(Locale.ROOT)
+        val prefixes = listOf("كم ", "ما ", "ماذا ", "كيف ", "لماذا ", "اين ", "أين ", "متى ", "هل ", "من ")
+        return text.endsWith("?") || text.endsWith("؟") || prefixes.any { text.startsWith(it) }
     }
 
     private fun topicFor(intent: NovaIntent): String = when (intent) {
@@ -163,17 +197,17 @@ class NovaMind(
             return if (visual.isNotBlank()) {
                 "ملخص الكاميرا المتاح لي هو: $visual. هذا وصف أولي وقد يكون غير دقيق."
             } else {
-                "أحتاج إلى نتيجة من الرؤية المحلية قبل أن أصف المشهد؛ لا أريد أن أخمّن ما أراه."
+                "أحتاج إلى نتيجة من الرؤية المحلية قبل أن أصف المشهد؛ لا أريد أن أخمّن ما أراه. وإذا كان سؤالك عن معلومة عامة لا أملكها، يمكنك تعليمي بصيغة «علّميني: السؤال = الإجابة»، وسأحفظها محليًا مع توضيح أنني لم أتحقق منها مستقلًا."
             }
         }
         return when (intent) {
             NovaIntent.GREETING -> "أهلًا، أنا نوفا. سأحاول فهمك، وسأوضح لك عندما لا أكون متأكدة."
-            NovaIntent.QUESTION -> "فهمت أنك تسألين عن شيء. نواتي العصبية الحالية تصنّف النية، لكنها لا تولّد بعد إجابات حرة مثل نموذج لغوي."
-            NovaIntent.MEMORY_REQUEST -> "أستطيع استخدام تفضيلات محلية عندما تضاف آلية حفظ صريحة؛ في هذه المرحلة أحفظ موضوع التفاعل فقط، لا تفاصيلك الشخصية."
+            NovaIntent.QUESTION -> "لا أملك حاليًا معرفة كافية لأجيب عن هذا السؤال بثقة، ولا أريد اختلاق إجابة. هل تساعدينني بتفصيل أو تعلّميني الإجابة؟ اكتبي مثلًا: «علّميني: السؤال = الإجابة». سأحفظها محليًا وأوضح أنها معلومة منك لم أتحقق منها مستقلًا."
+            NovaIntent.MEMORY_REQUEST -> "أستطيع تذكّر بعض المعلومات المحلية التي تختار حفظها، لكنني لا أحتفظ بنص المحادثة كاملة. ما الشيء الذي تريدني أن أتذكره؟"
             NovaIntent.POSITIVE_FEEDBACK -> "شكرًا لك! سأعتبر هذا تفاعلًا إيجابيًا وأحافظ على أسلوبي الهادئ."
             NovaIntent.NEGATIVE_FEEDBACK -> "يبدو أن ردي أو تصرفي لم يكن مناسبًا. سأتعامل مع ذلك كإشارة تصحيح، لكنني لن أتعلم تصنيفًا جديدًا إلا عند تأكيده."
             NovaIntent.FAREWELL -> "إلى اللقاء. سأبقى هادئة حتى تعود."
-            NovaIntent.UNKNOWN -> "لم أفهم قصدك بثقة كافية. نواتي الحالية صغيرة ومتخصصة في تصنيف النوايا، وليست نموذجًا لغويًا عامًا. (التفاعل $count)"
+            NovaIntent.UNKNOWN -> "لا أعرف المقصود أو الجواب بعد، ولن أخمّن. هل تشرح لي ما تقصده؟ وإذا كانت لديك المعلومة، علّميني بصيغة «علّميني: السؤال = الإجابة» لأحفظها محليًا بموافقتك."
             NovaIntent.VISION_QUERY -> "أحتاج إلى نتيجة موثوقة من الرؤية قبل وصف المشهد."
         }
     }

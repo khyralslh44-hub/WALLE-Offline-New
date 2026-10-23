@@ -1,7 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- Camera is opt-in while Nova is visible. There is deliberately no INTERNET or microphone permission. -->
+    <!-- Camera/microphone are requested only after an explicit user action. No INTERNET permission. -->
     <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <queries>
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+    </queries>
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <application
         android:allowBackup="false"
@@ -12,9 +23,20 @@
         android:supportsRtl="true"
         android:theme="@style/NovaTheme"
         android:usesCleartextTraffic="false">
+        <receiver
+            android:name=".NovaNotificationReceiver"
+            android:enabled="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+        <activity
+            android:name=".NovaGamesActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
         <activity
             android:name=".NovaActivity"
-            android:screenOrientation="portrait"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:exported="true">
             <intent-filter>

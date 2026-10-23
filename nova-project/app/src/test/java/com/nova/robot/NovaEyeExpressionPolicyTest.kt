@@ -1,0 +1,39 @@
+package com.nova.robot
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class NovaEyeExpressionPolicyTest {
+    @Test
+    fun sadnessFearAndDisgustHaveDistinctVisualProfiles() {
+        val sad = NovaEyeExpressionPolicy.profile(NovaMood.SAD, true)
+        val afraid = NovaEyeExpressionPolicy.profile(NovaMood.AFRAID, true)
+        val disgusted = NovaEyeExpressionPolicy.profile(NovaMood.DISGUSTED, true)
+        assertEquals(NovaEyePalette.VIOLET, sad.palette)
+        assertTrue(sad.tear)
+        assertEquals(NovaEyePalette.VIOLET, afraid.palette)
+        assertTrue(afraid.heightFactor > sad.heightFactor)
+        assertEquals(NovaEyePalette.LIME, disgusted.palette)
+        assertNotEquals(sad.heightFactor, disgusted.heightFactor)
+    }
+
+    @Test
+    fun loveUsesHeartEyesAndHappyUsesAnOpenFriendlyShape() {
+        val love = NovaEyeExpressionPolicy.profile(NovaMood.LOVE, true)
+        val happy = NovaEyeExpressionPolicy.profile(NovaMood.HAPPY, true)
+        assertTrue(love.heartShaped)
+        assertFalse(happy.heartShaped)
+        assertTrue(happy.smiling)
+    }
+
+    @Test
+    fun curiosityAndConfusionHaveDifferentAsymmetry() {
+        val curious = NovaEyeExpressionPolicy.profile(NovaMood.CURIOUS, true)
+        val confused = NovaEyeExpressionPolicy.profile(NovaMood.CONFUSED, true)
+        assertNotEquals(curious.heightFactor, confused.heightFactor)
+        assertTrue(confused.brow)
+    }
+}

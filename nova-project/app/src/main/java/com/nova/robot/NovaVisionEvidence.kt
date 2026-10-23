@@ -9,9 +9,47 @@ data class NovaLabelEvidence(val label: String, val confidence: Float)
  * generic animal labels are suppressed to avoid describing that face as a dog/cat.
  */
 object NovaVisionEvidence {
-    private val animalTerms = setOf("animal", "dog", "cat", "puppy", "kitten", "canine", "feline", "mammal")
+    private val animalTerms = setOf(
+        "animal", "animals", "dog", "dogs", "cat", "cats", "puppy", "puppies", "kitten", "kittens",
+        "canine", "feline", "mammal", "pet", "pets", "bird", "birds", "horse", "cow", "sheep",
+        "goat", "rabbit", "hamster", "rodent", "reptile", "wildlife", "livestock",
+        "golden retriever", "labrador", "german shepherd", "poodle", "bulldog", "husky", "beagle",
+        "persian cat", "siamese cat", "tabby"
+    )
     private val translations = mapOf(
         "chair" to "كرسي",
+        "couch" to "أريكة",
+        "sofa" to "أريكة",
+        "bed" to "سرير",
+        "dining table" to "طاولة طعام",
+        "desk" to "مكتب",
+        "fork" to "شوكة",
+        "knife" to "سكين",
+        "spoon" to "ملعقة",
+        "bowl" to "وعاء",
+        "wine glass" to "كأس",
+        "refrigerator" to "ثلاجة",
+        "microwave" to "ميكروويف",
+        "oven" to "فرن",
+        "sink" to "مغسلة",
+        "toilet" to "مرحاض",
+        "clock" to "ساعة",
+        "vase" to "مزهرية",
+        "scissors" to "مقص",
+        "backpack" to "حقيبة ظهر",
+        "umbrella" to "مظلة",
+        "handbag" to "حقيبة يد",
+        "suitcase" to "حقيبة سفر",
+        "sports ball" to "كرة رياضية",
+        "skateboard" to "لوح تزلج",
+        "tennis racket" to "مضرب تنس",
+        "teddy bear" to "دب محشو",
+        "toothbrush" to "فرشاة أسنان",
+        "hair drier" to "مجفف شعر",
+        "remote" to "جهاز تحكم",
+        "keyboard" to "لوحة مفاتيح",
+        "mouse" to "فأرة حاسوب",
+        "tv" to "تلفاز",
         "table" to "طاولة",
         "cup" to "كوب",
         "mug" to "كوب",
@@ -81,25 +119,31 @@ object NovaVisionEvidence {
             .filter { it.confidence.isFinite() && it.confidence >= MIN_LABEL_CONFIDENCE }
             .map { it.copy(label = normalize(it.label)) }
             .filter { it.label.isNotBlank() && it.label != "person" && it.label != "human" }
-            .filterNot { faceFound && it.label in animalTerms }
+            .filterNot { faceFound && isAnimalLabel(it.label) }
             .distinctBy { it.label }
             .sortedByDescending { it.confidence }
             .take(2)
             .mapNotNull { evidence ->
-                translations[evidence.label]?.let { "$it (${(evidence.confidence * 100).toInt()}٪)" }
+                translations[evidence.label]?.let { "$it (${(evidence.confidence.coerceIn(0f, 1f) * 100).toInt()}٪)" }
             }
             .toList()
 
         return when {
             faceFound && safeLabels.isNotEmpty() ->
-                "رصدت وجه شخص أمام الكاميرا، وقد أرى أيضًا: ${safeLabels.joinToString("، ")}. هذا وصف بصري تقريبي، ولا أتعرّف على هوية الشخص."
+                "أرى أمامي شخصًا، وقد يكون في محيطي أيضًا: ${safeLabels.joinToString("، ")}. هذه احتمالات بصرية تقريبية، ولا تكفي وحدها لمعرفة هوية الشخص أو شعوره."
             faceFound ->
-                "رصدت وجه شخص أمام الكاميرا. لا أستطيع تحديد هويته أو شعوره من هذا الكشف وحده."
+                "أرى أمامي شخصًا، لكنني لم أتعرف إلى هويته ولا أستطيع تأكيد شعوره من مظهر الوجه وحده."
             safeLabels.isNotEmpty() ->
-                "قد يكون في المشهد: ${safeLabels.joinToString("، ")}. إنها تخمينات من صورة واحدة وليست تأكيدًا."
+                "أظن أن في محيطي: ${safeLabels.joinToString("، ")}. هذه تخمينات من لقطة واحدة وليست معرفة مؤكدة."
             else ->
-                "أرى مشهدًا، لكن لم أجد دليلًا بصريًا كافيًا لتسمية ما فيه. سأبقى غير متأكدة بدل التخمين."
+                "لم أتعرف إلى ما أمامي بعد؛ لا أملك دليلًا كافيًا، وسأواصل الملاحظة بدل التخمين."
         }
+    }
+
+    private fun isAnimalLabel(label: String): Boolean {
+        if (label in animalTerms) return true
+        val words = label.split(Regex("[^\\p{L}\\p{N}]+")).filter { it.isNotBlank() }
+        return words.any { it in animalTerms }
     }
 
     private fun normalize(label: String): String =

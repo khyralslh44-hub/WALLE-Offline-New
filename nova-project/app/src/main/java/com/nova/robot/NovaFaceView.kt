@@ -1,5 +1,6 @@
 package com.nova.robot
 
+import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.LinearGradient
@@ -23,6 +24,10 @@ class NovaFaceView @JvmOverloads constructor(
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private var mood = NovaMood.CALM
     private var blinking = false
+    private var gazeX = 0f
+    private var gazeY = 0f
+    private var gazeAnimatorX: ValueAnimator? = null
+    private var gazeAnimatorY: ValueAnimator? = null
 
     private val blinkRunnable = object : Runnable {
         override fun run() {
@@ -44,6 +49,31 @@ class NovaFaceView @JvmOverloads constructor(
         invalidate()
     }
 
+    /** Smoothly glance toward the detected face position in the current camera frame. */
+    fun setGaze(normalizedX: Float, normalizedY: Float) {
+        val targetX = ((normalizedX.coerceIn(0f, 1f) - 0.5f) * 0.60f).coerceIn(-0.30f, 0.30f)
+        val targetY = ((normalizedY.coerceIn(0f, 1f) - 0.5f) * 0.48f).coerceIn(-0.24f, 0.24f)
+        if (kotlin.math.abs(targetX - gazeX) < 0.025f && kotlin.math.abs(targetY - gazeY) < 0.025f) return
+        gazeAnimatorX?.cancel()
+        gazeAnimatorY?.cancel()
+        gazeAnimatorX = ValueAnimator.ofFloat(gazeX, targetX).apply {
+            duration = 230L
+            addUpdateListener {
+                gazeX = it.animatedValue as Float
+                invalidate()
+            }
+            start()
+        }
+        gazeAnimatorY = ValueAnimator.ofFloat(gazeY, targetY).apply {
+            duration = 230L
+            addUpdateListener {
+                gazeY = it.animatedValue as Float
+                invalidate()
+            }
+            start()
+        }
+    }
+
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         removeCallbacks(blinkRunnable)
@@ -52,6 +82,10 @@ class NovaFaceView @JvmOverloads constructor(
 
     override fun onDetachedFromWindow() {
         removeCallbacks(blinkRunnable)
+        gazeAnimatorX?.cancel()
+        gazeAnimatorY?.cancel()
+        gazeAnimatorX = null
+        gazeAnimatorY = null
         super.onDetachedFromWindow()
     }
 
@@ -90,8 +124,8 @@ class NovaFaceView @JvmOverloads constructor(
         }
         val lookY = if (mood == NovaMood.THINKING) -eyeH * 0.12f else 0f
 
-        drawEye(canvas, leftX, eyeY, eyeW, eyeH, lookX, lookY, false, true)
-        drawEye(canvas, rightX, eyeY, eyeW, eyeH, lookX, lookY, mood == NovaMood.PLAYFUL, false)
+        drawEye(canvas, leftX, eyeY, eyeW, eyeH, lookX + gazeX * eyeW, lookY + gazeY * eyeH, false, true)
+        drawEye(canvas, rightX, eyeY, eyeW, eyeH, lookX + gazeX * eyeW, lookY + gazeY * eyeH, mood == NovaMood.PLAYFUL, false)
 
         // Small decorative lights stay dim so the eyes remain the clear focal point.
         drawOrbit(canvas, w * 0.17f, h * 0.28f, min(w, h) * 0.008f)
@@ -110,32 +144,12 @@ class NovaFaceView @JvmOverloads constructor(
         wink: Boolean,
         isLeft: Boolean
     ) {
-        var widthFactor = 0.50f
-        var heightFactor = 0.50f
-        var tilt = 0f
-        when (mood) {
-            NovaMood.SURPRISED -> { widthFactor = 0.55f; heightFactor = 0.63f }
-            NovaMood.SLEEPY -> { widthFactor = 0.52f; heightFactor = 0.31f }
-            NovaMood.HAPPY, NovaMood.WARM -> { widthFactor = 0.49f; heightFactor = 0.43f }
-            NovaMood.ALERT -> { widthFactor = 0.54f; heightFactor = 0.58f }
-            NovaMood.CAUTIOUS -> { widthFactor = 0.47f; heightFactor = 0.40f; tilt = if (isLeft) -5f else 5f }
-            NovaMood.TIRED -> { widthFactor = 0.51f; heightFactor = 0.28f }
-            NovaMood.CURIOUS -> {
-                heightFactor = if (isLeft) 0.58f else 0.48f
-                widthFactor = if (isLeft) 0.48f else 0.51f
-            }
-            NovaMood.FRUSTRATED -> {
-                heightFactor = 0.43f
-                tilt = if (isLeft) -12f else 12f
-            }
-            else -> Unit
-        }
-
-        val halfW = eyeW * widthFactor
-        val halfH = eyeH * heightFactor
+        val profile = NovaEyeExpressionPolicy.profile(mood, isLeft)
+        val halfW = eyeW * profile.widthFactor
+        val halfH = eyeH * profile.heightFactor
         val closed = blinking || wink
         canvas.save()
-        canvas.rotate(tilt, centerX, centerY)
+        canvas.rotate(profile.tiltDegrees, centerX, centerY)
 
         if (closed) {
             paint.shader = null
@@ -157,29 +171,64 @@ class NovaFaceView @JvmOverloads constructor(
             centerX - halfW, centerY - halfH,
             centerX + halfW, centerY + halfH
         )
+        val eyeColors = paletteColors(profile.palette)
+        if (profile.heartShaped) {
+            val heart = Path().apply {
+                moveTo(centerX, centerY + halfH)
+                cubicTo(centerX - halfW * 1.42f, centerY + halfH * 0.18f,
+                    centerX - halfW * 1.12f, centerY - halfH * 0.80f,
+                    centerX - halfW * 0.43f, centerY - halfH * 0.55f)
+                cubicTo(centerX - halfW * 0.12f, centerY - halfH * 0.43f,
+                    centerX, centerY - halfH * 0.08f, centerX, centerY)
+                cubicTo(centerX, centerY - halfH * 0.08f,
+                    centerX + halfW * 0.12f, centerY - halfH * 0.43f,
+                    centerX + halfW * 0.43f, centerY - halfH * 0.55f)
+                cubicTo(centerX + halfW * 1.12f, centerY - halfH * 0.80f,
+                    centerX + halfW * 1.42f, centerY + halfH * 0.18f,
+                    centerX, centerY + halfH)
+                close()
+            }
+            paint.style = Paint.Style.FILL
+            paint.shader = LinearGradient(bounds.left, bounds.top, bounds.right, bounds.bottom,
+                eyeColors, null, Shader.TileMode.CLAMP)
+            canvas.drawPath(heart, paint)
+            paint.shader = null
+            paint.color = 0xFFFFFFFF.toInt()
+            canvas.drawCircle(centerX - halfW * 0.38f, centerY - halfH * 0.32f,
+                (eyeW * 0.045f).coerceAtLeast(2f), paint)
+            canvas.restore()
+            return
+        }
+        // EMO-inspired digital eye silhouette: rounded rectangular pixels rather than a plain oval.
+        // The large corner radius stays friendly and avoids a harsh square appearance.
+        val cornerRadius = (min(halfW, halfH) * when (mood) {
+            NovaMood.SURPRISED, NovaMood.AFRAID, NovaMood.ALERT -> 0.68f
+            NovaMood.SLEEPY, NovaMood.TIRED -> 0.82f
+            NovaMood.DISGUSTED, NovaMood.FRUSTRATED -> 0.54f
+            else -> 0.72f
+        }).coerceAtLeast(2f)
         paint.style = Paint.Style.FILL
         paint.shader = LinearGradient(
             bounds.left, bounds.top, bounds.right, bounds.bottom,
-            intArrayOf(0xFF4ADFFF.toInt(), 0xFF329EFF.toInt(), 0xFF6F8FFF.toInt()),
-            null, Shader.TileMode.CLAMP
+            eyeColors, null, Shader.TileMode.CLAMP
         )
-        canvas.drawOval(bounds, paint)
+        canvas.drawRoundRect(bounds, cornerRadius, cornerRadius, paint)
         paint.shader = null
 
-        // Soft inner highlight keeps the eyes luminous without obscuring the pupils.
-        paint.color = 0xFFB9FBFF.toInt()
+        // An upper shine glides with the gaze; luminous eyes stay free from dark pupils.
+        paint.color = 0x66E9FFFF
         canvas.drawOval(
-            centerX - halfW * 0.72f, centerY - halfH * 0.68f,
-            centerX + halfW * 0.72f, centerY + halfH * 0.60f, paint
+            centerX - halfW * 0.66f + lookX * 0.18f,
+            centerY - halfH * 0.72f + lookY * 0.18f,
+            centerX + halfW * 0.48f + lookX * 0.18f,
+            centerY + halfH * 0.06f + lookY * 0.18f, paint
         )
-        paint.color = 0xFF08142B.toInt()
-        val pupilR = eyeW * if (mood == NovaMood.SURPRISED) 0.12f else 0.135f
-        canvas.drawCircle(centerX + lookX, centerY + lookY, pupilR, paint)
         paint.color = 0xFFFFFFFF.toInt()
+        val glintR = (eyeW * 0.045f).coerceAtLeast(2f)
         canvas.drawCircle(
-            centerX + lookX - pupilR * 0.28f,
-            centerY + lookY - pupilR * 0.32f,
-            pupilR * 0.34f, paint
+            centerX + lookX - halfW * 0.22f,
+            centerY + lookY - halfH * 0.22f,
+            glintR, paint
         )
 
         if (mood == NovaMood.SLEEPY || mood == NovaMood.TIRED) {
@@ -192,9 +241,9 @@ class NovaFaceView @JvmOverloads constructor(
             canvas.drawLine(bounds.left, centerY - halfH * 0.02f,
                 bounds.right, centerY - halfH * 0.02f, paint)
             paint.style = Paint.Style.FILL
-        } else if (mood == NovaMood.FRUSTRATED) {
+        } else if (profile.brow) {
             // Clear inward-leaning brows make frustration readable, but not threatening.
-            paint.color = 0xFFFFB5C5.toInt()
+            paint.color = if (mood == NovaMood.CONFUSED) 0xFF9BE9FF.toInt() else 0xFFFFB5C5.toInt()
             paint.style = Paint.Style.STROKE
             paint.strokeCap = Paint.Cap.ROUND
             paint.strokeWidth = (eyeW * 0.075f).coerceAtLeast(3f)
@@ -202,10 +251,11 @@ class NovaFaceView @JvmOverloads constructor(
             if (isLeft) {
                 canvas.drawLine(bounds.left, browY - halfH * 0.12f, centerX + halfW * 0.25f, browY + halfH * 0.10f, paint)
             } else {
-                canvas.drawLine(centerX - halfW * 0.25f, browY + halfH * 0.10f, bounds.right, browY - halfH * 0.12f, paint)
+                val endY = if (mood == NovaMood.CONFUSED) browY - halfH * 0.26f else browY - halfH * 0.12f
+                canvas.drawLine(centerX - halfW * 0.25f, browY + halfH * 0.10f, bounds.right, endY, paint)
             }
             paint.style = Paint.Style.FILL
-        } else if (mood == NovaMood.HAPPY || mood == NovaMood.WARM) {
+        } else if (profile.smiling) {
             // Gentle lower crescent: happiness stays open-eyed and friendly, not permanently shut.
             paint.color = 0xFFB9FBFF.toInt()
             paint.style = Paint.Style.STROKE
@@ -218,7 +268,39 @@ class NovaFaceView @JvmOverloads constructor(
             canvas.drawPath(smile, paint)
             paint.style = Paint.Style.FILL
         }
+
+        if (profile.tear) {
+            val tear = Path().apply {
+                moveTo(centerX + halfW * 0.78f, centerY + halfH * 0.25f)
+                cubicTo(centerX + halfW * 0.54f, centerY + halfH * 0.66f,
+                    centerX + halfW * 0.66f, centerY + halfH * 0.96f,
+                    centerX + halfW * 0.88f, centerY + halfH * 0.88f)
+                cubicTo(centerX + halfW * 1.12f, centerY + halfH * 0.72f,
+                    centerX + halfW * 1.02f, centerY + halfH * 0.48f,
+                    centerX + halfW * 0.78f, centerY + halfH * 0.25f)
+                close()
+            }
+            paint.color = 0xFF72DFFF.toInt()
+            canvas.drawPath(tear, paint)
+        }
         canvas.restore()
+    }
+
+    private fun paletteColors(palette: NovaEyePalette): IntArray = when (palette) {
+        NovaEyePalette.AQUA ->
+            intArrayOf(0xFFA7FFE8.toInt(), 0xFF36DCCB.toInt(), 0xFF3189F0.toInt())
+        NovaEyePalette.MINT ->
+            intArrayOf(0xFFB7FFF0.toInt(), 0xFF39E8C5.toInt(), 0xFF247FE0.toInt())
+        NovaEyePalette.ROSE ->
+            intArrayOf(0xFFFFD0DF.toInt(), 0xFFFF789A.toInt(), 0xFFAD70FF.toInt())
+        NovaEyePalette.ICE ->
+            intArrayOf(0xFFD7FFFF.toInt(), 0xFF56DFFF.toInt(), 0xFF377CFF.toInt())
+        NovaEyePalette.REST ->
+            intArrayOf(0xFF89D8D0.toInt(), 0xFF309FBB.toInt(), 0xFF2852A8.toInt())
+        NovaEyePalette.VIOLET ->
+            intArrayOf(0xFFD7D9FF.toInt(), 0xFF7D9EFF.toInt(), 0xFF6C66D7.toInt())
+        NovaEyePalette.LIME ->
+            intArrayOf(0xFFE2FFB4.toInt(), 0xFF8CEB9E.toInt(), 0xFF43B6A3.toInt())
     }
 
     private fun drawOrbit(canvas: Canvas, x: Float, y: Float, radius: Float) {

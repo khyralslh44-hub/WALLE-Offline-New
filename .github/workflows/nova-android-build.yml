@@ -51,6 +51,31 @@ jobs:
           curl --fail --location --retry 3 "https://services.gradle.org/distributions/gradle-8.9-bin.zip" --output "$RUNNER_TEMP/gradle-8.9-bin.zip"
           unzip -q "$RUNNER_TEMP/gradle-8.9-bin.zip" -d "$RUNNER_TEMP"
 
+      - name: Download pinned offline vision model assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          ASSETS="nova-project/app/src/main/assets"
+          mkdir -p "$ASSETS"
+          curl --fail --location --retry 3 "https://storage.googleapis.com/mediapipe-models/image_classifier/efficientnet_lite0/float32/1/efficientnet_lite0.tflite" --output "$ASSETS/efficientnet_lite0.tflite"
+          curl --fail --location --retry 3 "https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite" --output "$ASSETS/efficientdet_lite0.tflite"
+          curl --fail --location --retry 3 "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task" --output "$ASSETS/pose_landmarker_lite.task"
+          curl --fail --location --retry 3 "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task" --output "$ASSETS/face_landmarker.task"
+          curl --fail --location --retry 3 "https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task" --output "$ASSETS/gesture_recognizer.task"
+          curl --fail --location --retry 3 "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/mobile_facenet/releases/v0.65.0/mobile_facenet-tflite-float.zip" --output "$RUNNER_TEMP/mobile_facenet.zip"
+          # MIT-licensed compact facial-expression model, pinned to an immutable commit.
+          curl --fail --location --retry 3 "https://raw.githubusercontent.com/CodeArtisanRiz/FaceEmotion/e9b3557aff430c73eb2cad4517f05b7374e79a9d/app/src/main/assets/simple_classifier.tflite" --output "$ASSETS/simple_classifier.tflite"
+          curl --fail --location --retry 3 "https://raw.githubusercontent.com/CodeArtisanRiz/FaceEmotion/e9b3557aff430c73eb2cad4517f05b7374e79a9d/LICENSE" --output "$ASSETS/SIMPLE_CLASSIFIER_LICENSE.txt"
+          mkdir -p "$RUNNER_TEMP/mobile_facenet"
+          unzip -q "$RUNNER_TEMP/mobile_facenet.zip" -d "$RUNNER_TEMP/mobile_facenet"
+          FACE_MODEL="$(find "$RUNNER_TEMP/mobile_facenet" -type f -iname '*.tflite' -print -quit)"
+          test -n "$FACE_MODEL"
+          cp "$FACE_MODEL" "$ASSETS/mobile_facenet.tflite"
+          for model in efficientnet_lite0.tflite efficientdet_lite0.tflite pose_landmarker_lite.task face_landmarker.task gesture_recognizer.task mobile_facenet.tflite simple_classifier.tflite SIMPLE_CLASSIFIER_LICENSE.txt; do
+            test -s "$ASSETS/$model"
+            echo "Bundled model: $model ($(stat -c '%s' "$ASSETS/$model") bytes)"
+          done
+
       - name: Run unit tests and build installable Nova APK
         shell: bash
         run: |
@@ -60,20 +85,22 @@ jobs:
           test -s "$APK"
           SIZE="$(stat -c '%s' "$APK")"
           echo "Nova APK bytes=$SIZE"
-          # Both on-device ML Kit models are bundled for offline use, so the arm64 APK
-          # is larger than a model-free shell. The ABI filter above prevents shipping unused
-          # x86 and 32-bit native libraries; cap at 50 MB to catch accidental universal APKs.
-          if [ "$SIZE" -gt 50000000 ]; then
-            echo "FAIL: Nova arm64 APK exceeded 50 MB; check that unused ABIs were excluded."
+          # Bundled offline vision models and Android runtimes make this APK larger.
+          # Keep the guard at 100 MB and retain ABI filters to exclude unused native libraries.
+          if [ "$SIZE" -gt 100000000 ]; then
+            echo "FAIL: Nova arm64 APK exceeded 100 MB; inspect for accidental universal ABIs."
             exit 1
           fi
           apksigner verify --verbose "$APK"
-          if grep -Eq 'uses-permission[^>]+android.permission.(INTERNET|RECORD_AUDIO)' nova-project/app/src/main/AndroidManifest.xml; then
-            echo "FAIL: Nova must not request internet or microphone permission."
+          if grep -Eq 'uses-permission[^>]+android.permission.INTERNET' nova-project/app/src/main/AndroidManifest.xml; then
+            echo "FAIL: Nova must not request internet permission."
             exit 1
           fi
           grep -Fq 'android.permission.CAMERA' nova-project/app/src/main/AndroidManifest.xml
-          echo "PASS: Nova is standalone, signed, local-only and uses its camera only after explicit in-app opt-in."
+          grep -Fq 'android.permission.RECORD_AUDIO' nova-project/app/src/main/AndroidManifest.xml
+          grep -Fq 'createOnDeviceSpeechRecognizer' nova-project/app/src/main/java/com/nova/robot/NovaOfflineSpeechInput.kt
+          grep -Fq 'isNetworkConnectionRequired' nova-project/app/src/main/java/com/nova/robot/NovaLocalTts.kt
+          echo "PASS: no internet permission; camera/microphone are opt-in and speech uses on-device recognition/local Arabic TTS voices."
 
       - name: Upload Nova installable APK
         uses: actions/upload-artifact@v4
