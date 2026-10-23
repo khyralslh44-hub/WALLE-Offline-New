@@ -1,30 +1,31 @@
-# NovaMind Hybrid — implementation plan
+# NovaMind Hybrid — from-scratch model milestone
 
-## Current milestone: offline orchestration scaffold
+## What is implemented in this branch
 
-This branch adds `NovaMind.kt` and unit tests. It is **not yet a bundled language model** and is not yet connected to the main activity. The injected `LocalLanguageModel` interface is the seam for an on-device inference runtime. Without an installed model, the code reports that limitation honestly and uses a small deterministic fallback.
+- `NovaOwnModel.kt` contains a small multi-layer perceptron (192 hashed text features, a 20-unit hidden layer, and 7 intent classes). Its weights start from deterministic random initialization; it trains locally from the source-controlled Arabic seed examples. It uses no pretrained weights, external model library, cloud API, or network download.
+- The model classifies seven broad intents: greeting, question, vision query, memory request, positive feedback, negative feedback, and farewell. It reports confidence and can return UNKNOWN for blank/low-confidence inputs.
+- `NovaMind.kt` uses the classifier to select a coarse response style and simulated behavior state. Explicit corrections can update the weights. A compact versioned weight snapshot can be stored via the supplied `NovaMindMemory` interface and restored on the next initialization.
+- The unit-test source covers common Arabic examples, snapshot round-trip, correction updates, bounded fallback behavior, and honest capability boundaries.
 
-## Target architecture for Redmi 12
+## Important limitations
 
-1. **Conversation model (local):** evaluate a quantized 0.5B–1B instruct model in GGUF format with an Android-compatible `llama.cpp` JNI/runtime integration. Do not select or bundle weights until device RAM, ABI, model license, tokenizer, Arabic quality, and Android runtime compatibility have been checked. The model file is a separate large asset, not source code.
-2. **Coordinator:** this Kotlin module bounds user input, prompt size, and output tokens; accepts only an injected local model; has no network client.
-3. **Memory:** replace `InMemoryNovaMindMemory` in production with app-private Room/SQLite storage. Persist only explicit, compact facts and coarse topics by default; do not store raw camera frames or full conversation transcripts. Provide a way to inspect and clear saved memory.
-4. **Emotion/personality:** use a bounded state vector and event history to influence expression and response style. This is a behavioral simulation, not proof of human-like feelings. Add cooldowns and repeat detection to avoid random or repetitive actions.
-5. **Vision:** keep ML Kit results as evidence with confidence. Face detection alone does not identify a person or infer emotion/action. Add specialized on-device models only after evaluating false positives and resource use.
-6. **Future robot body:** define a separate Bluetooth transport interface with explicit safety states, sensor freshness checks, motor stop-on-disconnect, and edge/obstacle safeguards. No motor commands should be enabled until hardware and sensors are known.
+This model is **not** a general-purpose language generator. It does not understand arbitrary Arabic text at ChatGPT level and does not generate open-ended answers. The short responses are authored templates selected by the neural classifier. The seed examples are a small, manually written starter dataset; robust generalization will require a larger reviewed dataset and measured error analysis.
 
-## Performance acceptance targets (must be measured on the actual phone)
+The existing `NovaActivity` still instantiates the older `NovaBrain` and is a face/tap/camera interface, not a conversational text UI. Therefore this PR adds the neural module to the project but does **not** yet connect it to the running activity. The memory interface also needs an Android persistent implementation before learning is guaranteed to survive app restarts in the shipped app. Build and test status must be checked from GitHub Actions; real Redmi 12 performance and airplane-mode behavior are not yet measured.
 
-- Fully offline cold start after the model/runtime is installed; airplane-mode test passes.
-- Peak memory and thermal behavior remain stable during a 10-minute conversation test.
-- First-token latency target: under 5 seconds for short prompts, with graceful fallback if the runtime times out. This is a target, not a measured result.
-- Output budget defaults to 120 tokens to control latency and battery.
-- No INTERNET permission is added for local inference.
-- Arabic prompt suite tests answer relevance, unsupported claims, repetition, and uncertainty handling.
-- Camera suite includes people vs. pets, low light, partial faces, and ambiguous scenes; report precision/recall rather than claiming perfect recognition.
-- Memory suite verifies restart persistence, no raw image/audio storage, user clear-memory operation, and resistance to incorrect repeated learning.
-- Battery/thermal test runs at least 10 minutes; report model, quantization, RAM, CPU, latency, and APK/model sizes.
+## Next implementation steps
 
-## Test status
+1. Confirm GitHub Actions builds this branch and all unit tests pass.
+2. Add a persistent Android implementation of `NovaMindMemory` with a user-visible way to inspect and clear local data; never store raw camera frames or full conversation transcripts by default.
+3. Integrate classifier outputs with `NovaActivity`/behavior control, with repetition cooldowns and no unrequested noisy actions.
+4. Decide how Nova receives natural-language input while preserving the desired buttonless face UI. No microphone is currently requested by the app.
+5. Expand Arabic evaluation examples, measure confusion between classes, and add a hold-out test set not used for training.
+6. Test runtime, memory, battery, thermal behavior, and offline operation on the actual Redmi 12.
 
-The unit tests in `NovaMindTest.kt` check local-model injection, honest fallback behavior, coarse-topic memory, bounded inputs, and deterministic mood classification. They do **not** test neural language quality, on-device inference speed, or real-device offline behavior. Those require a compatible model runtime and a physical Redmi 12 test.
+## Target constraints
+
+- No internet permission or remote inference for this milestone.
+- Short inputs are bounded to 800 characters in the classifier; the coordinator bounds prompt/input/output size.
+- User corrections should be explicit; a correction changes weights but is not proof of general intelligence.
+- Emotional labels represent simulated behavior states, not human feelings.
+- Camera face detection alone does not identify people or reliably infer emotion/action.
