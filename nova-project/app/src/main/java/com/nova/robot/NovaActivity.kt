@@ -64,6 +64,7 @@ class NovaActivity : ComponentActivity() {
     private lateinit var localPreferences: SharedPreferences
     private lateinit var affect: NovaAffectEngine
     private lateinit var peopleMemory: NovaPeopleMemory
+    private val curiosity = NovaCuriosityEngine()
     private val main = Handler(Looper.getMainLooper())
     private var lastInteractionElapsed = 0L
     private var lastTapElapsed = 0L
@@ -285,6 +286,7 @@ class NovaActivity : ComponentActivity() {
         affect.observe(NovaAffectEvent.USER_RETURNED, System.currentTimeMillis())
         persistAffect()
         lastVisionSummary = ""
+        curiosity.reset()
         lastInteractionElapsed = SystemClock.elapsedRealtime()
         face.setMood(NovaMood.CALM)
         message.text = "مسحت ذاكرة نوفا المحلية، بما فيها أسماء الوجوه المسجلة وتصحيحات التعلم. لم أحتفظ بصور للوجوه."
@@ -658,7 +660,8 @@ class NovaActivity : ComponentActivity() {
         if (summary == lastVisionSummary) return
         lastVisionSummary = summary
         val affectMood = recordAffect(if (hasFace) NovaAffectEvent.NOVEL_OBSERVATION else NovaAffectEvent.UNCERTAIN_OBSERVATION)
-        message.text = summary
+        val question = curiosity.questionFor(summary, System.currentTimeMillis())
+        message.text = if (question == null) summary else "$summary\n$question"
         face.setMood(when (affectMood) {
             NovaAffectMood.ALERT -> NovaMood.ALERT
             NovaAffectMood.CAUTIOUS -> NovaMood.CAUTIOUS
