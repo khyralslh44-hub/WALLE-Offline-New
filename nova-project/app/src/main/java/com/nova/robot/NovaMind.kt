@@ -68,9 +68,14 @@ class NovaMind(
     private val maxPromptChars: Int = 1800,
     private val maxOutputTokens: Int = 120
 ) {
-    private val ownModel: NovaOwnModel = NovaOwnModel.restore(memory.read(KEY_OWN_MODEL))
-        ?: NovaOwnModel.trainFromScratch().also { model ->
-            memory.write(NovaMemoryItem(KEY_OWN_MODEL, model.snapshot(), System.currentTimeMillis()))
+    private val ownModel: NovaOwnModel = (
+        NovaOwnModel.restore(memory.read(KEY_OWN_MODEL))
+            ?: NovaOwnModel.restore(BOOTSTRAP_SNAPSHOT)
+            ?: error("NovaOwnModel bootstrap snapshot could not be restored")
+        ).also { model ->
+            if (memory.read(KEY_OWN_MODEL) == null) {
+                memory.write(NovaMemoryItem(KEY_OWN_MODEL, model.snapshot(), System.currentTimeMillis()))
+            }
         }
 
     fun classifyIntent(text: String): NovaIntentPrediction = ownModel.classify(text)
@@ -176,5 +181,8 @@ class NovaMind(
     companion object {
         private const val KEY_OWN_MODEL = "novamind_own_model_snapshot_v1"
         private const val KEY_CORRECTION_COUNT = "novamind_correction_count"
+        private val BOOTSTRAP_SNAPSHOT: String by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+            NovaOwnModel.trainFromScratch().snapshot()
+        }
     }
 }
