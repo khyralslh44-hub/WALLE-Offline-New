@@ -2750,9 +2750,11 @@ class MainActivity : ComponentActivity() {
 
         fun publishQuestion(questionRaw: String, llmResult: LocalLlmResult?) {
             if (isFinishing || isDestroyed) return
-            val question = questionRaw.trim().take(84).let {
-                if (it.endsWith("؟") || it.endsWith("?")) it else "$it؟"
-            }
+            // Curiosity may be a short observation or invitation, not always a question.
+            // Keep each utterance as one compact message; never force a question mark onto it.
+            val question = questionRaw.trim()
+                .replace(Regex("\\s+"), " ")
+                .take(84)
             val publishedAt = System.currentTimeMillis()
             preferences.edit()
                 .putLong("last_question_at", publishedAt)
