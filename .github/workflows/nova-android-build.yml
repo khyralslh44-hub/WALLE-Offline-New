@@ -1,0 +1,79 @@
+name: Nova Standalone Android Build
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'nova-project/**'
+      - '.github/workflows/nova-android-build.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nova-standalone-build
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build and test lightweight Nova app
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Android SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager -print 2>/dev/null | sort -V | tail -n 1)"
+          if [ -z "$SDKMANAGER" ]; then
+            echo "ERROR: sdkmanager not found under $SDK_ROOT/cmdline-tools"
+            exit 1
+          fi
+          yes | "$SDKMANAGER" --sdk_root="$SDK_ROOT" --licenses >/dev/null 2>&1 || true
+          "$SDKMANAGER" --sdk_root="$SDK_ROOT" --install "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+          echo "$SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
+
+      - name: Install Gradle 8.9
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 "https://services.gradle.org/distributions/gradle-8.9-bin.zip" --output "$RUNNER_TEMP/gradle-8.9-bin.zip"
+          unzip -q "$RUNNER_TEMP/gradle-8.9-bin.zip" -d "$RUNNER_TEMP"
+
+      - name: Run unit tests and build installable Nova APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/gradle-8.9/bin/gradle" -p nova-project --no-daemon testDebugUnitTest assembleDebug
+          APK="nova-project/app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$APK"
+          SIZE="$(stat -c '%s' "$APK")"
+          echo "Nova APK bytes=$SIZE"
+          if [ "$SIZE" -gt 15000000 ]; then
+            echo "FAIL: Nova APK is unexpectedly large for the lightweight profile."
+            exit 1
+          fi
+          apksigner verify --verbose "$APK"
+          if grep -Eq 'uses-permission[^>]+android.permission.(INTERNET|CAMERA|RECORD_AUDIO)' nova-project/app/src/main/AndroidManifest.xml; then
+            echo "FAIL: the lightweight offline Nova manifest declares network, camera, or microphone permission."
+            exit 1
+          fi
+          echo "PASS: Nova is standalone, signed, and has no model bundle or network/camera/mic permissions."
+
+      - name: Upload Nova installable APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: NOVA-Standalone-APK
+          path: nova-project/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
