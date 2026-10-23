@@ -474,8 +474,16 @@ class NovaActivity : ComponentActivity() {
                     val detectedFaces = if (faceTask.isSuccessful) faceTask.result.orEmpty() else emptyList()
                     val hasFace = detectedFaces.isNotEmpty()
                     var identityNote = ""
+                    var faceCueNote = ""
                     if (hasFace) {
                         val largest = detectedFaces.maxByOrNull { it.boundingBox.width() * it.boundingBox.height() }
+                        faceCueNote = largest?.let {
+                            NovaFaceCueEvidence.summarize(
+                                it.smilingProbability,
+                                it.leftEyeOpenProbability,
+                                it.rightEyeOpenProbability
+                            )
+                        }.orEmpty()
                         val crop = largest?.let { runCatching { extractFaceCrop(proxy, it.boundingBox) }.getOrNull() }
                         if (crop != null) {
                             synchronized(faceCropLock) {
@@ -502,7 +510,8 @@ class NovaActivity : ComponentActivity() {
                         emptyList()
                     }
                     val baseSummary = NovaVisionEvidence.summarize(hasFace, labels)
-                    val summary = if (identityNote.isNotBlank()) "$baseSummary\n$identityNote" else baseSummary
+                    val notes = listOf(identityNote, faceCueNote).filter { it.isNotBlank() }
+                    val summary = if (notes.isNotEmpty()) "$baseSummary\n${notes.joinToString("\n")}" else baseSummary
                     runOnUiThread {
                         if (visionEnabled && resumed && !isFinishing && !isDestroyed) {
                             applyVisionSummary(summary, hasFace)
@@ -669,6 +678,7 @@ class NovaActivity : ComponentActivity() {
             localFaceDetector = FaceDetection.getClient(
                 FaceDetectorOptions.Builder()
                     .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST)
+                    .setClassificationMode(FaceDetectorOptions.CLASSIFICATION_MODE_ALL)
                     .build()
             )
         }
