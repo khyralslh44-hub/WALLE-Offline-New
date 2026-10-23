@@ -66,8 +66,8 @@ internal class NovaPersonalMemory(private val memory: NovaMindMemory) {
         .lineSequence()
         .map { it.trim() }
         .filter { it.length >= 3 }
-        .takeLast(MAX_NOTES)
         .toList()
+        .takeLast(MAX_NOTES)
 
     private fun normalize(value: String): String = value.trim()
         .lowercase(Locale.ROOT)
