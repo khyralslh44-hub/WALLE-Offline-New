@@ -6,6 +6,7 @@ import android.util.Log
 import com.google.mediapipe.framework.image.BitmapImageBuilder
 import com.google.mediapipe.tasks.core.BaseOptions
 import com.google.mediapipe.tasks.vision.core.RunningMode
+import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarker
 import com.google.mediapipe.tasks.vision.imageclassifier.ImageClassifier
 import com.google.mediapipe.tasks.vision.objectdetector.ObjectDetector
 import com.google.mediapipe.tasks.vision.poselandmarker.PoseLandmarker
@@ -24,6 +25,7 @@ internal class NovaAdvancedVision(context: Context) : AutoCloseable {
     private var classifier: ImageClassifier? = null
     private var detector: ObjectDetector? = null
     private var poseLandmarker: PoseLandmarker? = null
+    private var faceLandmarker: FaceLandmarker? = null
 
     @Synchronized
     fun analyze(bitmap: Bitmap): NovaAdvancedVisionResult {
@@ -76,6 +78,31 @@ internal class NovaAdvancedVision(context: Context) : AutoCloseable {
                 }
         }.onFailure { Log.w(TAG, "EfficientDet-Lite object detection unavailable.", it) }
 
+        val faceExpressionNote = runCatching {
+            val task = faceLandmarker ?: FaceLandmarker.createFromOptions(
+                appContext,
+                FaceLandmarker.FaceLandmarkerOptions.builder()
+                    .setBaseOptions(BaseOptions.builder().setModelAssetPath("face_landmarker.task").build())
+                    .setRunningMode(RunningMode.IMAGE)
+                    .setNumFaces(1)
+                    .setOutputFaceBlendshapes(true)
+                    .build()
+            ).also { faceLandmarker = it }
+            val categories = task.detect(image).faceBlendshapes().orElse(emptyList())
+                .firstOrNull()?.categories().orEmpty()
+                .associate { it.categoryName() to it.score() }
+            val smile = ((categories["mouthSmileLeft"] ?: 0f) + (categories["mouthSmileRight"] ?: 0f)) / 2f
+            val leftBlink = categories["eyeBlinkLeft"] ?: 0f
+            val rightBlink = categories["eyeBlinkRight"] ?: 0f
+            val browDown = ((categories["browDownLeft"] ?: 0f) + (categories["browDownRight"] ?: 0f)) / 2f
+            val cues = mutableListOf<String>()
+            if (smile >= 0.65f) cues += "نموذج تعابير الوجه رصد نمطًا بصريًا قريبًا من الابتسام"
+            if (leftBlink >= 0.70f && rightBlink >= 0.70f) cues += "نموذج الوجه رصد إغلاقًا محتملًا للعينين"
+            if (browDown >= 0.70f) cues += "نموذج الوجه رصد انخفاضًا في الحاجبين؛ لا يحدد ذلك الغضب وحده"
+            if (cues.isEmpty()) null
+            else cues.joinToString("، ") + ". إشارات شكلية تقريبية وليست قراءة مؤكدة للمشاعر."
+        }.onFailure { Log.w(TAG, "Face expression model unavailable.", it) }.getOrNull()
+
         val poseNote = runCatching {
             val task = poseLandmarker ?: PoseLandmarker.createFromOptions(
                 appContext,
@@ -92,7 +119,7 @@ internal class NovaAdvancedVision(context: Context) : AutoCloseable {
             else "رصدت نموذجًا لهيئة جسم بشري؛ لا يمكن استنتاج الرياضة أو الأكل من هذه اللقطة وحدها."
         }.onFailure { Log.w(TAG, "Pose Landmarker unavailable.", it) }.getOrNull()
 
-        return NovaAdvancedVisionResult(labels.values.toList(), poseNote)
+        return NovaAdvancedVisionResult(labels.values.toList(), listOfNotNull(faceExpressionNote, poseNote).joinToString("\n").ifBlank { null })
     }
 
     @Synchronized
@@ -100,9 +127,11 @@ internal class NovaAdvancedVision(context: Context) : AutoCloseable {
         runCatching { classifier?.close() }
         runCatching { detector?.close() }
         runCatching { poseLandmarker?.close() }
+        runCatching { faceLandmarker?.close() }
         classifier = null
         detector = null
         poseLandmarker = null
+        faceLandmarker = null
     }
 
     private companion object { const val TAG = "NOVA_ADV_VISION" }
