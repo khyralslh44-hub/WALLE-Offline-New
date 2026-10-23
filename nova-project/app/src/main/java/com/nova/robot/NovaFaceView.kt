@@ -199,12 +199,20 @@ class NovaFaceView @JvmOverloads constructor(
             canvas.restore()
             return
         }
+        // EMO-inspired digital eye silhouette: rounded rectangular pixels rather than a plain oval.
+        // The large corner radius stays friendly and avoids a harsh square appearance.
+        val cornerRadius = (min(halfW, halfH) * when (mood) {
+            NovaMood.SURPRISED, NovaMood.AFRAID, NovaMood.ALERT -> 0.68f
+            NovaMood.SLEEPY, NovaMood.TIRED -> 0.82f
+            NovaMood.DISGUSTED, NovaMood.FRUSTRATED -> 0.54f
+            else -> 0.72f
+        }).coerceAtLeast(2f)
         paint.style = Paint.Style.FILL
         paint.shader = LinearGradient(
             bounds.left, bounds.top, bounds.right, bounds.bottom,
             eyeColors, null, Shader.TileMode.CLAMP
         )
-        canvas.drawOval(bounds, paint)
+        canvas.drawRoundRect(bounds, cornerRadius, cornerRadius, paint)
         paint.shader = null
 
         // An upper shine glides with the gaze; luminous eyes stay free from dark pupils.
