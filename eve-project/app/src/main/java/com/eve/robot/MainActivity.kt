@@ -1,6 +1,7 @@
 package com.eve.robot
 
 import android.Manifest
+import android.media.AudioManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
@@ -374,6 +375,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Keep hardware volume keys mapped to EVE's generated voice/media audio even in immersive mode.
+        setVolumeControlStream(AudioManager.STREAM_MUSIC)
         homeMapStore = EveHomeMapStore(applicationContext)
         savedHomeMapState = homeMapStore.load()
         savedHomeMapState?.let {
@@ -438,15 +441,8 @@ class MainActivity : ComponentActivity() {
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT
             ))
-            addView(cameraStatus, FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                Gravity.TOP or Gravity.CENTER_HORIZONTAL
-            ).apply {
-                topMargin = dp(16)
-                marginStart = dp(12)
-                marginEnd = dp(12)
-            })
+            // Keep camera/microphone diagnostics internal so the face screen stays clean:
+            // no persistent status text or chip is drawn above/below Nova's eyes.
             addView(dialogueBubble, FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -496,7 +492,16 @@ class MainActivity : ComponentActivity() {
                 }
                 MotionEvent.ACTION_UP -> {
                     val releasedAt = SystemClock.uptimeMillis()
-                    val longPress = releasedAt - touchDownAt >= 550L
+                    val heldMs = releasedAt - touchDownAt
+                    val longPress = heldMs >= 550L
+                    // Hold the face for 1.4 seconds to open the offline game room.
+                    // This keeps the main face free of permanent labels and buttons.
+                    if (heldMs >= 1_400L) {
+                        lastTapUptime = 0L
+                        startActivity(Intent(this@MainActivity, RobotGamesActivity::class.java))
+                        Log.i("EVE", "GAME_ROOM_OPEN_GESTURE source=face_long_press")
+                        return@setOnTouchListener true
+                    }
                     val tapDistance = kotlin.math.hypot(
                         (event.x - lastTapX).toDouble(),
                         (event.y - lastTapY).toDouble()
@@ -2038,10 +2043,15 @@ class MainActivity : ComponentActivity() {
                                 isIntroduction = false
                             )
                             react(decision, playSound = false)
-                            showDialogueText(
-                                "أهلًا ${match.profile.name}، أعتقد أنني تعرّفت عليك من الذاكرة المحلية.",
-                                durationMs = 5_500L
-                            )
+                            val greeting = if (
+                                match.profile.personKey == "friend" ||
+                                match.profile.personKey == "friend_female"
+                            ) {
+                                "أهلًا ${match.profile.name}! سعيد بشوفتك. كيف يومك؟"
+                            } else {
+                                "أهلًا ${match.profile.name}، تذكّرتك من الذاكرة المحلية."
+                            }
+                            showDialogueText(greeting, durationMs = 5_500L)
                             Log.i(
                                 "EVE_PEOPLE",
                                 "FACE_PROFILE_MATCH id=${match.profile.id} relation=${match.profile.personKey} " +
@@ -2745,9 +2755,11 @@ class MainActivity : ComponentActivity() {
 
         fun publishQuestion(questionRaw: String, llmResult: LocalLlmResult?) {
             if (isFinishing || isDestroyed) return
-            val question = questionRaw.trim().take(84).let {
-                if (it.endsWith("؟") || it.endsWith("?")) it else "$it؟"
-            }
+            // Curiosity may be a short observation or invitation, not always a question.
+            // Keep each utterance as one compact message; never force a question mark onto it.
+            val question = questionRaw.trim()
+                .replace(Regex("\\s+"), " ")
+                .take(84)
             val publishedAt = System.currentTimeMillis()
             preferences.edit()
                 .putLong("last_question_at", publishedAt)
@@ -3641,6 +3653,11 @@ class MainActivity : ComponentActivity() {
         if (isFinishing || isDestroyed || !::dialogueBubble.isInitialized || text.isBlank()) return
         main.removeCallbacks(hideDialogue)
         dialogueBubble.animate().cancel()
+        if (!EveVisibleMessagePolicy.shouldDisplay(text)) {
+            dialogueBubble.visibility = View.GONE
+            Log.d("EVE_DIALOGUE", "SUPPRESSED_INTERNAL_REFLECTION")
+            return
+        }
         dialogueBubble.text = text
         dialogueBubble.contentDescription = text
         dialogueBubble.alpha = 0f

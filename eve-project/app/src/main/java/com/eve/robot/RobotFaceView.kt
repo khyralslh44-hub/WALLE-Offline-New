@@ -162,6 +162,8 @@ class RobotFaceView(context: Context) : View(context) {
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         canvas.drawColor(Color.rgb(2, 7, 10))
+
+        // Eyes only: keep the dark background and cyan animated eyes, with no head, shell, visor, or body.
         val now = SystemClock.uptimeMillis()
         updateTransition(now)
         if (animate && now >= blinkAt) {
