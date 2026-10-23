@@ -1,5 +1,7 @@
 package com.nova.robot
 
+import java.util.Locale
+
 /**
  * NovaMind's offline-first orchestration layer.
  *
@@ -134,7 +136,14 @@ class NovaMind(
 
         val generated = runCatching { localModel?.generate(prompt, maxOutputTokens) }.getOrNull()
             ?.trim()?.takeIf { it.isNotEmpty() && it.length <= 2000 }
-        val reply = generated ?: fallbackReply(cleanedText, visual, interactionCount, prediction.intent)
+        // If the small offline intent classifier mislabels a plainly worded question, use a
+        // cautious question response instead of an unrelated greeting or farewell.
+        val fallbackIntent = if (visual.isBlank() && isQuestionShaped(cleanedText)) {
+            NovaIntent.QUESTION
+        } else {
+            prediction.intent
+        }
+        val reply = generated ?: fallbackReply(cleanedText, visual, interactionCount, fallbackIntent)
         val memoryUpdated = topic != previousTopic
         if (memoryUpdated) memory.write(NovaMemoryItem("last_topic", topic, input.nowMillis))
         return NovaMindReply(
@@ -146,6 +155,12 @@ class NovaMind(
             intent = prediction.intent,
             intentConfidence = prediction.confidence
         )
+    }
+
+    private fun isQuestionShaped(rawText: String): Boolean {
+        val text = rawText.trim().lowercase(Locale.ROOT)
+        val prefixes = listOf("كم ", "ما ", "ماذا ", "كيف ", "لماذا ", "اين ", "أين ", "متى ", "هل ", "من ")
+        return text.endsWith("?") || text.endsWith("؟") || prefixes.any { text.startsWith(it) }
     }
 
     private fun topicFor(intent: NovaIntent): String = when (intent) {
