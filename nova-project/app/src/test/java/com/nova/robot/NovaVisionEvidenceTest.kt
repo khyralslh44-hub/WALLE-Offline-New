@@ -70,7 +70,6 @@ class NovaVisionEvidenceTest {
         val summary = NovaVisionEvidence.summarize(faceFound = true, labels = emptyList())
         assertTrue(summary.contains("لا أستطيع تحديد هويته أو شعوره"))
     }
-}
 
     @Test fun animalBreedLabelsAreSuppressedWhenFaceDetectorFindsPerson() {
         val summary = NovaVisionEvidence.summarize(
@@ -96,3 +95,4 @@ class NovaVisionEvidenceTest {
         assertTrue(summary.contains("كرسي (100٪)"))
         assertFalse(summary.contains("170٪"))
     }
+}
