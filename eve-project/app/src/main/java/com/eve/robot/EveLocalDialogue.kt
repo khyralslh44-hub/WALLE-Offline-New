@@ -37,18 +37,20 @@ object EveCuriosityEngine {
         val noun = arabicLabel(key)
         // Keep curiosity prompts short and about the observed thing, never about an unknown person.
         val text = when {
+            isPerson(key) ->
+                "أرى شخصًا. ما اسمك؟"
             count >= 5 ->
-                "ما زال " + noun + " يلفت انتباهي."
+                "ألاحظ " + noun + " كثيرًا؛ هل كل مشاهدة للشيء نفسه؟"
             isAnimal(key) ->
-                "هذا " + noun + " لفت انتباهي. لنكتشفه!"
+                "هذا " + noun + " لفت انتباهي. ما رأيك أن نكتشفه؟"
             isFood(key) ->
-                "همم، " + noun + "! لفت انتباهي."
+                "همم، " + noun + "! لفت انتباهي. ما قصته؟"
             isPlant(key) ->
-                "ما أجمل " + noun + "؛ أريد أن ألاحظ تفاصيله."
+                "ما أجمل " + noun + "؛ ما رأيك أن نلاحظ تفاصيله؟"
             else -> when ((previousQuestionCount + count) % 3) {
-                0 -> "لفت " + noun + " انتباهي. لنلقِ نظرة أقرب."
-                1 -> "أريد أن أفهم هذا " + noun + " أكثر."
-                else -> "هذا " + noun + " جديد عليّ. لنكتشفه."
+                0 -> "لفت " + noun + " انتباهي. هل نلقي نظرة أقرب؟"
+                1 -> "أريد أن أفهم هذا " + noun + " أكثر، هل تعرفه؟"
+                else -> "هذا " + noun + " جديد عليّ. هل نكتشفه؟"
             }
         }
         return EveCuriosityThought(
@@ -60,7 +62,7 @@ object EveCuriosityEngine {
     }
 
     private fun isWorthExploring(label: String) =
-        isAnimal(label) || isFood(label) || isPlant(label) || (!isPerson(label) && label in INTERESTING_OBJECTS)
+        isPerson(label) || isAnimal(label) || isFood(label) || isPlant(label) || label in INTERESTING_OBJECTS
     private fun isAnimal(label: String) = listOf("animal", "cat", "dog", "bird", "pet", "puppy", "kitten", "horse", "rabbit", "fish", "hamster", "turtle", "butterfly").any(label::contains)
     private fun isFood(label: String) = listOf("food", "fruit", "banana", "apple", "pizza", "bread", "meal", "sandwich", "vegetable", "cake", "orange", "strawberry", "egg", "cookie").any(label::contains)
     private fun isPlant(label: String) = listOf("plant", "flower", "tree", "leaf", "grass", "garden", "cactus").any(label::contains)
