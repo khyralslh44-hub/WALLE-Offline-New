@@ -26,7 +26,10 @@ internal class NovaEmotionClassifier(context: Context) : AutoCloseable {
 
     init {
         val modelBytes = context.applicationContext.assets.open(MODEL_ASSET).use { it.readBytes() }
-        interpreter = Interpreter(modelBytes, Interpreter.Options().setNumThreads(2))
+        val modelBuffer = ByteBuffer.allocateDirect(modelBytes.size).order(ByteOrder.nativeOrder())
+        modelBuffer.put(modelBytes)
+        modelBuffer.rewind()
+        interpreter = Interpreter(modelBuffer, Interpreter.Options().setNumThreads(2))
         interpreter.allocateTensors()
         val inputTensor = interpreter.getInputTensor(0)
         val outputTensor = interpreter.getOutputTensor(0)
