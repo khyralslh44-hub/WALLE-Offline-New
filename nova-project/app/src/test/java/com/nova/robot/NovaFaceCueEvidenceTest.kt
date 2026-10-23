@@ -8,7 +8,8 @@ class NovaFaceCueEvidenceTest {
         val result = NovaFaceCueEvidence.summarize(0.91f, 0.88f, 0.92f)
         val cue = result ?: error("Expected a cautious smile cue")
         assertTrue(cue.contains("إشارة ابتسام محتملة"))
-        assertTrue(cue.contains("ليست حكمًا على مشاعر"))
+        assertTrue(cue.contains("ألاحظ بعض الإشارات"))
+        assertTrue(cue.contains("لا تثبت ما يشعر به الشخص"))
     }
 
     @Test fun closedEyeCueRequiresBothEyesAndValidProbabilities() {
