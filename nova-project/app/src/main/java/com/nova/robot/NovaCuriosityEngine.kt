@@ -6,9 +6,11 @@ package com.nova.robot
  * It never treats a face expression as proof of someone's inner feelings.
  */
 internal class NovaCuriosityEngine(
+    private val memory: NovaMindMemory? = null,
     private val cooldownMillis: Long = 90_000L,
     private val minimumGapMillis: Long = 35_000L
 ) {
+    init { restoreState() }
     private data class Cue(val key: String, val lines: List<String>)
     private var lastKey: String? = null
     private var lastAt = Long.MIN_VALUE
@@ -31,6 +33,7 @@ internal class NovaCuriosityEngine(
         lastKey = cue.key
         lastAt = nowMillis
         lastAnyAt = nowMillis
+        persistState(nowMillis)
         return line
     }
 
@@ -137,5 +140,33 @@ internal class NovaCuriosityEngine(
         lastAt = Long.MIN_VALUE
         lastAnyAt = Long.MIN_VALUE
         useCounts.clear()
+        persistState(System.currentTimeMillis())
+    }
+
+    private fun persistState(nowMillis: Long) {
+        val counts = useCounts.entries.joinToString(";") { "${it.key}=${it.value}" }
+        val snapshot = listOf(lastKey.orEmpty(), lastAt.toString(), lastAnyAt.toString(), counts)
+            .joinToString("\\t")
+        memory?.write(NovaMemoryItem(KEY_CURIOUS_STATE, snapshot, nowMillis.coerceAtLeast(0L)))
+    }
+
+    private fun restoreState() {
+        val snapshot = memory?.read(KEY_CURIOUS_STATE) ?: return
+        val pieces = snapshot.split('\\t', limit = 4)
+        if (pieces.size != 4) return
+        lastKey = pieces[0].ifBlank { null }
+        lastAt = pieces[1].toLongOrNull() ?: Long.MIN_VALUE
+        lastAnyAt = pieces[2].toLongOrNull() ?: Long.MIN_VALUE
+        pieces[3].split(";").forEach { entry ->
+            val parts = entry.split("=", limit = 2)
+            if (parts.size == 2) {
+                val count = parts[1].toIntOrNull()
+                if (!parts[0].isBlank() && count != null && count >= 0) useCounts[parts[0]] = count
+            }
+        }
+    }
+
+    private companion object {
+        const val KEY_CURIOUS_STATE = "nova_curiosity_state_v1"
     }
 }

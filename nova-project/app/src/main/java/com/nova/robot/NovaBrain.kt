@@ -6,7 +6,7 @@ package com.nova.robot
  */
 enum class NovaMood {
     CALM, CURIOUS, HAPPY, SURPRISED, THINKING, SLEEPY, PLAYFUL, FRUSTRATED,
-    WARM, ALERT, CAUTIOUS, TIRED
+    WARM, ALERT, CAUTIOUS, TIRED, SAD, DISGUSTED, AFRAID, LOVE, CONFUSED
 }
 
 data class NovaEvent(

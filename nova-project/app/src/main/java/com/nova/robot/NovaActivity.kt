@@ -66,7 +66,7 @@ class NovaActivity : ComponentActivity() {
     private lateinit var localPreferences: SharedPreferences
     private lateinit var affect: NovaAffectEngine
     private lateinit var peopleMemory: NovaPeopleMemory
-    private val curiosity = NovaCuriosityEngine()
+    private lateinit var curiosity: NovaCuriosityEngine
     private val main = Handler(Looper.getMainLooper())
     private var lastInteractionElapsed = 0L
     private var lastTapElapsed = 0L
@@ -151,6 +151,7 @@ class NovaActivity : ComponentActivity() {
             )
         localPreferences = getSharedPreferences("nova_local_memory", MODE_PRIVATE)
         store = SharedPreferencesNovaMemory(localPreferences)
+        curiosity = NovaCuriosityEngine(store)
         brain = NovaBrain(store)
         mind = NovaMind(store)
         affect = NovaAffectEngine()
@@ -432,17 +433,24 @@ class NovaActivity : ComponentActivity() {
             showEvent(NovaEvent(NovaMood.CAUTIOUS, "واجهت مشكلة في تحليل النص محليًا. لم أرسل أي بيانات إلى الإنترنت.", hapticMillis = 12L), playSound = false)
             return
         }
-        val mood = when (reply.emotion) {
-            NovaEmotion.CALM -> NovaMood.CALM
-            NovaEmotion.CURIOUS -> NovaMood.CURIOUS
-            NovaEmotion.HAPPY -> NovaMood.HAPPY
-            NovaEmotion.SURPRISED -> NovaMood.SURPRISED
-            NovaEmotion.FRUSTRATED -> NovaMood.FRUSTRATED
-            NovaEmotion.SLEEPY -> NovaMood.SLEEPY
-            NovaEmotion.PLAYFUL -> NovaMood.PLAYFUL
-            NovaEmotion.THINKING -> NovaMood.THINKING
-        }
         val confidence = (reply.intentConfidence.coerceIn(0f, 1f) * 100).toInt()
+        val normalizedUserText = userText
+            .replace(Regex("[\\u064B-\\u065F\\u0670]"), "")
+            .replace('أ', 'ا').replace('إ', 'ا').replace('آ', 'ا')
+        val mood = when {
+            normalizedUserText.contains("احبك") || normalizedUserText.contains("احبك يا نوفا") -> NovaMood.LOVE
+            reply.intent == NovaIntent.UNKNOWN || confidence < 36 -> NovaMood.CONFUSED
+            else -> when (reply.emotion) {
+                NovaEmotion.CALM -> NovaMood.CALM
+                NovaEmotion.CURIOUS -> NovaMood.CURIOUS
+                NovaEmotion.HAPPY -> NovaMood.HAPPY
+                NovaEmotion.SURPRISED -> NovaMood.SURPRISED
+                NovaEmotion.FRUSTRATED -> NovaMood.FRUSTRATED
+                NovaEmotion.SLEEPY -> NovaMood.SLEEPY
+                NovaEmotion.PLAYFUL -> NovaMood.PLAYFUL
+                NovaEmotion.THINKING -> NovaMood.THINKING
+            }
+        }
         val note = if (reply.intent == NovaIntent.UNKNOWN || confidence < 36) "\n(لم أكن واثقة من تصنيف القصد)" else "\n(تصنيف محلي: $confidence٪)"
         showEvent(NovaEvent(mood, reply.textArabic + note, isQuestion = reply.intent == NovaIntent.QUESTION || reply.intent == NovaIntent.VISION_QUERY, hapticMillis = 16L), playSound = true)
         // Only an installed offline Arabic voice is used; there is no cloud TTS fallback.
@@ -927,9 +935,10 @@ class NovaActivity : ComponentActivity() {
 
     private fun showEvent(event: NovaEvent, playSound: Boolean) {
         val affectSignal = when (event.mood) {
-            NovaMood.HAPPY, NovaMood.PLAYFUL, NovaMood.WARM -> NovaAffectEvent.FRIENDLY_INTERACTION
+            NovaMood.HAPPY, NovaMood.PLAYFUL, NovaMood.WARM, NovaMood.LOVE -> NovaAffectEvent.FRIENDLY_INTERACTION
             NovaMood.FRUSTRATED -> NovaAffectEvent.USER_CORRECTION
-            NovaMood.THINKING, NovaMood.CURIOUS -> NovaAffectEvent.UNCERTAIN_OBSERVATION
+            NovaMood.THINKING, NovaMood.CURIOUS, NovaMood.CONFUSED, NovaMood.SAD,
+            NovaMood.AFRAID, NovaMood.DISGUSTED -> NovaAffectEvent.UNCERTAIN_OBSERVATION
             else -> NovaAffectEvent.FRIENDLY_INTERACTION
         }
         val affectMood = recordAffect(affectSignal)
@@ -955,6 +964,11 @@ class NovaActivity : ComponentActivity() {
             NovaMood.ALERT -> "N O V A • A L E R T"
             NovaMood.CAUTIOUS -> "N O V A • C A U T I O U S"
             NovaMood.TIRED -> "N O V A • R E S T I N G"
+            NovaMood.SAD -> "N O V A • S A D"
+            NovaMood.DISGUSTED -> "N O V A • REACTING"
+            NovaMood.AFRAID -> "N O V A • ALERT"
+            NovaMood.LOVE -> "N O V A • W A R M"
+            NovaMood.CONFUSED -> "N O V A • THINKING"
             NovaMood.CALM -> "N O V A • LOCAL ROBOT"
         }
         if (event.hapticMillis > 0L) face.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)

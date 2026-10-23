@@ -57,6 +57,35 @@ class NovaMindTest {
         assertTrue(reply.usedLocalModel)
     }
 
+    @Test fun explicitPersonalMemoryIsSavedAndCanBeRecalledWithoutStoringTheConversation() {
+        val memory = InMemoryNovaMindMemory()
+        val brain = NovaMind(memory)
+        val saved = brain.respond(NovaMindInput("تذكري أنني أحب القهوة", nowMillis = 10L))
+        assertTrue(saved.textArabic.contains("حفظت هذه المعلومة"))
+        assertEquals(NovaIntent.MEMORY_REQUEST, saved.intent)
+        assertTrue(saved.textArabic.contains("القهوة"))
+        assertNull(memory.read("تذكري أنني أحب القهوة"))
+
+        val recalled = NovaMind(memory).respond(NovaMindInput("ماذا تتذكر عني؟", nowMillis = 20L))
+        assertTrue(recalled.textArabic.contains("أحب القهوة"))
+    }
+
+    @Test fun personalMemoryCanForgetOneNoteOrClearAllNotes() {
+        val memory = InMemoryNovaMindMemory()
+        val brain = NovaMind(memory)
+        brain.respond(NovaMindInput("تذكر أنني أحب القهوة", nowMillis = 10L))
+        brain.respond(NovaMindInput("تذكر أنني أفضّل الهدوء", nowMillis = 11L))
+        val forgot = brain.respond(NovaMindInput("انس أنني أحب القهوة", nowMillis = 12L))
+        assertTrue(forgot.textArabic.contains("نسيت المعلومة"))
+        val remaining = NovaMind(memory).respond(NovaMindInput("ماذا تتذكر عني", nowMillis = 13L))
+        assertTrue(remaining.textArabic.contains("أفضّل الهدوء"))
+        assertFalse(remaining.textArabic.contains("أحب القهوة"))
+
+        val cleared = NovaMind(memory).respond(NovaMindInput("انس كل ما تتذكره عني", nowMillis = 14L))
+        assertTrue(cleared.textArabic.contains("مسحت كل الملاحظات"))
+        assertTrue(NovaMind(memory).respond(NovaMindInput("ماذا تتذكر عني", nowMillis = 15L)).textArabic.contains("لا توجد لديّ"))
+    }
+
     @Test fun blankInputGetsSafeArabicFallback() {
         val reply = NovaMind(InMemoryNovaMindMemory()).respond(NovaMindInput("   "))
         assertTrue(reply.textArabic.isNotBlank())

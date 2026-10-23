@@ -114,11 +114,11 @@ internal object NovaEmotionEvidence {
         val percent = (best.coerceIn(0f, 1f) * 100).toInt()
         val mood = when (bestIndex) {
             0 -> NovaMood.FRUSTRATED
-            1 -> NovaMood.CAUTIOUS
-            2 -> NovaMood.ALERT
+            1 -> NovaMood.DISGUSTED
+            2 -> NovaMood.AFRAID
             3 -> NovaMood.HAPPY
             4 -> NovaMood.CALM
-            5 -> NovaMood.TIRED
+            5 -> NovaMood.SAD
             6 -> NovaMood.SURPRISED
             else -> null
         }

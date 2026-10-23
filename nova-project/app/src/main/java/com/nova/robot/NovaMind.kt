@@ -68,6 +68,7 @@ class NovaMind(
     private val maxPromptChars: Int = 1800,
     private val maxOutputTokens: Int = 120
 ) {
+    private val personalMemory = NovaPersonalMemory(memory)
     private val ownModel: NovaOwnModel = (
         NovaOwnModel.restore(memory.read(KEY_OWN_MODEL))
             ?: NovaOwnModel.restore(BOOTSTRAP_SNAPSHOT)
@@ -100,6 +101,17 @@ class NovaMind(
         val cleanedText = input.text.trim().take(1200)
         val visual = input.visualSummary?.trim()?.take(300).orEmpty()
         val interactionCount = memory.increment("interaction_count")
+        personalMemory.handle(cleanedText, input.nowMillis)?.let { personalReply ->
+            return NovaMindReply(
+                textArabic = personalReply,
+                emotion = NovaEmotion.THINKING,
+                usedLocalModel = false,
+                memoryUpdated = true,
+                usedOwnModel = false,
+                intent = NovaIntent.MEMORY_REQUEST,
+                intentConfidence = 0.99f
+            )
+        }
         val prediction = ownModel.classify(cleanedText)
         val previousTopic = memory.read("last_topic")
         val topic = topicFor(prediction.intent)

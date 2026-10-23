@@ -55,4 +55,13 @@ class NovaCuriosityEngineTest {
         val second = engine.questionFor("أظن أن في محيطي: زهرة (82٪).", 1_101L)
         assertNotEquals(first, second)
     }
+
+    @Test fun questionCooldownSurvivesEngineRecreation() {
+        val memory = InMemoryNovaMindMemory()
+        val first = NovaCuriosityEngine(memory, cooldownMillis = 90_000L, minimumGapMillis = 0L)
+        assertNotNull(first.questionFor("أظن أن في محيطي: زهرة (82٪).", 1_000L))
+        val recreated = NovaCuriosityEngine(memory, cooldownMillis = 90_000L, minimumGapMillis = 0L)
+        assertNull(recreated.questionFor("أظن أن في محيطي: زهرة (82٪).", 30_000L))
+        assertNotNull(recreated.questionFor("أظن أن في محيطي: زهرة (82٪).", 92_000L))
+    }
 }
