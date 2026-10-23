@@ -58,8 +58,13 @@ internal object NovaEnrollmentParser {
         )
         for ((relation, pattern, _) in patterns) {
             val match = Regex(pattern).matchEntire(relationAndName) ?: continue
-            val name = match.groupValues[1].trim().takeIf { it.isNotBlank() } ?: continue
-            if (name.length > 42 || name.split(' ').size > 3) return null
+            val normalizedName = match.groupValues[1].trim().takeIf { it.isNotBlank() } ?: continue
+            val displayName = Regex("(?:اسمها|اسمه)\\s+(.+)$")
+                .find(raw.trim())?.groupValues?.get(1)?.trim()
+                ?: normalizedName
+            val name = displayName.replace(Regex("[^\\p{L}\\p{N}\\s'-]"), " ")
+                .replace(Regex("\\s+"), " ").trim()
+            if (name.isBlank() || name.length > 42 || name.split(' ').size > 3) return null
             if (name.split(' ').any { it.length < 2 }) return null
             return NovaEnrollmentRequest(relation, name)
         }
