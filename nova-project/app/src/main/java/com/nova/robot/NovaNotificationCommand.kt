@@ -5,6 +5,8 @@ import java.util.Locale
 internal sealed class NovaNotificationCommand {
     object EnableDaily : NovaNotificationCommand()
     object DisableDaily : NovaNotificationCommand()
+    object EnableAutonomous : NovaNotificationCommand()
+    object DisableAutonomous : NovaNotificationCommand()
     object Test : NovaNotificationCommand()
     data class Reminder(val delayMillis: Long, val spokenDelay: String, val message: String) : NovaNotificationCommand()
 }
@@ -18,6 +20,8 @@ internal object NovaNotificationCommandParser {
             "فعلي التذكيرات", "شغلي التذكيرات" -> return NovaNotificationCommand.EnableDaily
             "اوقفي اشعارات نوفا", "عطلي اشعارات نوفا", "اوقفي الاشعارات", "عطلي الاشعارات",
             "اوقفي التذكيرات" -> return NovaNotificationCommand.DisableDaily
+            "فعلي اشعارات نوفا التلقائية", "فعلي الرسائل التلقائية", "اجعلي نوفا تختار وقت الاشعار" -> return NovaNotificationCommand.EnableAutonomous
+            "اوقفي اشعارات نوفا التلقائية", "اوقفي الرسائل التلقائية", "عطلي الاشعارات التلقائية" -> return NovaNotificationCommand.DisableAutonomous
             "اختبري اشعارات نوفا", "اختبري الاشعارات", "ارسلي اشعارا تجريبيا",
             "ارسلي اشعار تجريبي", "ارسل اشعارا تجريبيا" -> return NovaNotificationCommand.Test
         }

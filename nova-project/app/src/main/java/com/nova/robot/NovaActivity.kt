@@ -18,6 +18,10 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.text.InputFilter
 import android.text.InputType
 import android.util.Log
@@ -58,7 +62,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  * microphone, cloud inference, or raw image storage is used.
  * Vision runs on small 320x240 frames with a throttle so the phone is not continuously stressed.
  */
-class NovaActivity : ComponentActivity() {
+class NovaActivity : ComponentActivity(), SensorEventListener {
     private lateinit var face: NovaFaceView
     private lateinit var message: TextView
     private lateinit var status: TextView
@@ -75,6 +79,15 @@ class NovaActivity : ComponentActivity() {
     @Volatile private var latestPlaceEvidenceAtElapsed: Long = 0L
     @Volatile private var latestExperienceObservation: String = ""
     private val main = Handler(Looper.getMainLooper())
+    private lateinit var sensorManager: SensorManager
+    private var accelerometer: Sensor? = null
+    private val shakeDetector = NovaShakeDetector()
+    private val sleepCueTracker = NovaSleepCueTracker()
+    private val snowfallTracker = NovaSnowfallTracker()
+    private val transientActionTracker = NovaTransientActionTracker()
+    private val handGestureStabilizer = NovaHandGestureStabilizer()
+    private var latestHandGestureNote = ""
+    private var latestHandGestureNoteAt = 0L
     private var lastInteractionElapsed = 0L
     private var lastTapElapsed = 0L
     private var pressDownX = 0f
@@ -169,6 +182,8 @@ class NovaActivity : ComponentActivity() {
                 View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
                 View.SYSTEM_UI_FLAG_LAYOUT_STABLE
             )
+        sensorManager = getSystemService(SENSOR_SERVICE) as SensorManager
+        accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
         localPreferences = getSharedPreferences("nova_local_memory", MODE_PRIVATE)
         store = SharedPreferencesNovaMemory(localPreferences)
         curiosity = NovaCuriosityEngine(store)
@@ -190,6 +205,7 @@ class NovaActivity : ComponentActivity() {
         novaVoice = NovaVoice(this, main)
         localTts = NovaLocalTts(this)
         lastInteractionElapsed = SystemClock.elapsedRealtime()
+        NovaLocalNotifications.markInteraction(this)
 
         val root = FrameLayout(this).apply { setBackgroundColor(Color.rgb(4, 8, 21)) }
         face = NovaFaceView(this)
@@ -435,6 +451,8 @@ class NovaActivity : ComponentActivity() {
     private fun handleMindInput(rawText: String) {
         val userText = rawText.trim().take(800)
         if (userText.isBlank()) return
+        lastInteractionElapsed = SystemClock.elapsedRealtime()
+        NovaLocalNotifications.markInteraction(this)
         if (handleNotificationCommand(userText)) return
         if (openNovaGameIfRequested(userText)) return
         NovaExpressionCommand.parse(userText)?.let { request ->
@@ -519,6 +537,20 @@ class NovaActivity : ComponentActivity() {
                 }
                 true
             }
+            NovaNotificationCommand.EnableAutonomous -> {
+                withNotificationPermission {
+                    NovaLocalNotifications.enableAutonomous(this)
+                    showEvent(NovaEvent(NovaMood.CURIOUS,
+                        "فعّلت وضع الرسائل التي يختار موعدها نظام محلي: لا رسالة قبل مرور 6 ساعات بلا تفاعل، بين 10 صباحًا و8 مساءً، وبفاصل لا يقل عن 22 ساعة. يمكنك إيقافه بقول «أوقفي الرسائل التلقائية».",
+                        hapticMillis = 14L), playSound = false)
+                }
+                true
+            }
+            NovaNotificationCommand.DisableAutonomous -> {
+                NovaLocalNotifications.disableAutonomous(this)
+                showEvent(NovaEvent(NovaMood.CALM, "أوقفت وضع الرسائل التلقائية.", hapticMillis = 12L), playSound = false)
+                true
+            }
             NovaNotificationCommand.DisableDaily -> {
                 NovaLocalNotifications.disableDaily(this)
                 showEvent(NovaEvent(NovaMood.CALM,
@@ -599,6 +631,7 @@ class NovaActivity : ComponentActivity() {
 
     private fun toggleVision() {
         lastInteractionElapsed = SystemClock.elapsedRealtime()
+        NovaLocalNotifications.markInteraction(this)
         if (visionEnabled) {
             visionEnabled = false
             stopVisionCamera()
@@ -727,9 +760,11 @@ class NovaActivity : ComponentActivity() {
                     var gazeX = 0.5f
                     var gazeY = 0.5f
                     var emotionPrediction: NovaEmotionPrediction? = null
+                    var sleepNote = ""
                     if (hasFace) {
                         val largest = detectedFaces.maxByOrNull { it.boundingBox.width() * it.boundingBox.height() }
                         if (largest != null) {
+                            sleepNote = sleepCueTracker.observe(true, largest.leftEyeOpenProbability, largest.rightEyeOpenProbability, now).orEmpty()
                             val rotatedWidth = if (proxy.imageInfo.rotationDegrees % 180 == 0) proxy.width else proxy.height
                             val rotatedHeight = if (proxy.imageInfo.rotationDegrees % 180 == 0) proxy.height else proxy.width
                             gazeX = (largest.boundingBox.centerX().toFloat() / rotatedWidth.coerceAtLeast(1)).coerceIn(0f, 1f)
@@ -762,6 +797,7 @@ class NovaActivity : ComponentActivity() {
                             clearLatestFaceCrop()
                         }
                     } else {
+                        sleepCueTracker.observe(false, null, null, now)
                         clearLatestFaceCrop()
                     }
                     val mlKitLabels = if (labelTask.isSuccessful) {
@@ -788,7 +824,8 @@ class NovaActivity : ComponentActivity() {
                                     advancedFrame,
                                     includeSceneModels = sceneCycle,
                                     includeFaceBlendshapes = !sceneCycle,
-                                    includePose = true
+                                    includePose = true,
+                                    includeHandGestures = true
                                 )
                             } else null
                         } catch (error: Exception) {
@@ -810,7 +847,17 @@ class NovaActivity : ComponentActivity() {
                         null
                     }
                     val activityNote = activityRecognizer.observe(advancedResult?.poseFeatures, labels, now).orEmpty()
-                    val environmentNote = NovaEnvironmentRecognizer.summarize(labels).orEmpty()
+                    val gestureNote = if (advancedResult != null) handGestureStabilizer.observe(advancedResult.handGestureCue, now) else null
+                    if (gestureNote != null && gestureNote != latestHandGestureNote) {
+                        latestHandGestureNote = gestureNote
+                        latestHandGestureNoteAt = now
+                    }
+                    if (now < latestHandGestureNoteAt || now - latestHandGestureNoteAt > 8_000L) latestHandGestureNote = ""
+                    val handGestureNote = latestHandGestureNote
+                    val snowNote = snowfallTracker.observe(labels, now).orEmpty()
+                    val environmentBase = NovaEnvironmentRecognizer.summarize(labels).orEmpty()
+                    val environmentNote = listOf(snowNote, environmentBase).filter { it.isNotBlank() }.joinToString(" ")
+                    val transientActionNote = transientActionTracker.observe(labels, hasFace, now).orEmpty()
                     latestPlaceEvidence = NovaPlaceMemory.signature(labels)
                     latestPlaceEvidenceAtElapsed = SystemClock.elapsedRealtime()
                     val baseSummary = NovaVisionEvidence.summarize(hasFace, labels)
@@ -820,6 +867,9 @@ class NovaActivity : ComponentActivity() {
                         if (emotionNote.isNotBlank()) emotionNote else faceCueNote,
                         poseNote,
                         activityNote,
+                        sleepNote,
+                        transientActionNote,
+                        handGestureNote,
                         environmentNote
                     ).filter { it.isNotBlank() }
                     val summary = if (notes.isNotEmpty()) "$baseSummary\n${notes.joinToString("\n")}" else baseSummary
@@ -1028,6 +1078,9 @@ class NovaActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         resumed = true
+        shakeDetector.reset()
+        accelerometer?.let { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL) }
+        NovaLocalNotifications.markInteraction(this)
         main.removeCallbacks(idleCheck)
         main.postDelayed(idleCheck, 15_000L)
         if (visionEnabled) startVisionCamera()
@@ -1035,13 +1088,31 @@ class NovaActivity : ComponentActivity() {
 
     override fun onPause() {
         resumed = false
+        sensorManager.unregisterListener(this)
+        shakeDetector.reset()
         main.removeCallbacks(idleCheck)
         stopVisionCamera()
         localSpeechInput?.cancel()
         super.onPause()
     }
 
+    override fun onSensorChanged(event: SensorEvent) {
+        if (!resumed || event.sensor.type != Sensor.TYPE_ACCELEROMETER || event.values.size < 3) return
+        val shaken = shakeDetector.observe(event.values[0], event.values[1], event.values[2], SystemClock.elapsedRealtime())
+        if (shaken) main.post {
+            if (!resumed || isFinishing || isDestroyed) return@post
+            lastInteractionElapsed = SystemClock.elapsedRealtime()
+            NovaLocalNotifications.markInteraction(this)
+            showEvent(NovaEvent(NovaMood.DIZZY,
+                "أوه! هززت الهاتف بقوة… سأُظهر دوارًا افتراضيًا للحظة. ثبّت الهاتف قليلًا لأستعيد توازني!",
+                hapticMillis = 24L), playSound = true)
+        }
+    }
+
+    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
+
     override fun onDestroy() {
+        sensorManager.unregisterListener(this)
         runCatching { advancedVision?.close() }
         advancedVision = null
         runCatching { peopleMemory.close() }
@@ -1103,6 +1174,7 @@ class NovaActivity : ComponentActivity() {
             NovaMood.EMBARRASSED -> "N O V A • SHY"
             NovaMood.JEALOUS -> "N O V A • JEALOUS"
             NovaMood.ADMIRING -> "N O V A • ADMIRING"
+            NovaMood.DIZZY -> "N O V A • DIZZY"
             NovaMood.CALM -> "N O V A • LOCAL ROBOT"
         }
         if (event.hapticMillis > 0L) face.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)

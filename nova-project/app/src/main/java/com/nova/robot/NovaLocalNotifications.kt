@@ -16,9 +16,12 @@ internal object NovaLocalNotifications {
     const val CHANNEL_ID = "nova_local_reminders"
     const val ACTION_DAILY = "com.nova.robot.action.DAILY_NOTIFICATION"
     const val ACTION_REMINDER = "com.nova.robot.action.ONE_TIME_REMINDER"
+    const val ACTION_AUTONOMOUS = "com.nova.robot.action.AUTONOMOUS_NOTIFICATION_CHECK"
     private const val PREFS = "nova_local_notifications"
     private const val DAILY_REQUEST = 19001
     private const val DAILY_ID = 19001
+    private const val AUTONOMOUS_REQUEST = 19004
+    private const val AUTONOMOUS_ID = 19004
     internal const val EXTRA_MESSAGE_KEY = "nova_notification_message"
     internal const val EXTRA_ID_KEY = "nova_notification_id"
 
@@ -64,10 +67,12 @@ internal object NovaLocalNotifications {
 
     fun enableDaily(context: Context, hour: Int = 19, minute: Int = 0) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putBoolean("autonomous_enabled", false)
             .putBoolean("daily_enabled", true)
             .putInt("daily_hour", hour.coerceIn(0, 23))
             .putInt("daily_minute", minute.coerceIn(0, 59))
             .apply()
+        alarm(context).cancel(autonomousPendingIntent(context))
         scheduleNextDaily(context)
     }
 
@@ -77,6 +82,67 @@ internal object NovaLocalNotifications {
         alarm(context).cancel(dailyPendingIntent(context))
     }
 
+    fun enableAutonomous(context: Context) {
+        val now = System.currentTimeMillis()
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putBoolean("daily_enabled", false).putBoolean("autonomous_enabled", true)
+            .putLong("last_interaction_wall", now).putLong("last_autonomous_notification_wall", 0L)
+            .putInt("autonomous_message_index", 0).apply()
+        alarm(context).cancel(dailyPendingIntent(context))
+        scheduleAutonomousCheck(context, now + NovaAutonomousNotificationPolicy.MIN_IDLE_MILLIS)
+    }
+    fun disableAutonomous(context: Context) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean("autonomous_enabled", false).apply()
+        alarm(context).cancel(autonomousPendingIntent(context))
+    }
+    fun autonomousEnabled(context: Context): Boolean = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("autonomous_enabled", false)
+    fun markInteraction(context: Context, nowWallMillis: Long = System.currentTimeMillis()) {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        prefs.edit().putLong("last_interaction_wall", nowWallMillis).apply()
+        if (prefs.getBoolean("autonomous_enabled", false)) {
+            val lastSent = prefs.getLong("last_autonomous_notification_wall", 0L)
+            val idleTarget = nowWallMillis + NovaAutonomousNotificationPolicy.MIN_IDLE_MILLIS
+            val cooldownTarget = if (lastSent > 0L) lastSent + NovaAutonomousNotificationPolicy.MIN_GAP_MILLIS else idleTarget
+            scheduleAutonomousCheck(context, maxOf(idleTarget, cooldownTarget))
+        }
+    }
+    fun restoreAutonomousIfEnabled(context: Context) {
+        if (!autonomousEnabled(context)) return
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val lastInteraction = prefs.getLong("last_interaction_wall", System.currentTimeMillis())
+        val lastSent = prefs.getLong("last_autonomous_notification_wall", 0L)
+        val idleTarget = lastInteraction + NovaAutonomousNotificationPolicy.MIN_IDLE_MILLIS
+        val cooldownTarget = if (lastSent > 0L) lastSent + NovaAutonomousNotificationPolicy.MIN_GAP_MILLIS else idleTarget
+        scheduleAutonomousCheck(context, maxOf(System.currentTimeMillis() + 60_000L, idleTarget, cooldownTarget))
+    }
+    private fun scheduleAutonomousCheck(context: Context, at: Long) {
+        if (!autonomousEnabled(context)) return
+        alarm(context).setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, maxOf(System.currentTimeMillis() + 60_000L, at), autonomousPendingIntent(context))
+    }
+    internal fun handleAutonomousCheck(context: Context) {
+        if (!autonomousEnabled(context)) return
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val now = System.currentTimeMillis()
+        val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+        val lastInteraction = prefs.getLong("last_interaction_wall", now)
+        val lastSent = prefs.getLong("last_autonomous_notification_wall", 0L)
+        if (hour < 10 || hour > 20) {
+            val next = Calendar.getInstance().apply { timeInMillis = now; set(Calendar.HOUR_OF_DAY, 10); set(Calendar.MINUTE, 5); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0); if (timeInMillis <= now) add(Calendar.DAY_OF_YEAR, 1) }.timeInMillis
+            scheduleAutonomousCheck(context, next); return
+        }
+        if (!NovaAutonomousNotificationPolicy.shouldNotify(now, lastInteraction, lastSent, hour)) {
+            val idleTarget = if (lastInteraction > 0L) lastInteraction + NovaAutonomousNotificationPolicy.MIN_IDLE_MILLIS else now + NovaAutonomousNotificationPolicy.MIN_IDLE_MILLIS
+            val cooldownTarget = if (lastSent > 0L) lastSent + NovaAutonomousNotificationPolicy.MIN_GAP_MILLIS else idleTarget
+            scheduleAutonomousCheck(context, maxOf(now + 30L * 60 * 1000, idleTarget, cooldownTarget)); return
+        }
+        val messages = listOf("مرّ وقت منذ آخر تفاعلنا. هل ترغب في جولة شطرنج أو إكس أو؟", "مرحبًا من نوفا! إن كان لديك وقت، يمكننا اللعب أو التحدث قليلًا.", "فكرت أن أقترح تحديًا صغيرًا اليوم: هل نلعب جولة؟", "أنا مستعدة لجولة جديدة متى ناسَبك الوقت. لا داعي للرد الآن.")
+        val index = prefs.getInt("autonomous_message_index", 0).coerceAtLeast(0) % messages.size
+        if (show(context, "رسالة من نوفا", messages[index], AUTONOMOUS_ID)) {
+            prefs.edit().putLong("last_autonomous_notification_wall", now).putInt("autonomous_message_index", (index + 1) % messages.size).apply()
+            scheduleAutonomousCheck(context, now + 24L * 60 * 60 * 1000)
+        } else scheduleAutonomousCheck(context, now + 4L * 60 * 60 * 1000)
+    }
+    private fun autonomousPendingIntent(context: Context) = PendingIntent.getBroadcast(context, AUTONOMOUS_REQUEST, Intent(context, NovaNotificationReceiver::class.java).setAction(ACTION_AUTONOMOUS), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     fun dailyEnabled(context: Context): Boolean =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("daily_enabled", false)
 
@@ -145,8 +211,9 @@ internal class NovaNotificationReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
         val action = intent?.action ?: return
         when {
-            action == Intent.ACTION_BOOT_COMPLETED -> NovaLocalNotifications.restoreDailyIfEnabled(context)
+            action == Intent.ACTION_BOOT_COMPLETED -> { NovaLocalNotifications.restoreDailyIfEnabled(context); NovaLocalNotifications.restoreAutonomousIfEnabled(context) }
             action == NovaLocalNotifications.ACTION_DAILY -> NovaLocalNotifications.postDaily(context)
+            action == NovaLocalNotifications.ACTION_AUTONOMOUS -> NovaLocalNotifications.handleAutonomousCheck(context)
             action.startsWith(NovaLocalNotifications.ACTION_REMINDER) -> {
                 val message = intent.getStringExtra(NovaLocalNotifications.EXTRA_MESSAGE_KEY) ?: return
                 val id = intent.getIntExtra(NovaLocalNotifications.EXTRA_ID_KEY, 19003)
