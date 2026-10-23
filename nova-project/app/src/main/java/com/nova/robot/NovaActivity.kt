@@ -538,19 +538,39 @@ class NovaActivity : ComponentActivity() {
             showEvent(NovaEvent(NovaMood.CAUTIOUS, "لم أحفظ الوجه: أحتاج وجهًا واحدًا واضحًا وحديثًا أمام الكاميرا. قرّب الشخص وحاول مجددًا.", hapticMillis = 12L), playSound = false)
             return true
         }
-        try {
-            val saved = peopleMemory.enroll(request, cropCopy)
-            showEvent(NovaEvent(
-                NovaMood.WARM,
-                "حفظت مرجعًا بصريًا محليًا لـ${saved.relation} ${saved.name}. لن أحفظ صورة الوجه؛ خزّنت وصفًا رقميًا فقط. التعرف تجريبي وقد أخطئ.",
-                hapticMillis = 22L
-            ), playSound = false)
-        } catch (error: Exception) {
-            Log.w("NOVA_PEOPLE", "Could not enroll a local face reference.", error)
-            showEvent(NovaEvent(NovaMood.CAUTIOUS, "لم أتمكن من حفظ المرجع البصري محليًا.", hapticMillis = 12L), playSound = false)
-        } finally {
-            cropCopy.recycle()
+        // The proposal requires explicit consent before retaining any biometric reference.
+        // Keep only this temporary in-memory crop while the user confirms; never write the photo.
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("موافقة على حفظ مرجع الوجه")
+            .setMessage(
+                "سيُحفظ وصف رقمي تجريبي للوجه مع الاسم وصلة القرابة على هذا الهاتف فقط، " +
+                    "مشفّرًا باستخدام Android Keystore. لن تُحفظ صورة الوجه ولن تُرسل بيانات إلى الإنترنت. " +
+                    "تأكد من موافقة الشخص نفسه قبل المتابعة. يمكنك حذف الذاكرة من قائمة الرسائل."
+            )
+            .setNegativeButton("لا تحفظ") { _, _ ->
+                if (!cropCopy.isRecycled) cropCopy.recycle()
+                showEvent(NovaEvent(NovaMood.CALM, "لم أحفظ أي مرجع للوجه؛ احترمت خيار عدم الحفظ.", hapticMillis = 10L), playSound = false)
+            }
+            .setPositiveButton("أوافق على الحفظ") { _, _ ->
+                try {
+                    val saved = peopleMemory.enroll(request, cropCopy)
+                    showEvent(NovaEvent(
+                        NovaMood.WARM,
+                        "حفظت مرجعًا بصريًا محليًا لـ${saved.relation} ${saved.name}. لم أحفظ صورة الوجه؛ خزّنت وصفًا رقميًا مشفّرًا فقط. التعرف تجريبي وقد أخطئ.",
+                        hapticMillis = 22L
+                    ), playSound = false)
+                } catch (error: Exception) {
+                    Log.w("NOVA_PEOPLE", "Could not enroll a local face reference.", error)
+                    showEvent(NovaEvent(NovaMood.CAUTIOUS, "لم أتمكن من حفظ المرجع البصري محليًا.", hapticMillis = 12L), playSound = false)
+                } finally {
+                    if (!cropCopy.isRecycled) cropCopy.recycle()
+                }
+            }
+            .create()
+        dialog.setOnCancelListener {
+            if (!cropCopy.isRecycled) cropCopy.recycle()
         }
+        dialog.show()
         return true
     }
 
