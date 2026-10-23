@@ -83,7 +83,9 @@ class NovaFaceView @JvmOverloads constructor(
         val rightX = w * 0.66f
         val lookX = when (mood) {
             NovaMood.THINKING -> eyeW * 0.20f
-            NovaMood.CURIOUS, NovaMood.PLAYFUL -> eyeW * 0.10f
+            NovaMood.CURIOUS, NovaMood.PLAYFUL, NovaMood.WARM -> eyeW * 0.10f
+            NovaMood.ALERT -> eyeW * 0.04f
+            NovaMood.CAUTIOUS -> -eyeW * 0.08f
             else -> 0f
         }
         val lookY = if (mood == NovaMood.THINKING) -eyeH * 0.12f else 0f
@@ -114,7 +116,10 @@ class NovaFaceView @JvmOverloads constructor(
         when (mood) {
             NovaMood.SURPRISED -> { widthFactor = 0.55f; heightFactor = 0.63f }
             NovaMood.SLEEPY -> { widthFactor = 0.52f; heightFactor = 0.31f }
-            NovaMood.HAPPY -> { widthFactor = 0.49f; heightFactor = 0.43f }
+            NovaMood.HAPPY, NovaMood.WARM -> { widthFactor = 0.49f; heightFactor = 0.43f }
+            NovaMood.ALERT -> { widthFactor = 0.54f; heightFactor = 0.58f }
+            NovaMood.CAUTIOUS -> { widthFactor = 0.47f; heightFactor = 0.40f; tilt = if (isLeft) -5f else 5f }
+            NovaMood.TIRED -> { widthFactor = 0.51f; heightFactor = 0.28f }
             NovaMood.CURIOUS -> {
                 heightFactor = if (isLeft) 0.58f else 0.48f
                 widthFactor = if (isLeft) 0.48f else 0.51f
@@ -177,7 +182,7 @@ class NovaFaceView @JvmOverloads constructor(
             pupilR * 0.34f, paint
         )
 
-        if (mood == NovaMood.SLEEPY) {
+        if (mood == NovaMood.SLEEPY || mood == NovaMood.TIRED) {
             paint.color = 0xFF122445.toInt()
             canvas.drawRect(bounds.left - 1f, bounds.top - 1f, bounds.right + 1f,
                 centerY - halfH * 0.02f, paint)
@@ -200,7 +205,7 @@ class NovaFaceView @JvmOverloads constructor(
                 canvas.drawLine(centerX - halfW * 0.25f, browY + halfH * 0.10f, bounds.right, browY - halfH * 0.12f, paint)
             }
             paint.style = Paint.Style.FILL
-        } else if (mood == NovaMood.HAPPY) {
+        } else if (mood == NovaMood.HAPPY || mood == NovaMood.WARM) {
             // Gentle lower crescent: happiness stays open-eyed and friendly, not permanently shut.
             paint.color = 0xFFB9FBFF.toInt()
             paint.style = Paint.Style.STROKE

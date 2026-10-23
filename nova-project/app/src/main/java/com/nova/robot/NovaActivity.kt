@@ -2,6 +2,7 @@ package com.nova.robot
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.content.SharedPreferences
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.media.AudioManager
@@ -49,6 +50,8 @@ class NovaActivity : ComponentActivity() {
     private lateinit var status: TextView
     private lateinit var brain: NovaBrain
     private lateinit var store: SharedPreferencesNovaMemory
+    private lateinit var localPreferences: SharedPreferences
+    private lateinit var affect: NovaAffectEngine
     private val main = Handler(Looper.getMainLooper())
     private var lastInteractionElapsed = 0L
     private var lastTapElapsed = 0L
@@ -104,8 +107,13 @@ class NovaActivity : ComponentActivity() {
                 View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
                 View.SYSTEM_UI_FLAG_LAYOUT_STABLE
             )
-        store = SharedPreferencesNovaMemory(getSharedPreferences("nova_local_memory", MODE_PRIVATE))
+        localPreferences = getSharedPreferences("nova_local_memory", MODE_PRIVATE)
+        store = SharedPreferencesNovaMemory(localPreferences)
         brain = NovaBrain(store)
+        affect = NovaAffectEngine()
+        localPreferences.getString(KEY_AFFECT_SNAPSHOT, null)?.let { affect.restore(it) }
+        affect.observe(NovaAffectEvent.USER_RETURNED, System.currentTimeMillis())
+        persistAffect()
         tone = runCatching { ToneGenerator(AudioManager.STREAM_MUSIC, 18) }.getOrNull()
         lastInteractionElapsed = SystemClock.elapsedRealtime()
 
@@ -333,8 +341,18 @@ class NovaActivity : ComponentActivity() {
     private fun applyVisionSummary(summary: String, hasFace: Boolean) {
         if (summary == lastVisionSummary) return
         lastVisionSummary = summary
+        val affectMood = recordAffect(if (hasFace) NovaAffectEvent.NOVEL_OBSERVATION else NovaAffectEvent.UNCERTAIN_OBSERVATION)
         message.text = summary
-        face.setMood(if (hasFace) NovaMood.CURIOUS else NovaMood.THINKING)
+        face.setMood(when (affectMood) {
+            NovaAffectMood.ALERT -> NovaMood.ALERT
+            NovaAffectMood.CAUTIOUS -> NovaMood.CAUTIOUS
+            NovaAffectMood.WARM -> NovaMood.WARM
+            NovaAffectMood.PLAYFUL -> NovaMood.PLAYFUL
+            NovaAffectMood.FRUSTRATED -> NovaMood.FRUSTRATED
+            NovaAffectMood.TIRED -> NovaMood.TIRED
+            NovaAffectMood.CURIOUS -> NovaMood.CURIOUS
+            NovaAffectMood.CALM -> if (hasFace) NovaMood.CURIOUS else NovaMood.THINKING
+        })
         status.text = "N O V A • SEEING • TAP TO STOP"
         Log.i("NOVA_VISION", "LOCAL_FRAME_SUMMARY face=$hasFace; imagesStored=false; network=false")
     }
@@ -395,31 +413,60 @@ class NovaActivity : ComponentActivity() {
     }
 
     private fun showEvent(event: NovaEvent, playSound: Boolean) {
-        face.setMood(event.mood)
+        val affectSignal = when (event.mood) {
+            NovaMood.HAPPY, NovaMood.PLAYFUL, NovaMood.WARM -> NovaAffectEvent.FRIENDLY_INTERACTION
+            NovaMood.FRUSTRATED -> NovaAffectEvent.USER_CORRECTION
+            NovaMood.THINKING, NovaMood.CURIOUS -> NovaAffectEvent.UNCERTAIN_OBSERVATION
+            else -> NovaAffectEvent.FRIENDLY_INTERACTION
+        }
+        val affectMood = recordAffect(affectSignal)
+        val visibleMood = when {
+            affectMood == NovaAffectMood.ALERT -> NovaMood.ALERT
+            affectMood == NovaAffectMood.CAUTIOUS -> NovaMood.CAUTIOUS
+            affectMood == NovaAffectMood.WARM && event.mood == NovaMood.CALM -> NovaMood.WARM
+            affectMood == NovaAffectMood.TIRED && event.mood == NovaMood.CALM -> NovaMood.TIRED
+            else -> event.mood
+        }
+        face.setMood(visibleMood)
         message.text = event.messageArabic
         status.text = if (visionEnabled) {
             "N O V A • SEEING • TAP TO STOP"
-        } else when (event.mood) {
+        } else when (visibleMood) {
             NovaMood.CURIOUS -> "N O V A • C U R I O U S"
             NovaMood.HAPPY, NovaMood.PLAYFUL -> "N O V A • P L A Y F U L"
             NovaMood.THINKING -> "N O V A • T H I N K I N G"
             NovaMood.SLEEPY -> "N O V A • Q U I E T"
             NovaMood.SURPRISED -> "N O V A • S U R P R I S E"
             NovaMood.FRUSTRATED -> "N O V A • R E S E T T I N G"
+            NovaMood.WARM -> "N O V A • W A R M"
+            NovaMood.ALERT -> "N O V A • A L E R T"
+            NovaMood.CAUTIOUS -> "N O V A • C A U T I O U S"
+            NovaMood.TIRED -> "N O V A • R E S T I N G"
             NovaMood.CALM -> "N O V A • TAP TO LOOK"
         }
         if (event.hapticMillis > 0L) face.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
         if (playSound) {
-            val toneType = when (event.mood) {
+            val toneType = when (visibleMood) {
                 NovaMood.THINKING -> ToneGenerator.TONE_PROP_ACK
                 NovaMood.HAPPY, NovaMood.PLAYFUL -> ToneGenerator.TONE_PROP_BEEP2
-                NovaMood.CURIOUS -> ToneGenerator.TONE_PROP_BEEP
+                NovaMood.CURIOUS, NovaMood.ALERT -> ToneGenerator.TONE_PROP_BEEP
                 else -> ToneGenerator.TONE_PROP_ACK
             }
             tone?.startTone(toneType, if (event.isQuestion) 130 else 70)
         }
         main.removeCallbacks(idleCheck)
         main.postDelayed(idleCheck, 15_000L)
+    }
+
+    private fun recordAffect(event: NovaAffectEvent): NovaAffectMood {
+        val now = System.currentTimeMillis()
+        affect.observe(event, now)
+        persistAffect()
+        return affect.mood(now)
+    }
+
+    private fun persistAffect() {
+        localPreferences.edit().putString(KEY_AFFECT_SNAPSHOT, affect.snapshot(System.currentTimeMillis())).apply()
     }
 
     private fun pillBackground(fill: Int, stroke: Int) = GradientDrawable().apply {
@@ -433,6 +480,7 @@ class NovaActivity : ComponentActivity() {
 
     companion object {
         private const val MIN_FRAME_INTERVAL_MS = 1_800L
+        private const val KEY_AFFECT_SNAPSHOT = "nova_affect_snapshot_v1"
     }
 }
 

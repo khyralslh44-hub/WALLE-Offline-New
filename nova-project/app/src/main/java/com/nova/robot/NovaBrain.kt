@@ -5,7 +5,8 @@ package com.nova.robot
  * the question rotation; it does not record audio, images, contacts, or typed conversations.
  */
 enum class NovaMood {
-    CALM, CURIOUS, HAPPY, SURPRISED, THINKING, SLEEPY, PLAYFUL, FRUSTRATED
+    CALM, CURIOUS, HAPPY, SURPRISED, THINKING, SLEEPY, PLAYFUL, FRUSTRATED,
+    WARM, ALERT, CAUTIOUS, TIRED
 }
 
 data class NovaEvent(
