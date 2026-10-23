@@ -93,6 +93,7 @@ class NovaActivity : ComponentActivity() {
     private var advancedInferenceSequence = 0L
     private var lastVisionAffectAtElapsed = 0L
     private val activityRecognizer = NovaActivityRecognizer()
+    private val expressionStabilizer = NovaExpressionStabilizer()
     private var novaVoice: NovaVoice? = null
     private var localTts: NovaLocalTts? = null
     private var localSpeechInput: NovaOfflineSpeechInput? = null
@@ -394,6 +395,7 @@ class NovaActivity : ComponentActivity() {
         advancedInferenceSequence = 0L
         lastVisionAffectAtElapsed = 0L
         activityRecognizer.reset()
+        expressionStabilizer.reset()
         curiosity.reset()
         lastInteractionElapsed = SystemClock.elapsedRealtime()
         face.setMood(NovaMood.CALM)
@@ -671,6 +673,12 @@ class NovaActivity : ComponentActivity() {
                     val labels = (mlKitLabels + advancedResult?.labels.orEmpty())
                         .groupBy { it.label.lowercase(java.util.Locale.ROOT) }
                         .mapNotNull { (_, items) -> items.maxByOrNull { it.confidence } }
+                    val stableExpressionMood = if (hasFace) {
+                        expressionStabilizer.observe(emotionPrediction, now)
+                    } else {
+                        expressionStabilizer.reset()
+                        null
+                    }
                     val activityNote = activityRecognizer.observe(advancedResult?.poseFeatures, labels, now).orEmpty()
                     val baseSummary = NovaVisionEvidence.summarize(hasFace, labels)
                     val notes = listOf(
@@ -683,7 +691,7 @@ class NovaActivity : ComponentActivity() {
                     runOnUiThread {
                         if (visionEnabled && resumed && !isFinishing && !isDestroyed) {
                             face.setGaze(gazeX, gazeY)
-                            applyVisionSummary(summary, hasFace, emotionPrediction?.mood)
+                            applyVisionSummary(summary, hasFace, stableExpressionMood)
                         }
                     }
                 } catch (error: Exception) {

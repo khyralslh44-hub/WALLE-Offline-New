@@ -75,6 +75,8 @@ internal object NovaEnrollmentParser {
 internal class NovaPeopleMemory(context: Context) : AutoCloseable {
     private val prefs = context.applicationContext.getSharedPreferences("nova_people_memory_v1", Context.MODE_PRIVATE)
     private val faceModel = NovaMobileFaceNet(context)
+    private data class AdaptTrack(var consecutiveHits: Int = 0, var lastHitAtMillis: Long = 0L, var lastUpdatedAtMillis: Long = 0L)
+    private val adaptationTracks = mutableMapOf<String, AdaptTrack>()
 
     @Synchronized
     fun count(): Int = readAll().size
@@ -115,18 +117,93 @@ internal class NovaPeopleMemory(context: Context) : AutoCloseable {
         val embeddingDistance = descriptor.size != NovaLbpDescriptor.SIZE
         val maxAcceptDistance = if (embeddingDistance) MAX_EMBEDDING_DISTANCE else MAX_LBP_DISTANCE
         val minMatchMargin = if (embeddingDistance) MIN_EMBEDDING_MARGIN else MIN_LBP_MARGIN
-        if (best.second > maxAcceptDistance) return null
-        if (second != null && second - best.second < minMatchMargin) return null
+        if (best.second > maxAcceptDistance) {
+            adaptationTracks[best.first.id]?.consecutiveHits = 0
+            return null
+        }
+        if (second != null && second - best.second < minMatchMargin) {
+            adaptationTracks[best.first.id]?.consecutiveHits = 0
+            return null
+        }
+        maybeAdaptTemplate(
+            person = best.first,
+            observed = descriptor,
+            distance = best.second,
+            secondBestDistance = second,
+            maxAcceptDistance = maxAcceptDistance,
+            minMatchMargin = minMatchMargin,
+            embeddingDistance = embeddingDistance
+        )
         return NovaPersonMatch(best.first, best.second)
     }
 
     @Synchronized
     fun forgetAll() {
+        adaptationTracks.clear()
         prefs.edit().remove(KEY_PROFILES).commit()
     }
 
     private fun extractDescriptor(faceCrop: Bitmap): FloatArray =
         faceModel.extract(faceCrop) ?: NovaLbpDescriptor.extract(faceCrop)
+
+    /**
+     * Consent-based incremental adaptation: the profile must already exist, and its match must
+     * be very strong for four consecutive sightings. Updates are rate-limited and blend only a
+     * small fraction of the new embedding; no face photos or unmatched/unknown faces are stored.
+     */
+    private fun maybeAdaptTemplate(
+        person: NovaKnownPerson,
+        observed: FloatArray,
+        distance: Float,
+        secondBestDistance: Float?,
+        maxAcceptDistance: Float,
+        minMatchMargin: Float,
+        embeddingDistance: Boolean
+    ) {
+        val now = System.currentTimeMillis()
+        val track = adaptationTracks.getOrPut(person.id) { AdaptTrack() }
+        if (track.lastHitAtMillis > 0L && now - track.lastHitAtMillis > ADAPT_STREAK_GAP_MS) {
+            track.consecutiveHits = 0
+        }
+        track.lastHitAtMillis = now
+
+        val singleProfileConfidence = secondBestDistance == null &&
+            distance <= maxAcceptDistance * SINGLE_PROFILE_ADAPT_RATIO
+        val multiProfileConfidence = secondBestDistance != null &&
+            secondBestDistance - distance >= minMatchMargin * REQUIRED_MATCH_MARGIN_MULTIPLIER
+        val highlyConfident = distance <= maxAcceptDistance * ADAPT_DISTANCE_RATIO &&
+            (singleProfileConfidence || multiProfileConfidence)
+
+        if (!highlyConfident) {
+            track.consecutiveHits = 0
+            return
+        }
+
+        track.consecutiveHits += 1
+        if (track.consecutiveHits < MATCHES_REQUIRED_FOR_ADAPTATION) return
+        if (track.lastUpdatedAtMillis > 0L &&
+            now - track.lastUpdatedAtMillis < ADAPT_UPDATE_COOLDOWN_MS
+        ) return
+
+        val all = readAll()
+        val current = all.firstOrNull { it.id == person.id } ?: return
+        val blended = blendDescriptor(current.descriptor, observed, embeddingDistance)
+        val updated = current.copy(descriptor = blended)
+        writeAll(all.map { if (it.id == current.id) updated else it })
+        track.lastUpdatedAtMillis = now
+        track.consecutiveHits = 0
+    }
+
+    private fun blendDescriptor(old: FloatArray, observed: FloatArray, normalizeL2: Boolean): FloatArray {
+        if (old.size != observed.size) return old.copyOf()
+        val blend = FloatArray(old.size) { old[it] * (1f - ADAPT_LEARNING_RATE) + observed[it] * ADAPT_LEARNING_RATE }
+        if (!normalizeL2) return blend
+        var normSquared = 0.0
+        blend.forEach { value -> normSquared += value.toDouble() * value }
+        val norm = kotlin.math.sqrt(normSquared).toFloat()
+        if (!norm.isFinite() || norm < 1e-8f) return old.copyOf()
+        return FloatArray(blend.size) { blend[it] / norm }
+    }
 
     private fun cosineDistance(first: FloatArray, second: FloatArray): Float {
         if (first.size != second.size || first.isEmpty()) return Float.POSITIVE_INFINITY
@@ -200,6 +277,13 @@ internal class NovaPeopleMemory(context: Context) : AutoCloseable {
         private const val MIN_LBP_MARGIN = 0.035f
         private const val MAX_EMBEDDING_DISTANCE = 0.42f
         private const val MIN_EMBEDDING_MARGIN = 0.06f
+        private const val MATCHES_REQUIRED_FOR_ADAPTATION = 4
+        private const val ADAPT_STREAK_GAP_MS = 12_000L
+        private const val ADAPT_UPDATE_COOLDOWN_MS = 60_000L
+        private const val ADAPT_DISTANCE_RATIO = 0.30f
+        private const val SINGLE_PROFILE_ADAPT_RATIO = 0.18f
+        private const val REQUIRED_MATCH_MARGIN_MULTIPLIER = 2.0f
+        private const val ADAPT_LEARNING_RATE = 0.03f
     }
 }
 
