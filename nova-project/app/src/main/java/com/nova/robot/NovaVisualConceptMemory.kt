@@ -56,7 +56,7 @@ internal class NovaVisualConceptMemory(private val memory: NovaMindMemory) {
         val old = concepts.getOrNull(index)
         val updated = Concept(
             name = name,
-            labels = (old?.labels.orEmpty() + current).take(MAX_LABELS),
+            labels = (old?.labels.orEmpty() + current).take(MAX_LABELS).toSet(),
             sightings = old?.sightings ?: 0,
             lastSightAt = old?.lastSightAt ?: 0L
         )
