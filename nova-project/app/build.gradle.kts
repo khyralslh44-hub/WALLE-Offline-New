@@ -60,5 +60,6 @@ dependencies {
     implementation("com.google.mlkit:face-detection:16.1.7")
     implementation("com.google.mlkit:image-labeling:17.0.7")
     implementation("com.google.mediapipe:tasks-vision:0.10.22")
+    implementation("org.tensorflow:tensorflow-lite:2.17.0")
     testImplementation("junit:junit:4.13.2")
 }
