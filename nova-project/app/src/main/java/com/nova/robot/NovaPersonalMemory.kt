@@ -56,7 +56,7 @@ internal class NovaPersonalMemory(private val memory: NovaMindMemory) {
 
     private fun extractOriginalNote(rawText: String): String? {
         val expression = Regex(
-            "^(?:تذكّري|تذكري|تذكّر|تذكر|احفظي|احفظ|سجّلي|سجلي|سجّل|سجل|لا تنسي|لا تنس)\\\\s+(?:أنني|أني|اني|أن|ان|بأنني|بأني|بانني|بأن)\\\\s+(.+)$"
+            """^(?:تذكّري|تذكري|تذكّر|تذكر|احفظي|احفظ|سجّلي|سجلي|سجّل|سجل|لا تنسي|لا تنس)\s+(?:أنني|أني|اني|أن|ان|بأنني|بأني|بانني|بأن)\s+(.+)$"""
         )
         return expression.find(rawText.trim())?.groupValues?.getOrNull(1)?.trim()
     }
@@ -77,6 +77,7 @@ internal class NovaPersonalMemory(private val memory: NovaMindMemory) {
         .replace('آ', 'ا')
         .replace('ى', 'ي')
         .replace(Regex("\\s+"), " ")
+        .replace(Regex("[?؟.!،,؛:]+$"), "")
 
     private companion object {
         const val KEY_NOTES = "nova_explicit_personal_notes_v1"
