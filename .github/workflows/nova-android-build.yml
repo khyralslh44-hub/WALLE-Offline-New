@@ -60,13 +60,14 @@ jobs:
           curl --fail --location --retry 3 "https://storage.googleapis.com/mediapipe-models/image_classifier/efficientnet_lite0/float32/1/efficientnet_lite0.tflite" --output "$ASSETS/efficientnet_lite0.tflite"
           curl --fail --location --retry 3 "https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite" --output "$ASSETS/efficientdet_lite0.tflite"
           curl --fail --location --retry 3 "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task" --output "$ASSETS/pose_landmarker_lite.task"
+          curl --fail --location --retry 3 "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task" --output "$ASSETS/face_landmarker.task"
           curl --fail --location --retry 3 "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/mobile_facenet/releases/v0.65.0/mobile_facenet-tflite-float.zip" --output "$RUNNER_TEMP/mobile_facenet.zip"
           mkdir -p "$RUNNER_TEMP/mobile_facenet"
           unzip -q "$RUNNER_TEMP/mobile_facenet.zip" -d "$RUNNER_TEMP/mobile_facenet"
           FACE_MODEL="$(find "$RUNNER_TEMP/mobile_facenet" -type f -iname '*.tflite' -print -quit)"
           test -n "$FACE_MODEL"
           cp "$FACE_MODEL" "$ASSETS/mobile_facenet.tflite"
-          for model in efficientnet_lite0.tflite efficientdet_lite0.tflite pose_landmarker_lite.task mobile_facenet.tflite; do
+          for model in efficientnet_lite0.tflite efficientdet_lite0.tflite pose_landmarker_lite.task face_landmarker.task mobile_facenet.tflite; do
             test -s "$ASSETS/$model"
             echo "Bundled model: $model ($(stat -c '%s' "$ASSETS/$model") bytes)"
           done
