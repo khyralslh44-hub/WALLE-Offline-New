@@ -6,8 +6,6 @@ import android.content.pm.PackageManager
 import android.content.SharedPreferences
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
-import android.media.AudioManager
-import android.media.ToneGenerator
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -74,7 +72,7 @@ class NovaActivity : ComponentActivity() {
     private val visionExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private var localFaceDetector: FaceDetector? = null
     private var localImageLabeler: ImageLabeler? = null
-    private var tone: ToneGenerator? = null
+    private var novaVoice: NovaVoice? = null
 
     private val cameraPermissionRequest =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -122,7 +120,7 @@ class NovaActivity : ComponentActivity() {
         localPreferences.getString(KEY_AFFECT_SNAPSHOT, null)?.let { affect.restore(it) }
         affect.observe(NovaAffectEvent.USER_RETURNED, System.currentTimeMillis())
         persistAffect()
-        tone = runCatching { ToneGenerator(AudioManager.STREAM_MUSIC, 18) }.getOrNull()
+        novaVoice = NovaVoice(this, main)
         lastInteractionElapsed = SystemClock.elapsedRealtime()
 
         val root = FrameLayout(this).apply { setBackgroundColor(Color.rgb(4, 8, 21)) }
@@ -520,8 +518,8 @@ class NovaActivity : ComponentActivity() {
     override fun onDestroy() {
         main.removeCallbacksAndMessages(null)
         stopVisionCamera()
-        tone?.release()
-        tone = null
+        novaVoice?.close()
+        novaVoice = null
         localFaceDetector?.close()
         localFaceDetector = null
         localImageLabeler?.close()
@@ -564,13 +562,7 @@ class NovaActivity : ComponentActivity() {
         }
         if (event.hapticMillis > 0L) face.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
         if (playSound) {
-            val toneType = when (visibleMood) {
-                NovaMood.THINKING -> ToneGenerator.TONE_PROP_ACK
-                NovaMood.HAPPY, NovaMood.PLAYFUL -> ToneGenerator.TONE_PROP_BEEP2
-                NovaMood.CURIOUS, NovaMood.ALERT -> ToneGenerator.TONE_PROP_BEEP
-                else -> ToneGenerator.TONE_PROP_ACK
-            }
-            tone?.startTone(toneType, if (event.isQuestion) 130 else 70)
+            novaVoice?.play(visibleMood, event.isQuestion)
         }
         main.removeCallbacks(idleCheck)
         main.postDelayed(idleCheck, 15_000L)
