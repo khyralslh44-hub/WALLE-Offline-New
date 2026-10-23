@@ -208,6 +208,42 @@ class RobotBrain(personality: EvePersonality = EvePersonality()) {
         return snapshot(EveMood.AWAKE, "experience started", false)
     }
 
+    /**
+     * A cautious social response, only when a known person is recognized and repeated
+     * evidence shows that their attention has shifted. It is playful, never possessive.
+     */
+    @Synchronized
+    fun observeSocialAttention(
+        knownPersonConfirmed: Boolean,
+        attentionAwayMs: Long,
+        interactionEvidenceCount: Int
+    ): EveDecision {
+        if (!knownPersonConfirmed || attentionAwayMs < 90000L || interactionEvidenceCount < 3) {
+            return snapshot(EveMood.NEUTRAL, "social context not sufficiently confirmed", false)
+        }
+        valence = (valence - 0.025f * personality.playfulness).coerceIn(-0.55f, 0.85f)
+        arousal = (arousal + 0.05f).coerceIn(0.12f, 0.82f)
+        curiosity = (curiosity + 0.04f * personality.playfulness).coerceAtMost(1f)
+        return snapshot(EveMood.PLAYFUL, "playful social bid after repeated attention shift", false, EveIntent.CONNECT)
+    }
+
+    /** Increase frustration from repeated failure to complete a meaningful goal. */
+    @Synchronized
+    fun observeGoalFailure(failureCount: Int, meaningfulGoal: Boolean): EveDecision {
+        if (!meaningfulGoal || failureCount <= 0) {
+            return snapshot(EveMood.NEUTRAL, "no confirmed meaningful goal failure", false)
+        }
+        val steps = failureCount.coerceAtMost(4)
+        frustration = (frustration + 0.06f * steps).coerceAtMost(1f)
+        arousal = (arousal + 0.05f * steps).coerceIn(0.12f, 1f)
+        val mood = when {
+            frustration >= 0.82f -> EveMood.ANGRY
+            frustration >= 0.48f -> EveMood.IRRITATED
+            else -> EveMood.FOCUSED
+        }
+        return snapshot(mood, "frustration from repeated goal failure", false, EveIntent.REGULATE)
+    }
+
     /** A spoken name/relationship update is a real social-memory event in the shared affect state. */
     @Synchronized
     fun observeKnownPerson(relation: String, isIntroduction: Boolean): EveDecision {
