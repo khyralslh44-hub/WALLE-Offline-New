@@ -441,15 +441,8 @@ class MainActivity : ComponentActivity() {
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT
             ))
-            addView(cameraStatus, FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                Gravity.TOP or Gravity.CENTER_HORIZONTAL
-            ).apply {
-                topMargin = dp(16)
-                marginStart = dp(12)
-                marginEnd = dp(12)
-            })
+            // Keep camera/microphone diagnostics internal so the face screen stays clean:
+            // no persistent status text or chip is drawn above/below Nova's eyes.
             addView(dialogueBubble, FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
