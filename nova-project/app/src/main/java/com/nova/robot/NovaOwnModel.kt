@@ -63,7 +63,7 @@ class NovaOwnModel private constructor(
         w2.copyInto(all, offset); offset += w2.size
         b2.copyInto(all, offset)
         val bytes = ByteBuffer.allocate(all.size * 4).order(ByteOrder.LITTLE_ENDIAN)
-        all.forEach(bytes::putFloat)
+        all.forEach { value -> bytes.putFloat(value) }
         return SNAPSHOT_PREFIX + Base64.getEncoder().encodeToString(bytes.array())
     }
 
