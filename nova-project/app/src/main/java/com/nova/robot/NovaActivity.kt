@@ -589,36 +589,41 @@ class NovaActivity : ComponentActivity() {
         }
     }
 
-    private fun imageProxyToBitmap(proxy: ImageProxy): Bitmap? = runCatching {
-        if (proxy.format != ImageFormat.YUV_420_888) return null
-        val width = proxy.width
-        val height = proxy.height
-        val planes = proxy.planes
-        if (planes.size < 3) return null
-        val nv21 = ByteArray(width * height + width * height / 2)
-        val yBuffer = planes[0].buffer
-        val uBuffer = planes[1].buffer
-        val vBuffer = planes[2].buffer
-        val yStart = yBuffer.position()
-        val uStart = uBuffer.position()
-        val vStart = vBuffer.position()
-        var offset = 0
-        for (row in 0 until height) {
-            for (col in 0 until width) {
-                nv21[offset++] = yBuffer.get(yStart + row * planes[0].rowStride + col * planes[0].pixelStride)
+    private fun imageProxyToBitmap(proxy: ImageProxy): Bitmap? {
+        return try {
+            if (proxy.format != ImageFormat.YUV_420_888) return null
+            val width = proxy.width
+            val height = proxy.height
+            val planes = proxy.planes
+            if (planes.size < 3) return null
+            val nv21 = ByteArray(width * height + width * height / 2)
+            val yBuffer = planes[0].buffer
+            val uBuffer = planes[1].buffer
+            val vBuffer = planes[2].buffer
+            val yStart = yBuffer.position()
+            val uStart = uBuffer.position()
+            val vStart = vBuffer.position()
+            var offset = 0
+            for (row in 0 until height) {
+                for (col in 0 until width) {
+                    nv21[offset++] = yBuffer.get(yStart + row * planes[0].rowStride + col * planes[0].pixelStride)
+                }
             }
-        }
-        for (row in 0 until height / 2) {
-            for (col in 0 until width / 2) {
-                nv21[offset++] = vBuffer.get(vStart + row * planes[2].rowStride + col * planes[2].pixelStride)
-                nv21[offset++] = uBuffer.get(uStart + row * planes[1].rowStride + col * planes[1].pixelStride)
+            for (row in 0 until height / 2) {
+                for (col in 0 until width / 2) {
+                    nv21[offset++] = vBuffer.get(vStart + row * planes[2].rowStride + col * planes[2].pixelStride)
+                    nv21[offset++] = uBuffer.get(uStart + row * planes[1].rowStride + col * planes[1].pixelStride)
+                }
             }
+            val output = ByteArrayOutputStream()
+            YuvImage(nv21, ImageFormat.NV21, width, height, null)
+                .compressToJpeg(Rect(0, 0, width, height), 82, output)
+            BitmapFactory.decodeByteArray(output.toByteArray(), 0, output.size())
+        } catch (error: Exception) {
+            Log.w("NOVA_PEOPLE", "Could not crop a detected face locally.", error)
+            null
         }
-        val output = ByteArrayOutputStream()
-        YuvImage(nv21, ImageFormat.NV21, width, height, null)
-            .compressToJpeg(Rect(0, 0, width, height), 82, output)
-        BitmapFactory.decodeByteArray(output.toByteArray(), 0, output.size())
-    }.onFailure { Log.w("NOVA_PEOPLE", "Could not crop a detected face locally.", it) }.getOrNull()
+    }
 
     private fun applyVisionSummary(summary: String, hasFace: Boolean) {
         if (summary == lastVisionSummary) return
