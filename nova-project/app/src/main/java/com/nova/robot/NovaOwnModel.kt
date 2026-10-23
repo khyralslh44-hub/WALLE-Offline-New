@@ -215,9 +215,12 @@ class NovaOwnModel private constructor(
             }
             val b2 = FloatArray(OUTPUT_SIZE)
             val model = NovaOwnModel(w1, b1, w2, b2)
+            val prepared = seedExamples.map { example ->
+                features(example.text) to LABELS.indexOf(example.intent)
+            }
             repeat(TRAINING_EPOCHS) { epoch ->
-                seedExamples.shuffled(Random(0x4E4F5641 + epoch)).forEach { example ->
-                    model.trainOne(features(example.text), LABELS.indexOf(example.intent), LEARNING_RATE)
+                prepared.shuffled(Random(0x4E4F5641 + epoch)).forEach { (x, label) ->
+                    model.trainOne(x, label, LEARNING_RATE)
                 }
             }
             return model
@@ -232,7 +235,7 @@ class NovaOwnModel private constructor(
                 require(bytes.size == expectedCount * 4)
                 val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
                 val all = FloatArray(expectedCount) { buffer.float }
-                require(all.all(Float::isFinite))
+                require(all.all { it.isFinite() })
                 var offset = 0
                 val w1 = all.copyOfRange(offset, offset + INPUT_SIZE * HIDDEN_SIZE); offset += w1.size
                 val b1 = all.copyOfRange(offset, offset + HIDDEN_SIZE); offset += b1.size
