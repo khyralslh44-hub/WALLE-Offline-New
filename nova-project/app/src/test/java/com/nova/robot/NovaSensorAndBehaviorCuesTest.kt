@@ -14,10 +14,11 @@ class NovaSensorAndBehaviorCuesTest{
   val t=NovaSleepCueTracker()
   assertNull(t.observe(true,.05f,.08f,1_000L))
   assertNull(t.observe(true,.05f,.08f,4_000L))
-  assertTrue(t.observe(true,.05f,.08f,9_500L)?.contains("لا يؤكد أنه نائم")==true)
-  assertNull(t.observe(true,.05f,.08f,11_000L))
-  assertNull(t.observe(true,.92f,.91f,12_000L))
-  assertNull(t.observe(true,.05f,.08f,13_000L))
+  assertNull(t.observe(true,.05f,.08f,7_000L))
+  assertTrue(t.observe(true,.05f,.08f,9_000L)?.contains("لا يؤكد أنه نائم")==true)
+  assertNull(t.observe(true,.05f,.08f,10_000L))
+  assertNull(t.observe(true,.92f,.91f,11_000L))
+  assertNull(t.observe(true,.05f,.08f,12_000L))
  }
  @Test fun snowfallRequiresRepeatedLabelsAndRemainsTentative(){
   val t=NovaSnowfallTracker()

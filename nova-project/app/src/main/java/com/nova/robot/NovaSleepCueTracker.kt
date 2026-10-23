@@ -12,6 +12,7 @@ internal class NovaSleepCueTracker(
     @Synchronized fun observe(facePresent:Boolean,leftEyeOpen:Float?,rightEyeOpen:Float?,nowMillis:Long):String? {
         if(!facePresent){reset();return null}
         if(lastValidSampleAt!=Long.MIN_VALUE&&nowMillis<lastValidSampleAt) reset()
+        if (lastValidSampleAt != Long.MIN_VALUE && nowMillis >= lastValidSampleAt && nowMillis - lastValidSampleAt > maximumSampleGapMillis) reset()
         val left=leftEyeOpen?.takeIf{it.isFinite()&&it in 0f..1f}
         val right=rightEyeOpen?.takeIf{it.isFinite()&&it in 0f..1f}
         if(left==null||right==null){
