@@ -47,48 +47,41 @@ internal class NovaMobileFaceNet(context: Context) : AutoCloseable {
                 val pixels = IntArray(width * height)
                 scaled.getPixels(pixels, 0, width, 0, 0, width, height)
                 val inputTensor = model.getInputTensor(0)
-                val input: Any = when (inputTensor.dataType()) {
+                val input: ByteBuffer = when (inputTensor.dataType()) {
                     DataType.FLOAT32 -> {
-                        val values = FloatArray(width * height * 3)
+                        val buffer = ByteBuffer.allocateDirect(width * height * 3 * 4).order(ByteOrder.nativeOrder())
                         for (i in pixels.indices) {
                             val p = pixels[i]
                             val r = ((p shr 16) and 0xff) / 127.5f - 1f
                             val g = ((p shr 8) and 0xff) / 127.5f - 1f
                             val b = (p and 0xff) / 127.5f - 1f
-                            if (inputShape[3] == 3) {
-                                values[i * 3] = r; values[i * 3 + 1] = g; values[i * 3 + 2] = b
-                            } else {
-                                val plane = width * height
-                                values[i] = r; values[plane + i] = g; values[2 * plane + i] = b
-                            }
+                            buffer.putFloat(r); buffer.putFloat(g); buffer.putFloat(b)
                         }
-                        values
+                        buffer.rewind()
+                        buffer
                     }
                     DataType.UINT8 -> {
-                        val values = ByteArray(width * height * 3)
-                        for (i in pixels.indices) {
-                            val p = pixels[i]
-                            values[i * 3] = ((p shr 16) and 0xff).toByte()
-                            values[i * 3 + 1] = ((p shr 8) and 0xff).toByte()
-                            values[i * 3 + 2] = (p and 0xff).toByte()
+                        val buffer = ByteBuffer.allocateDirect(width * height * 3).order(ByteOrder.nativeOrder())
+                        for (p in pixels) {
+                            buffer.put(((p shr 16) and 0xff).toByte())
+                            buffer.put(((p shr 8) and 0xff).toByte())
+                            buffer.put((p and 0xff).toByte())
                         }
-                        values
+                        buffer.rewind()
+                        buffer
                     }
                     else -> error("Unsupported MobileFaceNet input data type: ${inputTensor.dataType()}")
                 }
                 val outputTensor = model.getOutputTensor(0)
+                require(outputTensor.dataType() == DataType.FLOAT32) {
+                    "Expected float MobileFaceNet embeddings, got ${outputTensor.dataType()}."
+                }
                 val outSize = outputTensor.shape().fold(1) { acc, dim -> acc * dim }
                 require(outSize in 16..4096) { "Unexpected MobileFaceNet output shape." }
-                val output: Any = when (outputTensor.dataType()) {
-                    DataType.FLOAT32 -> Array(1) { FloatArray(outSize) }
-                    DataType.UINT8 -> Array(1) { ByteArray(outSize) }
-                    else -> error("Unsupported MobileFaceNet output type.")
-                }
-                model.run(arrayOf(input), output)
-                val raw = when (output) {
-                    is Array<*> -> (output[0] as FloatArray)
-                    else -> (output as Array<*>).first() as FloatArray
-                }
+                val output = ByteBuffer.allocateDirect(outSize * 4).order(ByteOrder.nativeOrder())
+                model.run(input, output)
+                output.rewind()
+                val raw = FloatArray(outSize) { output.float }
                 var normSquared = 0.0
                 for (v in raw) normSquared += v.toDouble() * v
                 val norm = sqrt(normSquared).toFloat()
