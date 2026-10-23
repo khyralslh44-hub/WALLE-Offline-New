@@ -6,15 +6,15 @@ import org.junit.Test
 class NovaFaceCueEvidenceTest {
     @Test fun highSmileProbabilityIsOnlyReportedAsVisualCue() {
         val result = NovaFaceCueEvidence.summarize(0.91f, 0.88f, 0.92f)
-        assertNotNull(result)
-        assertTrue(result!!.contains("إشارة ابتسام محتملة"))
-        assertTrue(result.contains("ليست حكمًا على مشاعر"))
+        val cue = result ?: error("Expected a cautious smile cue")
+        assertTrue(cue.contains("إشارة ابتسام محتملة"))
+        assertTrue(cue.contains("ليست حكمًا على مشاعر"))
     }
 
     @Test fun closedEyeCueRequiresBothEyesAndValidProbabilities() {
         val bothClosed = NovaFaceCueEvidence.summarize(0.5f, 0.1f, 0.2f)
-        assertNotNull(bothClosed)
-        assertTrue(bothClosed!!.contains("العينان تبدوان شبه مغلقتين"))
+        val closedCue = bothClosed ?: error("Expected a closed-eye cue")
+        assertTrue(closedCue.contains("العينان تبدوان شبه مغلقتين"))
 
         val oneClosed = NovaFaceCueEvidence.summarize(0.5f, 0.1f, 0.9f)
         assertNull(oneClosed)
