@@ -75,6 +75,9 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
     private lateinit var curiosity: NovaCuriosityEngine
     private lateinit var placeMemory: NovaPlaceMemory
     private lateinit var experienceMemory: NovaExperienceMemory
+    private lateinit var visualConceptMemory: NovaVisualConceptMemory
+    @Volatile private var latestVisualLabels: List<NovaLabelEvidence> = emptyList()
+    @Volatile private var latestVisualLabelsAtElapsed: Long = 0L
     @Volatile private var latestPlaceEvidence: String = ""
     @Volatile private var latestPlaceEvidenceAtElapsed: Long = 0L
     @Volatile private var latestExperienceObservation: String = ""
@@ -186,6 +189,7 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
         accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
         localPreferences = getSharedPreferences("nova_local_memory", MODE_PRIVATE)
         store = SharedPreferencesNovaMemory(localPreferences)
+        visualConceptMemory = NovaVisualConceptMemory(store)
         curiosity = NovaCuriosityEngine(store)
         placeMemory = NovaPlaceMemory(store)
         experienceMemory = NovaExperienceMemory(store)
@@ -425,9 +429,12 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
         placeMemory.clear()
         experienceMemory.clear()
         latestPlaceEvidence = ""
+        latestVisualLabels = emptyList()
+        latestVisualLabelsAtElapsed = 0L
         latestExperienceObservation = ""
         clearLatestFaceCrop()
         store = SharedPreferencesNovaMemory(localPreferences)
+        visualConceptMemory = NovaVisualConceptMemory(store)
         brain = NovaBrain(store)
         mind = NovaMind(store)
         affect = NovaAffectEngine()
@@ -462,6 +469,7 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
         }
         val memoryReply = experienceMemory.handleCommand(userText)
         if (memoryReply != null) { showEvent(NovaEvent(NovaMood.THINKING, memoryReply, hapticMillis = 14L), playSound = false); return }
+        if (handleVisualConceptCommand(userText)) return
         if (handlePlaceMemoryCommand(userText)) return
         if (handleFaceEnrollment(userText)) return
         val correction = parseExplicitCorrection(userText)
@@ -599,6 +607,22 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
         return true
     }
 
+    private fun handleVisualConceptCommand(rawText: String): Boolean {
+        val nowElapsed = SystemClock.elapsedRealtime()
+        val fresh = visionEnabled &&
+            latestVisualLabelsAtElapsed > 0L &&
+            nowElapsed >= latestVisualLabelsAtElapsed &&
+            nowElapsed - latestVisualLabelsAtElapsed <= 12_000L
+        val response = visualConceptMemory.handleCommand(
+            rawText = rawText,
+            currentLabels = latestVisualLabels,
+            labelsAreFresh = fresh,
+            nowMillis = System.currentTimeMillis()
+        ) ?: return false
+        showEvent(NovaEvent(NovaMood.THINKING, response, hapticMillis = 14L), playSound = false)
+        return true
+    }
+
     private fun handlePlaceMemoryCommand(rawText: String): Boolean {
         if (NovaPlaceMemory.isClearCommand(rawText)) { placeMemory.clear(); showEvent(NovaEvent(NovaMood.CALM, "مسحت أسماء الأماكن التي علّمتِني إياها.", hapticMillis = 12L), playSound = false); return true }
         if (NovaPlaceMemory.isListCommand(rawText)) { showEvent(NovaEvent(NovaMood.THINKING, placeMemory.describe(), hapticMillis = 12L), playSound = false); return true }
@@ -653,6 +677,8 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
     private fun enableVision() {
         visionEnabled = true
         lastVisionSummary = ""
+        latestVisualLabels = emptyList()
+        latestVisualLabelsAtElapsed = 0L
         useFrontCamera = false
         lastVisionFrameAt = 0L
         lastAdvancedFrameAtElapsed = 0L
@@ -725,6 +751,8 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
         }
         useFrontCamera = !useFrontCamera
         lastVisionSummary = ""
+        latestVisualLabels = emptyList()
+        latestVisualLabelsAtElapsed = 0L
         status.text = if (useFrontCamera) "N O V A • أغيّر زاوية ملاحظتي • أمامية" else "N O V A • أغيّر زاوية ملاحظتي • خلفية"
         message.text = if (useFrontCamera) "أغيّر زاوية ملاحظتي إلى الأمامية." else "أغيّر زاوية ملاحظتي إلى الخلفية."
         face.setMood(NovaMood.CURIOUS)
@@ -840,6 +868,9 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
                     val labels = (mlKitLabels + advancedResult?.labels.orEmpty())
                         .groupBy { it.label.lowercase(java.util.Locale.ROOT) }
                         .mapNotNull { (_, items) -> items.maxByOrNull { it.confidence } }
+                    latestVisualLabels = labels.toList()
+                    latestVisualLabelsAtElapsed = SystemClock.elapsedRealtime()
+                    val visualConceptNote = visualConceptMemory.observe(labels, System.currentTimeMillis()).orEmpty()
                     val stableExpressionMood = if (hasFace) {
                         expressionStabilizer.observe(emotionPrediction, now)
                     } else {
@@ -870,7 +901,8 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
                         sleepNote,
                         transientActionNote,
                         handGestureNote,
-                        environmentNote
+                        environmentNote,
+                        visualConceptNote
                     ).filter { it.isNotBlank() }
                     val summary = if (notes.isNotEmpty()) "$baseSummary\n${notes.joinToString("\n")}" else baseSummary
                     runOnUiThread {
