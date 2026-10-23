@@ -65,6 +65,7 @@ class NovaActivity : ComponentActivity() {
     private var pressDownY = 0f
     private var resumed = false
     private var visionEnabled = false
+    private var useFrontCamera = false
     private var lastVisionSummary = ""
     private var lastVisionFrameAt = 0L
     private var cameraProvider: ProcessCameraProvider? = null
@@ -187,11 +188,19 @@ class NovaActivity : ComponentActivity() {
                     true
                 }
                 MotionEvent.ACTION_UP -> {
+                    val deltaX = event.x - pressDownX
+                    val deltaY = event.y - pressDownY
                     val moved = kotlin.math.hypot(
-                        (event.x - pressDownX).toDouble(),
-                        (event.y - pressDownY).toDouble()
+                        deltaX.toDouble(),
+                        deltaY.toDouble()
                     ) > dp(18)
-                    if (!moved) {
+                    if (moved) {
+                        if (kotlin.math.abs(deltaX) > dp(70) &&
+                            kotlin.math.abs(deltaX) > kotlin.math.abs(deltaY) * 1.25f
+                        ) {
+                            switchCameraFacing()
+                        }
+                    } else {
                         val now = SystemClock.elapsedRealtime()
                         lastInteractionElapsed = now
                         val longPress = event.eventTime - event.downTime >= 650L
@@ -326,6 +335,7 @@ class NovaActivity : ComponentActivity() {
     private fun enableVision() {
         visionEnabled = true
         lastVisionSummary = ""
+        useFrontCamera = false
         lastVisionFrameAt = 0L
         status.text = "N O V A • STARTING VISION"
         message.text = "أشغّل الكاميرا الخلفية محليًا. التحليل منخفض الدقة ولا تُحفَظ الصور."
@@ -364,10 +374,11 @@ class NovaActivity : ComponentActivity() {
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .build()
             useCase.setAnalyzer(visionExecutor) { proxy -> analyzeOneFrame(proxy) }
-            provider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, useCase)
+            val selector = if (useFrontCamera) CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA
+            provider.bindToLifecycle(this, selector, useCase)
             analysisUseCase = useCase
-            status.text = "N O V A • LOCAL VISION ON"
-            Log.i("NOVA_VISION", "Camera started: back camera, 320x240, throttled local inference.")
+            status.text = if (useFrontCamera) "N O V A • FRONT CAMERA ON" else "N O V A • BACK CAMERA ON"
+            Log.i("NOVA_VISION", "Camera started: ${if (useFrontCamera) "front" else "back"} camera, 320x240, throttled local inference.")
         } catch (error: Exception) {
             Log.w("NOVA_VISION", "Binding the camera analyzer failed.", error)
             visionEnabled = false
@@ -376,6 +387,26 @@ class NovaActivity : ComponentActivity() {
             message.text = "لم أستطع تشغيل الرؤية على هذا الجهاز؛ بقيت بقية نوفا مستقلة عن الإنترنت."
             face.setMood(NovaMood.CALM)
         }
+    }
+
+    /** Swipe horizontally across Nova's face to switch cameras without adding a visible button. */
+    private fun switchCameraFacing() {
+        if (!visionEnabled) {
+            message.text = "اسمح بالكاميرا أولًا؛ السحب الأفقي يبدّل بين الأمامية والخلفية."
+            return
+        }
+        val nextSelector = if (useFrontCamera) CameraSelector.DEFAULT_BACK_CAMERA else CameraSelector.DEFAULT_FRONT_CAMERA
+        val provider = cameraProvider
+        if (provider == null || !provider.hasCamera(nextSelector)) {
+            message.text = "هذه الكاميرا غير متاحة على الجهاز."
+            return
+        }
+        useFrontCamera = !useFrontCamera
+        lastVisionSummary = ""
+        status.text = if (useFrontCamera) "N O V A • SWITCHING TO FRONT" else "N O V A • SWITCHING TO BACK"
+        message.text = if (useFrontCamera) "أحوّل إلى الكاميرا الأمامية." else "أحوّل إلى الكاميرا الخلفية."
+        face.setMood(NovaMood.CURIOUS)
+        bindLowLoadAnalyzer(provider)
     }
 
     private fun analyzeOneFrame(proxy: ImageProxy) {
