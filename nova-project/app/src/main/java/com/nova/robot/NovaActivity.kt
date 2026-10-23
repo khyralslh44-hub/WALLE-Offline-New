@@ -67,6 +67,11 @@ class NovaActivity : ComponentActivity() {
     private lateinit var affect: NovaAffectEngine
     private lateinit var peopleMemory: NovaPeopleMemory
     private lateinit var curiosity: NovaCuriosityEngine
+    private lateinit var placeMemory: NovaPlaceMemory
+    private lateinit var experienceMemory: NovaExperienceMemory
+    @Volatile private var latestPlaceEvidence: String = ""
+    @Volatile private var latestPlaceEvidenceAtElapsed: Long = 0L
+    @Volatile private var latestExperienceObservation: String = ""
     private val main = Handler(Looper.getMainLooper())
     private var lastInteractionElapsed = 0L
     private var lastTapElapsed = 0L
@@ -152,6 +157,8 @@ class NovaActivity : ComponentActivity() {
         localPreferences = getSharedPreferences("nova_local_memory", MODE_PRIVATE)
         store = SharedPreferencesNovaMemory(localPreferences)
         curiosity = NovaCuriosityEngine(store)
+        placeMemory = NovaPlaceMemory(store)
+        experienceMemory = NovaExperienceMemory(store)
         brain = NovaBrain(store)
         mind = NovaMind(store)
         affect = NovaAffectEngine()
@@ -384,6 +391,10 @@ class NovaActivity : ComponentActivity() {
     private fun clearLocalMemory() {
         localPreferences.edit().clear().apply()
         peopleMemory.forgetAll()
+        placeMemory.clear()
+        experienceMemory.clear()
+        latestPlaceEvidence = ""
+        latestExperienceObservation = ""
         clearLatestFaceCrop()
         store = SharedPreferencesNovaMemory(localPreferences)
         brain = NovaBrain(store)
@@ -409,6 +420,14 @@ class NovaActivity : ComponentActivity() {
     private fun handleMindInput(rawText: String) {
         val userText = rawText.trim().take(800)
         if (userText.isBlank()) return
+        NovaExpressionCommand.parse(userText)?.let { request ->
+            val reply = "أُظهر الآن تعبير «" + request.labelArabic + "». هذا عرض لتعبير الوجه، وليس ادعاءً بشعور داخلي."
+            showEvent(NovaEvent(request.mood, reply, hapticMillis = 16L), playSound = true)
+            return
+        }
+        val memoryReply = experienceMemory.handleCommand(userText)
+        if (memoryReply != null) { showEvent(NovaEvent(NovaMood.THINKING, memoryReply, hapticMillis = 14L), playSound = false); return }
+        if (handlePlaceMemoryCommand(userText)) return
         if (handleFaceEnrollment(userText)) return
         val correction = parseExplicitCorrection(userText)
         if (correction != null) {
@@ -459,6 +478,18 @@ class NovaActivity : ComponentActivity() {
         showEvent(NovaEvent(mood, reply.textArabic + note, isQuestion = reply.intent == NovaIntent.QUESTION || reply.intent == NovaIntent.VISION_QUERY, hapticMillis = 16L), playSound = true)
         // Only an installed offline Arabic voice is used; there is no cloud TTS fallback.
         localTts?.speak(reply.textArabic)
+    }
+
+    private fun handlePlaceMemoryCommand(rawText: String): Boolean {
+        if (NovaPlaceMemory.isClearCommand(rawText)) { placeMemory.clear(); showEvent(NovaEvent(NovaMood.CALM, "مسحت أسماء الأماكن التي علّمتِني إياها.", hapticMillis = 12L), playSound = false); return true }
+        if (NovaPlaceMemory.isListCommand(rawText)) { showEvent(NovaEvent(NovaMood.THINKING, placeMemory.describe(), hapticMillis = 12L), playSound = false); return true }
+        val name = NovaPlaceMemory.parseTrainingCommand(rawText) ?: return false
+        if (!visionEnabled || latestPlaceEvidence.isBlank() || SystemClock.elapsedRealtime() - latestPlaceEvidenceAtElapsed > 10_000L) {
+            showEvent(NovaEvent(NovaMood.CAUTIOUS, "شغّلي الرؤية أولًا وانتظري ظهور أشياء واضحة، ثم أعيدي الأمر. لن أخمّن المكان دون دليل بصري حديث.", hapticMillis = 12L), playSound = false); return true
+        }
+        val saved = placeMemory.enroll(name, latestPlaceEvidence)
+        val reply = if (saved) "تعلّمت وصفًا بصريًا تجريبيًا للمكان باسم «" + name + "» محليًا؛ قد أخلط بين غرف متشابهة." else "لم أحفظ المكان؛ أحتاج إلى تصنيفين بصريين مختلفين على الأقل في المشهد."
+        showEvent(NovaEvent(if (saved) NovaMood.CURIOUS else NovaMood.CAUTIOUS, reply, hapticMillis = 14L), playSound = false); return true
     }
 
     private fun parseExplicitCorrection(rawText: String): Pair<NovaIntent, String>? {
@@ -692,12 +723,17 @@ class NovaActivity : ComponentActivity() {
                         null
                     }
                     val activityNote = activityRecognizer.observe(advancedResult?.poseFeatures, labels, now).orEmpty()
+                    val environmentNote = NovaEnvironmentRecognizer.summarize(labels).orEmpty()
+                    latestPlaceEvidence = NovaPlaceMemory.signature(labels)
+                    latestPlaceEvidenceAtElapsed = SystemClock.elapsedRealtime()
                     val baseSummary = NovaVisionEvidence.summarize(hasFace, labels)
+                    latestExperienceObservation = listOf(baseSummary, activityNote, environmentNote).filter { it.isNotBlank() }.joinToString(System.lineSeparator())
                     val notes = listOf(
                         identityNote,
                         if (emotionNote.isNotBlank()) emotionNote else faceCueNote,
                         poseNote,
-                        activityNote
+                        activityNote,
+                        environmentNote
                     ).filter { it.isNotBlank() }
                     val summary = if (notes.isNotEmpty()) "$baseSummary\n${notes.joinToString("\n")}" else baseSummary
                     runOnUiThread {
@@ -863,8 +899,12 @@ class NovaActivity : ComponentActivity() {
         } else {
             affect.mood(System.currentTimeMillis())
         }
-        val question = curiosity.questionFor(summary, System.currentTimeMillis())
-        message.text = if (question == null) summary else "$summary\n$question"
+        val knownPlace = placeMemory.match(latestPlaceEvidence)
+        val placeNote = knownPlace?.let { "قد يشبه المكان الحالي «" + it + "» وفق الأشياء التي علّمتِني إياها؛ هذه مطابقة تقريبية وليست تحديدًا مؤكدًا للغرفة." }
+        val displaySummary = listOf(summary, placeNote).filter { !it.isNullOrBlank() }.joinToString(System.lineSeparator())
+        val question = curiosity.questionFor(displaySummary, System.currentTimeMillis())
+        message.text = if (question == null) displaySummary else displaySummary + System.lineSeparator() + question
+        experienceMemory.observe(latestExperienceObservation, System.currentTimeMillis())
         face.setMood(NovaBehaviorPlanner.chooseFaceMood(expressionMood, affectMood, hasFace))
         status.text = if (useFrontCamera) "N O V A • ألاحظ محيطي • أمامية" else "N O V A • ألاحظ محيطي • خلفية"
         Log.i("NOVA_VISION", "LOCAL_FRAME_SUMMARY face=$hasFace; imagesStored=false; network=false")

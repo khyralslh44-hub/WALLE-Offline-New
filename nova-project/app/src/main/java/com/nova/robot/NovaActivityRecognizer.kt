@@ -32,7 +32,7 @@ internal class NovaActivityRecognizer(
             samples.addLast(Sample(
                 nowMillis,
                 poseFeatures!!.copyOf(),
-                labels.filter { it.confidence.isFinite() && it.confidence >= 0.35f }
+                labels.filter { it.confidence.isFinite() && it.confidence >= 0.52f }
                     .map { it.label.trim().lowercase(Locale.ROOT) }.toSet()
             ))
             while (samples.size > MAX_SAMPLES) samples.removeFirst()
@@ -56,7 +56,8 @@ internal class NovaActivityRecognizer(
                     motionBetween(before.points, after.points) >= MOVEMENT_THRESHOLD
                 }
                 if (movingSteps >= 2) {
-                    lastNote = "ألاحظ حركة متكررة في الأطراف؛ قد يكون الشخص يمشي أو يتحرك بنشاط. لا أستطيع تحديد نوع النشاط بثقة بعد."
+                    val exerciseEvidence = recent.any { sample -> sample.labels.any(::looksLikeExercise) }
+                    lastNote = if (exerciseEvidence) "ألاحظ حركة متكررة، والتصنيف البصري قد يشير إلى نشاط رياضي؛ لا أستطيع تأكيد نوع التمرين من هذه المؤشرات وحدها." else "ألاحظ حركة متكررة في الأطراف؛ قد يكون الشخص يمشي أو يتحرك بنشاط. لا أستطيع تحديد نوع النشاط بثقة بعد."
                     lastNoteAt = nowMillis
                     return lastNote
                 }
@@ -79,6 +80,8 @@ internal class NovaActivityRecognizer(
             "cup", "bottle", "fork", "spoon", "cake", "donut", "carrot", "broccoli",
             "orange", "hot dog", "dining table", "coffee", "tea", "drink"
         ).any { label == it || label.contains(it) }
+
+    private fun looksLikeExercise(label: String): Boolean = listOf("exercise", "exercising", "fitness", "workout", "weightlifting", "push-up", "push up", "gym", "sport", "sports", "running", "treadmill").any { label == it || label.contains(it) }
 
     private fun motionBetween(a: FloatArray, b: FloatArray): Float {
         val ids = intArrayOf(LEFT_WRIST, RIGHT_WRIST, LEFT_ANKLE, RIGHT_ANKLE)
