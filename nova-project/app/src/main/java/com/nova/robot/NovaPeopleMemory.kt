@@ -72,8 +72,9 @@ internal object NovaEnrollmentParser {
     }
 }
 
-internal class NovaPeopleMemory(context: Context) {
+internal class NovaPeopleMemory(context: Context) : AutoCloseable {
     private val prefs = context.applicationContext.getSharedPreferences("nova_people_memory_v1", Context.MODE_PRIVATE)
+    private val faceModel = NovaMobileFaceNet(context)
 
     @Synchronized
     fun count(): Int = readAll().size
@@ -83,7 +84,7 @@ internal class NovaPeopleMemory(context: Context) {
         require(!faceCrop.isRecycled && faceCrop.width >= 24 && faceCrop.height >= 24) {
             "A fresh, sufficiently large face crop is required."
         }
-        val descriptor = NovaLbpDescriptor.extract(faceCrop)
+        val descriptor = extractDescriptor(faceCrop)
         val existing = readAll().firstOrNull {
             normalize(it.name) == normalize(request.name) && normalize(it.relation) == normalize(request.relation)
         }
@@ -102,8 +103,10 @@ internal class NovaPeopleMemory(context: Context) {
     @Synchronized
     fun recognize(faceCrop: Bitmap): NovaPersonMatch? {
         if (faceCrop.isRecycled || faceCrop.width < 24 || faceCrop.height < 24) return null
-        val descriptor = runCatching { NovaLbpDescriptor.extract(faceCrop) }.getOrNull() ?: return null
-        val scored = readAll().map { it to NovaLbpDescriptor.distance(it.descriptor, descriptor) }
+        val descriptor = runCatching { extractDescriptor(faceCrop) }.getOrNull() ?: return null
+        val scored = readAll()
+            .filter { it.descriptor.size == descriptor.size }
+            .map { it to if (faceModel.isAvailable && descriptor.size != NovaLbpDescriptor.SIZE) cosineDistance(it.descriptor, descriptor) else NovaLbpDescriptor.distance(it.descriptor, descriptor) }
             .filter { it.second.isFinite() }
             .sortedBy { it.second }
         val best = scored.firstOrNull() ?: return null
@@ -119,6 +122,27 @@ internal class NovaPeopleMemory(context: Context) {
         prefs.edit().remove(KEY_PROFILES).commit()
     }
 
+    private fun extractDescriptor(faceCrop: Bitmap): FloatArray =
+        faceModel.extract(faceCrop) ?: NovaLbpDescriptor.extract(faceCrop)
+
+    private fun cosineDistance(first: FloatArray, second: FloatArray): Float {
+        if (first.size != second.size || first.isEmpty()) return Float.POSITIVE_INFINITY
+        var dot = 0.0
+        var a = 0.0
+        var b = 0.0
+        for (i in first.indices) {
+            dot += first[i].toDouble() * second[i]
+            a += first[i].toDouble() * first[i]
+            b += second[i].toDouble() * second[i]
+        }
+        if (a <= 1e-12 || b <= 1e-12) return Float.POSITIVE_INFINITY
+        return (1.0 - dot / kotlin.math.sqrt(a * b)).toFloat().coerceAtLeast(0f)
+    }
+
+    override fun close() {
+        faceModel.close()
+    }
+
     private fun readAll(): List<NovaKnownPerson> {
         val stored = prefs.getString(KEY_PROFILES, null) ?: return emptyList()
         val json = NovaLocalCipher.decryptOrLegacy(stored) ?: return emptyList()
@@ -129,7 +153,7 @@ internal class NovaPeopleMemory(context: Context) {
                 for (i in 0 until array.length()) {
                     val obj = array.optJSONObject(i) ?: continue
                     val descriptorArray = obj.optJSONArray("descriptor") ?: continue
-                    if (descriptorArray.length() != NovaLbpDescriptor.SIZE) continue
+                    if (descriptorArray.length() !in 16..NovaLbpDescriptor.SIZE) continue
                     val descriptor = FloatArray(descriptorArray.length()) { index ->
                         descriptorArray.optDouble(index, Double.NaN).toFloat()
                     }
@@ -169,7 +193,7 @@ internal class NovaPeopleMemory(context: Context) {
     companion object {
         private const val KEY_PROFILES = "profiles_json"
         private const val MAX_PROFILES = 24
-        private const val MAX_ACCEPT_DISTANCE = 0.115f
+        private const val MAX_ACCEPT_DISTANCE = 0.42f
         private const val MIN_MATCH_MARGIN = 0.035f
     }
 }
