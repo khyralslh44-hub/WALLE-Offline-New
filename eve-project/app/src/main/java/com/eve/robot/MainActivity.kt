@@ -492,7 +492,16 @@ class MainActivity : ComponentActivity() {
                 }
                 MotionEvent.ACTION_UP -> {
                     val releasedAt = SystemClock.uptimeMillis()
-                    val longPress = releasedAt - touchDownAt >= 550L
+                    val heldMs = releasedAt - touchDownAt
+                    val longPress = heldMs >= 550L
+                    // Hold the face for 1.4 seconds to open the offline game room.
+                    // This keeps the main face free of permanent labels and buttons.
+                    if (heldMs >= 1_400L) {
+                        lastTapUptime = 0L
+                        startActivity(Intent(this@MainActivity, RobotGamesActivity::class.java))
+                        Log.i("EVE", "GAME_ROOM_OPEN_GESTURE source=face_long_press")
+                        return@setOnTouchListener true
+                    }
                     val tapDistance = kotlin.math.hypot(
                         (event.x - lastTapX).toDouble(),
                         (event.y - lastTapY).toDouble()
