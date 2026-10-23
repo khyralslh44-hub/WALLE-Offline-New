@@ -4,7 +4,13 @@ import android.Manifest
 import android.app.AlertDialog
 import android.content.pm.PackageManager
 import android.content.SharedPreferences
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Color
+import android.graphics.ImageFormat
+import android.graphics.Matrix
+import android.graphics.Rect
+import android.graphics.YuvImage
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.os.Handler
@@ -36,6 +42,7 @@ import com.google.mlkit.vision.face.FaceDetectorOptions
 import com.google.mlkit.vision.label.ImageLabeler
 import com.google.mlkit.vision.label.ImageLabeling
 import com.google.mlkit.vision.label.defaults.ImageLabelerOptions
+import java.io.ByteArrayOutputStream
 import java.util.Calendar
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -56,6 +63,7 @@ class NovaActivity : ComponentActivity() {
     private lateinit var store: SharedPreferencesNovaMemory
     private lateinit var localPreferences: SharedPreferences
     private lateinit var affect: NovaAffectEngine
+    private lateinit var peopleMemory: NovaPeopleMemory
     private val main = Handler(Looper.getMainLooper())
     private var lastInteractionElapsed = 0L
     private var lastTapElapsed = 0L
@@ -71,6 +79,10 @@ class NovaActivity : ComponentActivity() {
     private val visionInFlight = AtomicBoolean(false)
     private val visionExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private var localFaceDetector: FaceDetector? = null
+    private val faceCropLock = Any()
+    private var latestFaceCrop: Bitmap? = null
+    private var latestFaceCropAtElapsed = 0L
+    private var latestFaceCount = 0
     private var localImageLabeler: ImageLabeler? = null
     private var novaVoice: NovaVoice? = null
 
@@ -117,6 +129,7 @@ class NovaActivity : ComponentActivity() {
         brain = NovaBrain(store)
         mind = NovaMind(store)
         affect = NovaAffectEngine()
+        peopleMemory = NovaPeopleMemory(this)
         localPreferences.getString(KEY_AFFECT_SNAPSHOT, null)?.let { affect.restore(it) }
         affect.observe(NovaAffectEvent.USER_RETURNED, System.currentTimeMillis())
         persistAffect()
@@ -244,7 +257,7 @@ class NovaActivity : ComponentActivity() {
         }
         AlertDialog.Builder(this)
             .setTitle("تحدث مع نوفا — دون إنترنت")
-            .setMessage("يعالج نموذج نوفا المحلي نية الرسالة. الردود محدودة وليست توليدًا لغويًا عامًا. لتصحيح تعلّمها صراحةً اكتب: صحح: سؤال: النص.")
+            .setMessage("الرسائل والتعلم محليان. لتسجيل وجه، اجعل شخصًا واحدًا أمام الكاميرا ثم اكتب مثلًا: احفظ وجه أمي اسمها فاطمة. هذه مطابقة بصرية تجريبية وليست دقيقة بما يكفي للأمان.")
             .setView(input)
             .setNegativeButton("إلغاء", null)
             .setNeutralButton("مسح الذاكرة") { _, _ -> confirmClearLocalMemory() }
@@ -263,6 +276,8 @@ class NovaActivity : ComponentActivity() {
 
     private fun clearLocalMemory() {
         localPreferences.edit().clear().apply()
+        peopleMemory.forgetAll()
+        clearLatestFaceCrop()
         store = SharedPreferencesNovaMemory(localPreferences)
         brain = NovaBrain(store)
         mind = NovaMind(store)
@@ -272,7 +287,7 @@ class NovaActivity : ComponentActivity() {
         lastVisionSummary = ""
         lastInteractionElapsed = SystemClock.elapsedRealtime()
         face.setMood(NovaMood.CALM)
-        message.text = "مسحت الذاكرة المحلية وتصحيحات التعلم. سأبدأ من الحالة الأساسية؛ لم تُحفظ صور الكاميرا."
+        message.text = "مسحت ذاكرة نوفا المحلية، بما فيها أسماء الوجوه المسجلة وتصحيحات التعلم. لم أحتفظ بصور للوجوه."
         status.text = if (visionEnabled) {
             if (useFrontCamera) "N O V A • FRONT CAMERA ON" else "N O V A • BACK CAMERA ON"
         } else "N O V A • LOCAL ROBOT"
@@ -281,6 +296,7 @@ class NovaActivity : ComponentActivity() {
     private fun handleMindInput(rawText: String) {
         val userText = rawText.trim().take(800)
         if (userText.isBlank()) return
+        if (handleFaceEnrollment(userText)) return
         val correction = parseExplicitCorrection(userText)
         if (correction != null) {
             runCatching { mind.learnFromCorrection(correction.second, correction.first) }
@@ -455,13 +471,38 @@ class NovaActivity : ComponentActivity() {
             val labelTask = imageLabeler().process(input)
             Tasks.whenAllComplete(listOf(faceTask, labelTask)).addOnCompleteListener(visionExecutor) {
                 try {
-                    val hasFace = faceTask.isSuccessful && !faceTask.result.isNullOrEmpty()
+                    val detectedFaces = if (faceTask.isSuccessful) faceTask.result.orEmpty() else emptyList()
+                    val hasFace = detectedFaces.isNotEmpty()
+                    var identityNote = ""
+                    if (hasFace) {
+                        val largest = detectedFaces.maxByOrNull { it.boundingBox.width() * it.boundingBox.height() }
+                        val crop = largest?.let { runCatching { extractFaceCrop(proxy, it.boundingBox) }.getOrNull() }
+                        if (crop != null) {
+                            synchronized(faceCropLock) {
+                                latestFaceCrop?.recycle()
+                                latestFaceCrop = crop
+                                latestFaceCropAtElapsed = SystemClock.elapsedRealtime()
+                                latestFaceCount = detectedFaces.size
+                            }
+                            val match = runCatching { peopleMemory.recognize(crop) }.getOrNull()
+                            identityNote = when {
+                                match != null -> "تشابه بصري محتمل مع ${match.person.name} — مطابقة تجريبية غير مؤكدة"
+                                peopleMemory.count() > 0 -> "رصدت وجهًا، لكن لم أستطع مطابقته بثقة مع الوجوه المحفوظة"
+                                else -> "رصدت وجهًا؛ لم تسجل نوفا هوية بصرية لهذا الشخص بعد"
+                            }
+                        } else {
+                            clearLatestFaceCrop()
+                        }
+                    } else {
+                        clearLatestFaceCrop()
+                    }
                     val labels = if (labelTask.isSuccessful) {
                         labelTask.result.orEmpty().map { NovaLabelEvidence(it.text, it.confidence) }
                     } else {
                         emptyList()
                     }
-                    val summary = NovaVisionEvidence.summarize(hasFace, labels)
+                    val baseSummary = NovaVisionEvidence.summarize(hasFace, labels)
+                    val summary = if (identityNote.isNotBlank()) "$baseSummary\\n$identityNote" else baseSummary
                     runOnUiThread {
                         if (visionEnabled && resumed && !isFinishing && !isDestroyed) {
                             applyVisionSummary(summary, hasFace)
@@ -480,6 +521,104 @@ class NovaActivity : ComponentActivity() {
             Log.w("NOVA_VISION", "Local inference could not start.", error)
         }
     }
+
+    private fun handleFaceEnrollment(rawText: String): Boolean {
+        val request = NovaEnrollmentParser.parse(rawText) ?: return false
+        if (!visionEnabled) {
+            showEvent(NovaEvent(NovaMood.CAUTIOUS, "شغّل الرؤية أولًا، ثم اجعل الشخص المقصود أمام الكاميرا وحده.", hapticMillis = 12L), playSound = false)
+            return true
+        }
+        val cropCopy = synchronized(faceCropLock) {
+            val crop = latestFaceCrop
+            if (crop == null || latestFaceCount != 1 ||
+                SystemClock.elapsedRealtime() - latestFaceCropAtElapsed > FRESH_FACE_CROP_MS
+            ) null else runCatching { crop.copy(Bitmap.Config.ARGB_8888, false) }.getOrNull()
+        }
+        if (cropCopy == null) {
+            showEvent(NovaEvent(NovaMood.CAUTIOUS, "لم أحفظ الوجه: أحتاج وجهًا واحدًا واضحًا وحديثًا أمام الكاميرا. قرّب الشخص وحاول مجددًا.", hapticMillis = 12L), playSound = false)
+            return true
+        }
+        try {
+            val saved = peopleMemory.enroll(request, cropCopy)
+            showEvent(NovaEvent(
+                NovaMood.WARM,
+                "حفظت مرجعًا بصريًا محليًا لـ${saved.relation} ${saved.name}. لن أحفظ صورة الوجه؛ خزّنت وصفًا رقميًا فقط. التعرف تجريبي وقد أخطئ.",
+                hapticMillis = 22L
+            ), playSound = false)
+        } catch (error: Exception) {
+            Log.w("NOVA_PEOPLE", "Could not enroll a local face reference.", error)
+            showEvent(NovaEvent(NovaMood.CAUTIOUS, "لم أتمكن من حفظ المرجع البصري محليًا.", hapticMillis = 12L), playSound = false)
+        } finally {
+            cropCopy.recycle()
+        }
+        return true
+    }
+
+    private fun clearLatestFaceCrop() {
+        synchronized(faceCropLock) {
+            latestFaceCrop?.recycle()
+            latestFaceCrop = null
+            latestFaceCropAtElapsed = 0L
+            latestFaceCount = 0
+        }
+    }
+
+    /** Converts only the current low-resolution frame long enough to crop the detected face. */
+    private fun extractFaceCrop(proxy: ImageProxy, faceBounds: Rect): Bitmap? {
+        val frame = imageProxyToBitmap(proxy) ?: return null
+        try {
+            val rotation = proxy.imageInfo.rotationDegrees
+            val rotated = if (rotation % 360 == 0) frame else {
+                val matrix = Matrix().apply { postRotate(rotation.toFloat()) }
+                Bitmap.createBitmap(frame, 0, 0, frame.width, frame.height, matrix, true)
+            }
+            try {
+                val padX = (faceBounds.width() * 0.12f).toInt().coerceAtLeast(2)
+                val padY = (faceBounds.height() * 0.12f).toInt().coerceAtLeast(2)
+                val left = (faceBounds.left - padX).coerceIn(0, rotated.width - 1)
+                val top = (faceBounds.top - padY).coerceIn(0, rotated.height - 1)
+                val right = (faceBounds.right + padX).coerceIn(left + 1, rotated.width)
+                val bottom = (faceBounds.bottom + padY).coerceIn(top + 1, rotated.height)
+                if (right - left < 24 || bottom - top < 24) return null
+                return Bitmap.createBitmap(rotated, left, top, right - left, bottom - top)
+            } finally {
+                if (rotated !== frame) rotated.recycle()
+            }
+        } finally {
+            frame.recycle()
+        }
+    }
+
+    private fun imageProxyToBitmap(proxy: ImageProxy): Bitmap? = runCatching {
+        if (proxy.format != ImageFormat.YUV_420_888) return null
+        val width = proxy.width
+        val height = proxy.height
+        val planes = proxy.planes
+        if (planes.size < 3) return null
+        val nv21 = ByteArray(width * height + width * height / 2)
+        val yBuffer = planes[0].buffer
+        val uBuffer = planes[1].buffer
+        val vBuffer = planes[2].buffer
+        val yStart = yBuffer.position()
+        val uStart = uBuffer.position()
+        val vStart = vBuffer.position()
+        var offset = 0
+        for (row in 0 until height) {
+            for (col in 0 until width) {
+                nv21[offset++] = yBuffer.get(yStart + row * planes[0].rowStride + col * planes[0].pixelStride)
+            }
+        }
+        for (row in 0 until height / 2) {
+            for (col in 0 until width / 2) {
+                nv21[offset++] = vBuffer.get(vStart + row * planes[2].rowStride + col * planes[2].pixelStride)
+                nv21[offset++] = uBuffer.get(uStart + row * planes[1].rowStride + col * planes[1].pixelStride)
+            }
+        }
+        val output = ByteArrayOutputStream()
+        YuvImage(nv21, ImageFormat.NV21, width, height, null)
+            .compressToJpeg(Rect(0, 0, width, height), 82, output)
+        BitmapFactory.decodeByteArray(output.toByteArray(), 0, output.size())
+    }.onFailure { Log.w("NOVA_PEOPLE", "Could not crop a detected face locally.", it) }.getOrNull()
 
     private fun applyVisionSummary(summary: String, hasFace: Boolean) {
         if (summary == lastVisionSummary) return
@@ -549,6 +688,7 @@ class NovaActivity : ComponentActivity() {
         novaVoice = null
         localFaceDetector?.close()
         localFaceDetector = null
+        clearLatestFaceCrop()
         localImageLabeler?.close()
         localImageLabeler = null
         visionExecutor.shutdown()
@@ -617,6 +757,7 @@ class NovaActivity : ComponentActivity() {
 
     companion object {
         private const val MIN_FRAME_INTERVAL_MS = 1_800L
+        private const val FRESH_FACE_CROP_MS = 4_000L
         private const val KEY_AFFECT_SNAPSHOT = "nova_affect_snapshot_v1"
     }
 }
