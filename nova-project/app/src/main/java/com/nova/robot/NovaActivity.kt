@@ -143,7 +143,7 @@ class NovaActivity : ComponentActivity() {
             textAlignment = View.TEXT_ALIGNMENT_CENTER
             maxLines = 5
             setPadding(dp(18), dp(14), dp(18), dp(14))
-            background = pillBackground(0xE9081225.toInt(), 0x884F8DDF)
+            background = pillBackground(0xE9081225.toInt(), 0x884F8DDF.toInt())
         }
         root.addView(message, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT,
