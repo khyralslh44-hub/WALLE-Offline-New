@@ -168,7 +168,7 @@ class NovaActivity : ComponentActivity() {
         })
 
         val hint = TextView(this).apply {
-            text = "لمسة: تفاعل • لمستان: مرح • ضغط مطوّل: تحدث نصيًا"
+            text = "اسحب أفقيًا لتبديل الكاميرا • لمسة: تفاعل • لمستان: مرح • ضغط مطوّل: رسالة"
             textSize = 10f
             setTextColor(0xFF7798BD.toInt())
             gravity = Gravity.CENTER
