@@ -375,7 +375,7 @@ class NovaActivity : ComponentActivity() {
     private fun confirmClearLocalMemory() {
         AlertDialog.Builder(this)
             .setTitle("مسح ذاكرة نوفا المحلية؟")
-            .setMessage("سيُمسح سجل التفاعلات المختصر وحالة الشخصية وتصحيحات نموذج النوايا المحفوظة على هذا الهاتف. لا تُحفظ صور الكاميرا أصلًا. لا يمكن التراجع عن المسح.")
+            .setMessage("ستُمسح الملاحظات الشخصية التي طلبت حفظها، وحدود الفضول، وسجل التفاعلات المختصر، وحالة الشخصية، وتصحيحات نموذج النوايا وأسماء الوجوه المحفوظة. لا تُحفظ صور الكاميرا أصلًا. لا يمكن التراجع عن المسح.")
             .setNegativeButton("إلغاء", null)
             .setPositiveButton("مسح نهائي") { _, _ -> clearLocalMemory() }
             .show()
@@ -400,7 +400,7 @@ class NovaActivity : ComponentActivity() {
         curiosity.reset()
         lastInteractionElapsed = SystemClock.elapsedRealtime()
         face.setMood(NovaMood.CALM)
-        message.text = "مسحت ذاكرة نوفا المحلية، بما فيها أسماء الوجوه المسجلة وتصحيحات التعلم. لم أحتفظ بصور للوجوه."
+        message.text = "مسحت ذاكرتي المحلية: الملاحظات الشخصية وأسماء الوجوه والتعلّم السابق. لم أحتفظ بصور للوجوه."
         status.text = if (visionEnabled) {
             if (useFrontCamera) "N O V A • ألاحظ محيطي • أمامية" else "N O V A • ألاحظ محيطي • خلفية"
         } else "N O V A • LOCAL ROBOT"
@@ -451,7 +451,11 @@ class NovaActivity : ComponentActivity() {
                 NovaEmotion.THINKING -> NovaMood.THINKING
             }
         }
-        val note = if (reply.intent == NovaIntent.UNKNOWN || confidence < 36) "\n(لم أكن واثقة من تصنيف القصد)" else "\n(تصنيف محلي: $confidence٪)"
+        val note = when {
+            !reply.usedOwnModel && reply.intent == NovaIntent.MEMORY_REQUEST -> ""
+            reply.intent == NovaIntent.UNKNOWN || confidence < 36 -> "\n(لم أكن واثقة من تصنيف القصد)"
+            else -> "\n(تصنيف محلي: $confidence٪)"
+        }
         showEvent(NovaEvent(mood, reply.textArabic + note, isQuestion = reply.intent == NovaIntent.QUESTION || reply.intent == NovaIntent.VISION_QUERY, hapticMillis = 16L), playSound = true)
         // Only an installed offline Arabic voice is used; there is no cloud TTS fallback.
         localTts?.speak(reply.textArabic)

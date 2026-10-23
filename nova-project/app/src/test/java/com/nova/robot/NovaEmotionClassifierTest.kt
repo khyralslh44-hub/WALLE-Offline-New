@@ -29,6 +29,22 @@ class NovaEmotionClassifierTest {
     }
 
     @Test
+    fun fearSadnessAndDisgustMapToDistinctVisualExpressions() {
+        assertEquals(
+            NovaMood.AFRAID,
+            NovaEmotionEvidence.predict(floatArrayOf(-5f, -5f, 6f, -5f, -5f, -5f, -5f)).mood
+        )
+        assertEquals(
+            NovaMood.SAD,
+            NovaEmotionEvidence.predict(floatArrayOf(-5f, -5f, -5f, -5f, -5f, 6f, -5f)).mood
+        )
+        assertEquals(
+            NovaMood.DISGUSTED,
+            NovaEmotionEvidence.predict(floatArrayOf(-5f, 6f, -5f, -5f, -5f, -5f, -5f)).mood
+        )
+    }
+
+    @Test
     fun malformedScoresRemainUncertain() {
         assertTrue(NovaEmotionEvidence.describe(floatArrayOf(Float.NaN)).contains("لا أستطيع تسميته بثقة"))
     }
