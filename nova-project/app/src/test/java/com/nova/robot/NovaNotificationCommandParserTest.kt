@@ -16,7 +16,7 @@ class NovaNotificationCommandParserTest {
         assertEquals(600_000L, western.delayMillis)
         assertEquals("شرب الماء", western.message)
         assertEquals(7_200_000L, arabic.delayMillis)
-        assertEquals("راجع الدرس", arabic.message)
+        assertEquals("اراجع الدرس", arabic.message)
     }
 
     @Test fun rejectsEmptyTooShortAndTooLongReminders() {

@@ -14,6 +14,7 @@ import android.graphics.Rect
 import android.graphics.YuvImage
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -105,6 +106,7 @@ class NovaActivity : ComponentActivity() {
     private var localSpeechInput: NovaOfflineSpeechInput? = null
     private var pendingSpeechTarget: EditText? = null
     private var mindInputDialog: AlertDialog? = null
+    private var pendingNotificationAction: (() -> Unit)? = null
 
     private val cameraPermissionRequest =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -126,6 +128,18 @@ class NovaActivity : ComponentActivity() {
                 message.text = "لم تمنحني إذن الميكروفون، لذلك لم أستمع إلى أي صوت. ما زال بإمكانك الكتابة لي."
                 status.text = "N O V A • أعمل محليًا"
             }
+        }
+
+    private val notificationPermissionRequest =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            val action = pendingNotificationAction
+            pendingNotificationAction = null
+            if (granted) action?.invoke()
+            else showEvent(NovaEvent(
+                NovaMood.CAUTIOUS,
+                "لم يُمنح إذن الإشعارات، لذلك لم أفعّل أي تنبيه. يمكنك السماح به من إعدادات أندرويد.",
+                hapticMillis = 12L
+            ), playSound = false)
         }
 
     private val idleCheck = object : Runnable {
@@ -421,6 +435,7 @@ class NovaActivity : ComponentActivity() {
     private fun handleMindInput(rawText: String) {
         val userText = rawText.trim().take(800)
         if (userText.isBlank()) return
+        if (handleNotificationCommand(userText)) return
         if (openNovaGameIfRequested(userText)) return
         NovaExpressionCommand.parse(userText)?.let { request ->
             val reply = "أُظهر الآن تعبير «" + request.labelArabic + "». هذا عرض لتعبير الوجه، وليس ادعاءً بشعور داخلي."
@@ -480,6 +495,60 @@ class NovaActivity : ComponentActivity() {
         showEvent(NovaEvent(mood, reply.textArabic + note, isQuestion = reply.intent == NovaIntent.QUESTION || reply.intent == NovaIntent.VISION_QUERY, hapticMillis = 16L), playSound = true)
         // Only an installed offline Arabic voice is used; there is no cloud TTS fallback.
         localTts?.speak(reply.textArabic)
+    }
+
+    private fun withNotificationPermission(action: () -> Unit) {
+        if (Build.VERSION.SDK_INT < 33 ||
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        ) {
+            action()
+        } else {
+            pendingNotificationAction = action
+            notificationPermissionRequest.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
+    private fun handleNotificationCommand(rawText: String): Boolean {
+        return when (val command = NovaNotificationCommandParser.parse(rawText)) {
+            NovaNotificationCommand.EnableDaily -> {
+                withNotificationPermission {
+                    NovaLocalNotifications.enableDaily(this, 19, 0)
+                    showEvent(NovaEvent(NovaMood.HAPPY,
+                        "فعّلت إشعارًا لطيفًا واحدًا كل يوم الساعة 19:00. يمكنك إيقافه بقول «أوقفي إشعارات نوفا».",
+                        hapticMillis = 14L), playSound = false)
+                }
+                true
+            }
+            NovaNotificationCommand.DisableDaily -> {
+                NovaLocalNotifications.disableDaily(this)
+                showEvent(NovaEvent(NovaMood.CALM,
+                    "أوقفت الإشعارات اليومية. ستبقى التذكيرات التي طلبتِها بشكل منفصل كما هي.",
+                    hapticMillis = 12L), playSound = false)
+                true
+            }
+            NovaNotificationCommand.Test -> {
+                withNotificationPermission {
+                    val posted = NovaLocalNotifications.showTest(this)
+                    showEvent(NovaEvent(if (posted) NovaMood.HAPPY else NovaMood.CAUTIOUS,
+                        if (posted) "أرسلت إشعارًا تجريبيًا محليًا. إن لم يظهر، راجعي إعدادات إشعارات نوفا والبطارية."
+                        else "لم أستطع عرض الإشعار. تحققي من أن إشعارات نوفا مسموحة في إعدادات أندرويد.",
+                        hapticMillis = 14L), playSound = false)
+                }
+                true
+            }
+            is NovaNotificationCommand.Reminder -> {
+                withNotificationPermission {
+                    val scheduled = NovaLocalNotifications.scheduleReminder(this, command.delayMillis, command.message)
+                    showEvent(NovaEvent(if (scheduled) NovaMood.CURIOUS else NovaMood.CAUTIOUS,
+                        if (scheduled) "حفظت تذكيرًا محليًا بعد " + command.spokenDelay + ": " + command.message +
+                            ". قد يؤخر أندرويد موعده قليلًا حسب البطارية ووضع توفير الطاقة."
+                        else "لم أتمكن من جدولة هذا التذكير. جرّبي مدة بين دقيقة و30 يومًا.",
+                        hapticMillis = 14L), playSound = false)
+                }
+                true
+            }
+            null -> false
+        }
     }
 
     private fun openNovaGameIfRequested(rawText: String): Boolean {
