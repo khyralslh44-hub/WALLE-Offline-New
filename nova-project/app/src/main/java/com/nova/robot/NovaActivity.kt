@@ -1,6 +1,7 @@
 package com.nova.robot
 
 import android.Manifest
+import android.app.AlertDialog
 import android.content.pm.PackageManager
 import android.content.SharedPreferences
 import android.graphics.Color
@@ -11,12 +12,15 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.text.InputFilter
+import android.text.InputType
 import android.util.Log
 import android.util.Size
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
+import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.TextView
 import androidx.activity.ComponentActivity
@@ -40,8 +44,9 @@ import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Standalone, offline-first Nova. The camera is opt-in and is stopped when the activity leaves
- * the foreground. No microphone, network, background service, or raw image storage is used.
+ * Standalone offline-first Nova. The camera starts after Android permission and stops when the
+ * activity leaves the foreground. Text intent classification and memory stay on-device; no network,
+ * microphone, cloud inference, or raw image storage is used.
  * Vision runs on small 320x240 frames with a throttle so the phone is not continuously stressed.
  */
 class NovaActivity : ComponentActivity() {
@@ -49,6 +54,7 @@ class NovaActivity : ComponentActivity() {
     private lateinit var message: TextView
     private lateinit var status: TextView
     private lateinit var brain: NovaBrain
+    private lateinit var mind: NovaMind
     private lateinit var store: SharedPreferencesNovaMemory
     private lateinit var localPreferences: SharedPreferences
     private lateinit var affect: NovaAffectEngine
@@ -110,6 +116,7 @@ class NovaActivity : ComponentActivity() {
         localPreferences = getSharedPreferences("nova_local_memory", MODE_PRIVATE)
         store = SharedPreferencesNovaMemory(localPreferences)
         brain = NovaBrain(store)
+        mind = NovaMind(store)
         affect = NovaAffectEngine()
         localPreferences.getString(KEY_AFFECT_SNAPSHOT, null)?.let { affect.restore(it) }
         affect.observe(NovaAffectEvent.USER_RETURNED, System.currentTimeMillis())
@@ -125,7 +132,7 @@ class NovaActivity : ComponentActivity() {
         ))
 
         status = TextView(this).apply {
-            text = "N O V A • STARTING VISION"
+            text = "N O V A • LOCAL ROBOT"
             textSize = 10f
             letterSpacing = 0.10f
             setTextColor(0xFF94C8FF.toInt())
@@ -142,7 +149,7 @@ class NovaActivity : ComponentActivity() {
         ).apply { topMargin = dp(20) })
 
         message = TextView(this).apply {
-            text = "أنا نوفا. فضولي وهادئ، وأفضّل التحقّق قبل الاستنتاج. أستخدم الكاميرا محليًا بعد إذنك، ولا أحفظ الصور."
+            text = "أنا نوفا. فضولي وهادئ، وأفضّل التحقّق قبل الاستنتاج. اضغط مطولًا لكتابة رسالة؛ التصنيف والذاكرة محليان."
             textSize = 16f
             setTextColor(0xFFE5F6FF.toInt())
             gravity = Gravity.CENTER
@@ -160,7 +167,7 @@ class NovaActivity : ComponentActivity() {
         })
 
         val hint = TextView(this).apply {
-            text = "لمسة: تفاعل • لمستان: مرح • ضغط مطوّل: سؤال جديد"
+            text = "لمسة: تفاعل • لمستان: مرح • ضغط مطوّل: تحدث نصيًا"
             textSize = 10f
             setTextColor(0xFF7798BD.toInt())
             gravity = Gravity.CENTER
@@ -191,7 +198,7 @@ class NovaActivity : ComponentActivity() {
                         when {
                             longPress -> {
                                 lastTapElapsed = 0L
-                                showEvent(brain.thinkNow(), playSound = true)
+                                showMindInputDialog()
                             }
                             lastTapElapsed > 0L && now - lastTapElapsed <= 340L -> {
                                 lastTapElapsed = 0L
@@ -219,13 +226,56 @@ class NovaActivity : ComponentActivity() {
         }
     }
 
+    private fun showMindInputDialog() {
+        val input = EditText(this).apply {
+            hint = "اكتب رسالة قصيرة إلى نوفا"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
+            filters = arrayOf(InputFilter.LengthFilter(800))
+            minLines = 2
+            maxLines = 5
+            setPadding(dp(16), dp(12), dp(16), dp(12))
+        }
+        AlertDialog.Builder(this)
+            .setTitle("تحدث مع نوفا — دون إنترنت")
+            .setMessage("يعالج نموذج نوفا المحلي نية الرسالة. الردود محدودة وليست توليدًا لغويًا عامًا.")
+            .setView(input)
+            .setNegativeButton("إلغاء", null)
+            .setPositiveButton("إرسال") { _, _ -> handleMindInput(input.text.toString()) }
+            .show()
+    }
+
+    private fun handleMindInput(rawText: String) {
+        val userText = rawText.trim().take(800)
+        if (userText.isBlank()) return
+        val reply = runCatching {
+            mind.respond(NovaMindInput(text = userText, visualSummary = lastVisionSummary.takeIf { visionEnabled }))
+        }.getOrElse {
+            Log.w("NOVA_MIND", "Offline intent model failed safely.", it)
+            showEvent(NovaEvent(NovaMood.CAUTIOUS, "واجهت مشكلة في تحليل النص محليًا. لم أرسل أي بيانات إلى الإنترنت.", hapticMillis = 12L), playSound = false)
+            return
+        }
+        val mood = when (reply.emotion) {
+            NovaEmotion.CALM -> NovaMood.CALM
+            NovaEmotion.CURIOUS -> NovaMood.CURIOUS
+            NovaEmotion.HAPPY -> NovaMood.HAPPY
+            NovaEmotion.SURPRISED -> NovaMood.SURPRISED
+            NovaEmotion.FRUSTRATED -> NovaMood.FRUSTRATED
+            NovaEmotion.SLEEPY -> NovaMood.SLEEPY
+            NovaEmotion.PLAYFUL -> NovaMood.PLAYFUL
+            NovaEmotion.THINKING -> NovaMood.THINKING
+        }
+        val confidence = (reply.intentConfidence.coerceIn(0f, 1f) * 100).toInt()
+        val note = if (reply.intent == NovaIntent.UNKNOWN || confidence < 36) "\n(لم أكن واثقة من تصنيف القصد)" else "\n(تصنيف محلي: $confidence٪)"
+        showEvent(NovaEvent(mood, reply.textArabic + note, isQuestion = reply.intent == NovaIntent.QUESTION || reply.intent == NovaIntent.VISION_QUERY, hapticMillis = 16L), playSound = true)
+    }
+
     private fun toggleVision() {
         lastInteractionElapsed = SystemClock.elapsedRealtime()
         if (visionEnabled) {
             visionEnabled = false
             stopVisionCamera()
             lastVisionSummary = ""
-            status.text = "N O V A • TAP TO LOOK"
+            status.text = "N O V A • LOCAL ROBOT"
             message.text = "أوقفت الكاميرا. لا أحفظ الصور، ويمكنك تشغيل الرؤية وقتما تريد."
             face.setMood(NovaMood.CALM)
             return
@@ -282,7 +332,7 @@ class NovaActivity : ComponentActivity() {
             useCase.setAnalyzer(visionExecutor) { proxy -> analyzeOneFrame(proxy) }
             provider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, useCase)
             analysisUseCase = useCase
-            status.text = "N O V A • SEEING • TAP TO STOP"
+            status.text = "N O V A • LOCAL VISION ON"
             Log.i("NOVA_VISION", "Camera started: back camera, 320x240, throttled local inference.")
         } catch (error: Exception) {
             Log.w("NOVA_VISION", "Binding the camera analyzer failed.", error)
@@ -356,7 +406,7 @@ class NovaActivity : ComponentActivity() {
             NovaAffectMood.CURIOUS -> NovaMood.CURIOUS
             NovaAffectMood.CALM -> if (hasFace) NovaMood.CURIOUS else NovaMood.THINKING
         })
-        status.text = "N O V A • SEEING • TAP TO STOP"
+        status.text = "N O V A • LOCAL VISION ON"
         Log.i("NOVA_VISION", "LOCAL_FRAME_SUMMARY face=$hasFace; imagesStored=false; network=false")
     }
 
@@ -433,7 +483,7 @@ class NovaActivity : ComponentActivity() {
         face.setMood(visibleMood)
         message.text = event.messageArabic
         status.text = if (visionEnabled) {
-            "N O V A • SEEING • TAP TO STOP"
+            "N O V A • LOCAL VISION ON"
         } else when (visibleMood) {
             NovaMood.CURIOUS -> "N O V A • C U R I O U S"
             NovaMood.HAPPY, NovaMood.PLAYFUL -> "N O V A • P L A Y F U L"
@@ -445,7 +495,7 @@ class NovaActivity : ComponentActivity() {
             NovaMood.ALERT -> "N O V A • A L E R T"
             NovaMood.CAUTIOUS -> "N O V A • C A U T I O U S"
             NovaMood.TIRED -> "N O V A • R E S T I N G"
-            NovaMood.CALM -> "N O V A • TAP TO LOOK"
+            NovaMood.CALM -> "N O V A • LOCAL ROBOT"
         }
         if (event.hapticMillis > 0L) face.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
         if (playSound) {
@@ -489,9 +539,25 @@ class NovaActivity : ComponentActivity() {
 
 private class SharedPreferencesNovaMemory(
     private val preferences: android.content.SharedPreferences
-) : NovaMemory {
+) : NovaMemory, NovaMindMemory {
     override fun getInt(key: String, defaultValue: Int): Int = preferences.getInt(key, defaultValue)
     override fun getLong(key: String, defaultValue: Long): Long = preferences.getLong(key, defaultValue)
     override fun putInt(key: String, value: Int) { preferences.edit().putInt(key, value).apply() }
     override fun putLong(key: String, value: Long) { preferences.edit().putLong(key, value).apply() }
+
+    override fun read(key: String): String? = preferences.getString("mind:$key", null)
+
+    override fun write(item: NovaMemoryItem) {
+        preferences.edit()
+            .putString("mind:${item.key}", item.value)
+            .putLong("mind:${item.key}:updated_at", item.updatedAtMillis)
+            .apply()
+    }
+
+    override fun increment(key: String): Int {
+        val storageKey = "mind:counter:$key"
+        val next = preferences.getInt(storageKey, 0) + 1
+        preferences.edit().putInt(storageKey, next).apply()
+        return next
+    }
 }
