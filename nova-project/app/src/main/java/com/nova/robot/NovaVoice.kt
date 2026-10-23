@@ -5,6 +5,7 @@ import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
 import android.os.Handler
+import android.os.SystemClock
 import kotlin.math.PI
 import kotlin.math.sin
 
@@ -22,9 +23,18 @@ internal class NovaVoice(
     private var activeTrack: AudioTrack? = null
     private var releaseRunnable: Runnable? = null
     private var cueIndex = 0
+    private var lastCueAtElapsedMs = 0L
+    private var lastCueMood: NovaMood? = null
 
     @Synchronized
     fun play(mood: NovaMood, isQuestion: Boolean = false) {
+        val now = SystemClock.elapsedRealtime()
+        // Ignore rapid duplicate triggers and dampen repeated same-mood cues without random behavior.
+        if (now - lastCueAtElapsedMs < MIN_CUE_GAP_MS ||
+            (lastCueMood == mood && now - lastCueAtElapsedMs < SAME_MOOD_COOLDOWN_MS)
+        ) return
+        lastCueAtElapsedMs = now
+        lastCueMood = mood
         val motif = motifFor(mood, isQuestion, cueIndex++)
         val samples = synthesize(motif)
         stopCurrent()
@@ -147,6 +157,8 @@ internal class NovaVoice(
 
     companion object {
         private const val SAMPLE_RATE = 22_050
+        private const val MIN_CUE_GAP_MS = 280L
+        private const val SAME_MOOD_COOLDOWN_MS = 1_050L
         private const val NOTE_SECONDS = 0.092
         private const val GAP_SECONDS = 0.018
     }
