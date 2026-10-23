@@ -12,11 +12,16 @@ internal class NovaCuriosityEngine(
 
     fun questionFor(summary: String, nowMillis: Long): String? {
         val keyAndQuestion = when {
-            summary.contains("وجهًا جديدًا بالنسبة إلى ذاكرتي") ->
+            summary.contains("وجهًا جديدًا بالنسبة إلى ذاكرتي") ||
+                summary.contains("لم تسجل نوفا هوية بصرية لهذا الشخص") ->
                 "new-person" to "هل تريد أن تعرّفني بهذا الشخص؟ لن أحفظ مرجعًا للوجه دون موافقة."
-            summary.contains("لا أستطيع مطابقته بثقة") ->
+            summary.contains("لا أستطيع مطابقته بثقة") ||
+                summary.contains("لم أستطع مطابقته بثقة") ->
                 "uncertain-person" to "لست واثقة من هوية هذا الشخص؛ هل تريد أن تتركه دون اسم أم تعرّفني به؟"
-            summary.contains("لست متأكدة") || summary.contains("لا أملك دليلًا كافيًا") || summary.contains("لم أتعرف إلى ما أمامي") ->
+            summary.contains("لست متأكدة") ||
+                summary.contains("لا أملك دليلًا كافيًا") ||
+                summary.contains("لم أتعرف إلى ما أمامي") ||
+                summary.contains("لم أجد دليلًا بصريًا كافيًا") ->
                 "uncertain-scene" to "لم أتمكن من تحديد المشهد بثقة. هل تخبرني ما الذي تراه؟"
             else -> return null
         }

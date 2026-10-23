@@ -322,6 +322,8 @@ class NovaActivity : ComponentActivity() {
             }
         }
         dialog.setOnDismissListener {
+            // Closing the dialog ends any unfinished listening session immediately.
+            localSpeechInput?.cancel()
             if (pendingSpeechTarget === input) pendingSpeechTarget = null
             if (mindInputDialog === dialog) mindInputDialog = null
         }

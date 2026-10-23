@@ -46,8 +46,11 @@ internal class NovaOfflineSpeechInput(
                     override fun onBufferReceived(buffer: ByteArray?) = Unit
                     override fun onEndOfSpeech() { onStatus("أرتّب ما سمعته…") }
                     override fun onError(error: Int) {
+                        val wasListening = listening
                         listening = false
-                        if (!closed) onStatus("تعذّر فهم الكلام محليًا (رمز " + error + "). يمكنك الكتابة بدلًا من ذلك.")
+                        if (!closed && wasListening) {
+                            onStatus("تعذّر فهم الكلام محليًا (رمز " + error + "). يمكنك الكتابة بدلًا من ذلك.")
+                        }
                     }
                     override fun onResults(results: Bundle?) {
                         listening = false
