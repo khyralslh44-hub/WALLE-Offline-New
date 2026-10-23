@@ -5,7 +5,6 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
-import android.graphics.RectF
 import android.os.SystemClock
 import android.view.View
 import kotlin.math.max
@@ -22,24 +21,6 @@ private data class EyeContour(
 /** Draws two expressive cyan robot eyes only: no pupils, mouth, text, or visible control buttons. */
 class RobotFaceView(context: Context) : View(context) {
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val shellPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.rgb(224, 231, 245)
-        style = Paint.Style.FILL
-    }
-    private val shellHighlightPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.rgb(255, 250, 242)
-        style = Paint.Style.STROKE
-        strokeWidth = 2.5f
-    }
-    private val visorPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.rgb(2, 7, 16)
-        style = Paint.Style.FILL
-    }
-    private val visorEdgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.rgb(116, 151, 183)
-        style = Paint.Style.STROKE
-        strokeWidth = 2.5f
-    }
     private val shape = Path()
     private var mood = EveMood.AWAKE
     private var silhouette = EyeSilhouette.ALMOND
@@ -176,20 +157,7 @@ class RobotFaceView(context: Context) : View(context) {
         super.onDraw(canvas)
         canvas.drawColor(Color.rgb(2, 7, 10))
 
-        // Give the expressive cyan LEDs the rounded white robot housing and glossy black visor
-        // seen in Nova's reference sheet. Everything is drawn directly on Canvas for smooth,
-        // offline rendering; no image assets, network calls, or extra controls are needed.
-        val shell = RectF(width * 0.055f, height * 0.17f, width * 0.945f, height * 0.84f)
-        val shellRadius = min(shell.width(), shell.height()) * 0.22f
-        canvas.drawRoundRect(shell, shellRadius, shellRadius, shellPaint)
-        val highlight = RectF(shell.left + shell.width() * 0.08f, shell.top + shell.height() * 0.06f,
-            shell.right - shell.width() * 0.08f, shell.bottom - shell.height() * 0.06f)
-        canvas.drawRoundRect(highlight, shellRadius * 0.92f, shellRadius * 0.92f, shellHighlightPaint)
-        val visor = RectF(width * 0.115f, height * 0.235f, width * 0.885f, height * 0.765f)
-        val visorRadius = min(visor.width(), visor.height()) * 0.28f
-        canvas.drawRoundRect(visor, visorRadius, visorRadius, visorPaint)
-        canvas.drawRoundRect(visor, visorRadius, visorRadius, visorEdgePaint)
-
+        // Eyes only: keep the dark background and cyan animated eyes, with no head, shell, visor, or body.
         val now = SystemClock.uptimeMillis()
         updateTransition(now)
         if (animate && now >= blinkAt) {
