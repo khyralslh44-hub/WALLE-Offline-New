@@ -86,6 +86,18 @@ class NovaMindTest {
         assertTrue(NovaMind(memory).respond(NovaMindInput("ماذا تتذكر عني", nowMillis = 15L)).textArabic.contains("لا توجد لديّ"))
     }
 
+    @Test fun unknownQuestionCanBeTaughtAndRecalledFromLocalMemory() {
+        val memory = InMemoryNovaMindMemory()
+        val nova = NovaMind(memory)
+        val unknown = nova.respond(NovaMindInput("كم يبلغ ارتفاع جبل كذا؟", nowMillis = 1L))
+        assertTrue(unknown.textArabic.contains("لا أملك حاليًا معرفة كافية") || unknown.textArabic.contains("علّميني"))
+        val taught = nova.respond(NovaMindInput("علّميني: كم يبلغ ارتفاع جبل كذا؟ = 1234 مترًا", nowMillis = 2L))
+        assertTrue(taught.textArabic.contains("تعلّمت منك محليًا"))
+        val recalled = NovaMind(memory).respond(NovaMindInput("كم يبلغ ارتفاع جبل كذا", nowMillis = 3L))
+        assertTrue(recalled.textArabic.contains("1234 مترًا"))
+        assertTrue(recalled.textArabic.contains("لم أتحقق منها"))
+    }
+
     @Test fun blankInputGetsSafeArabicFallback() {
         val reply = NovaMind(InMemoryNovaMindMemory()).respond(NovaMindInput("   "))
         assertTrue(reply.textArabic.isNotBlank())

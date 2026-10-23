@@ -10,6 +10,11 @@ class NovaNotificationCommandParserTest {
         assertTrue(NovaNotificationCommandParser.parse("أرسلي إشعارًا تجريبيًا") is NovaNotificationCommand.Test)
     }
 
+    @Test fun parsesAutonomousNoticeOptInAndOptOut() {
+        assertTrue(NovaNotificationCommandParser.parse("فعّلي إشعارات نوفا التلقائية") is NovaNotificationCommand.EnableAutonomous)
+        assertTrue(NovaNotificationCommandParser.parse("أوقفي الرسائل التلقائية") is NovaNotificationCommand.DisableAutonomous)
+    }
+
     @Test fun parsesArabicAndWesternDigitReminderCommands() {
         val western = NovaNotificationCommandParser.parse("ذكريني بعد 10 دقائق بشرب الماء") as NovaNotificationCommand.Reminder
         val arabic = NovaNotificationCommandParser.parse("ذكّريني بعد ٢ ساعة أن أراجع الدرس") as NovaNotificationCommand.Reminder

@@ -69,6 +69,7 @@ class NovaMind(
     private val maxOutputTokens: Int = 120
 ) {
     private val personalMemory = NovaPersonalMemory(memory)
+    private val knowledgeMemory = NovaKnowledgeMemory(memory)
     private val ownModel: NovaOwnModel = (
         NovaOwnModel.restore(memory.read(KEY_OWN_MODEL))
             ?: NovaOwnModel.restore(BOOTSTRAP_SNAPSHOT)
@@ -111,6 +112,12 @@ class NovaMind(
                 intent = NovaIntent.MEMORY_REQUEST,
                 intentConfidence = 0.99f
             )
+        }
+        knowledgeMemory.handleCommand(cleanedText, input.nowMillis)?.let { teachingReply ->
+            return NovaMindReply(teachingReply, NovaEmotion.THINKING, false, true, false, NovaIntent.MEMORY_REQUEST, 0.99f)
+        }
+        knowledgeMemory.answerFor(cleanedText)?.let { savedAnswer ->
+            return NovaMindReply(savedAnswer, NovaEmotion.THINKING, false, false, false, NovaIntent.QUESTION, 0.99f)
         }
         val prediction = ownModel.classify(cleanedText)
         val previousTopic = memory.read("last_topic")
@@ -180,20 +187,12 @@ class NovaMind(
         }
         return when (intent) {
             NovaIntent.GREETING -> "أهلًا، أنا نوفا. سأحاول فهمك، وسأوضح لك عندما لا أكون متأكدة."
-            NovaIntent.QUESTION -> when (count % 3) {
-                0 -> "هذا سؤال يستحق أن نفكر فيه معًا. ما الجزء الذي يهمك أكثر حتى أبدأ منه؟"
-                1 -> "أريد أن أفهم ما تقصده بدقة بدل أن أخمّن. ما أول تفصيل تحب أن نكتشفه؟"
-                else -> "همم، هناك أكثر من طريق للتفكير في هذا. ما الذي دفعك إلى السؤال عنه؟"
-            }
+            NovaIntent.QUESTION -> "لا أملك حاليًا معرفة كافية لأجيب عن هذا السؤال بثقة، ولا أريد اختلاق إجابة. هل تساعدينني بتفصيل أو تعلّميني الإجابة؟ اكتبي مثلًا: «علّميني: السؤال = الإجابة». سأحفظها محليًا وأوضح أنها معلومة منك لم أتحقق منها مستقلًا."
             NovaIntent.MEMORY_REQUEST -> "أستطيع تذكّر بعض المعلومات المحلية التي تختار حفظها، لكنني لا أحتفظ بنص المحادثة كاملة. ما الشيء الذي تريدني أن أتذكره؟"
             NovaIntent.POSITIVE_FEEDBACK -> "شكرًا لك! سأعتبر هذا تفاعلًا إيجابيًا وأحافظ على أسلوبي الهادئ."
             NovaIntent.NEGATIVE_FEEDBACK -> "يبدو أن ردي أو تصرفي لم يكن مناسبًا. سأتعامل مع ذلك كإشارة تصحيح، لكنني لن أتعلم تصنيفًا جديدًا إلا عند تأكيده."
             NovaIntent.FAREWELL -> "إلى اللقاء. سأبقى هادئة حتى تعود."
-            NovaIntent.UNKNOWN -> when (count % 3) {
-                0 -> "لم أفهم قصدك بعد، لكنني أريد أن أتابع معك. هل تعيد صياغته أو تعطيني مثالًا؟"
-                1 -> "يبدو أنني فاتتني نقطة مهمة. ساعدني بتفصيل صغير، وسأحاول فهمها من جديد."
-                else -> "أنا غير واثقة مما تقصده، ولا أريد أن أخترع جوابًا. ما الذي تعنيه تحديدًا؟"
-            }
+            NovaIntent.UNKNOWN -> "لا أعرف المقصود أو الجواب بعد، ولن أخمّن. هل تشرح لي ما تقصده؟ وإذا كانت لديك المعلومة، علّميني بصيغة «علّميني: السؤال = الإجابة» لأحفظها محليًا بموافقتك."
             NovaIntent.VISION_QUERY -> "أحتاج إلى نتيجة موثوقة من الرؤية قبل وصف المشهد."
         }
     }
