@@ -112,8 +112,11 @@ internal class NovaPeopleMemory(context: Context) : AutoCloseable {
         val best = scored.firstOrNull() ?: return null
         val second = scored.getOrNull(1)?.second
         // Intentionally conservative until a real-world held-out evaluation calibrates thresholds.
-        if (best.second > MAX_ACCEPT_DISTANCE) return null
-        if (second != null && second - best.second < MIN_MATCH_MARGIN) return null
+        val embeddingDistance = descriptor.size != NovaLbpDescriptor.SIZE
+        val maxAcceptDistance = if (embeddingDistance) MAX_EMBEDDING_DISTANCE else MAX_LBP_DISTANCE
+        val minMatchMargin = if (embeddingDistance) MIN_EMBEDDING_MARGIN else MIN_LBP_MARGIN
+        if (best.second > maxAcceptDistance) return null
+        if (second != null && second - best.second < minMatchMargin) return null
         return NovaPersonMatch(best.first, best.second)
     }
 
@@ -193,8 +196,10 @@ internal class NovaPeopleMemory(context: Context) : AutoCloseable {
     companion object {
         private const val KEY_PROFILES = "profiles_json"
         private const val MAX_PROFILES = 24
-        private const val MAX_ACCEPT_DISTANCE = 0.42f
-        private const val MIN_MATCH_MARGIN = 0.035f
+        private const val MAX_LBP_DISTANCE = 0.115f
+        private const val MIN_LBP_MARGIN = 0.035f
+        private const val MAX_EMBEDDING_DISTANCE = 0.42f
+        private const val MIN_EMBEDDING_MARGIN = 0.06f
     }
 }
 
