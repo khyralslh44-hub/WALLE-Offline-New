@@ -109,6 +109,7 @@ internal class NovaVoice(
             NovaMood.CURIOUS -> doubleArrayOf(349.0, 415.0, 392.0)
             NovaMood.HAPPY, NovaMood.WARM -> doubleArrayOf(392.0, 466.0, 440.0)
             NovaMood.SURPRISED, NovaMood.ALERT -> doubleArrayOf(294.0, 494.0)
+            NovaMood.DIZZY -> doubleArrayOf(494.0, 392.0, 330.0, 294.0)
             NovaMood.THINKING -> doubleArrayOf(330.0, 311.0, 370.0)
             NovaMood.SLEEPY, NovaMood.TIRED -> doubleArrayOf(262.0, 220.0)
             NovaMood.PLAYFUL -> doubleArrayOf(415.0, 349.0, 466.0)

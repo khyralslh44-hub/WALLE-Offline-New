@@ -7,6 +7,7 @@ import com.google.mediapipe.framework.image.BitmapImageBuilder
 import com.google.mediapipe.tasks.core.BaseOptions
 import com.google.mediapipe.tasks.vision.core.RunningMode
 import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarker
+import com.google.mediapipe.tasks.vision.gesturerecognizer.GestureRecognizer
 import com.google.mediapipe.tasks.vision.imageclassifier.ImageClassifier
 import com.google.mediapipe.tasks.vision.objectdetector.ObjectDetector
 import com.google.mediapipe.tasks.vision.poselandmarker.PoseLandmarker
@@ -24,7 +25,8 @@ internal data class NovaAdvancedVisionResult(
     val labels: List<NovaLabelEvidence>,
     val poseNote: String?,
     /** In-memory normalized x/y for nose, shoulders, wrists, hips, knees, and ankles. */
-    val poseFeatures: FloatArray? = null
+    val poseFeatures: FloatArray? = null,
+    val handGestureCue: NovaHandGestureCue? = null
 )
 
 internal class NovaAdvancedVision(context: Context) : AutoCloseable {
@@ -33,13 +35,15 @@ internal class NovaAdvancedVision(context: Context) : AutoCloseable {
     private var detector: ObjectDetector? = null
     private var poseLandmarker: PoseLandmarker? = null
     private var faceLandmarker: FaceLandmarker? = null
+    private var gestureRecognizer: GestureRecognizer? = null
 
     @Synchronized
     fun analyze(
         bitmap: Bitmap,
         includeSceneModels: Boolean = true,
         includeFaceBlendshapes: Boolean = true,
-        includePose: Boolean = true
+        includePose: Boolean = true,
+        includeHandGestures: Boolean = true
     ): NovaAdvancedVisionResult {
         if (bitmap.isRecycled) return NovaAdvancedVisionResult(emptyList(), null)
         val image = runCatching { BitmapImageBuilder(bitmap).build() }.getOrNull()
@@ -118,6 +122,24 @@ internal class NovaAdvancedVision(context: Context) : AutoCloseable {
             else cues.joinToString("، ") + ". ملاحظات شكلية تقريبية لا تثبت شعور الشخص."
         }.onFailure { Log.w(TAG, "Face expression model unavailable.", it) }.getOrNull() else null
 
+        val handGestureCue = if (includeHandGestures) runCatching {
+            val task = gestureRecognizer ?: GestureRecognizer.createFromOptions(
+                appContext,
+                GestureRecognizer.GestureRecognizerOptions.builder()
+                    .setBaseOptions(BaseOptions.builder().setModelAssetPath("gesture_recognizer.task").build())
+                    .setRunningMode(RunningMode.IMAGE)
+                    .setNumHands(2)
+                    .setMinHandDetectionConfidence(0.55f)
+                    .setMinHandPresenceConfidence(0.55f)
+                    .setMinTrackingConfidence(0.50f)
+                    .build()
+            ).also { gestureRecognizer = it }
+            task.recognize(image).gestures().flatten()
+                .filter { it.categoryName().isNotBlank() && !it.categoryName().equals("None", ignoreCase = true) }
+                .maxByOrNull { it.score() }
+                ?.let { NovaHandGestureCue(it.categoryName(), it.score()) }
+        }.onFailure { Log.w(TAG, "Hand gesture model unavailable.", it) }.getOrNull() else null
+
         var poseFeatures: FloatArray? = null
         val poseNote = if (includePose) runCatching {
             val task = poseLandmarker ?: PoseLandmarker.createFromOptions(
@@ -145,7 +167,8 @@ internal class NovaAdvancedVision(context: Context) : AutoCloseable {
         return NovaAdvancedVisionResult(
             labels.values.toList(),
             listOfNotNull(faceExpressionNote, poseNote).joinToString("\n").ifBlank { null },
-            poseFeatures
+            poseFeatures,
+            handGestureCue
         )
     }
 
@@ -155,10 +178,12 @@ internal class NovaAdvancedVision(context: Context) : AutoCloseable {
         runCatching { detector?.close() }
         runCatching { poseLandmarker?.close() }
         runCatching { faceLandmarker?.close() }
+        runCatching { gestureRecognizer?.close() }
         classifier = null
         detector = null
         poseLandmarker = null
         faceLandmarker = null
+        gestureRecognizer = null
     }
 
     private companion object { const val TAG = "NOVA_ADV_VISION" }

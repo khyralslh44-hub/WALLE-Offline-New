@@ -17,6 +17,7 @@ internal data class NovaEyeProfile(
 internal object NovaEyeExpressionPolicy {
     fun profile(mood: NovaMood, isLeft: Boolean): NovaEyeProfile = when (mood) {
         NovaMood.SURPRISED -> NovaEyeProfile(0.55f, 0.63f, 0f, NovaEyePalette.ICE)
+        NovaMood.DIZZY -> NovaEyeProfile(if (isLeft) 0.48f else 0.44f, if (isLeft) 0.35f else 0.52f, if (isLeft) -15f else 13f, NovaEyePalette.VIOLET, brow = true)
         NovaMood.SLEEPY -> NovaEyeProfile(0.52f, 0.31f, 0f, NovaEyePalette.REST)
         NovaMood.TIRED -> NovaEyeProfile(0.51f, 0.28f, 0f, NovaEyePalette.REST)
         NovaMood.HAPPY, NovaMood.WARM ->
