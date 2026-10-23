@@ -9,7 +9,13 @@ data class NovaLabelEvidence(val label: String, val confidence: Float)
  * generic animal labels are suppressed to avoid describing that face as a dog/cat.
  */
 object NovaVisionEvidence {
-    private val animalTerms = setOf("animal", "dog", "cat", "puppy", "kitten", "canine", "feline", "mammal")
+    private val animalTerms = setOf(
+        "animal", "animals", "dog", "dogs", "cat", "cats", "puppy", "puppies", "kitten", "kittens",
+        "canine", "feline", "mammal", "pet", "pets", "bird", "birds", "horse", "cow", "sheep",
+        "goat", "rabbit", "hamster", "rodent", "reptile", "wildlife", "livestock",
+        "golden retriever", "labrador", "german shepherd", "poodle", "bulldog", "husky", "beagle",
+        "persian cat", "siamese cat", "tabby"
+    )
     private val translations = mapOf(
         "chair" to "كرسي",
         "table" to "طاولة",
@@ -81,12 +87,12 @@ object NovaVisionEvidence {
             .filter { it.confidence.isFinite() && it.confidence >= MIN_LABEL_CONFIDENCE }
             .map { it.copy(label = normalize(it.label)) }
             .filter { it.label.isNotBlank() && it.label != "person" && it.label != "human" }
-            .filterNot { faceFound && it.label in animalTerms }
+            .filterNot { faceFound && isAnimalLabel(it.label) }
             .distinctBy { it.label }
             .sortedByDescending { it.confidence }
             .take(2)
             .mapNotNull { evidence ->
-                translations[evidence.label]?.let { "$it (${(evidence.confidence * 100).toInt()}٪)" }
+                translations[evidence.label]?.let { "$it (${(evidence.confidence.coerceIn(0f, 1f) * 100).toInt()}٪)" }
             }
             .toList()
 
@@ -100,6 +106,12 @@ object NovaVisionEvidence {
             else ->
                 "أرى مشهدًا، لكن لم أجد دليلًا بصريًا كافيًا لتسمية ما فيه. سأبقى غير متأكدة بدل التخمين."
         }
+    }
+
+    private fun isAnimalLabel(label: String): Boolean {
+        if (label in animalTerms) return true
+        val words = label.split(Regex("[^\\p{L}\\p{N}]+")).filter { it.isNotBlank() }
+        return words.any { it in animalTerms }
     }
 
     private fun normalize(label: String): String =
