@@ -6,7 +6,6 @@ import android.graphics.Color
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Locale
-import kotlin.math.max
 
 /**
  * Nova's experimental, fully on-device people memory.
