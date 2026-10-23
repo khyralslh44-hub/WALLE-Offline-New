@@ -10,12 +10,13 @@ internal class NovaCuriosityEngine(
     private val cooldownMillis: Long = 90_000L,
     private val minimumGapMillis: Long = 35_000L
 ) {
-    init { restoreState() }
     private data class Cue(val key: String, val lines: List<String>)
     private var lastKey: String? = null
     private var lastAt = Long.MIN_VALUE
     private var lastAnyAt = Long.MIN_VALUE
     private val useCounts = mutableMapOf<String, Int>()
+
+    init { restoreState() }
 
     fun questionFor(summary: String, nowMillis: Long): String? {
         if (nowMillis < 0L) return null
