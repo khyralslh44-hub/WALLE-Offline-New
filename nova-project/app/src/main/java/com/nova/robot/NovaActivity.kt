@@ -428,7 +428,7 @@ class NovaActivity : ComponentActivity() {
             val selector = if (useFrontCamera) CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA
             provider.bindToLifecycle(this, selector, useCase)
             analysisUseCase = useCase
-            status.text = if (useFrontCamera) "N O V A • FRONT CAMERA ON" else "N O V A • BACK CAMERA ON"
+            status.text = if (useFrontCamera) "N O V A • ألاحظ محيطي • أمامية" else "N O V A • ألاحظ محيطي • خلفية"
             Log.i("NOVA_VISION", "Camera started: ${if (useFrontCamera) "front" else "back"} camera, 320x240, throttled local inference.")
         } catch (error: Exception) {
             Log.w("NOVA_VISION", "Binding the camera analyzer failed.", error)
@@ -704,7 +704,7 @@ class NovaActivity : ComponentActivity() {
             NovaAffectMood.CURIOUS -> NovaMood.CURIOUS
             NovaAffectMood.CALM -> if (hasFace) NovaMood.CURIOUS else NovaMood.THINKING
         })
-        status.text = if (useFrontCamera) "N O V A • FRONT CAMERA ON" else "N O V A • BACK CAMERA ON"
+        status.text = if (useFrontCamera) "N O V A • ألاحظ محيطي • أمامية" else "N O V A • ألاحظ محيطي • خلفية"
         Log.i("NOVA_VISION", "LOCAL_FRAME_SUMMARY face=$hasFace; imagesStored=false; network=false")
     }
 
@@ -788,7 +788,7 @@ class NovaActivity : ComponentActivity() {
         face.setMood(visibleMood)
         message.text = event.messageArabic
         status.text = if (visionEnabled) {
-            if (useFrontCamera) "N O V A • FRONT CAMERA ON" else "N O V A • BACK CAMERA ON"
+            if (useFrontCamera) "N O V A • ألاحظ محيطي • أمامية" else "N O V A • ألاحظ محيطي • خلفية"
         } else when (visibleMood) {
             NovaMood.CURIOUS -> "N O V A • C U R I O U S"
             NovaMood.HAPPY, NovaMood.PLAYFUL -> "N O V A • P L A Y F U L"

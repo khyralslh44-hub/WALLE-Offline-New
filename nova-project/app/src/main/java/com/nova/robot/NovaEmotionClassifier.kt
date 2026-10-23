@@ -98,7 +98,7 @@ internal object NovaEmotionEvidence {
         val second = ranked.getOrNull(1)?.let { probabilities[it] } ?: 0f
         if (best < MIN_CONFIDENCE || best - second < MIN_MARGIN) return uncertainNote()
         val percent = (best.coerceIn(0f, 1f) * 100).toInt()
-        return "أظن أن تعبير الوجه أقرب إلى «\${expressionNames[bestIndex]}» (تقدير بصري يقارب $percent٪). " +
+        return "أظن أن تعبير الوجه أقرب إلى «${expressionNames[bestIndex]}» (تقدير بصري يقارب $percent٪). " +
             "لا أستطيع معرفة الشعور الداخلي من تعبير الوجه وحده."
     }
 
