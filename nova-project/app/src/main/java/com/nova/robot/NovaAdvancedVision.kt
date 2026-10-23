@@ -44,7 +44,7 @@ internal class NovaAdvancedVision(context: Context) : AutoCloseable {
                     .setScoreThreshold(0.25f)
                     .build()
             ).also { classifier = it }
-            task.classify(image).classifications().flatMap { it.categories() }
+            task.classify(image).classificationResult().classifications().flatMap { it.categories() }
                 .forEach { category ->
                     val name = category.categoryName().trim()
                     if (name.isNotBlank()) {
@@ -88,9 +88,10 @@ internal class NovaAdvancedVision(context: Context) : AutoCloseable {
                     .setOutputFaceBlendshapes(true)
                     .build()
             ).also { faceLandmarker = it }
-            val categories = task.detect(image).faceBlendshapes().orElse(emptyList())
-                .firstOrNull()?.categories().orEmpty()
-                .associate { it.categoryName() to it.score() }
+            val categories: Map<String, Float> = task.detect(image).faceBlendshapes()
+                .orElse(emptyList())
+                .flatten()
+                .associate { category -> category.categoryName() to category.score() }
             val smile = ((categories["mouthSmileLeft"] ?: 0f) + (categories["mouthSmileRight"] ?: 0f)) / 2f
             val leftBlink = categories["eyeBlinkLeft"] ?: 0f
             val rightBlink = categories["eyeBlinkRight"] ?: 0f
