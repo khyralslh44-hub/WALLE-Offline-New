@@ -11,16 +11,17 @@
 
 This model is **not** a general-purpose language generator. It does not understand arbitrary Arabic text at ChatGPT level and does not generate open-ended answers. The short responses are authored templates selected by the neural classifier. The seed examples are a small, manually written starter dataset; robust generalization will require a larger reviewed dataset and measured error analysis.
 
-The existing `NovaActivity` still instantiates the older `NovaBrain` and is a face/tap/camera interface, not a conversational text UI. Therefore this PR adds the neural module to the project but does **not** yet connect it to the running activity. The memory interface also needs an Android persistent implementation before learning is guaranteed to survive app restarts in the shipped app. Build and test status must be checked from GitHub Actions; real Redmi 12 performance and airplane-mode behavior are not yet measured.
+`NovaActivity` now connects `NovaMind` to a long-press text dialog, persists the local model snapshot/correction counters in app-private `SharedPreferences`, and connects the affect state to visible expressions and synthesized local sound cues. A user-accessible memory reset clears local counters, saved intent-model corrections, and affect state. It does not store full chat transcripts or raw camera frames. The existing `NovaBrain` still handles tap/idle behavior separately. GitHub Actions passing proves compilation and unit tests only; real Redmi 12 performance and airplane-mode behavior remain unmeasured.
 
 ## Next implementation steps
 
-1. Confirm GitHub Actions builds this branch and all unit tests pass.
-2. Add a persistent Android implementation of `NovaMindMemory` with a user-visible way to inspect and clear local data; never store raw camera frames or full conversation transcripts by default.
-3. Integrate classifier outputs with `NovaActivity`/behavior control, with repetition cooldowns and no unrequested noisy actions.
-4. Decide how Nova receives natural-language input while preserving the desired buttonless face UI. No microphone is currently requested by the app.
-5. Expand Arabic evaluation examples, measure confusion between classes, and add a hold-out test set not used for training.
-6. Test runtime, memory, battery, thermal behavior, and offline operation on the actual Redmi 12.
+1. Verify the latest GitHub Actions build, unit tests, APK signing, and no-network/no-microphone manifest checks.
+2. Test camera permission, front/back swipe switching, memory reset, expressions, and synthesized audio on the actual Redmi 12; these cannot be certified from a CI build alone.
+3. Add a real offline face-embedding model and validated enrollment/matching pipeline before claiming family/friend identity recognition. The Nova project currently contains no `MobileFaceNet.tflite` or other face-embedding model asset; older identity code in `eve-project/` is not wired into Nova and is not proof of a working feature. Do not guess identities from face detection alone.
+4. Improve action/weather recognition with a purpose-trained local model and a held-out image evaluation set. Generic ML Kit image labels are hypotheses, not reliable evidence that a person is eating, exercising, chewing gum, or that it is raining/snowing.
+5. Expand Arabic evaluation examples, measure confusion between classes, and add a held-out test set not used for training.
+6. Only implement Bluetooth movement after the exact base protocol and available sensors are known. A phone camera and software alone cannot guarantee edge/fall prevention; require physical cliff/obstacle sensors, a hardware emergency stop, and tests on a restrained prototype.
+7. Test runtime, memory, battery, thermal behavior, installation, and airplane-mode operation on the actual Redmi 12.
 
 ## Target constraints
 
