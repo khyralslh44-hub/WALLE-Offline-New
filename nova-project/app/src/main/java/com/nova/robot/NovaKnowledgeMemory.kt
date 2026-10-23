@@ -14,8 +14,9 @@ internal class NovaKnowledgeMemory(private val memory:NovaMindMemory){
    else "هذه معلومات علّمتِني إياها محليًا: "+facts.takeLast(8).joinToString("؛"){ "عن «"+it.question+"»: "+it.answer }+". لم أتحقق منها من مصدر مستقل."
   }
   val match=TEACH_COMMAND.matchEntire(normalized)?:return null
-  val question=cleanQuestion(match.groupValues[1])
-  val answer=match.groupValues[2].trim().take(MAX_ANSWER_CHARS)
+  val rawMatch=TEACH_COMMAND_RAW.matchEntire(rawText.trim())
+  val question=cleanQuestion(rawMatch?.groupValues?.get(1) ?: match.groupValues[1])
+  val answer=(rawMatch?.groupValues?.get(2) ?: match.groupValues[2]).trim().take(MAX_ANSWER_CHARS)
   if(question.length<3||answer.isBlank())return "لم أحفظ شيئًا؛ اكتبي الأمر بهذا الشكل: «علّميني: السؤال = الإجابة»."
   val facts=readFacts().filterNot{normalizeQuestion(it.question)==normalizeQuestion(question)}
   writeFacts((facts+Fact(question,answer,nowMillis)).takeLast(MAX_FACTS),nowMillis)
@@ -48,6 +49,7 @@ internal class NovaKnowledgeMemory(private val memory:NovaMindMemory){
   private const val MAX_QUESTION_CHARS=180
   private const val MAX_ANSWER_CHARS=320
   private val TEACH_COMMAND=Regex("^(?:علميني|علمني)\\s*[:：]\\s*(.+?)\\s*(?:=>|=|←)\\s*(.+)$")
+  private val TEACH_COMMAND_RAW=Regex("^(?:علّميني|علّمني|علميني|علمني)\\s*[:：]\\s*(.+?)\\s*(?:=>|=|←)\\s*(.+)$")
   private val clearCommands=setOf("امسحي ما علمتك اياه","امسحي المعلومات التي علمتك اياها","انس الاجابات التي حفظتها")
   private val listCommands=setOf("ماذا علمتك سابقا","ما المعلومات التي علمتك اياها","اعرضي ما تعلمته مني")
  }
