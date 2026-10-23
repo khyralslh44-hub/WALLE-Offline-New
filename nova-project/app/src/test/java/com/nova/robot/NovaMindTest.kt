@@ -23,11 +23,13 @@ class NovaMindTest {
         assertEquals(1, model.calls)
     }
 
-    @Test fun missingModelDoesNotPretendFallbackIsNeural() {
+    @Test fun customModelClassifiesIntentWithoutPretendingToGenerateFreeFormLanguage() {
         val brain = NovaMind(InMemoryNovaMindMemory(), null)
         val reply = brain.respond(NovaMindInput("اشرح لي الذكاء", nowMillis = 20L))
         assertFalse(reply.usedLocalModel)
-        assertTrue(reply.textArabic.contains("لا يوجد نموذج لغوي مدمج"))
+        assertTrue(reply.usedOwnModel)
+        assertEquals(NovaIntent.QUESTION, reply.intent)
+        assertTrue(reply.textArabic.contains("لا تولّد بعد إجابات حرة"))
     }
 
     @Test fun remembersOnlyCoarseTopicAndDoesNotStoreRawConversation() {
@@ -37,6 +39,7 @@ class NovaMindTest {
         assertTrue(reply.memoryUpdated)
         assertEquals("question", memory.read("last_topic"))
         assertNull(memory.read("كيف تعمل الكاميرا؟"))
+        assertNotNull(memory.read("novamind_own_model_snapshot_v1"))
     }
 
     @Test fun flagsFrustrationAndPositiveToneDeterministically() {
