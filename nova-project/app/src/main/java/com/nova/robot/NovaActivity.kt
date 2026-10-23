@@ -237,7 +237,7 @@ class NovaActivity : ComponentActivity() {
         }
         AlertDialog.Builder(this)
             .setTitle("تحدث مع نوفا — دون إنترنت")
-            .setMessage("يعالج نموذج نوفا المحلي نية الرسالة. الردود محدودة وليست توليدًا لغويًا عامًا.")
+            .setMessage("يعالج نموذج نوفا المحلي نية الرسالة. الردود محدودة وليست توليدًا لغويًا عامًا. لتصحيح تعلّمها صراحةً اكتب: صحح: سؤال: النص.")
             .setView(input)
             .setNegativeButton("إلغاء", null)
             .setPositiveButton("إرسال") { _, _ -> handleMindInput(input.text.toString()) }
@@ -247,6 +247,22 @@ class NovaActivity : ComponentActivity() {
     private fun handleMindInput(rawText: String) {
         val userText = rawText.trim().take(800)
         if (userText.isBlank()) return
+        val correction = parseExplicitCorrection(userText)
+        if (correction != null) {
+            runCatching { mind.learnFromCorrection(correction.second, correction.first) }
+                .onSuccess {
+                    showEvent(NovaEvent(
+                        NovaMood.THINKING,
+                        "حفظت تصحيحًا صريحًا في النموذج المحلي. هذا يحسّن التصنيف تدريجيًا، لكنه لا يضمن فهمًا عامًا.",
+                        hapticMillis = 18L
+                    ), playSound = false)
+                }
+                .onFailure {
+                    Log.w("NOVA_MIND", "Could not persist explicit local correction.", it)
+                    showEvent(NovaEvent(NovaMood.CAUTIOUS, "لم أتمكن من حفظ التصحيح محليًا.", hapticMillis = 12L), playSound = false)
+                }
+            return
+        }
         val reply = runCatching {
             mind.respond(NovaMindInput(text = userText, visualSummary = lastVisionSummary.takeIf { visionEnabled }))
         }.getOrElse {
@@ -267,6 +283,24 @@ class NovaActivity : ComponentActivity() {
         val confidence = (reply.intentConfidence.coerceIn(0f, 1f) * 100).toInt()
         val note = if (reply.intent == NovaIntent.UNKNOWN || confidence < 36) "\n(لم أكن واثقة من تصنيف القصد)" else "\n(تصنيف محلي: $confidence٪)"
         showEvent(NovaEvent(mood, reply.textArabic + note, isQuestion = reply.intent == NovaIntent.QUESTION || reply.intent == NovaIntent.VISION_QUERY, hapticMillis = 16L), playSound = true)
+    }
+
+    private fun parseExplicitCorrection(rawText: String): Pair<NovaIntent, String>? {
+        val parts = rawText.split(':', limit = 3).map { it.trim() }
+        if (parts.size != 3 || parts[0] !in setOf("صحح", "تعلم")) return null
+        val intent = when (parts[1]) {
+            "تحية" -> NovaIntent.GREETING
+            "سؤال" -> NovaIntent.QUESTION
+            "رؤية" -> NovaIntent.VISION_QUERY
+            "ذاكرة" -> NovaIntent.MEMORY_REQUEST
+            "إيجابي" -> NovaIntent.POSITIVE_FEEDBACK
+            "سلبي" -> NovaIntent.NEGATIVE_FEEDBACK
+            "وداع" -> NovaIntent.FAREWELL
+            else -> return null
+        }
+        val example = parts[2].take(800)
+        if (example.isBlank()) return null
+        return intent to example
     }
 
     private fun toggleVision() {
