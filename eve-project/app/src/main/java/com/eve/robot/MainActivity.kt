@@ -3641,6 +3641,11 @@ class MainActivity : ComponentActivity() {
         if (isFinishing || isDestroyed || !::dialogueBubble.isInitialized || text.isBlank()) return
         main.removeCallbacks(hideDialogue)
         dialogueBubble.animate().cancel()
+        if (!EveVisibleMessagePolicy.shouldDisplay(text)) {
+            dialogueBubble.visibility = View.GONE
+            Log.d("EVE_DIALOGUE", "SUPPRESSED_INTERNAL_REFLECTION")
+            return
+        }
         dialogueBubble.text = text
         dialogueBubble.contentDescription = text
         dialogueBubble.alpha = 0f
