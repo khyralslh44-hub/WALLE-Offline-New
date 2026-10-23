@@ -15,6 +15,11 @@ import com.google.mediapipe.tasks.vision.poselandmarker.PoseLandmarker
  * Optional bundled MediaPipe models. All inference consumes an in-memory bitmap and does not
  * perform network requests. Missing/broken model assets fail closed so ML Kit can still operate.
  */
+/** Alternating scene/object and facial-blendshape work reduces peak CPU load on mid-range phones. */
+internal object NovaVisionSchedule {
+    fun includeSceneModels(cycleIndex: Long): Boolean = cycleIndex % 2L == 0L
+}
+
 internal data class NovaAdvancedVisionResult(
     val labels: List<NovaLabelEvidence>,
     val poseNote: String?,
@@ -30,57 +35,64 @@ internal class NovaAdvancedVision(context: Context) : AutoCloseable {
     private var faceLandmarker: FaceLandmarker? = null
 
     @Synchronized
-    fun analyze(bitmap: Bitmap): NovaAdvancedVisionResult {
+    fun analyze(
+        bitmap: Bitmap,
+        includeSceneModels: Boolean = true,
+        includeFaceBlendshapes: Boolean = true,
+        includePose: Boolean = true
+    ): NovaAdvancedVisionResult {
         if (bitmap.isRecycled) return NovaAdvancedVisionResult(emptyList(), null)
         val image = runCatching { BitmapImageBuilder(bitmap).build() }.getOrNull()
             ?: return NovaAdvancedVisionResult(emptyList(), null)
         val labels = linkedMapOf<String, NovaLabelEvidence>()
 
-        runCatching {
-            val task = classifier ?: ImageClassifier.createFromOptions(
-                appContext,
-                ImageClassifier.ImageClassifierOptions.builder()
-                    .setBaseOptions(BaseOptions.builder().setModelAssetPath("efficientnet_lite0.tflite").build())
-                    .setRunningMode(RunningMode.IMAGE)
-                    .setMaxResults(3)
-                    .setScoreThreshold(0.25f)
-                    .build()
-            ).also { classifier = it }
-            task.classify(image).classificationResult().classifications().flatMap { it.categories() }
-                .forEach { category ->
-                    val name = category.categoryName().trim()
-                    if (name.isNotBlank()) {
-                        val old = labels[name]
-                        if (old == null || category.score() > old.confidence) {
-                            labels[name] = NovaLabelEvidence(name, category.score())
+        if (includeSceneModels) {
+            runCatching {
+                val task = classifier ?: ImageClassifier.createFromOptions(
+                    appContext,
+                    ImageClassifier.ImageClassifierOptions.builder()
+                        .setBaseOptions(BaseOptions.builder().setModelAssetPath("efficientnet_lite0.tflite").build())
+                        .setRunningMode(RunningMode.IMAGE)
+                        .setMaxResults(3)
+                        .setScoreThreshold(0.25f)
+                        .build()
+                ).also { classifier = it }
+                task.classify(image).classificationResult().classifications().flatMap { it.categories() }
+                    .forEach { category ->
+                        val name = category.categoryName().trim()
+                        if (name.isNotBlank()) {
+                            val old = labels[name]
+                            if (old == null || category.score() > old.confidence) {
+                                labels[name] = NovaLabelEvidence(name, category.score())
+                            }
                         }
                     }
-                }
-        }.onFailure { Log.w(TAG, "EfficientNet-Lite classification unavailable.", it) }
-
-        runCatching {
-            val task = detector ?: ObjectDetector.createFromOptions(
-                appContext,
-                ObjectDetector.ObjectDetectorOptions.builder()
-                    .setBaseOptions(BaseOptions.builder().setModelAssetPath("efficientdet_lite0.tflite").build())
-                    .setRunningMode(RunningMode.IMAGE)
-                    .setMaxResults(5)
-                    .setScoreThreshold(0.40f)
-                    .build()
-            ).also { detector = it }
-            task.detect(image).detections().flatMap { it.categories() }
-                .forEach { category ->
-                    val name = category.categoryName().trim()
-                    if (name.isNotBlank()) {
-                        val old = labels[name]
-                        if (old == null || category.score() > old.confidence) {
-                            labels[name] = NovaLabelEvidence(name, category.score())
+            }.onFailure { Log.w(TAG, "EfficientNet-Lite classification unavailable.", it) }
+    
+            runCatching {
+                val task = detector ?: ObjectDetector.createFromOptions(
+                    appContext,
+                    ObjectDetector.ObjectDetectorOptions.builder()
+                        .setBaseOptions(BaseOptions.builder().setModelAssetPath("efficientdet_lite0.tflite").build())
+                        .setRunningMode(RunningMode.IMAGE)
+                        .setMaxResults(5)
+                        .setScoreThreshold(0.40f)
+                        .build()
+                ).also { detector = it }
+                task.detect(image).detections().flatMap { it.categories() }
+                    .forEach { category ->
+                        val name = category.categoryName().trim()
+                        if (name.isNotBlank()) {
+                            val old = labels[name]
+                            if (old == null || category.score() > old.confidence) {
+                                labels[name] = NovaLabelEvidence(name, category.score())
+                            }
                         }
                     }
-                }
-        }.onFailure { Log.w(TAG, "EfficientDet-Lite object detection unavailable.", it) }
+            }.onFailure { Log.w(TAG, "EfficientDet-Lite object detection unavailable.", it) }
+        }
 
-        val faceExpressionNote = runCatching {
+        val faceExpressionNote = if (includeFaceBlendshapes) runCatching {
             val task = faceLandmarker ?: FaceLandmarker.createFromOptions(
                 appContext,
                 FaceLandmarker.FaceLandmarkerOptions.builder()
@@ -104,10 +116,10 @@ internal class NovaAdvancedVision(context: Context) : AutoCloseable {
             if (browDown >= 0.70f) cues += "ألاحظ انخفاض الحاجبين، لكنني لا أستنتج الغضب من ذلك وحده"
             if (cues.isEmpty()) null
             else cues.joinToString("، ") + ". ملاحظات شكلية تقريبية لا تثبت شعور الشخص."
-        }.onFailure { Log.w(TAG, "Face expression model unavailable.", it) }.getOrNull()
+        }.onFailure { Log.w(TAG, "Face expression model unavailable.", it) }.getOrNull() else null
 
         var poseFeatures: FloatArray? = null
-        val poseNote = runCatching {
+        val poseNote = if (includePose) runCatching {
             val task = poseLandmarker ?: PoseLandmarker.createFromOptions(
                 appContext,
                 PoseLandmarker.PoseLandmarkerOptions.builder()
@@ -128,7 +140,7 @@ internal class NovaAdvancedVision(context: Context) : AutoCloseable {
                 }.toFloatArray()
                 "ألاحظ هيئة جسم بشري، وأتابع تغيّر وضعية الجسم عبر عدة لقطات."
             }
-        }.onFailure { Log.w(TAG, "Pose Landmarker unavailable.", it) }.getOrNull()
+        }.onFailure { Log.w(TAG, "Pose Landmarker unavailable.", it) }.getOrNull() else null
 
         return NovaAdvancedVisionResult(
             labels.values.toList(),

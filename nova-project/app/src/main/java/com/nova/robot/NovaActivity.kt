@@ -90,6 +90,7 @@ class NovaActivity : ComponentActivity() {
     private var advancedVision: NovaAdvancedVision? = null
     private var emotionClassifier: NovaEmotionClassifier? = null
     private var lastAdvancedFrameAtElapsed = 0L
+    private var advancedInferenceSequence = 0L
     private var lastVisionAffectAtElapsed = 0L
     private val activityRecognizer = NovaActivityRecognizer()
     private var novaVoice: NovaVoice? = null
@@ -390,6 +391,7 @@ class NovaActivity : ComponentActivity() {
         persistAffect()
         lastVisionSummary = ""
         lastAdvancedFrameAtElapsed = 0L
+        advancedInferenceSequence = 0L
         lastVisionAffectAtElapsed = 0L
         activityRecognizer.reset()
         curiosity.reset()
@@ -489,6 +491,7 @@ class NovaActivity : ComponentActivity() {
         useFrontCamera = false
         lastVisionFrameAt = 0L
         lastAdvancedFrameAtElapsed = 0L
+        advancedInferenceSequence = 0L
         lastVisionAffectAtElapsed = 0L
         activityRecognizer.reset()
         status.text = "N O V A • أتهيأ للملاحظة"
@@ -646,8 +649,16 @@ class NovaActivity : ComponentActivity() {
                                 Bitmap.createBitmap(raw, 0, 0, raw.width, raw.height, matrix, true).also { raw.recycle() }
                             }
                         }.getOrNull()
+                        val sceneCycle = NovaVisionSchedule.includeSceneModels(advancedInferenceSequence++)
                         advancedResult = try {
-                            if (advancedFrame != null) advancedVision?.analyze(advancedFrame) else null
+                            if (advancedFrame != null) {
+                                advancedVision?.analyze(
+                                    advancedFrame,
+                                    includeSceneModels = sceneCycle,
+                                    includeFaceBlendshapes = !sceneCycle,
+                                    includePose = true
+                                )
+                            } else null
                         } catch (error: Exception) {
                             Log.w("NOVA_ADV_VISION", "Advanced local model inference failed safely.", error)
                             null
