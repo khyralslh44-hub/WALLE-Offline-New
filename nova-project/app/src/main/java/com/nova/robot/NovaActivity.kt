@@ -502,7 +502,7 @@ class NovaActivity : ComponentActivity() {
                         emptyList()
                     }
                     val baseSummary = NovaVisionEvidence.summarize(hasFace, labels)
-                    val summary = if (identityNote.isNotBlank()) "$baseSummary\\n$identityNote" else baseSummary
+                    val summary = if (identityNote.isNotBlank()) "$baseSummary\n$identityNote" else baseSummary
                     runOnUiThread {
                         if (visionEnabled && resumed && !isFinishing && !isDestroyed) {
                             applyVisionSummary(summary, hasFace)
