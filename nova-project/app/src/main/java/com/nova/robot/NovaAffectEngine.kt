@@ -1,7 +1,5 @@
 package com.nova.robot
 
-import kotlin.math.abs
-import kotlin.math.max
 import kotlin.math.min
 
 /**
@@ -136,10 +134,12 @@ class NovaAffectEngine(initial: NovaAffectState = NovaAffectState()) {
     fun restore(snapshot: String): Boolean {
         val p = snapshot.split(",")
         if (p.size != 7) return false
-        val n = p.map { it.toFloatOrNull() ?: return false }
-        if (n.take(6).any { !it.isFinite() || it < 0f || it > 1f } ||
-            !n[6].isFinite() || n[6] < 0f || n[6] > Long.MAX_VALUE.toFloat()) return false
-        current = NovaAffectState(n[0], n[1], n[2], n[3], n[4], n[5], n[6].toLong())
+        val values = p.take(6).map { it.toFloatOrNull() ?: return false }
+        val timestamp = p[6].toLongOrNull() ?: return false
+        if (values.any { !it.isFinite() || it < 0f || it > 1f } || timestamp < 0L) return false
+        current = NovaAffectState(
+            values[0], values[1], values[2], values[3], values[4], values[5], timestamp
+        )
         return true
     }
 
