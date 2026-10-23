@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.AlertDialog
 import android.content.pm.PackageManager
 import android.content.SharedPreferences
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
@@ -420,6 +421,7 @@ class NovaActivity : ComponentActivity() {
     private fun handleMindInput(rawText: String) {
         val userText = rawText.trim().take(800)
         if (userText.isBlank()) return
+        if (openNovaGameIfRequested(userText)) return
         NovaExpressionCommand.parse(userText)?.let { request ->
             val reply = "أُظهر الآن تعبير «" + request.labelArabic + "». هذا عرض لتعبير الوجه، وليس ادعاءً بشعور داخلي."
             showEvent(NovaEvent(request.mood, reply, hapticMillis = 16L), playSound = true)
@@ -478,6 +480,22 @@ class NovaActivity : ComponentActivity() {
         showEvent(NovaEvent(mood, reply.textArabic + note, isQuestion = reply.intent == NovaIntent.QUESTION || reply.intent == NovaIntent.VISION_QUERY, hapticMillis = 16L), playSound = true)
         // Only an installed offline Arabic voice is used; there is no cloud TTS fallback.
         localTts?.speak(reply.textArabic)
+    }
+
+    private fun openNovaGameIfRequested(rawText: String): Boolean {
+        val normalized = rawText.trim().lowercase()
+            .replace(Regex("[\\u064B-\\u065F\\u0670]"), "")
+            .replace('أ', 'ا').replace('إ', 'ا').replace('آ', 'ا').replace('ى', 'ي')
+        val asksToPlay = listOf("العب", "تلعب", "نلعب", "لعب", "مباراة", "تحدي").any { normalized.contains(it) }
+        val game = when {
+            normalized.contains("شطرنج") && asksToPlay -> "chess"
+            asksToPlay && (normalized.contains("اكس او") || normalized.contains("اكس-او") ||
+                normalized.contains("tic tac toe") || Regex("\\bxo\\b").containsMatchIn(normalized)) -> "xo"
+            asksToPlay && (normalized.contains("العاب") || normalized.contains("لعبة")) -> "menu"
+            else -> return false
+        }
+        startActivity(Intent(this, NovaGamesActivity::class.java).putExtra(NovaGamesActivity.EXTRA_GAME, game))
+        return true
     }
 
     private fun handlePlaceMemoryCommand(rawText: String): Boolean {

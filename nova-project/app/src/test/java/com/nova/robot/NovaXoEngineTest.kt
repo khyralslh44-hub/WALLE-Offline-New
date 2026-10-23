@@ -41,12 +41,17 @@ class NovaXoEngineTest {
         assertNull(game.chooseNovaMove(3, 10L))
     }
 
-    @Test fun bestDifficultyNeverLosesWhenItHasTheFirstMove() {
-        // Across all legal player replies, hard minimax should at least draw.
+    @Test fun hardNovaNeverLosesAgainstAConsistentLegalPlayerSequence() {
         for (seed in 1L..15L) {
             val game = NovaXoEngine()
-            assertNotNull(game.chooseNovaMove(3, seed))
-            assertNotNull(game.winner())
+            repeat(9) { ply ->
+                if (game.winner() != null || game.isDraw()) return@repeat
+                val move = if (ply % 2 == 0) game.legalMoves().firstOrNull()
+                    else game.chooseNovaMove(3, seed + ply)
+                assertNotNull(move)
+                assertTrue(game.play(requireNotNull(move), if (ply % 2 == 0) 'X' else 'O'))
+            }
+            assertNotEquals('X', game.winner())
         }
     }
 }
