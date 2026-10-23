@@ -71,3 +71,28 @@ class NovaVisionEvidenceTest {
         assertTrue(summary.contains("لا أستطيع تحديد هويته أو شعوره"))
     }
 }
+
+    @Test fun animalBreedLabelsAreSuppressedWhenFaceDetectorFindsPerson() {
+        val summary = NovaVisionEvidence.summarize(
+            faceFound = true,
+            labels = listOf(
+                NovaLabelEvidence("Golden Retriever", 0.98f),
+                NovaLabelEvidence("German Shepherd", 0.92f),
+                NovaLabelEvidence("Table", 0.80f)
+            )
+        )
+        assertTrue(summary.contains("رصدت وجه شخص"))
+        assertTrue(summary.contains("طاولة"))
+        assertFalse(summary.contains("كلب"))
+        assertFalse(summary.contains("Golden Retriever"))
+        assertFalse(summary.contains("German Shepherd"))
+    }
+
+    @Test fun confidenceIsClampedBeforeDisplay() {
+        val summary = NovaVisionEvidence.summarize(
+            faceFound = false,
+            labels = listOf(NovaLabelEvidence("chair", 1.7f))
+        )
+        assertTrue(summary.contains("كرسي (100٪)"))
+        assertFalse(summary.contains("170٪"))
+    }
