@@ -120,8 +120,10 @@ internal class NovaPeopleMemory(context: Context) {
     }
 
     private fun readAll(): List<NovaKnownPerson> {
-        val json = prefs.getString(KEY_PROFILES, null) ?: return emptyList()
-        return runCatching {
+        val stored = prefs.getString(KEY_PROFILES, null) ?: return emptyList()
+        val json = NovaLocalCipher.decryptOrLegacy(stored) ?: return emptyList()
+        val needsMigration = !stored.startsWith("enc:v1:")
+        val people = runCatching {
             val array = JSONArray(json)
             buildList {
                 for (i in 0 until array.length()) {
@@ -139,6 +141,9 @@ internal class NovaPeopleMemory(context: Context) {
                 }
             }
         }.getOrDefault(emptyList())
+        // Migrate any legacy plaintext profile store to authenticated AES-GCM encryption.
+        if (needsMigration && people.isNotEmpty()) writeAll(people)
+        return people
     }
 
     private fun writeAll(people: List<NovaKnownPerson>) {
@@ -153,7 +158,8 @@ internal class NovaPeopleMemory(context: Context) {
                 .put("descriptor", descriptor)
                 .put("enrolledAtMillis", person.enrolledAtMillis))
         }
-        check(prefs.edit().putString(KEY_PROFILES, array.toString()).commit()) {
+        val encryptedJson = NovaLocalCipher.encrypt(array.toString())
+        check(prefs.edit().putString(KEY_PROFILES, encryptedJson).commit()) {
             "Could not save Nova's local people memory."
         }
     }
