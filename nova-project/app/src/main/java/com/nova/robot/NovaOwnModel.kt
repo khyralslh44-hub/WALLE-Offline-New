@@ -30,6 +30,7 @@ class NovaOwnModel private constructor(
     private val w2: FloatArray,
     private val b2: FloatArray
 ) {
+    @Synchronized
     fun classify(text: String): NovaIntentPrediction {
         if (text.isBlank()) return NovaIntentPrediction(NovaIntent.UNKNOWN, 0f)
         val probabilities = probabilities(features(text))
