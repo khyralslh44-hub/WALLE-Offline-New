@@ -24,8 +24,10 @@ import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
+import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
@@ -87,7 +89,13 @@ class NovaActivity : ComponentActivity() {
     private var localImageLabeler: ImageLabeler? = null
     private var advancedVision: NovaAdvancedVision? = null
     private var emotionClassifier: NovaEmotionClassifier? = null
+    private var lastAdvancedFrameAtElapsed = 0L
+    private val activityRecognizer = NovaActivityRecognizer()
     private var novaVoice: NovaVoice? = null
+    private var localTts: NovaLocalTts? = null
+    private var localSpeechInput: NovaOfflineSpeechInput? = null
+    private var pendingSpeechTarget: EditText? = null
+    private var mindInputDialog: AlertDialog? = null
 
     private val cameraPermissionRequest =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -97,6 +105,17 @@ class NovaActivity : ComponentActivity() {
                 message.text = "لا أستطيع ملاحظة ما حولي دون إذن الكاميرا، لكن يمكننا التفاعل وتبقى ذاكرتي المحلية متاحة."
                 status.text = "N O V A • أعمل محليًا"
                 face.setMood(NovaMood.CALM)
+            }
+        }
+
+    private val microphonePermissionRequest =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (granted) {
+                startOfflineListening()
+            } else {
+                pendingSpeechTarget = null
+                message.text = "لم تمنحني إذن الميكروفون، لذلك لم أستمع إلى أي صوت. ما زال بإمكانك الكتابة لي."
+                status.text = "N O V A • أعمل محليًا"
             }
         }
 
@@ -143,6 +162,7 @@ class NovaActivity : ComponentActivity() {
         affect.observe(NovaAffectEvent.USER_RETURNED, System.currentTimeMillis())
         persistAffect()
         novaVoice = NovaVoice(this, main)
+        localTts = NovaLocalTts(this)
         lastInteractionElapsed = SystemClock.elapsedRealtime()
 
         val root = FrameLayout(this).apply { setBackgroundColor(Color.rgb(4, 8, 21)) }
@@ -188,7 +208,7 @@ class NovaActivity : ComponentActivity() {
         })
 
         val hint = TextView(this).apply {
-            text = "اسحب أفقيًا لتبديل الكاميرا • لمسة: تفاعل • لمستان: مرح • ضغط مطوّل: رسالة"
+            text = "اسحب أفقيًا لتغيير زاوية ملاحظتي • لمسة: تفاعل • لمستان: مرح • ضغط مطوّل: اكتب أو تحدث إليّ"
             textSize = 10f
             setTextColor(0xFF7798BD.toInt())
             gravity = Gravity.CENTER
@@ -264,14 +284,86 @@ class NovaActivity : ComponentActivity() {
             maxLines = 5
             setPadding(dp(16), dp(12), dp(16), dp(12))
         }
-        AlertDialog.Builder(this)
-            .setTitle("تحدث مع نوفا — دون إنترنت")
-            .setMessage("الرسائل والتعلم محليان. لتسجيل وجه، اجعل شخصًا واحدًا أمام الكاميرا ثم اكتب مثلًا: احفظ وجه أمي اسمها فاطمة. هذه مطابقة بصرية تجريبية وليست دقيقة بما يكفي للأمان.")
-            .setView(input)
+        val listen = Button(this).apply {
+            text = "استمع إليّ محليًا"
+            setAllCaps(false)
+            setOnClickListener { requestOfflineListening(input) }
+        }
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(8), dp(8), dp(8), 0)
+            addView(input, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ))
+            addView(listen, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(8) })
+        }
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("أنا نوفا — تحدث إليّ محليًا")
+            .setMessage("يمكنني الاستماع فقط بعد إذن الميكروفون وعبر محرك التعرف المحلي على الجهاز. إذا لم تتوفر حزمة عربية دون إنترنت، يمكنك الكتابة بدلًا من ذلك. لتسجيل وجه، أحتاج موافقة صريحة من صاحبه.")
+            .setView(content)
             .setNegativeButton("إلغاء", null)
             .setNeutralButton("مسح الذاكرة") { _, _ -> confirmClearLocalMemory() }
-            .setPositiveButton("إرسال") { _, _ -> handleMindInput(input.text.toString()) }
-            .show()
+            .setPositiveButton("إرسال كتابة", null)
+            .create()
+        mindInputDialog = dialog
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val text = input.text.toString()
+                if (text.isNotBlank()) {
+                    dialog.dismiss()
+                    handleMindInput(text)
+                } else {
+                    input.error = "اكتب رسالة أو استخدم الاستماع المحلي"
+                }
+            }
+        }
+        dialog.setOnDismissListener {
+            if (pendingSpeechTarget === input) pendingSpeechTarget = null
+            if (mindInputDialog === dialog) mindInputDialog = null
+        }
+        dialog.show()
+    }
+
+    private fun requestOfflineListening(target: EditText) {
+        pendingSpeechTarget = target
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            microphonePermissionRequest.launch(Manifest.permission.RECORD_AUDIO)
+        } else {
+            startOfflineListening()
+        }
+    }
+
+    private fun startOfflineListening() {
+        if (pendingSpeechTarget == null) return
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            microphonePermissionRequest.launch(Manifest.permission.RECORD_AUDIO)
+            return
+        }
+        if (localSpeechInput == null) {
+            localSpeechInput = NovaOfflineSpeechInput(
+                context = this,
+                onResult = { recognized ->
+                    val destination = pendingSpeechTarget
+                    if (destination != null && !isFinishing && !isDestroyed && destination.isAttachedToWindow) {
+                        destination.setText(recognized)
+                        destination.setSelection(recognized.length)
+                        mindInputDialog?.dismiss()
+                        pendingSpeechTarget = null
+                        handleMindInput(recognized)
+                    }
+                },
+                onStatus = { status.text = it }
+            )
+        }
+        localSpeechInput?.start()
     }
 
     private fun confirmClearLocalMemory() {
@@ -294,6 +386,8 @@ class NovaActivity : ComponentActivity() {
         affect.observe(NovaAffectEvent.USER_RETURNED, System.currentTimeMillis())
         persistAffect()
         lastVisionSummary = ""
+        lastAdvancedFrameAtElapsed = 0L
+        activityRecognizer.reset()
         curiosity.reset()
         lastInteractionElapsed = SystemClock.elapsedRealtime()
         face.setMood(NovaMood.CALM)
@@ -343,6 +437,8 @@ class NovaActivity : ComponentActivity() {
         val confidence = (reply.intentConfidence.coerceIn(0f, 1f) * 100).toInt()
         val note = if (reply.intent == NovaIntent.UNKNOWN || confidence < 36) "\n(لم أكن واثقة من تصنيف القصد)" else "\n(تصنيف محلي: $confidence٪)"
         showEvent(NovaEvent(mood, reply.textArabic + note, isQuestion = reply.intent == NovaIntent.QUESTION || reply.intent == NovaIntent.VISION_QUERY, hapticMillis = 16L), playSound = true)
+        // Only an installed offline Arabic voice is used; there is no cloud TTS fallback.
+        localTts?.speak(reply.textArabic)
     }
 
     private fun parseExplicitCorrection(rawText: String): Pair<NovaIntent, String>? {
@@ -388,6 +484,8 @@ class NovaActivity : ComponentActivity() {
         lastVisionSummary = ""
         useFrontCamera = false
         lastVisionFrameAt = 0L
+        lastAdvancedFrameAtElapsed = 0L
+        activityRecognizer.reset()
         status.text = "N O V A • أتهيأ للملاحظة"
         message.text = "سأبدأ بملاحظة محيطي. أعالج ما أراه على هذا الهاتف ولا أحتفظ بصور المشهد."
         face.setMood(NovaMood.CURIOUS)
@@ -486,8 +584,17 @@ class NovaActivity : ComponentActivity() {
                     var identityNote = ""
                     var faceCueNote = ""
                     var emotionNote = ""
+                    var gazeX = 0.5f
+                    var gazeY = 0.5f
+                    var emotionPrediction: NovaEmotionPrediction? = null
                     if (hasFace) {
                         val largest = detectedFaces.maxByOrNull { it.boundingBox.width() * it.boundingBox.height() }
+                        if (largest != null) {
+                            val rotatedWidth = if (proxy.imageInfo.rotationDegrees % 180 == 0) proxy.width else proxy.height
+                            val rotatedHeight = if (proxy.imageInfo.rotationDegrees % 180 == 0) proxy.height else proxy.width
+                            gazeX = (largest.boundingBox.centerX().toFloat() / rotatedWidth.coerceAtLeast(1)).coerceIn(0f, 1f)
+                            gazeY = (largest.boundingBox.centerY().toFloat() / rotatedHeight.coerceAtLeast(1)).coerceIn(0f, 1f)
+                        }
                         faceCueNote = largest?.let {
                             NovaFaceCueEvidence.summarize(
                                 it.smilingProbability,
@@ -504,7 +611,8 @@ class NovaActivity : ComponentActivity() {
                                 latestFaceCount = detectedFaces.size
                             }
                             val match = runCatching { peopleMemory.recognize(crop) }.getOrNull()
-                            emotionNote = runCatching { emotionClassifier?.classify(crop) }.getOrNull().orEmpty()
+                            emotionPrediction = runCatching { emotionClassifier?.classify(crop) }.getOrNull()
+                            emotionNote = emotionPrediction?.note.orEmpty()
                             identityNote = when {
                                 match != null -> "أظن أنني رأيت وجهًا مألوفًا يشبه ${match.person.name}، لكنني لست متأكدة بعد."
                                 peopleMemory.count() > 0 -> "أرى وجهًا، لكنني لا أستطيع مطابقته بثقة مع شخص أتذكره."
@@ -522,33 +630,44 @@ class NovaActivity : ComponentActivity() {
                         emptyList()
                     }
                     var poseNote = ""
-                    val advancedFrame = runCatching {
-                        val raw = imageProxyToBitmap(proxy) ?: return@runCatching null
-                        val rotation = proxy.imageInfo.rotationDegrees
-                        if (rotation % 360 == 0) raw else {
-                            val matrix = Matrix().apply { postRotate(rotation.toFloat()) }
-                            Bitmap.createBitmap(raw, 0, 0, raw.width, raw.height, matrix, true).also { raw.recycle() }
+                    val shouldRunAdvanced = now - lastAdvancedFrameAtElapsed >= MIN_ADVANCED_FRAME_INTERVAL_MS
+                    var advancedResult: NovaAdvancedVisionResult? = null
+                    if (shouldRunAdvanced) {
+                        val advancedFrame = runCatching {
+                            val raw = imageProxyToBitmap(proxy) ?: return@runCatching null
+                            val rotation = proxy.imageInfo.rotationDegrees
+                            if (rotation % 360 == 0) raw else {
+                                val matrix = Matrix().apply { postRotate(rotation.toFloat()) }
+                                Bitmap.createBitmap(raw, 0, 0, raw.width, raw.height, matrix, true).also { raw.recycle() }
+                            }
+                        }.getOrNull()
+                        advancedResult = try {
+                            if (advancedFrame != null) advancedVision?.analyze(advancedFrame) else null
+                        } catch (error: Exception) {
+                            Log.w("NOVA_ADV_VISION", "Advanced local model inference failed safely.", error)
+                            null
+                        } finally {
+                            if (advancedFrame != null && !advancedFrame.isRecycled) advancedFrame.recycle()
                         }
-                    }.getOrNull()
-                    val advancedResult = try {
-                        if (advancedFrame != null) advancedVision?.analyze(advancedFrame)
-                        else null
-                    } catch (error: Exception) {
-                        Log.w("NOVA_ADV_VISION", "Advanced local model inference failed safely.", error)
-                        null
-                    } finally {
-                        if (advancedFrame != null && !advancedFrame.isRecycled) advancedFrame.recycle()
+                        lastAdvancedFrameAtElapsed = now
                     }
                     if (advancedResult?.poseNote != null) poseNote = advancedResult.poseNote
                     val labels = (mlKitLabels + advancedResult?.labels.orEmpty())
                         .groupBy { it.label.lowercase(java.util.Locale.ROOT) }
                         .mapNotNull { (_, items) -> items.maxByOrNull { it.confidence } }
+                    val activityNote = activityRecognizer.observe(advancedResult?.poseFeatures, labels, now).orEmpty()
                     val baseSummary = NovaVisionEvidence.summarize(hasFace, labels)
-                    val notes = listOf(identityNote, if (emotionNote.isNotBlank()) emotionNote else faceCueNote, poseNote).filter { it.isNotBlank() }
+                    val notes = listOf(
+                        identityNote,
+                        if (emotionNote.isNotBlank()) emotionNote else faceCueNote,
+                        poseNote,
+                        activityNote
+                    ).filter { it.isNotBlank() }
                     val summary = if (notes.isNotEmpty()) "$baseSummary\n${notes.joinToString("\n")}" else baseSummary
                     runOnUiThread {
                         if (visionEnabled && resumed && !isFinishing && !isDestroyed) {
-                            applyVisionSummary(summary, hasFace)
+                            face.setGaze(gazeX, gazeY)
+                            applyVisionSummary(summary, hasFace, emotionPrediction?.mood)
                         }
                     }
                 } catch (error: Exception) {
@@ -688,22 +807,13 @@ class NovaActivity : ComponentActivity() {
         }
     }
 
-    private fun applyVisionSummary(summary: String, hasFace: Boolean) {
+    private fun applyVisionSummary(summary: String, hasFace: Boolean, expressionMood: NovaMood? = null) {
         if (summary == lastVisionSummary) return
         lastVisionSummary = summary
         val affectMood = recordAffect(if (hasFace) NovaAffectEvent.NOVEL_OBSERVATION else NovaAffectEvent.UNCERTAIN_OBSERVATION)
         val question = curiosity.questionFor(summary, System.currentTimeMillis())
         message.text = if (question == null) summary else "$summary\n$question"
-        face.setMood(when (affectMood) {
-            NovaAffectMood.ALERT -> NovaMood.ALERT
-            NovaAffectMood.CAUTIOUS -> NovaMood.CAUTIOUS
-            NovaAffectMood.WARM -> NovaMood.WARM
-            NovaAffectMood.PLAYFUL -> NovaMood.PLAYFUL
-            NovaAffectMood.FRUSTRATED -> NovaMood.FRUSTRATED
-            NovaAffectMood.TIRED -> NovaMood.TIRED
-            NovaAffectMood.CURIOUS -> NovaMood.CURIOUS
-            NovaAffectMood.CALM -> if (hasFace) NovaMood.CURIOUS else NovaMood.THINKING
-        })
+        face.setMood(NovaBehaviorPlanner.chooseFaceMood(expressionMood, affectMood, hasFace))
         status.text = if (useFrontCamera) "N O V A • ألاحظ محيطي • أمامية" else "N O V A • ألاحظ محيطي • خلفية"
         Log.i("NOVA_VISION", "LOCAL_FRAME_SUMMARY face=$hasFace; imagesStored=false; network=false")
     }
@@ -748,6 +858,7 @@ class NovaActivity : ComponentActivity() {
         resumed = false
         main.removeCallbacks(idleCheck)
         stopVisionCamera()
+        localSpeechInput?.cancel()
         super.onPause()
     }
 
@@ -757,6 +868,10 @@ class NovaActivity : ComponentActivity() {
         runCatching { peopleMemory.close() }
         runCatching { emotionClassifier?.close() }
         emotionClassifier = null
+        runCatching { localSpeechInput?.close() }
+        localSpeechInput = null
+        runCatching { localTts?.close() }
+        localTts = null
         main.removeCallbacksAndMessages(null)
         stopVisionCamera()
         novaVoice?.close()
@@ -832,6 +947,8 @@ class NovaActivity : ComponentActivity() {
 
     companion object {
         private const val MIN_FRAME_INTERVAL_MS = 1_800L
+        // Heavy object, pose and face-landmark models are throttled separately from face tracking.
+        private const val MIN_ADVANCED_FRAME_INTERVAL_MS = 3_600L
         private const val FRESH_FACE_CROP_MS = 4_000L
         private const val KEY_AFFECT_SNAPSHOT = "nova_affect_snapshot_v1"
     }

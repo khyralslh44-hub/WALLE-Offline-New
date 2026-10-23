@@ -17,6 +17,13 @@ import kotlin.math.exp
  * The output order is: angry, disgust, fear, happy, neutral, sad, surprise.
  * Output is phrased as a possible facial expression, not certain knowledge of inner feelings.
  */
+internal data class NovaEmotionPrediction(
+    val labelArabic: String?,
+    val confidence: Float,
+    val mood: NovaMood?,
+    val note: String
+)
+
 internal class NovaEmotionClassifier(context: Context) : AutoCloseable {
     private val interpreter: Interpreter
     private val inputBuffer = ByteBuffer.allocateDirect(SIDE * SIDE * Float.SIZE_BYTES)
@@ -44,9 +51,9 @@ internal class NovaEmotionClassifier(context: Context) : AutoCloseable {
     }
 
     @Synchronized
-    fun classify(faceCrop: Bitmap): String {
+    fun classify(faceCrop: Bitmap): NovaEmotionPrediction {
         if (faceCrop.isRecycled || faceCrop.width < 16 || faceCrop.height < 16) {
-            return NovaEmotionEvidence.uncertainNote()
+            return NovaEmotionEvidence.uncertainPrediction()
         }
         val resized = Bitmap.createScaledBitmap(faceCrop, SIDE, SIDE, true)
         try {
@@ -65,7 +72,7 @@ internal class NovaEmotionClassifier(context: Context) : AutoCloseable {
             interpreter.run(inputBuffer, outputBuffer)
             outputBuffer.rewind()
             val scores = FloatArray(CLASS_COUNT) { outputBuffer.float }
-            return NovaEmotionEvidence.describe(scores)
+            return NovaEmotionEvidence.predict(scores)
         } finally {
             if (resized !== faceCrop) resized.recycle()
         }
@@ -90,20 +97,42 @@ internal object NovaEmotionEvidence {
         "الحياد", "الحزن", "الدهشة"
     )
 
-    fun describe(rawScores: FloatArray): String {
+    fun describe(rawScores: FloatArray): String = predict(rawScores).note
+
+    fun predict(rawScores: FloatArray): NovaEmotionPrediction {
         if (rawScores.size != expressionNames.size || rawScores.any { !it.isFinite() }) {
-            return uncertainNote()
+            return uncertainPrediction()
         }
         val probabilities = toProbabilities(rawScores)
         val ranked = probabilities.indices.sortedByDescending { probabilities[it] }
-        val bestIndex = ranked.firstOrNull() ?: return uncertainNote()
+        val bestIndex = ranked.firstOrNull() ?: return uncertainPrediction()
         val best = probabilities[bestIndex]
         val second = ranked.getOrNull(1)?.let { probabilities[it] } ?: 0f
-        if (best < MIN_CONFIDENCE || best - second < MIN_MARGIN) return uncertainNote()
+        if (best < MIN_CONFIDENCE || best - second < MIN_MARGIN) {
+            return NovaEmotionPrediction(null, best.coerceIn(0f, 1f), null, uncertainNote())
+        }
         val percent = (best.coerceIn(0f, 1f) * 100).toInt()
-        return "أظن أن تعبير الوجه أقرب إلى «${expressionNames[bestIndex]}» (تقدير بصري يقارب $percent٪). " +
-            "لا أستطيع معرفة الشعور الداخلي من تعبير الوجه وحده."
+        val mood = when (bestIndex) {
+            0 -> NovaMood.FRUSTRATED
+            1 -> NovaMood.CAUTIOUS
+            2 -> NovaMood.ALERT
+            3 -> NovaMood.HAPPY
+            4 -> NovaMood.CALM
+            5 -> NovaMood.TIRED
+            6 -> NovaMood.SURPRISED
+            else -> null
+        }
+        return NovaEmotionPrediction(
+            expressionNames[bestIndex],
+            best.coerceIn(0f, 1f),
+            mood,
+            "أظن أن تعبير الوجه أقرب إلى «${expressionNames[bestIndex]}» (تقدير بصري يقارب $percent٪). " +
+                "لا أستطيع معرفة الشعور الداخلي من تعبير الوجه وحده."
+        )
     }
+
+    fun uncertainPrediction(): NovaEmotionPrediction =
+        NovaEmotionPrediction(null, 0f, null, uncertainNote())
 
     fun uncertainNote(): String =
         "ألاحظ تعبيرًا على الوجه، لكنني لا أستطيع تسميته بثقة كافية بعد؛ سأواصل الملاحظة دون تخمين."

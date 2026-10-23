@@ -1,5 +1,6 @@
 package com.nova.robot
 
+import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.LinearGradient
@@ -23,6 +24,10 @@ class NovaFaceView @JvmOverloads constructor(
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private var mood = NovaMood.CALM
     private var blinking = false
+    private var gazeX = 0f
+    private var gazeY = 0f
+    private var gazeAnimatorX: ValueAnimator? = null
+    private var gazeAnimatorY: ValueAnimator? = null
 
     private val blinkRunnable = object : Runnable {
         override fun run() {
@@ -44,6 +49,31 @@ class NovaFaceView @JvmOverloads constructor(
         invalidate()
     }
 
+    /** Smoothly glance toward the detected face position in the current camera frame. */
+    fun setGaze(normalizedX: Float, normalizedY: Float) {
+        val targetX = ((normalizedX.coerceIn(0f, 1f) - 0.5f) * 0.60f).coerceIn(-0.30f, 0.30f)
+        val targetY = ((normalizedY.coerceIn(0f, 1f) - 0.5f) * 0.48f).coerceIn(-0.24f, 0.24f)
+        if (kotlin.math.abs(targetX - gazeX) < 0.025f && kotlin.math.abs(targetY - gazeY) < 0.025f) return
+        gazeAnimatorX?.cancel()
+        gazeAnimatorY?.cancel()
+        gazeAnimatorX = ValueAnimator.ofFloat(gazeX, targetX).apply {
+            duration = 230L
+            addUpdateListener {
+                gazeX = it.animatedValue as Float
+                invalidate()
+            }
+            start()
+        }
+        gazeAnimatorY = ValueAnimator.ofFloat(gazeY, targetY).apply {
+            duration = 230L
+            addUpdateListener {
+                gazeY = it.animatedValue as Float
+                invalidate()
+            }
+            start()
+        }
+    }
+
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         removeCallbacks(blinkRunnable)
@@ -52,6 +82,10 @@ class NovaFaceView @JvmOverloads constructor(
 
     override fun onDetachedFromWindow() {
         removeCallbacks(blinkRunnable)
+        gazeAnimatorX?.cancel()
+        gazeAnimatorY?.cancel()
+        gazeAnimatorX = null
+        gazeAnimatorY = null
         super.onDetachedFromWindow()
     }
 
@@ -90,8 +124,8 @@ class NovaFaceView @JvmOverloads constructor(
         }
         val lookY = if (mood == NovaMood.THINKING) -eyeH * 0.12f else 0f
 
-        drawEye(canvas, leftX, eyeY, eyeW, eyeH, lookX, lookY, false, true)
-        drawEye(canvas, rightX, eyeY, eyeW, eyeH, lookX, lookY, mood == NovaMood.PLAYFUL, false)
+        drawEye(canvas, leftX, eyeY, eyeW, eyeH, lookX + gazeX * eyeW, lookY + gazeY * eyeH, false, true)
+        drawEye(canvas, rightX, eyeY, eyeW, eyeH, lookX + gazeX * eyeW, lookY + gazeY * eyeH, mood == NovaMood.PLAYFUL, false)
 
         // Small decorative lights stay dim so the eyes remain the clear focal point.
         drawOrbit(canvas, w * 0.17f, h * 0.28f, min(w, h) * 0.008f)
@@ -157,29 +191,40 @@ class NovaFaceView @JvmOverloads constructor(
             centerX - halfW, centerY - halfH,
             centerX + halfW, centerY + halfH
         )
+        val eyeColors = when (mood) {
+            NovaMood.HAPPY, NovaMood.WARM, NovaMood.PLAYFUL ->
+                intArrayOf(0xFFB7FFF0.toInt(), 0xFF39E8C5.toInt(), 0xFF247FE0.toInt())
+            NovaMood.FRUSTRATED ->
+                intArrayOf(0xFFFFD0DF.toInt(), 0xFFFF789A.toInt(), 0xFFAD70FF.toInt())
+            NovaMood.ALERT, NovaMood.SURPRISED ->
+                intArrayOf(0xFFD7FFFF.toInt(), 0xFF56DFFF.toInt(), 0xFF377CFF.toInt())
+            NovaMood.SLEEPY, NovaMood.TIRED ->
+                intArrayOf(0xFF89D8D0.toInt(), 0xFF309FBB.toInt(), 0xFF2852A8.toInt())
+            else ->
+                intArrayOf(0xFFA7FFE8.toInt(), 0xFF36DCCB.toInt(), 0xFF3189F0.toInt())
+        }
         paint.style = Paint.Style.FILL
         paint.shader = LinearGradient(
             bounds.left, bounds.top, bounds.right, bounds.bottom,
-            intArrayOf(0xFF4ADFFF.toInt(), 0xFF329EFF.toInt(), 0xFF6F8FFF.toInt()),
-            null, Shader.TileMode.CLAMP
+            eyeColors, null, Shader.TileMode.CLAMP
         )
         canvas.drawOval(bounds, paint)
         paint.shader = null
 
-        // Soft inner highlight keeps the eyes luminous without obscuring the pupils.
-        paint.color = 0xFFB9FBFF.toInt()
+        // An upper shine glides with the gaze; luminous eyes stay free from dark pupils.
+        paint.color = 0x66E9FFFF
         canvas.drawOval(
-            centerX - halfW * 0.72f, centerY - halfH * 0.68f,
-            centerX + halfW * 0.72f, centerY + halfH * 0.60f, paint
+            centerX - halfW * 0.66f + lookX * 0.18f,
+            centerY - halfH * 0.72f + lookY * 0.18f,
+            centerX + halfW * 0.48f + lookX * 0.18f,
+            centerY + halfH * 0.06f + lookY * 0.18f, paint
         )
-        paint.color = 0xFF08142B.toInt()
-        val pupilR = eyeW * if (mood == NovaMood.SURPRISED) 0.12f else 0.135f
-        canvas.drawCircle(centerX + lookX, centerY + lookY, pupilR, paint)
         paint.color = 0xFFFFFFFF.toInt()
+        val glintR = (eyeW * 0.045f).coerceAtLeast(2f)
         canvas.drawCircle(
-            centerX + lookX - pupilR * 0.28f,
-            centerY + lookY - pupilR * 0.32f,
-            pupilR * 0.34f, paint
+            centerX + lookX - halfW * 0.22f,
+            centerY + lookY - halfH * 0.22f,
+            glintR, paint
         )
 
         if (mood == NovaMood.SLEEPY || mood == NovaMood.TIRED) {

@@ -17,7 +17,9 @@ import com.google.mediapipe.tasks.vision.poselandmarker.PoseLandmarker
  */
 internal data class NovaAdvancedVisionResult(
     val labels: List<NovaLabelEvidence>,
-    val poseNote: String?
+    val poseNote: String?,
+    /** In-memory normalized x/y for nose, shoulders, wrists, hips, knees, and ankles. */
+    val poseFeatures: FloatArray? = null
 )
 
 internal class NovaAdvancedVision(context: Context) : AutoCloseable {
@@ -104,6 +106,7 @@ internal class NovaAdvancedVision(context: Context) : AutoCloseable {
             else cues.joinToString("، ") + ". ملاحظات شكلية تقريبية لا تثبت شعور الشخص."
         }.onFailure { Log.w(TAG, "Face expression model unavailable.", it) }.getOrNull()
 
+        var poseFeatures: FloatArray? = null
         val poseNote = runCatching {
             val task = poseLandmarker ?: PoseLandmarker.createFromOptions(
                 appContext,
@@ -117,10 +120,21 @@ internal class NovaAdvancedVision(context: Context) : AutoCloseable {
             ).also { poseLandmarker = it }
             val landmarks = task.detect(image).landmarks().firstOrNull()
             if (landmarks.isNullOrEmpty()) null
-            else "ألاحظ هيئة جسم بشري، لكنني لا أستطيع من لقطة واحدة الجزم بأنه يمارس الرياضة أو يأكل."
+            else {
+                val keyIndices = intArrayOf(0, 11, 12, 15, 16, 23, 24, 25, 26, 27, 28)
+                poseFeatures = keyIndices.flatMap { index ->
+                    val point = landmarks.getOrNull(index)
+                    listOf(point?.x() ?: Float.NaN, point?.y() ?: Float.NaN)
+                }.toFloatArray()
+                "ألاحظ هيئة جسم بشري، وأتابع تغيّر وضعية الجسم عبر عدة لقطات."
+            }
         }.onFailure { Log.w(TAG, "Pose Landmarker unavailable.", it) }.getOrNull()
 
-        return NovaAdvancedVisionResult(labels.values.toList(), listOfNotNull(faceExpressionNote, poseNote).joinToString("\n").ifBlank { null })
+        return NovaAdvancedVisionResult(
+            labels.values.toList(),
+            listOfNotNull(faceExpressionNote, poseNote).joinToString("\n").ifBlank { null },
+            poseFeatures
+        )
     }
 
     @Synchronized

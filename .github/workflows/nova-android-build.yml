@@ -91,12 +91,15 @@ jobs:
             exit 1
           fi
           apksigner verify --verbose "$APK"
-          if grep -Eq 'uses-permission[^>]+android.permission.(INTERNET|RECORD_AUDIO)' nova-project/app/src/main/AndroidManifest.xml; then
-            echo "FAIL: Nova must not request internet or microphone permission."
+          if grep -Eq 'uses-permission[^>]+android.permission.INTERNET' nova-project/app/src/main/AndroidManifest.xml; then
+            echo "FAIL: Nova must not request internet permission."
             exit 1
           fi
           grep -Fq 'android.permission.CAMERA' nova-project/app/src/main/AndroidManifest.xml
-          echo "PASS: Nova is standalone, signed, local-only and uses its camera only after explicit in-app opt-in."
+          grep -Fq 'android.permission.RECORD_AUDIO' nova-project/app/src/main/AndroidManifest.xml
+          grep -Fq 'createOnDeviceSpeechRecognizer' nova-project/app/src/main/java/com/nova/robot/NovaOfflineSpeechInput.kt
+          grep -Fq 'isNetworkConnectionRequired' nova-project/app/src/main/java/com/nova/robot/NovaLocalTts.kt
+          echo "PASS: no internet permission; camera/microphone are opt-in and speech uses on-device recognition/local Arabic TTS voices."
 
       - name: Upload Nova installable APK
         uses: actions/upload-artifact@v4
