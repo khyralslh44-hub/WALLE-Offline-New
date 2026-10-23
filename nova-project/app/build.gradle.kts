@@ -16,6 +16,11 @@ android {
         versionCode = 1
         versionName = "1.0.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // Nova targets modern 64-bit Android phones (including Redmi 12); omit unused x86/32-bit
+        // native ML Kit binaries to keep the fully offline APK much smaller.
+        ndk {
+            abiFilters += "arm64-v8a"
+        }
     }
 
     compileOptions {
