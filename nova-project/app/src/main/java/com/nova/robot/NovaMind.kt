@@ -1,11 +1,11 @@
 package com.nova.robot
 
 /**
- * NovaMind's deterministic, offline-first orchestration layer.
+ * NovaMind's offline-first orchestration layer.
  *
- * The language model is injected through [LocalLanguageModel]. No network client is
- * implemented here: when no on-device model is installed, NovaMind uses a small,
- * explicit fallback rather than pretending that a template is neural reasoning.
+ * A small, proprietary intent network (NovaOwnModel) is trained from random weights using
+ * reviewed Arabic examples shipped with the app. An optional LocalLanguageModel can later be
+ * supplied for richer local text generation, but Nova does not require one to classify intent.
  */
 enum class NovaEmotion { CALM, CURIOUS, HAPPY, SURPRISED, FRUSTRATED, SLEEPY, PLAYFUL, THINKING }
 
@@ -18,8 +18,13 @@ data class NovaMindInput(
 data class NovaMindReply(
     val textArabic: String,
     val emotion: NovaEmotion,
+    /** True only when an injected text-generation model actually generated the answer. */
     val usedLocalModel: Boolean,
-    val memoryUpdated: Boolean
+    val memoryUpdated: Boolean,
+    /** True when NovaOwnModel supplied the local intent classification. */
+    val usedOwnModel: Boolean = false,
+    val intent: NovaIntent = NovaIntent.UNKNOWN,
+    val intentConfidence: Float = 0f
 )
 
 data class NovaMemoryItem(
@@ -39,7 +44,7 @@ interface NovaMindMemory {
     fun increment(key: String): Int
 }
 
-/** In-memory implementation for tests. Production storage should use app-private Room/SQLite. */
+/** In-memory implementation for tests. Production storage must use app-private persistent storage. */
 class InMemoryNovaMindMemory : NovaMindMemory {
     private val values = linkedMapOf<String, NovaMemoryItem>()
     private val counters = mutableMapOf<String, Int>()
@@ -63,66 +68,113 @@ class NovaMind(
     private val maxPromptChars: Int = 1800,
     private val maxOutputTokens: Int = 120
 ) {
+    private val ownModel: NovaOwnModel = NovaOwnModel.restore(memory.read(KEY_OWN_MODEL))
+        ?: NovaOwnModel.trainFromScratch().also { model ->
+            memory.write(NovaMemoryItem(KEY_OWN_MODEL, model.snapshot(), System.currentTimeMillis()))
+        }
+
+    fun classifyIntent(text: String): NovaIntentPrediction = ownModel.classify(text)
+
+    /**
+     * Applies an explicitly confirmed user correction and saves the updated neural weights.
+     * No conversation transcript is stored; only the model snapshot and a correction counter.
+     */
+    @Synchronized
+    fun learnFromCorrection(
+        text: String,
+        correctIntent: NovaIntent,
+        nowMillis: Long = System.currentTimeMillis()
+    ) {
+        require(correctIntent != NovaIntent.UNKNOWN) { "A correction must choose a known intent" }
+        ownModel.learnCorrection(text, correctIntent)
+        memory.write(NovaMemoryItem(KEY_OWN_MODEL, ownModel.snapshot(), nowMillis))
+        memory.increment(KEY_CORRECTION_COUNT)
+    }
+
     fun respond(input: NovaMindInput): NovaMindReply {
         val cleanedText = input.text.trim().take(1200)
         val visual = input.visualSummary?.trim()?.take(300).orEmpty()
         val interactionCount = memory.increment("interaction_count")
+        val prediction = ownModel.classify(cleanedText)
         val previousTopic = memory.read("last_topic")
-        val topic = inferTopic(cleanedText)
+        val topic = topicFor(prediction.intent)
 
         val prompt = buildString {
             append("You are Nova, a concise friendly robot. Reply in Arabic when appropriate. ")
             append("Work offline. Be honest about uncertainty; do not invent visual facts. ")
             append("Use a warm, consistent personality. Do not claim human feelings.\n")
-            if (!previousTopic.isNullOrBlank()) append("Previous topic: ").append(previousTopic).append('\n')
+            if (!previousTopic.isNullOrBlank()) append("Previous coarse topic: ").append(previousTopic).append('\n')
             if (visual.isNotBlank()) append("Uncertain camera summary: ").append(visual).append('\n')
             append("User: ").append(cleanedText)
         }.take(maxPromptChars)
 
         val generated = runCatching { localModel?.generate(prompt, maxOutputTokens) }.getOrNull()
             ?.trim()?.takeIf { it.isNotEmpty() && it.length <= 2000 }
-        val reply = generated ?: fallbackReply(cleanedText, visual, interactionCount)
-        val memoryUpdated = topic.isNotBlank() && topic != previousTopic
-        if (memoryUpdated) {
-            memory.write(NovaMemoryItem("last_topic", topic, input.nowMillis))
-        }
-        val emotion = inferEmotion(cleanedText, interactionCount)
-        return NovaMindReply(reply, emotion, usedLocalModel = generated != null, memoryUpdated = memoryUpdated)
+        val reply = generated ?: fallbackReply(cleanedText, visual, interactionCount, prediction.intent)
+        val memoryUpdated = topic != previousTopic
+        if (memoryUpdated) memory.write(NovaMemoryItem("last_topic", topic, input.nowMillis))
+        return NovaMindReply(
+            textArabic = reply,
+            emotion = emotionFor(prediction.intent, prediction.confidence),
+            usedLocalModel = generated != null,
+            memoryUpdated = memoryUpdated,
+            usedOwnModel = true,
+            intent = prediction.intent,
+            intentConfidence = prediction.confidence
+        )
     }
 
-    private fun inferTopic(text: String): String {
-        val lower = text.lowercase()
-        return when {
-            listOf("مرحبا", "أهلا", "السلام", "hello", "hi").any(lower::contains) -> "greeting"
-            listOf("كاميرا", "أرى", "ترى", "صورة", "شاهد").any(lower::contains) -> "vision"
-            listOf("تذكر", "ذاكرة", "تتعلم", "تعلم").any(lower::contains) -> "memory"
-            listOf("كيف", "لماذا", "ما هو", "اشرح").any(lower::contains) -> "question"
-            else -> lower.take(48)
+    private fun topicFor(intent: NovaIntent): String = when (intent) {
+        NovaIntent.GREETING -> "greeting"
+        NovaIntent.QUESTION -> "question"
+        NovaIntent.VISION_QUERY -> "vision"
+        NovaIntent.MEMORY_REQUEST -> "memory"
+        NovaIntent.POSITIVE_FEEDBACK -> "positive_feedback"
+        NovaIntent.NEGATIVE_FEEDBACK -> "negative_feedback"
+        NovaIntent.FAREWELL -> "farewell"
+        NovaIntent.UNKNOWN -> "general"
+    }
+
+    private fun emotionFor(intent: NovaIntent, confidence: Float): NovaEmotion {
+        if (confidence < 0.36f || intent == NovaIntent.UNKNOWN) return NovaEmotion.CALM
+        return when (intent) {
+            NovaIntent.GREETING, NovaIntent.POSITIVE_FEEDBACK -> NovaEmotion.HAPPY
+            NovaIntent.QUESTION, NovaIntent.VISION_QUERY -> NovaEmotion.CURIOUS
+            NovaIntent.MEMORY_REQUEST -> NovaEmotion.THINKING
+            NovaIntent.NEGATIVE_FEEDBACK -> NovaEmotion.FRUSTRATED
+            NovaIntent.FAREWELL -> NovaEmotion.SLEEPY
+            NovaIntent.UNKNOWN -> NovaEmotion.CALM
         }
     }
 
-    private fun inferEmotion(text: String, count: Int): NovaEmotion {
-        val lower = text.lowercase()
-        return when {
-            listOf("غاضب", "مزعج", "توقف", "خطأ").any(lower::contains) -> NovaEmotion.FRUSTRATED
-            listOf("رائع", "أحب", "ممتاز", "شكرا", "شكرًا").any(lower::contains) -> NovaEmotion.HAPPY
-            listOf("؟", "لماذا", "كيف", "ماذا").any(lower::contains) -> NovaEmotion.CURIOUS
-            count % 5 == 0 -> NovaEmotion.PLAYFUL
-            else -> NovaEmotion.CALM
+    private fun fallbackReply(
+        text: String,
+        visual: String,
+        count: Int,
+        intent: NovaIntent
+    ): String {
+        if (text.isBlank()) return "أنا هنا. أعطني فكرة أو سؤالًا لأحاول فهمه."
+        if (intent == NovaIntent.VISION_QUERY) {
+            return if (visual.isNotBlank()) {
+                "ملخص الكاميرا المتاح لي هو: $visual. هذا وصف أولي وقد يكون غير دقيق."
+            } else {
+                "أحتاج إلى نتيجة من الرؤية المحلية قبل أن أصف المشهد؛ لا أريد أن أخمّن ما أراه."
+            }
+        }
+        return when (intent) {
+            NovaIntent.GREETING -> "أهلًا، أنا نوفا. سأحاول فهمك، وسأوضح لك عندما لا أكون متأكدة."
+            NovaIntent.QUESTION -> "فهمت أنك تسألين عن شيء. نواتي العصبية الحالية تصنّف النية، لكنها لا تولّد بعد إجابات حرة مثل نموذج لغوي."
+            NovaIntent.MEMORY_REQUEST -> "أستطيع استخدام تفضيلات محلية عندما تضاف آلية حفظ صريحة؛ في هذه المرحلة أحفظ موضوع التفاعل فقط، لا تفاصيلك الشخصية."
+            NovaIntent.POSITIVE_FEEDBACK -> "شكرًا لك! سأعتبر هذا تفاعلًا إيجابيًا وأحافظ على أسلوبي الهادئ."
+            NovaIntent.NEGATIVE_FEEDBACK -> "يبدو أن ردي أو تصرفي لم يكن مناسبًا. سأتعامل مع ذلك كإشارة تصحيح، لكنني لن أتعلم تصنيفًا جديدًا إلا عند تأكيده."
+            NovaIntent.FAREWELL -> "إلى اللقاء. سأبقى هادئة حتى تعود."
+            NovaIntent.UNKNOWN -> "لم أفهم قصدك بثقة كافية. نواتي الحالية صغيرة ومتخصصة في تصنيف النوايا، وليست نموذجًا لغويًا عامًا. (التفاعل $count)"
+            NovaIntent.VISION_QUERY -> "أحتاج إلى نتيجة موثوقة من الرؤية قبل وصف المشهد."
         }
     }
 
-    private fun fallbackReply(text: String, visual: String, count: Int): String {
-        if (text.isBlank()) return "أنا هنا. أعطني فكرة أو سؤالًا لأحاول مساعدتك."
-        if (visual.isNotBlank() && listOf("ماذا ترين", "ماذا ترى", "ما هذا").any(text.lowercase()::contains)) {
-            return "ملخص الكاميرا المتاح لي هو: $visual. هذا وصف أولي وقد يكون غير دقيق."
-        }
-        return when {
-            listOf("مرحبا", "أهلا", "السلام", "hello", "hi").any(text.lowercase()::contains) ->
-                "أهلًا، أنا نوفا. يسعدني أن نتحدث، وسأوضح لك عندما لا أكون متأكدة."
-            listOf("من أنت", "من انتي", "من انتي", "من انتي").any(text.lowercase()::contains) ->
-                "أنا نوفا، روبوت محلي قيد التطوير. أتعلم تنظيم تفاعلاتي، وقدراتي الحالية محدودة."
-            else -> "وصلتني فكرتك. في وضع الاختبار المحلي الحالي لا يوجد نموذج لغوي مدمج بعد، لذلك لا أريد اختلاق إجابة. (التفاعل $count)"
-        }
+    companion object {
+        private const val KEY_OWN_MODEL = "novamind_own_model_snapshot_v1"
+        private const val KEY_CORRECTION_COUNT = "novamind_correction_count"
     }
 }
