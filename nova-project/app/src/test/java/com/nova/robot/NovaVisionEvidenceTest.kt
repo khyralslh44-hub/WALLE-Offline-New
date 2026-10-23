@@ -41,6 +41,31 @@ class NovaVisionEvidenceTest {
         assertFalse(summary.contains("كرسي"))
     }
 
+    @Test fun weatherAndActivityLabelsRemainTentative() {
+        val rain = NovaVisionEvidence.summarize(
+            faceFound = false,
+            labels = listOf(NovaLabelEvidence("rain", 0.91f))
+        )
+        assertTrue(rain.contains("مطر"))
+        assertTrue(rain.contains("قد يكون"))
+        assertTrue(rain.contains("تخمينات"))
+
+        val eating = NovaVisionEvidence.summarize(
+            faceFound = true,
+            labels = listOf(NovaLabelEvidence("person eating", 0.88f))
+        )
+        assertTrue(eating.contains("رصدت وجه شخص"))
+        assertTrue(eating.contains("شخص يتناول الطعام"))
+        assertTrue(eating.contains("تقريبي"))
+
+        val exercise = NovaVisionEvidence.summarize(
+            faceFound = false,
+            labels = listOf(NovaLabelEvidence("exercising", 0.90f))
+        )
+        assertTrue(exercise.contains("يمارس الرياضة"))
+        assertTrue(exercise.contains("قد يكون"))
+    }
+
     @Test fun faceWithoutOtherEvidenceDoesNotGuessIdentityOrEmotion() {
         val summary = NovaVisionEvidence.summarize(faceFound = true, labels = emptyList())
         assertTrue(summary.contains("لا أستطيع تحديد هويته أو شعوره"))
