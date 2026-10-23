@@ -6,8 +6,6 @@ import android.content.pm.PackageManager
 import android.content.SharedPreferences
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
-import android.media.AudioManager
-import android.media.ToneGenerator
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -65,6 +63,7 @@ class NovaActivity : ComponentActivity() {
     private var pressDownY = 0f
     private var resumed = false
     private var visionEnabled = false
+    private var useFrontCamera = false
     private var lastVisionSummary = ""
     private var lastVisionFrameAt = 0L
     private var cameraProvider: ProcessCameraProvider? = null
@@ -73,7 +72,7 @@ class NovaActivity : ComponentActivity() {
     private val visionExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private var localFaceDetector: FaceDetector? = null
     private var localImageLabeler: ImageLabeler? = null
-    private var tone: ToneGenerator? = null
+    private var novaVoice: NovaVoice? = null
 
     private val cameraPermissionRequest =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -121,7 +120,7 @@ class NovaActivity : ComponentActivity() {
         localPreferences.getString(KEY_AFFECT_SNAPSHOT, null)?.let { affect.restore(it) }
         affect.observe(NovaAffectEvent.USER_RETURNED, System.currentTimeMillis())
         persistAffect()
-        tone = runCatching { ToneGenerator(AudioManager.STREAM_MUSIC, 18) }.getOrNull()
+        novaVoice = NovaVoice(this, main)
         lastInteractionElapsed = SystemClock.elapsedRealtime()
 
         val root = FrameLayout(this).apply { setBackgroundColor(Color.rgb(4, 8, 21)) }
@@ -167,7 +166,7 @@ class NovaActivity : ComponentActivity() {
         })
 
         val hint = TextView(this).apply {
-            text = "لمسة: تفاعل • لمستان: مرح • ضغط مطوّل: تحدث نصيًا"
+            text = "اسحب أفقيًا لتبديل الكاميرا • لمسة: تفاعل • لمستان: مرح • ضغط مطوّل: رسالة"
             textSize = 10f
             setTextColor(0xFF7798BD.toInt())
             gravity = Gravity.CENTER
@@ -187,11 +186,19 @@ class NovaActivity : ComponentActivity() {
                     true
                 }
                 MotionEvent.ACTION_UP -> {
+                    val deltaX = event.x - pressDownX
+                    val deltaY = event.y - pressDownY
                     val moved = kotlin.math.hypot(
-                        (event.x - pressDownX).toDouble(),
-                        (event.y - pressDownY).toDouble()
+                        deltaX.toDouble(),
+                        deltaY.toDouble()
                     ) > dp(18)
-                    if (!moved) {
+                    if (moved) {
+                        if (kotlin.math.abs(deltaX) > dp(70) &&
+                            kotlin.math.abs(deltaX) > kotlin.math.abs(deltaY) * 1.25f
+                        ) {
+                            switchCameraFacing()
+                        }
+                    } else {
                         val now = SystemClock.elapsedRealtime()
                         lastInteractionElapsed = now
                         val longPress = event.eventTime - event.downTime >= 650L
@@ -326,6 +333,7 @@ class NovaActivity : ComponentActivity() {
     private fun enableVision() {
         visionEnabled = true
         lastVisionSummary = ""
+        useFrontCamera = false
         lastVisionFrameAt = 0L
         status.text = "N O V A • STARTING VISION"
         message.text = "أشغّل الكاميرا الخلفية محليًا. التحليل منخفض الدقة ولا تُحفَظ الصور."
@@ -364,10 +372,11 @@ class NovaActivity : ComponentActivity() {
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .build()
             useCase.setAnalyzer(visionExecutor) { proxy -> analyzeOneFrame(proxy) }
-            provider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, useCase)
+            val selector = if (useFrontCamera) CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA
+            provider.bindToLifecycle(this, selector, useCase)
             analysisUseCase = useCase
-            status.text = "N O V A • LOCAL VISION ON"
-            Log.i("NOVA_VISION", "Camera started: back camera, 320x240, throttled local inference.")
+            status.text = if (useFrontCamera) "N O V A • FRONT CAMERA ON" else "N O V A • BACK CAMERA ON"
+            Log.i("NOVA_VISION", "Camera started: ${if (useFrontCamera) "front" else "back"} camera, 320x240, throttled local inference.")
         } catch (error: Exception) {
             Log.w("NOVA_VISION", "Binding the camera analyzer failed.", error)
             visionEnabled = false
@@ -376,6 +385,26 @@ class NovaActivity : ComponentActivity() {
             message.text = "لم أستطع تشغيل الرؤية على هذا الجهاز؛ بقيت بقية نوفا مستقلة عن الإنترنت."
             face.setMood(NovaMood.CALM)
         }
+    }
+
+    /** Swipe horizontally across Nova's face to switch cameras without adding a visible button. */
+    private fun switchCameraFacing() {
+        if (!visionEnabled) {
+            message.text = "اسمح بالكاميرا أولًا؛ السحب الأفقي يبدّل بين الأمامية والخلفية."
+            return
+        }
+        val nextSelector = if (useFrontCamera) CameraSelector.DEFAULT_BACK_CAMERA else CameraSelector.DEFAULT_FRONT_CAMERA
+        val provider = cameraProvider
+        if (provider == null || !provider.hasCamera(nextSelector)) {
+            message.text = "هذه الكاميرا غير متاحة على الجهاز."
+            return
+        }
+        useFrontCamera = !useFrontCamera
+        lastVisionSummary = ""
+        status.text = if (useFrontCamera) "N O V A • SWITCHING TO FRONT" else "N O V A • SWITCHING TO BACK"
+        message.text = if (useFrontCamera) "أحوّل إلى الكاميرا الأمامية." else "أحوّل إلى الكاميرا الخلفية."
+        face.setMood(NovaMood.CURIOUS)
+        bindLowLoadAnalyzer(provider)
     }
 
     private fun analyzeOneFrame(proxy: ImageProxy) {
@@ -489,8 +518,8 @@ class NovaActivity : ComponentActivity() {
     override fun onDestroy() {
         main.removeCallbacksAndMessages(null)
         stopVisionCamera()
-        tone?.release()
-        tone = null
+        novaVoice?.close()
+        novaVoice = null
         localFaceDetector?.close()
         localFaceDetector = null
         localImageLabeler?.close()
@@ -533,13 +562,7 @@ class NovaActivity : ComponentActivity() {
         }
         if (event.hapticMillis > 0L) face.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
         if (playSound) {
-            val toneType = when (visibleMood) {
-                NovaMood.THINKING -> ToneGenerator.TONE_PROP_ACK
-                NovaMood.HAPPY, NovaMood.PLAYFUL -> ToneGenerator.TONE_PROP_BEEP2
-                NovaMood.CURIOUS, NovaMood.ALERT -> ToneGenerator.TONE_PROP_BEEP
-                else -> ToneGenerator.TONE_PROP_ACK
-            }
-            tone?.startTone(toneType, if (event.isQuestion) 130 else 70)
+            novaVoice?.play(visibleMood, event.isQuestion)
         }
         main.removeCallbacks(idleCheck)
         main.postDelayed(idleCheck, 15_000L)
