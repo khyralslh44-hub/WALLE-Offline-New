@@ -159,7 +159,7 @@ class NovaActivity : ComponentActivity() {
         advancedVision = runCatching { NovaAdvancedVision(this) }.onFailure {
             Log.w("NOVA_ADV_VISION", "Bundled advanced models could not initialize.", it)
         }.getOrNull()
-        localPreferences.getString(KEY_AFFECT_SNAPSHOT, null)?.let { affect.restore(it) }
+        readProtectedLocalValue(KEY_AFFECT_SNAPSHOT)?.let { affect.restore(it) }
         affect.observe(NovaAffectEvent.USER_RETURNED, System.currentTimeMillis())
         persistAffect()
         novaVoice = NovaVoice(this, main)
@@ -953,8 +953,19 @@ class NovaActivity : ComponentActivity() {
         return affect.mood(now)
     }
 
+    private fun readProtectedLocalValue(key: String): String? {
+        val stored = localPreferences.getString(key, null) ?: return null
+        val plain = NovaLocalCipher.decryptOrLegacy(stored) ?: return null
+        // Migrate a legacy plaintext snapshot on first read. Only encrypted text is retained afterward.
+        if (!stored.startsWith("enc:v1:")) {
+            localPreferences.edit().putString(key, NovaLocalCipher.encrypt(plain)).apply()
+        }
+        return plain
+    }
+
     private fun persistAffect() {
-        localPreferences.edit().putString(KEY_AFFECT_SNAPSHOT, affect.snapshot(System.currentTimeMillis())).apply()
+        val encrypted = NovaLocalCipher.encrypt(affect.snapshot(System.currentTimeMillis()))
+        localPreferences.edit().putString(KEY_AFFECT_SNAPSHOT, encrypted).apply()
     }
 
     private fun pillBackground(fill: Int, stroke: Int) = GradientDrawable().apply {
@@ -980,24 +991,56 @@ class NovaActivity : ComponentActivity() {
 private class SharedPreferencesNovaMemory(
     private val preferences: android.content.SharedPreferences
 ) : NovaMemory, NovaMindMemory {
-    override fun getInt(key: String, defaultValue: Int): Int = preferences.getInt(key, defaultValue)
-    override fun getLong(key: String, defaultValue: Long): Long = preferences.getLong(key, defaultValue)
-    override fun putInt(key: String, value: Int) { preferences.edit().putInt(key, value).apply() }
-    override fun putLong(key: String, value: Long) { preferences.edit().putLong(key, value).apply() }
+    override fun getInt(key: String, defaultValue: Int): Int =
+        readProtected(key)?.toIntOrNull() ?: defaultValue
 
-    override fun read(key: String): String? = preferences.getString("mind:$key", null)
+    override fun getLong(key: String, defaultValue: Long): Long =
+        readProtected(key)?.toLongOrNull() ?: defaultValue
+
+    override fun putInt(key: String, value: Int) {
+        writeProtected(key, value.toString())
+    }
+
+    override fun putLong(key: String, value: Long) {
+        writeProtected(key, value.toString())
+    }
+
+    override fun read(key: String): String? = readProtected("mind:$key")
 
     override fun write(item: NovaMemoryItem) {
-        preferences.edit()
-            .putString("mind:${item.key}", item.value)
-            .putLong("mind:${item.key}:updated_at", item.updatedAtMillis)
-            .apply()
+        // Model weights/snapshots, coarse topics and timestamps are all encrypted at rest.
+        writeProtected("mind:${item.key}", item.value)
+        writeProtected("mind:${item.key}:updated_at", item.updatedAtMillis.toString())
     }
 
     override fun increment(key: String): Int {
         val storageKey = "mind:counter:$key"
-        val next = preferences.getInt(storageKey, 0) + 1
-        preferences.edit().putInt(storageKey, next).apply()
+        val next = getInt(storageKey, 0) + 1
+        putInt(storageKey, next)
         return next
+    }
+
+    /**
+     * Reads old primitive preference values for migration, then rewrites them as AES-GCM strings.
+     * Preference keys remain non-sensitive labels; their values are encrypted with Android Keystore.
+     */
+    private fun readProtected(key: String): String? {
+        val stored = preferences.all[key] ?: return null
+        val plain = when (stored) {
+            is String -> NovaLocalCipher.decryptOrLegacy(stored)
+            is Int, is Long, is Float, is Boolean -> stored.toString()
+            else -> null
+        } ?: return null
+
+        val isAlreadyEncrypted = stored is String && stored.startsWith("enc:v1:")
+        if (!isAlreadyEncrypted) writeProtected(key, plain)
+        return plain
+    }
+
+    private fun writeProtected(key: String, plain: String) {
+        val encrypted = NovaLocalCipher.encrypt(plain)
+        check(preferences.edit().putString(key, encrypted).commit()) {
+            "Could not persist encrypted Nova memory."
+        }
     }
 }
