@@ -40,7 +40,7 @@ object EveCuriosityEngine {
             isPerson(key) ->
                 "أرى شخصًا. ما اسمك؟"
             count >= 5 ->
-                "ألاحظ " + noun + " كثيرًا؛ هل كل مشاهدة للشيء نفسه؟"
+                "ألاحظ " + noun + " كثيرًا؛ هل تتشابه كل مشاهدة؟"
             isAnimal(key) ->
                 "هذا " + noun + " لفت انتباهي. ما رأيك أن نكتشفه؟"
             isFood(key) ->
