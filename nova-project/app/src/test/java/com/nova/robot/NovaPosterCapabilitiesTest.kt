@@ -1,0 +1,10 @@
+package com.nova.robot
+import org.junit.Assert.*
+import org.junit.Test
+class NovaPosterCapabilitiesTest{
+ @Test fun environmentCuesAreTentative(){val a=NovaEnvironmentRecognizer.summarize(listOf(NovaLabelEvidence("rain",.8f)));assertTrue(a?.contains("لا أستطيع تأكيد")==true);assertNull(NovaEnvironmentRecognizer.summarize(listOf(NovaLabelEvidence("snow",.4f))));assertNull(NovaEnvironmentRecognizer.summarize(listOf(NovaLabelEvidence("chair",.9f))))}
+ @Test fun placeNamesNeedSeveralVisualLabels(){val p=NovaPlaceMemory(InMemoryNovaMindMemory());assertFalse(p.enroll("المطبخ","bowl",1L));assertTrue(p.enroll("المطبخ","bowl,dining table,refrigerator",2L));assertEquals("المطبخ",p.match("bowl,dining table"));assertNull(p.match("bowl,cat"));assertEquals("المطبخ",NovaPlaceMemory.parseTrainingCommand("علّمي هذا المكان باسم المطبخ"))}
+ @Test fun experienceMemoryIsOptInAndDeduplicates(){val m=NovaExperienceMemory(InMemoryNovaMindMemory());assertFalse(m.observe("أرى طاولة طعام",100L));m.handleCommand("فعّلي ذاكرة المشاهد",1L);assertTrue(m.observe("أرى أمامي طاولة طعام وكوب",30_000L));assertFalse(m.observe("أرى أمامي طاولة طعام وكوب",60_000L));assertEquals(1,m.summaries().size);assertNull(m.handleCommand("رسالة عادية",70_000L))}
+ @Test fun baseMotionFailsClosed(){val r=NovaMotionRequest(NovaMotionDirection.FORWARD,.2f);val s=NovaBaseSafetyState(true,true,true,40f,false);assertTrue(NovaBaseSafetyGate.evaluate(r,s).mayTransmit);assertFalse(NovaBaseSafetyGate.evaluate(r,s.copy(edgeClear=null)).mayTransmit);assertFalse(NovaBaseSafetyGate.evaluate(r,s.copy(distanceCm=4f)).mayTransmit);assertFalse(NovaBaseSafetyGate.evaluate(r,s.copy(emergencyStop=true)).mayTransmit);assertTrue(NovaBaseSafetyGate.evaluate(NovaMotionRequest(NovaMotionDirection.STOP,1f),s.copy(sensorsHealthy=false)).mayTransmit)}
+ @Test fun expressiveCommandsAreSpecific(){assertEquals(NovaMood.EMBARRASSED,NovaExpressionCommand.parse("تعبير:إحراج")?.mood);assertEquals(NovaMood.JEALOUS,NovaExpressionCommand.parse("أظهري تعبير الغيرة")?.mood);assertEquals(NovaMood.ADMIRING,NovaExpressionCommand.parse("تعبير:إعجاب")?.mood);assertNull(NovaExpressionCommand.parse("أنا أشعر بالغيرة"))}
+}
