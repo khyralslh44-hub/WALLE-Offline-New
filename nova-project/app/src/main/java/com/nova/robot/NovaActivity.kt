@@ -90,6 +90,7 @@ class NovaActivity : ComponentActivity() {
     private var advancedVision: NovaAdvancedVision? = null
     private var emotionClassifier: NovaEmotionClassifier? = null
     private var lastAdvancedFrameAtElapsed = 0L
+    private var lastVisionAffectAtElapsed = 0L
     private val activityRecognizer = NovaActivityRecognizer()
     private var novaVoice: NovaVoice? = null
     private var localTts: NovaLocalTts? = null
@@ -389,6 +390,7 @@ class NovaActivity : ComponentActivity() {
         persistAffect()
         lastVisionSummary = ""
         lastAdvancedFrameAtElapsed = 0L
+        lastVisionAffectAtElapsed = 0L
         activityRecognizer.reset()
         curiosity.reset()
         lastInteractionElapsed = SystemClock.elapsedRealtime()
@@ -487,6 +489,7 @@ class NovaActivity : ComponentActivity() {
         useFrontCamera = false
         lastVisionFrameAt = 0L
         lastAdvancedFrameAtElapsed = 0L
+        lastVisionAffectAtElapsed = 0L
         activityRecognizer.reset()
         status.text = "N O V A • أتهيأ للملاحظة"
         message.text = "سأبدأ بملاحظة محيطي. أعالج ما أراه على هذا الهاتف ولا أحتفظ بصور المشهد."
@@ -675,6 +678,12 @@ class NovaActivity : ComponentActivity() {
                 } catch (error: Exception) {
                     Log.w("NOVA_VISION", "Local vision parsing failed; keeping uncertainty.", error)
                 } finally {
+                    val frameAnalysisMs = SystemClock.elapsedRealtime() - now
+                    if (frameAnalysisMs >= SLOW_FRAME_LOG_THRESHOLD_MS) {
+                        Log.w("NOVA_PERF", "local_frame_analysis_ms=" + frameAnalysisMs + "; model_input=320x240")
+                    } else {
+                        Log.d("NOVA_PERF", "local_frame_analysis_ms=" + frameAnalysisMs + "; model_input=320x240")
+                    }
                     visionInFlight.set(false)
                     runCatching { proxy.close() }
                 }
@@ -812,7 +821,17 @@ class NovaActivity : ComponentActivity() {
     private fun applyVisionSummary(summary: String, hasFace: Boolean, expressionMood: NovaMood? = null) {
         if (summary == lastVisionSummary) return
         lastVisionSummary = summary
-        val affectMood = recordAffect(if (hasFace) NovaAffectEvent.NOVEL_OBSERVATION else NovaAffectEvent.UNCERTAIN_OBSERVATION)
+        val elapsedNow = SystemClock.elapsedRealtime()
+        val affectMood = if (
+            lastVisionAffectAtElapsed == 0L ||
+            elapsedNow < lastVisionAffectAtElapsed ||
+            elapsedNow - lastVisionAffectAtElapsed >= MIN_VISION_AFFECT_INTERVAL_MS
+        ) {
+            lastVisionAffectAtElapsed = elapsedNow
+            recordAffect(if (hasFace) NovaAffectEvent.NOVEL_OBSERVATION else NovaAffectEvent.UNCERTAIN_OBSERVATION)
+        } else {
+            affect.mood(System.currentTimeMillis())
+        }
         val question = curiosity.questionFor(summary, System.currentTimeMillis())
         message.text = if (question == null) summary else "$summary\n$question"
         face.setMood(NovaBehaviorPlanner.chooseFaceMood(expressionMood, affectMood, hasFace))
@@ -951,6 +970,8 @@ class NovaActivity : ComponentActivity() {
         private const val MIN_FRAME_INTERVAL_MS = 1_800L
         // Heavy object, pose and face-landmark models are throttled separately from face tracking.
         private const val MIN_ADVANCED_FRAME_INTERVAL_MS = 3_600L
+        private const val MIN_VISION_AFFECT_INTERVAL_MS = 12_000L
+        private const val SLOW_FRAME_LOG_THRESHOLD_MS = 300L
         private const val FRESH_FACE_CROP_MS = 4_000L
         private const val KEY_AFFECT_SNAPSHOT = "nova_affect_snapshot_v1"
     }
