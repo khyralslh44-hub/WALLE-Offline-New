@@ -33,15 +33,10 @@ internal class NovaMobileFaceNet(context: Context) : AutoCloseable {
         return runCatching {
             val inputShape = model.getInputTensor(0).shape()
             require(inputShape.size == 4 && inputShape[0] == 1) { "Unsupported MobileFaceNet input shape." }
-            val height: Int
-            val width: Int
-            val channels: Int
-            if (inputShape[3] == 3) {
-                height = inputShape[1]; width = inputShape[2]; channels = inputShape[3]
-            } else if (inputShape[1] == 3) {
-                channels = inputShape[1]; height = inputShape[2]; width = inputShape[3]
-            } else error("Expected RGB MobileFaceNet input.")
-            require(channels == 3 && width > 0 && height > 0)
+            require(inputShape[3] == 3) { "Expected NHWC RGB MobileFaceNet input." }
+            val height = inputShape[1]
+            val width = inputShape[2]
+            require(width > 0 && height > 0)
             val scaled = Bitmap.createScaledBitmap(face, width, height, true)
             try {
                 val pixels = IntArray(width * height)
