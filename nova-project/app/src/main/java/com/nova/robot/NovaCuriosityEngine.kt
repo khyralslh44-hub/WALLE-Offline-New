@@ -146,13 +146,13 @@ internal class NovaCuriosityEngine(
     private fun persistState(nowMillis: Long) {
         val counts = useCounts.entries.joinToString(";") { "${it.key}=${it.value}" }
         val snapshot = listOf(lastKey.orEmpty(), lastAt.toString(), lastAnyAt.toString(), counts)
-            .joinToString("\\t")
+            .joinToString("|")
         memory?.write(NovaMemoryItem(KEY_CURIOUS_STATE, snapshot, nowMillis.coerceAtLeast(0L)))
     }
 
     private fun restoreState() {
         val snapshot = memory?.read(KEY_CURIOUS_STATE) ?: return
-        val pieces = snapshot.split('\\t', limit = 4)
+        val pieces = snapshot.split('|', limit = 4)
         if (pieces.size != 4) return
         lastKey = pieces[0].ifBlank { null }
         lastAt = pieces[1].toLongOrNull() ?: Long.MIN_VALUE

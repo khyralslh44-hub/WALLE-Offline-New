@@ -29,8 +29,9 @@ internal class NovaPersonalMemory(private val memory: NovaMindMemory) {
 
         val rememberPrefix = rememberPrefixes.firstOrNull { command.startsWith(it) }
         if (rememberPrefix != null) {
-            val note = command.removePrefix(rememberPrefix).trim().take(MAX_NOTE_CHARS)
-            if (note.length < 3) return "لم أحفظ شيئًا؛ أخبريني بالمعلومة كاملة بعد عبارة «تذكّري أنني»."
+            val note = (extractOriginalNote(rawText) ?: command.removePrefix(rememberPrefix))
+                .trim().replace(Regex("[\\r\\n]+"), " ").take(MAX_NOTE_CHARS)
+            if (normalize(note).length < 3) return "لم أحفظ شيئًا؛ أخبريني بالمعلومة كاملة بعد عبارة «تذكّري أنني»."
             val notes = readNotes()
             if (notes.any { normalize(it) == normalize(note) }) {
                 return "أتذكر هذه المعلومة بالفعل: «$note». لن أكرر حفظها."
@@ -51,6 +52,13 @@ internal class NovaPersonalMemory(private val memory: NovaMindMemory) {
             return "نسيت المعلومة التي طلبت حذفها. بقيت الملاحظات الأخرى كما هي."
         }
         return null
+    }
+
+    private fun extractOriginalNote(rawText: String): String? {
+        val expression = Regex(
+            "^(?:تذكّري|تذكري|تذكّر|تذكر|احفظي|احفظ|سجّلي|سجلي|سجّل|سجل|لا تنسي|لا تنس)\\\\s+(?:أنني|أني|اني|أن|ان|بأنني|بأني|بانني|بأن)\\\\s+(.+)$"
+        )
+        return expression.find(rawText.trim())?.groupValues?.getOrNull(1)?.trim()
     }
 
     private fun readNotes(): List<String> = memory.read(KEY_NOTES)

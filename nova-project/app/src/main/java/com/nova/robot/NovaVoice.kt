@@ -114,6 +114,11 @@ internal class NovaVoice(
             NovaMood.PLAYFUL -> doubleArrayOf(415.0, 349.0, 466.0)
             NovaMood.FRUSTRATED -> doubleArrayOf(294.0, 277.0, 311.0)
             NovaMood.CAUTIOUS -> doubleArrayOf(311.0, 294.0)
+            NovaMood.SAD -> doubleArrayOf(294.0, 262.0, 247.0)
+            NovaMood.DISGUSTED -> doubleArrayOf(311.0, 330.0)
+            NovaMood.AFRAID -> doubleArrayOf(262.0, 392.0, 262.0)
+            NovaMood.LOVE -> doubleArrayOf(440.0, 523.0, 659.0)
+            NovaMood.CONFUSED -> doubleArrayOf(330.0, 294.0, 370.0)
         }
         // Small, bounded pitch contour variations make the cue feel less mechanical without randomness.
         val shift = when (index % 4) {
