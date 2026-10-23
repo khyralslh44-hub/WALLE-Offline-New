@@ -85,6 +85,7 @@ class NovaActivity : ComponentActivity() {
     private var latestFaceCropAtElapsed = 0L
     private var latestFaceCount = 0
     private var localImageLabeler: ImageLabeler? = null
+    private var advancedVision: NovaAdvancedVision? = null
     private var novaVoice: NovaVoice? = null
 
     private val cameraPermissionRequest =
@@ -131,6 +132,9 @@ class NovaActivity : ComponentActivity() {
         mind = NovaMind(store)
         affect = NovaAffectEngine()
         peopleMemory = NovaPeopleMemory(this)
+        advancedVision = runCatching { NovaAdvancedVision(this) }.onFailure {
+            Log.w("NOVA_ADV_VISION", "Bundled advanced models could not initialize.", it)
+        }.getOrNull()
         localPreferences.getString(KEY_AFFECT_SNAPSHOT, null)?.let { affect.restore(it) }
         affect.observe(NovaAffectEvent.USER_RETURNED, System.currentTimeMillis())
         persistAffect()
@@ -506,13 +510,35 @@ class NovaActivity : ComponentActivity() {
                     } else {
                         clearLatestFaceCrop()
                     }
-                    val labels = if (labelTask.isSuccessful) {
+                    val mlKitLabels = if (labelTask.isSuccessful) {
                         labelTask.result.orEmpty().map { NovaLabelEvidence(it.text, it.confidence) }
                     } else {
                         emptyList()
                     }
+                    var poseNote = ""
+                    val advancedFrame = runCatching {
+                        val raw = imageProxyToBitmap(proxy) ?: return@runCatching null
+                        val rotation = proxy.imageInfo.rotationDegrees
+                        if (rotation % 360 == 0) raw else {
+                            val matrix = Matrix().apply { postRotate(rotation.toFloat()) }
+                            Bitmap.createBitmap(raw, 0, 0, raw.width, raw.height, matrix, true).also { raw.recycle() }
+                        }
+                    }.getOrNull()
+                    val advancedResult = try {
+                        if (advancedFrame != null) advancedVision?.analyze(advancedFrame)
+                        else null
+                    } catch (error: Exception) {
+                        Log.w("NOVA_ADV_VISION", "Advanced local model inference failed safely.", error)
+                        null
+                    } finally {
+                        if (advancedFrame != null && !advancedFrame.isRecycled) advancedFrame.recycle()
+                    }
+                    if (advancedResult?.poseNote != null) poseNote = advancedResult.poseNote
+                    val labels = (mlKitLabels + advancedResult?.labels.orEmpty())
+                        .groupBy { it.label.lowercase(java.util.Locale.ROOT) }
+                        .mapNotNull { (_, items) -> items.maxByOrNull { it.confidence } }
                     val baseSummary = NovaVisionEvidence.summarize(hasFace, labels)
-                    val notes = listOf(identityNote, faceCueNote).filter { it.isNotBlank() }
+                    val notes = listOf(identityNote, faceCueNote, poseNote).filter { it.isNotBlank() }
                     val summary = if (notes.isNotEmpty()) "$baseSummary\n${notes.joinToString("\n")}" else baseSummary
                     runOnUiThread {
                         if (visionEnabled && resumed && !isFinishing && !isDestroyed) {
@@ -720,6 +746,8 @@ class NovaActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        runCatching { advancedVision?.close() }
+        advancedVision = null
         main.removeCallbacksAndMessages(null)
         stopVisionCamera()
         novaVoice?.close()
