@@ -1013,6 +1013,9 @@ class NovaActivity : ComponentActivity() {
             NovaMood.AFRAID -> "N O V A • ALERT"
             NovaMood.LOVE -> "N O V A • W A R M"
             NovaMood.CONFUSED -> "N O V A • THINKING"
+            NovaMood.EMBARRASSED -> "N O V A • SHY"
+            NovaMood.JEALOUS -> "N O V A • JEALOUS"
+            NovaMood.ADMIRING -> "N O V A • ADMIRING"
             NovaMood.CALM -> "N O V A • LOCAL ROBOT"
         }
         if (event.hapticMillis > 0L) face.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
