@@ -748,6 +748,7 @@ class NovaActivity : ComponentActivity() {
     override fun onDestroy() {
         runCatching { advancedVision?.close() }
         advancedVision = null
+        runCatching { peopleMemory.close() }
         main.removeCallbacksAndMessages(null)
         stopVisionCamera()
         novaVoice?.close()
