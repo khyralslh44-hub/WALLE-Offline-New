@@ -2038,10 +2038,15 @@ class MainActivity : ComponentActivity() {
                                 isIntroduction = false
                             )
                             react(decision, playSound = false)
-                            showDialogueText(
-                                "أهلًا ${match.profile.name}، أعتقد أنني تعرّفت عليك من الذاكرة المحلية.",
-                                durationMs = 5_500L
-                            )
+                            val greeting = if (
+                                match.profile.personKey == "friend" ||
+                                match.profile.personKey == "friend_female"
+                            ) {
+                                "أهلًا ${match.profile.name}! سعيد بشوفتك. كيف يومك؟"
+                            } else {
+                                "أهلًا ${match.profile.name}، تذكّرتك من الذاكرة المحلية."
+                            }
+                            showDialogueText(greeting, durationMs = 5_500L)
                             Log.i(
                                 "EVE_PEOPLE",
                                 "FACE_PROFILE_MATCH id=${match.profile.id} relation=${match.profile.personKey} " +
