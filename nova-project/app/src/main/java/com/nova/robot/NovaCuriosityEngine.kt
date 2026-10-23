@@ -73,6 +73,15 @@ internal class NovaCuriosityEngine(
             "الحركة لفتت انتباهي! أستطيع ملاحظة تغيّر الوضعية، لكن ما نوع النشاط في رأيك؟"
         ))
 
+        if (summary.contains("لست متأكدة") ||
+            summary.contains("لا أملك دليلًا كافيًا") ||
+            summary.contains("لم أتعرف إلى ما أمامي") ||
+            summary.contains("لم أجد دليلًا بصريًا كافيًا")
+        ) return Cue("uncertain-scene", listOf(
+            "لم تتضح لي الصورة بعد، ولا أريد أن أخمّن. هل تخبرني ما الذي تراه؟",
+            "ما زال في المشهد تفصيل لم أفهمه. هل يمكنك مساعدتي في معرفة ما فاتني؟"
+        ))
+
         if (!summary.contains("في محيطي")) return null
         return when {
             summary.contains("زهرة") || summary.contains("زهور") ->
