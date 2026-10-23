@@ -86,6 +86,7 @@ class NovaActivity : ComponentActivity() {
     private var latestFaceCount = 0
     private var localImageLabeler: ImageLabeler? = null
     private var advancedVision: NovaAdvancedVision? = null
+    private var emotionClassifier: NovaEmotionClassifier? = null
     private var novaVoice: NovaVoice? = null
 
     private val cameraPermissionRequest =
@@ -93,8 +94,8 @@ class NovaActivity : ComponentActivity() {
             if (granted) {
                 enableVision()
             } else {
-                message.text = "لم تسمح بالكاميرا؛ لن أرى المشهد. ما زلت أعمل بالتفاعل والذاكرة المحلية."
-                status.text = "N O V A • CAMERA OFF"
+                message.text = "لا أستطيع ملاحظة ما حولي دون إذن الكاميرا، لكن يمكننا التفاعل وتبقى ذاكرتي المحلية متاحة."
+                status.text = "N O V A • أعمل محليًا"
                 face.setMood(NovaMood.CALM)
             }
         }
@@ -132,6 +133,9 @@ class NovaActivity : ComponentActivity() {
         mind = NovaMind(store)
         affect = NovaAffectEngine()
         peopleMemory = NovaPeopleMemory(this)
+        emotionClassifier = runCatching { NovaEmotionClassifier(this) }.onFailure {
+            Log.w("NOVA_EMOTION", "Bundled facial-expression classifier could not initialize.", it)
+        }.getOrNull()
         advancedVision = runCatching { NovaAdvancedVision(this) }.onFailure {
             Log.w("NOVA_ADV_VISION", "Bundled advanced models could not initialize.", it)
         }.getOrNull()
@@ -166,7 +170,7 @@ class NovaActivity : ComponentActivity() {
         ).apply { topMargin = dp(20) })
 
         message = TextView(this).apply {
-            text = "أنا نوفا. فضولي وهادئ، وأفضّل التحقّق قبل الاستنتاج. اضغط مطولًا لكتابة رسالة؛ التصنيف والذاكرة محليان."
+            text = "أنا نوفا. أتعلم مما ألاحظه ومن تفاعلاتنا، وأفضّل التحقق قبل الاستنتاج. المس وجهي للتفاعل أو اضغط مطولًا لتكتب لي."
             textSize = 16f
             setTextColor(0xFFE5F6FF.toInt())
             gravity = Gravity.CENTER
@@ -295,7 +299,7 @@ class NovaActivity : ComponentActivity() {
         face.setMood(NovaMood.CALM)
         message.text = "مسحت ذاكرة نوفا المحلية، بما فيها أسماء الوجوه المسجلة وتصحيحات التعلم. لم أحتفظ بصور للوجوه."
         status.text = if (visionEnabled) {
-            if (useFrontCamera) "N O V A • FRONT CAMERA ON" else "N O V A • BACK CAMERA ON"
+            if (useFrontCamera) "N O V A • ألاحظ محيطي • أمامية" else "N O V A • ألاحظ محيطي • خلفية"
         } else "N O V A • LOCAL ROBOT"
     }
 
@@ -366,7 +370,7 @@ class NovaActivity : ComponentActivity() {
             stopVisionCamera()
             lastVisionSummary = ""
             status.text = "N O V A • LOCAL ROBOT"
-            message.text = "أوقفت الكاميرا. لا أحفظ الصور، ويمكنك تشغيل الرؤية وقتما تريد."
+            message.text = "توقفت عن ملاحظة محيطي. لا أحتفظ بصور المشهد، ويمكنني العودة للملاحظة عندما تسمح بذلك."
             face.setMood(NovaMood.CALM)
             return
         }
@@ -384,8 +388,8 @@ class NovaActivity : ComponentActivity() {
         lastVisionSummary = ""
         useFrontCamera = false
         lastVisionFrameAt = 0L
-        status.text = "N O V A • STARTING VISION"
-        message.text = "أشغّل الكاميرا الخلفية محليًا. التحليل منخفض الدقة ولا تُحفَظ الصور."
+        status.text = "N O V A • أتهيأ للملاحظة"
+        message.text = "سأبدأ بملاحظة محيطي. أعالج ما أراه على هذا الهاتف ولا أحتفظ بصور المشهد."
         face.setMood(NovaMood.CURIOUS)
         startVisionCamera()
     }
@@ -405,8 +409,8 @@ class NovaActivity : ComponentActivity() {
             } catch (error: Exception) {
                 Log.w("NOVA_VISION", "Could not open the local camera.", error)
                 visionEnabled = false
-                status.text = "N O V A • CAMERA UNAVAILABLE"
-                message.text = "لم أستطع فتح الكاميرا. لم أستنتج شيئًا عن المشهد."
+                status.text = "N O V A • أحتاج مساعدة"
+                message.text = "لم أتمكن من رؤية محيطي الآن، لذلك لن أخمّن ما يحدث أمامي."
                 face.setMood(NovaMood.CALM)
             }
         }, ContextCompat.getMainExecutor(this))
@@ -431,7 +435,7 @@ class NovaActivity : ComponentActivity() {
             visionEnabled = false
             stopVisionCamera()
             status.text = "N O V A • CAMERA UNAVAILABLE"
-            message.text = "لم أستطع تشغيل الرؤية على هذا الجهاز؛ بقيت بقية نوفا مستقلة عن الإنترنت."
+            message.text = "لم أتمكن من ملاحظة محيطي على هذا الجهاز، لكن ذاكرتي وتفاعلاتي المحلية ما زالت متاحة."
             face.setMood(NovaMood.CALM)
         }
     }
@@ -439,19 +443,19 @@ class NovaActivity : ComponentActivity() {
     /** Swipe horizontally across Nova's face to switch cameras without adding a visible button. */
     private fun switchCameraFacing() {
         if (!visionEnabled) {
-            message.text = "اسمح بالكاميرا أولًا؛ السحب الأفقي يبدّل بين الأمامية والخلفية."
+            message.text = "أحتاج إذن الرؤية أولًا. اسحب أفقيًا لتغيير زاوية ملاحظتي."
             return
         }
         val nextSelector = if (useFrontCamera) CameraSelector.DEFAULT_BACK_CAMERA else CameraSelector.DEFAULT_FRONT_CAMERA
         val provider = cameraProvider
         if (provider == null || !provider.hasCamera(nextSelector)) {
-            message.text = "هذه الكاميرا غير متاحة على الجهاز."
+            message.text = "لا أستطيع استخدام زاوية الرؤية هذه على جهازك."
             return
         }
         useFrontCamera = !useFrontCamera
         lastVisionSummary = ""
-        status.text = if (useFrontCamera) "N O V A • SWITCHING TO FRONT" else "N O V A • SWITCHING TO BACK"
-        message.text = if (useFrontCamera) "أحوّل إلى الكاميرا الأمامية." else "أحوّل إلى الكاميرا الخلفية."
+        status.text = if (useFrontCamera) "N O V A • أغيّر زاوية ملاحظتي • أمامية" else "N O V A • أغيّر زاوية ملاحظتي • خلفية"
+        message.text = if (useFrontCamera) "أغيّر زاوية ملاحظتي إلى الأمامية." else "أغيّر زاوية ملاحظتي إلى الخلفية."
         face.setMood(NovaMood.CURIOUS)
         bindLowLoadAnalyzer(provider)
     }
@@ -481,6 +485,7 @@ class NovaActivity : ComponentActivity() {
                     val hasFace = detectedFaces.isNotEmpty()
                     var identityNote = ""
                     var faceCueNote = ""
+                    var emotionNote = ""
                     if (hasFace) {
                         val largest = detectedFaces.maxByOrNull { it.boundingBox.width() * it.boundingBox.height() }
                         faceCueNote = largest?.let {
@@ -499,10 +504,11 @@ class NovaActivity : ComponentActivity() {
                                 latestFaceCount = detectedFaces.size
                             }
                             val match = runCatching { peopleMemory.recognize(crop) }.getOrNull()
+                            emotionNote = runCatching { emotionClassifier?.classify(crop) }.getOrNull().orEmpty()
                             identityNote = when {
-                                match != null -> "تشابه بصري محتمل مع ${match.person.name} — مطابقة تجريبية غير مؤكدة"
-                                peopleMemory.count() > 0 -> "رصدت وجهًا، لكن لم أستطع مطابقته بثقة مع الوجوه المحفوظة"
-                                else -> "رصدت وجهًا؛ لم تسجل نوفا هوية بصرية لهذا الشخص بعد"
+                                match != null -> "أظن أنني رأيت وجهًا مألوفًا يشبه ${match.person.name}، لكنني لست متأكدة بعد."
+                                peopleMemory.count() > 0 -> "أرى وجهًا، لكنني لا أستطيع مطابقته بثقة مع شخص أتذكره."
+                                else -> "أرى وجهًا جديدًا بالنسبة إلى ذاكرتي؛ لم أعرف اسم صاحبه بعد."
                             }
                         } else {
                             clearLatestFaceCrop()
@@ -538,7 +544,7 @@ class NovaActivity : ComponentActivity() {
                         .groupBy { it.label.lowercase(java.util.Locale.ROOT) }
                         .mapNotNull { (_, items) -> items.maxByOrNull { it.confidence } }
                     val baseSummary = NovaVisionEvidence.summarize(hasFace, labels)
-                    val notes = listOf(identityNote, faceCueNote, poseNote).filter { it.isNotBlank() }
+                    val notes = listOf(identityNote, if (emotionNote.isNotBlank()) emotionNote else faceCueNote, poseNote).filter { it.isNotBlank() }
                     val summary = if (notes.isNotEmpty()) "$baseSummary\n${notes.joinToString("\n")}" else baseSummary
                     runOnUiThread {
                         if (visionEnabled && resumed && !isFinishing && !isDestroyed) {
@@ -749,6 +755,8 @@ class NovaActivity : ComponentActivity() {
         runCatching { advancedVision?.close() }
         advancedVision = null
         runCatching { peopleMemory.close() }
+        runCatching { emotionClassifier?.close() }
+        emotionClassifier = null
         main.removeCallbacksAndMessages(null)
         stopVisionCamera()
         novaVoice?.close()

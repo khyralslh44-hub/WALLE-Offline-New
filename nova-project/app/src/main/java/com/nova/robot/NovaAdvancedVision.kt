@@ -97,11 +97,11 @@ internal class NovaAdvancedVision(context: Context) : AutoCloseable {
             val rightBlink = categories["eyeBlinkRight"] ?: 0f
             val browDown = ((categories["browDownLeft"] ?: 0f) + (categories["browDownRight"] ?: 0f)) / 2f
             val cues = mutableListOf<String>()
-            if (smile >= 0.65f) cues += "نموذج تعابير الوجه رصد نمطًا بصريًا قريبًا من الابتسام"
-            if (leftBlink >= 0.70f && rightBlink >= 0.70f) cues += "نموذج الوجه رصد إغلاقًا محتملًا للعينين"
-            if (browDown >= 0.70f) cues += "نموذج الوجه رصد انخفاضًا في الحاجبين؛ لا يحدد ذلك الغضب وحده"
+            if (smile >= 0.65f) cues += "ألاحظ حركة في الوجه تشبه الابتسام"
+            if (leftBlink >= 0.70f && rightBlink >= 0.70f) cues += "ألاحظ أن العينين قد أُغلقتا في هذه اللقطة"
+            if (browDown >= 0.70f) cues += "ألاحظ انخفاض الحاجبين، لكنني لا أستنتج الغضب من ذلك وحده"
             if (cues.isEmpty()) null
-            else cues.joinToString("، ") + ". إشارات شكلية تقريبية وليست قراءة مؤكدة للمشاعر."
+            else cues.joinToString("، ") + ". ملاحظات شكلية تقريبية لا تثبت شعور الشخص."
         }.onFailure { Log.w(TAG, "Face expression model unavailable.", it) }.getOrNull()
 
         val poseNote = runCatching {
@@ -117,7 +117,7 @@ internal class NovaAdvancedVision(context: Context) : AutoCloseable {
             ).also { poseLandmarker = it }
             val landmarks = task.detect(image).landmarks().firstOrNull()
             if (landmarks.isNullOrEmpty()) null
-            else "رصدت نموذجًا لهيئة جسم بشري؛ لا يمكن استنتاج الرياضة أو الأكل من هذه اللقطة وحدها."
+            else "ألاحظ هيئة جسم بشري، لكنني لا أستطيع من لقطة واحدة الجزم بأنه يمارس الرياضة أو يأكل."
         }.onFailure { Log.w(TAG, "Pose Landmarker unavailable.", it) }.getOrNull()
 
         return NovaAdvancedVisionResult(labels.values.toList(), listOfNotNull(faceExpressionNote, poseNote).joinToString("\n").ifBlank { null })

@@ -28,7 +28,7 @@ internal object NovaFaceCueEvidence {
             }
         }
         if (cues.isEmpty()) return null
-        return cues.joinToString("، ") +
-            ". هذه إشارات بصرية تقريبية وليست حكمًا على مشاعر الشخص."
+        return "ألاحظ بعض الإشارات: " + cues.joinToString("، ") +
+            ". إنها ملاحظات شكلية تقريبية، ولا تثبت ما يشعر به الشخص."
     }
 }

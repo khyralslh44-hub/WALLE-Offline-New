@@ -12,7 +12,7 @@ class NovaVisionEvidenceTest {
                 NovaLabelEvidence("Chair", 0.78f)
             )
         )
-        assertTrue(summary.contains("رصدت وجه شخص"))
+        assertTrue(summary.contains("أرى أمامي شخصًا"))
         assertTrue(summary.contains("كرسي"))
         assertFalse(summary.contains("كلب"))
         assertFalse(summary.contains("dog"))
@@ -23,7 +23,7 @@ class NovaVisionEvidenceTest {
             faceFound = false,
             labels = listOf(NovaLabelEvidence("cup", 0.75f))
         )
-        assertTrue(summary.contains("قد يكون"))
+        assertTrue(summary.contains("أظن أن في محيطي"))
         assertTrue(summary.contains("كوب"))
         assertTrue(summary.contains("تخمينات"))
     }
@@ -37,7 +37,7 @@ class NovaVisionEvidenceTest {
                 NovaLabelEvidence("dog", Float.NaN)
             )
         )
-        assertTrue(summary.contains("غير متأكدة") || summary.contains("دليلًا بصريًا كافيًا"))
+        assertTrue(summary.contains("دليلًا كافيًا") || summary.contains("لم أتعرف"))
         assertFalse(summary.contains("كرسي"))
     }
 
@@ -47,28 +47,28 @@ class NovaVisionEvidenceTest {
             labels = listOf(NovaLabelEvidence("rain", 0.91f))
         )
         assertTrue(rain.contains("مطر"))
-        assertTrue(rain.contains("قد يكون"))
+        assertTrue(rain.contains("أظن أن في محيطي"))
         assertTrue(rain.contains("تخمينات"))
 
         val eating = NovaVisionEvidence.summarize(
             faceFound = true,
             labels = listOf(NovaLabelEvidence("person eating", 0.88f))
         )
-        assertTrue(eating.contains("رصدت وجه شخص"))
+        assertTrue(eating.contains("أرى أمامي شخصًا"))
         assertTrue(eating.contains("شخص يتناول الطعام"))
-        assertTrue(eating.contains("تقريبي"))
+        assertTrue(eating.contains("تقريبية"))
 
         val exercise = NovaVisionEvidence.summarize(
             faceFound = false,
             labels = listOf(NovaLabelEvidence("exercising", 0.90f))
         )
         assertTrue(exercise.contains("يمارس الرياضة"))
-        assertTrue(exercise.contains("قد يكون"))
+        assertTrue(exercise.contains("أظن أن في محيطي"))
     }
 
     @Test fun faceWithoutOtherEvidenceDoesNotGuessIdentityOrEmotion() {
         val summary = NovaVisionEvidence.summarize(faceFound = true, labels = emptyList())
-        assertTrue(summary.contains("لا أستطيع تحديد هويته أو شعوره"))
+        assertTrue(summary.contains("لم أتعرف إلى هويته") || summary.contains("لا أستطيع تأكيد شعوره"))
     }
 
     @Test fun animalBreedLabelsAreSuppressedWhenFaceDetectorFindsPerson() {
@@ -80,7 +80,7 @@ class NovaVisionEvidenceTest {
                 NovaLabelEvidence("Table", 0.80f)
             )
         )
-        assertTrue(summary.contains("رصدت وجه شخص"))
+        assertTrue(summary.contains("أرى أمامي شخصًا"))
         assertTrue(summary.contains("طاولة"))
         assertFalse(summary.contains("كلب"))
         assertFalse(summary.contains("Golden Retriever"))
