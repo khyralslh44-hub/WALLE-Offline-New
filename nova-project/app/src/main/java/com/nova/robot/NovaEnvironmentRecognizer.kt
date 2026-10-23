@@ -10,11 +10,11 @@ internal object NovaEnvironmentRecognizer {
  Cue(setOf("night","nighttime","nightfall"),"يوحي تصنيف الصورة بمشهد ليلي محتمل، لكن الظلام وحده لا يثبت أن الوقت ليل."),
  Cue(setOf("sky"),"ألاحظ السماء في المشهد، لكنني لم أجد دليلًا كافيًا لتحديد حالة الطقس."))
  fun isSnowCue(rawLabel:String):Boolean {
-  val words=rawLabel.trim().lowercase(Locale.ROOT).split(Regex("[^\\\\p{L}\\\\p{N}]+" )).filter{it.isNotBlank()}.toSet()
+  val words=rawLabel.trim().lowercase(Locale.ROOT).split(Regex("[^\\p{L}\\p{N}]+")).filter{it.isNotBlank()}.toSet()
   return words.any{it in setOf("snow","snowing","snowfall","snowflake","snowflakes","blizzard")}
  }
  fun isExplicitSnowfallCue(rawLabel:String):Boolean {
-  val words=rawLabel.trim().lowercase(Locale.ROOT).split(Regex("[^\\\\p{L}\\\\p{N}]+" )).filter{it.isNotBlank()}.toSet()
+  val words=rawLabel.trim().lowercase(Locale.ROOT).split(Regex("[^\\p{L}\\p{N}]+")).filter{it.isNotBlank()}.toSet()
   return words.any{it in setOf("snowing","snowfall","blizzard")}
  }
  fun summarize(labels:List<NovaLabelEvidence>):String? {
