@@ -247,8 +247,35 @@ class NovaActivity : ComponentActivity() {
             .setMessage("يعالج نموذج نوفا المحلي نية الرسالة. الردود محدودة وليست توليدًا لغويًا عامًا. لتصحيح تعلّمها صراحةً اكتب: صحح: سؤال: النص.")
             .setView(input)
             .setNegativeButton("إلغاء", null)
+            .setNeutralButton("مسح الذاكرة") { _, _ -> confirmClearLocalMemory() }
             .setPositiveButton("إرسال") { _, _ -> handleMindInput(input.text.toString()) }
             .show()
+    }
+
+    private fun confirmClearLocalMemory() {
+        AlertDialog.Builder(this)
+            .setTitle("مسح ذاكرة نوفا المحلية؟")
+            .setMessage("سيُمسح سجل التفاعلات المختصر وحالة الشخصية وتصحيحات نموذج النوايا المحفوظة على هذا الهاتف. لا تُحفظ صور الكاميرا أصلًا. لا يمكن التراجع عن المسح.")
+            .setNegativeButton("إلغاء", null)
+            .setPositiveButton("مسح نهائي") { _, _ -> clearLocalMemory() }
+            .show()
+    }
+
+    private fun clearLocalMemory() {
+        localPreferences.edit().clear().apply()
+        store = SharedPreferencesNovaMemory(localPreferences)
+        brain = NovaBrain(store)
+        mind = NovaMind(store)
+        affect = NovaAffectEngine()
+        affect.observe(NovaAffectEvent.USER_RETURNED, System.currentTimeMillis())
+        persistAffect()
+        lastVisionSummary = ""
+        lastInteractionElapsed = SystemClock.elapsedRealtime()
+        face.setMood(NovaMood.CALM)
+        message.text = "مسحت الذاكرة المحلية وتصحيحات التعلم. سأبدأ من الحالة الأساسية؛ لم تُحفظ صور الكاميرا."
+        status.text = if (visionEnabled) {
+            if (useFrontCamera) "N O V A • FRONT CAMERA ON" else "N O V A • BACK CAMERA ON"
+        } else "N O V A • LOCAL ROBOT"
     }
 
     private fun handleMindInput(rawText: String) {
@@ -469,7 +496,7 @@ class NovaActivity : ComponentActivity() {
             NovaAffectMood.CURIOUS -> NovaMood.CURIOUS
             NovaAffectMood.CALM -> if (hasFace) NovaMood.CURIOUS else NovaMood.THINKING
         })
-        status.text = "N O V A • LOCAL VISION ON"
+        status.text = if (useFrontCamera) "N O V A • FRONT CAMERA ON" else "N O V A • BACK CAMERA ON"
         Log.i("NOVA_VISION", "LOCAL_FRAME_SUMMARY face=$hasFace; imagesStored=false; network=false")
     }
 
@@ -546,7 +573,7 @@ class NovaActivity : ComponentActivity() {
         face.setMood(visibleMood)
         message.text = event.messageArabic
         status.text = if (visionEnabled) {
-            "N O V A • LOCAL VISION ON"
+            if (useFrontCamera) "N O V A • FRONT CAMERA ON" else "N O V A • BACK CAMERA ON"
         } else when (visibleMood) {
             NovaMood.CURIOUS -> "N O V A • C U R I O U S"
             NovaMood.HAPPY, NovaMood.PLAYFUL -> "N O V A • P L A Y F U L"
