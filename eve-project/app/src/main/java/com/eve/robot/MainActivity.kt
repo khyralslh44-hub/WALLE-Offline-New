@@ -1,6 +1,7 @@
 package com.eve.robot
 
 import android.Manifest
+import android.media.AudioManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
@@ -374,6 +375,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Keep hardware volume keys mapped to EVE's generated voice/media audio even in immersive mode.
+        setVolumeControlStream(AudioManager.STREAM_MUSIC)
         homeMapStore = EveHomeMapStore(applicationContext)
         savedHomeMapState = homeMapStore.load()
         savedHomeMapState?.let {
