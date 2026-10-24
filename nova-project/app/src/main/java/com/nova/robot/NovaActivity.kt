@@ -67,6 +67,7 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
     private lateinit var message: TextView
     private lateinit var status: TextView
     private lateinit var brain: NovaBrain
+    private lateinit var perceptionDecisionBridge: NovaPerceptionDecisionBridge
     private lateinit var mind: NovaMind
     private lateinit var store: SharedPreferencesNovaMemory
     private lateinit var localPreferences: SharedPreferences
@@ -194,6 +195,7 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
         placeMemory = NovaPlaceMemory(store)
         experienceMemory = NovaExperienceMemory(store)
         brain = NovaBrain(store)
+        perceptionDecisionBridge = NovaPerceptionDecisionBridge(brain)
         mind = NovaMind(store)
         affect = NovaAffectEngine()
         peopleMemory = NovaPeopleMemory(this)
@@ -1055,7 +1057,13 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
     }
 
     private fun applyVisionSummary(summary: String, hasFace: Boolean, expressionMood: NovaMood? = null) {
-        if (summary == lastVisionSummary) return
+        // Feed only face-presence transitions to the offline decision engine, not every camera frame.
+        // This signal means "a face is visible", not "the person is ignoring Nova".
+        val presenceEvent = perceptionDecisionBridge.onPersonPresence(hasFace, 0.75f)
+        if (summary == lastVisionSummary) {
+            if (presenceEvent != null) showEvent(presenceEvent, playSound = false)
+            return
+        }
         lastVisionSummary = summary
         val elapsedNow = SystemClock.elapsedRealtime()
         val affectMood = if (
@@ -1075,6 +1083,11 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
         message.text = if (question == null) displaySummary else displaySummary + System.lineSeparator() + question
         experienceMemory.observe(latestExperienceObservation, System.currentTimeMillis())
         face.setMood(NovaBehaviorPlanner.chooseFaceMood(expressionMood, affectMood, hasFace))
+        if (presenceEvent != null) {
+            // The event was generated from a real camera transition; keep the visual summary visible.
+            message.text = displaySummary + System.lineSeparator() + presenceEvent.messageArabic
+            face.setMood(presenceEvent.mood)
+        }
         status.text = if (useFrontCamera) "N O V A • ألاحظ محيطي • أمامية" else "N O V A • ألاحظ محيطي • خلفية"
         Log.i("NOVA_VISION", "LOCAL_FRAME_SUMMARY face=$hasFace; imagesStored=false; network=false")
     }
