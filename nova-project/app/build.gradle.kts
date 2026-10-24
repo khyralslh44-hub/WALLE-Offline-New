@@ -10,10 +10,10 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.nova.robot.v2"
+        applicationId = "com.nova.robot.v3"
         minSdk = 26
         targetSdk = 35
-        versionCode = 5
+        versionCode = 6
         versionName = "1.0.4"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // Nova targets modern 64-bit Android phones (including Redmi 12); omit unused x86/32-bit
