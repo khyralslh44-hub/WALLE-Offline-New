@@ -795,9 +795,12 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
                     var gazeY = 0.5f
                     var emotionPrediction: NovaEmotionPrediction? = null
                     var sleepNote = ""
+                    var attentionAway = false
                     if (hasFace) {
                         val largest = detectedFaces.maxByOrNull { it.boundingBox.width() * it.boundingBox.height() }
                         if (largest != null) {
+                            // On the front camera, a sustained head turn is a weak attention cue, not proof of intent.
+                            attentionAway = useFrontCamera && kotlin.math.abs(largest.headEulerAngleY) >= 25f
                             sleepNote = sleepCueTracker.observe(true, largest.leftEyeOpenProbability, largest.rightEyeOpenProbability, now).orEmpty()
                             val rotatedWidth = if (proxy.imageInfo.rotationDegrees % 180 == 0) proxy.width else proxy.height
                             val rotatedHeight = if (proxy.imageInfo.rotationDegrees % 180 == 0) proxy.height else proxy.width
@@ -914,7 +917,7 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
                     runOnUiThread {
                         if (visionEnabled && resumed && !isFinishing && !isDestroyed) {
                             face.setGaze(gazeX, gazeY)
-                            applyVisionSummary(summary, hasFace, stableExpressionMood)
+                            applyVisionSummary(summary, hasFace, stableExpressionMood, attentionAway)
                         }
                     }
                 } catch (error: Exception) {
@@ -1060,12 +1063,16 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
         }
     }
 
-    private fun applyVisionSummary(summary: String, hasFace: Boolean, expressionMood: NovaMood? = null) {
+    private fun applyVisionSummary(summary: String, hasFace: Boolean, expressionMood: NovaMood? = null, attentionAway: Boolean = false) {
         // Feed only face-presence transitions to the offline decision engine, not every camera frame.
         // This signal means "a face is visible", not "the person is ignoring Nova".
         val presenceEvent = perceptionDecisionBridge.onPersonPresence(hasFace, 0.75f)
+        val attentionEvent = if (hasFace) {
+            perceptionDecisionBridge.onAttentionOrientation(attentionAway, 0.70f)
+        } else null
+        val cameraDecisionEvent = attentionEvent ?: presenceEvent
         if (summary == lastVisionSummary) {
-            if (presenceEvent != null) showEvent(presenceEvent, playSound = false)
+            if (cameraDecisionEvent != null) showEvent(cameraDecisionEvent, playSound = false)
             return
         }
         lastVisionSummary = summary
@@ -1087,10 +1094,10 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
         message.text = if (question == null) displaySummary else displaySummary + System.lineSeparator() + question
         experienceMemory.observe(latestExperienceObservation, System.currentTimeMillis())
         face.setMood(NovaBehaviorPlanner.chooseFaceMood(expressionMood, affectMood, hasFace))
-        if (presenceEvent != null) {
-            // The event was generated from a real camera transition; keep the visual summary visible.
-            message.text = displaySummary + System.lineSeparator() + presenceEvent.messageArabic
-            face.setMood(presenceEvent.mood)
+        if (cameraDecisionEvent != null) {
+            // Camera evidence influences expression, but the text still preserves the visual summary.
+            message.text = displaySummary + System.lineSeparator() + cameraDecisionEvent.messageArabic
+            face.setMood(cameraDecisionEvent.mood)
         }
         status.text = if (useFrontCamera) "N O V A • ألاحظ محيطي • أمامية" else "N O V A • ألاحظ محيطي • خلفية"
         Log.i("NOVA_VISION", "LOCAL_FRAME_SUMMARY face=$hasFace; imagesStored=false; network=false")
