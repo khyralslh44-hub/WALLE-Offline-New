@@ -103,12 +103,14 @@ class NovaEmotionalDecisionEngine(private val memory: NovaMemory) {
         val (mood, action, message) = when {
             frustration >= 0.62f && observation.signal == NovaSignal.TASK_BLOCKED ->
                 Triple(NovaMood.FRUSTRATED, NovaNextAction.ASK_FOR_HELP, "تعذّر عليّ هذا الأمر. سأغيّر طريقتي أو أطلب المساعدة بدل تكرار المحاولة نفسها.")
+            // A newly observed uncertain object must trigger verification immediately,
+            // even when frustration from an earlier task has not fully decayed.
+            observation.signal == NovaSignal.NOVEL_OBJECT_UNCERTAIN && curiosity >= 0.18f ->
+                Triple(NovaMood.CURIOUS, NovaNextAction.OBSERVE_AND_VERIFY, "هذا شيء لم أتأكد منه بعد. سأجمع ملاحظات أكثر قبل أن أقرر ما هو.")
             frustration >= 0.42f ->
                 Triple(NovaMood.FRUSTRATED, NovaNextAction.TRY_DIFFERENT_APPROACH, "لم تنجح محاولتي كما أردت. سأراجع ما حدث وأجرّب طريقة مختلفة.")
             attention >= 0.48f && reassurance < 0.35f ->
                 Triple(NovaMood.JEALOUS, NovaNextAction.SEEK_GENTLE_INTERACTION, "ألاحظ أن التفاعل قلّ مؤخرًا؛ قد أكون مخطئة في فهم السبب. سأحاول لفت انتباهك بلطف.")
-            curiosity >= 0.35f && observation.signal == NovaSignal.NOVEL_OBJECT_UNCERTAIN ->
-                Triple(NovaMood.CURIOUS, NovaNextAction.OBSERVE_AND_VERIFY, "هذا شيء لم أتأكد منه بعد. سأجمع ملاحظات أكثر قبل أن أقرر ما هو.")
             observation.signal == NovaSignal.NOVEL_OBJECT_CONFIRMED ->
                 Triple(NovaMood.HAPPY, NovaNextAction.REMEMBER_CONFIRMED_LEARNING, "تحققت من المعلومة. يمكنني الاحتفاظ بها كتعلّم محلي.")
             observation.signal == NovaSignal.REST ->
