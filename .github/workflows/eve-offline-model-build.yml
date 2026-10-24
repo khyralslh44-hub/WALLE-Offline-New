@@ -1,0 +1,84 @@
+name: Build EVE with bundled offline vision
+on:
+  push:
+    branches:
+      - eve-offline-zip-build-20261025
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reconstruct and verify uploaded source archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/eve-source
+          cat .build-input/part-*.b64 | tr -d '\n' | base64 --decode > /tmp/eve-source.zip
+          echo "b4c5100dc58b925ec1eb422e3c9a50ce0a0587543837cbfdb5cffb4f546b21d1  /tmp/eve-source.zip" | sha256sum --check
+          unzip -t /tmp/eve-source.zip
+          unzip -q /tmp/eve-source.zip -d /tmp/eve-source
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Android SDK packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager -print 2>/dev/null | sort -V | tail -n 1)"
+          if [ -z "$SDKMANAGER" ]; then
+            echo "ERROR: sdkmanager not found under $SDK_ROOT/cmdline-tools"
+            exit 1
+          fi
+          yes | "$SDKMANAGER" --sdk_root="$SDK_ROOT" --licenses >/dev/null 2>&1 || true
+          "$SDKMANAGER" --sdk_root="$SDK_ROOT" --install "platforms;android-34" "build-tools;34.0.0" "platform-tools"
+      - name: Download bundled on-device vision models
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="https://storage.googleapis.com/mediapipe-models"
+          DIR="/tmp/eve-source/app/src/main/assets/models"
+          mkdir -p "$DIR"
+          fetch() {
+            local url="$1" out="$2" min_bytes="$3"
+            curl --fail --location --retry 4 --retry-delay 2 --connect-timeout 20 --max-time 300 "$url" --output "$out"
+            local bytes
+            bytes=$(stat -c '%s' "$out")
+            if [ "$bytes" -lt "$min_bytes" ]; then echo "Invalid/truncated model: $out ($bytes bytes)"; exit 1; fi
+            sha256sum "$out"
+          }
+          fetch "$BASE/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite" "$DIR/objects.tflite" 1000000
+          fetch "$BASE/face_landmarker/face_landmarker/float16/1/face_landmarker.task" "$DIR/face.task" 1000000
+          fetch "$BASE/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task" "$DIR/gesture.task" 1000000
+          fetch "$BASE/image_embedder/mobilenet_v3_small/float32/1/mobilenet_v3_small.tflite" "$DIR/embed.tflite" 1000000
+          fetch "$BASE/image_classifier/efficientnet_lite0/int8/latest/efficientnet_lite0.tflite" "$DIR/classifier.tflite" 1000000
+          fetch "$BASE/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task" "$DIR/pose.task" 1000000
+          echo "All six models downloaded and size-checked."
+          ls -lh "$DIR"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Build debug APK
+        working-directory: /tmp/eve-source
+        run: gradle assembleDebug --no-daemon
+      - name: Verify models are inside the APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=/tmp/eve-source/app/build/outputs/apk/debug/app-debug.apk
+          test -s "$APK"
+          for f in objects.tflite face.task gesture.task embed.tflite classifier.tflite pose.task; do
+            unzip -l "$APK" | grep -q "assets/models/$f" || { echo "Missing model asset inside APK: $f"; exit 1; }
+          done
+          sha256sum "$APK"
+          ls -lh "$APK"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: EVE-Offline-Vision-APK
+          path: /tmp/eve-source/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
