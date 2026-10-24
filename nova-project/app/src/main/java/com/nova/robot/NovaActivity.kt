@@ -74,6 +74,7 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
     private lateinit var affect: NovaAffectEngine
     private lateinit var peopleMemory: NovaPeopleMemory
     private lateinit var curiosity: NovaCuriosityEngine
+    private lateinit var localLanguageModel: NovaLocalLanguageModel
     private lateinit var placeMemory: NovaPlaceMemory
     private lateinit var experienceMemory: NovaExperienceMemory
     private lateinit var visualConceptMemory: NovaVisualConceptMemory
@@ -192,6 +193,7 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
         store = SharedPreferencesNovaMemory(localPreferences)
         visualConceptMemory = NovaVisualConceptMemory(store)
         curiosity = NovaCuriosityEngine(store)
+        localLanguageModel = NovaLocalLanguageModel(this)
         placeMemory = NovaPlaceMemory(store)
         experienceMemory = NovaExperienceMemory(store)
         brain = NovaBrain(store)
@@ -493,6 +495,28 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
             localTts?.speak(cue.messageArabic)
             return
         }
+        // If the user has placed a compatible model file locally, prefer generated Arabic dialogue.
+        // Otherwise keep the existing deterministic offline mind; no model download or network is used.
+        if (localLanguageModel.isModelInstalled()) {
+            val visualContext = lastVisionSummary.takeIf { visionEnabled }
+            Thread({
+                val generated = kotlinx.coroutines.runBlocking {
+                    localLanguageModel.reply(userText, visualContext)
+                }
+                runOnUiThread {
+                    if (!isFinishing && !isDestroyed) {
+                        if (generated != null) {
+                            showEvent(NovaEvent(NovaMood.THINKING, generated, isQuestion = generated.contains('؟'), hapticMillis = 12L), playSound = true)
+                            localTts?.speak(generated)
+                        } else {
+                            showEvent(NovaEvent(NovaMood.CAUTIOUS, "تعذّر تشغيل النموذج اللغوي المحلي. لم أستخدم الإنترنت؛ تحقّق من ملف النموذج وتوافقه.", hapticMillis = 12L), playSound = false)
+                        }
+                    }
+                }
+            }, "Nova-Local-LLM").start()
+            return
+        }
+
         val reply = runCatching {
             mind.respond(NovaMindInput(text = userText, visualSummary = lastVisionSummary.takeIf { visionEnabled }))
         }.getOrElse {
