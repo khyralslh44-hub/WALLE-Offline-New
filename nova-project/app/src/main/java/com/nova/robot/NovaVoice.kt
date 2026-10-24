@@ -121,6 +121,10 @@ internal class NovaVoice(
             NovaMood.LOVE, NovaMood.ADMIRING -> doubleArrayOf(440.0, 523.0, 659.0)
             NovaMood.EMBARRASSED -> doubleArrayOf(392.0, 349.0, 330.0)
             NovaMood.JEALOUS -> doubleArrayOf(294.0, 311.0, 277.0)
+            NovaMood.ANGRY -> doubleArrayOf(262.0, 247.0, 220.0)
+            NovaMood.EXCITED -> doubleArrayOf(440.0, 554.0, 659.0, 587.0)
+            NovaMood.PROUD -> doubleArrayOf(392.0, 494.0, 587.0)
+            NovaMood.DETERMINED -> doubleArrayOf(330.0, 294.0, 330.0)
             NovaMood.CONFUSED -> doubleArrayOf(330.0, 294.0, 370.0)
         }
         // Small, bounded pitch contour variations make the cue feel less mechanical without randomness.
