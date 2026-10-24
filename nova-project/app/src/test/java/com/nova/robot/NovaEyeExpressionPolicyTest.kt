@@ -30,6 +30,32 @@ class NovaEyeExpressionPolicyTest {
     }
 
     @Test
+    fun jealousyAndDizzinessHaveDistinctReadableEyeProfiles() {
+        val jealous = NovaEyeExpressionPolicy.profile(NovaMood.JEALOUS, true)
+        val dizzyLeft = NovaEyeExpressionPolicy.profile(NovaMood.DIZZY, true)
+        val dizzyRight = NovaEyeExpressionPolicy.profile(NovaMood.DIZZY, false)
+        assertEquals(NovaEyePalette.LIME, jealous.palette)
+        assertTrue(jealous.brow)
+        assertEquals(NovaEyePalette.VIOLET, dizzyLeft.palette)
+        assertNotEquals(dizzyLeft.tiltDegrees, dizzyRight.tiltDegrees)
+        assertNotEquals(dizzyLeft.heightFactor, dizzyRight.heightFactor)
+    }
+
+    @Test
+    fun eveDerivedExpressionsAreVisuallyDistinct() {
+        val angry = NovaEyeExpressionPolicy.profile(NovaMood.ANGRY, true)
+        val excited = NovaEyeExpressionPolicy.profile(NovaMood.EXCITED, true)
+        val proud = NovaEyeExpressionPolicy.profile(NovaMood.PROUD, true)
+        val determined = NovaEyeExpressionPolicy.profile(NovaMood.DETERMINED, true)
+        assertTrue(angry.brow)
+        assertTrue(excited.smiling)
+        assertTrue(proud.smiling)
+        assertTrue(determined.brow)
+        assertNotEquals(angry.heightFactor, excited.heightFactor)
+        assertNotEquals(proud.palette, determined.palette)
+    }
+
+    @Test
     fun curiosityAndConfusionHaveDifferentAsymmetry() {
         val curious = NovaEyeExpressionPolicy.profile(NovaMood.CURIOUS, true)
         val confused = NovaEyeExpressionPolicy.profile(NovaMood.CONFUSED, true)

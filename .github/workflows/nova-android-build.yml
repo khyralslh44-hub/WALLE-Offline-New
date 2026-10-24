@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: nova-standalone-build-${{ github.ref }}
+  group: nova-standalone-build-v2-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -86,21 +86,33 @@ jobs:
           SIZE="$(stat -c '%s' "$APK")"
           echo "Nova APK bytes=$SIZE"
           # Bundled offline vision models and Android runtimes make this APK larger.
-          # Keep the guard at 100 MB and retain ABI filters to exclude unused native libraries.
-          if [ "$SIZE" -gt 100000000 ]; then
-            echo "FAIL: Nova arm64 APK exceeded 100 MB; inspect for accidental universal ABIs."
+          # LiteRT-LM adds native runtime libraries; keep a conservative size ceiling while still catching universal-ABI packaging.
+          if [ "$SIZE" -gt 130000000 ]; then
+            echo "FAIL: Nova arm64 APK exceeded 130 MB; inspect for accidental universal ABIs or duplicated native libraries."
             exit 1
           fi
           apksigner verify --verbose "$APK"
-          if grep -Eq 'uses-permission[^>]+android.permission.INTERNET' nova-project/app/src/main/AndroidManifest.xml; then
-            echo "FAIL: Nova must not request internet permission."
+          # Check the packaged/merged APK manifest; checking only the source manifest misses permissions added by dependencies.
+          PERMISSIONS="$(aapt dump permissions "$APK")"
+          if grep -Fq "android.permission.INTERNET" <<<"$PERMISSIONS"; then
+            echo "FAIL: packaged Nova APK requests INTERNET permission."
+            printf '%s\\n' "$PERMISSIONS"
             exit 1
           fi
+          if grep -Fq "android.permission.ACCESS_NETWORK_STATE" <<<"$PERMISSIONS"; then
+            echo "FAIL: packaged Nova APK requests ACCESS_NETWORK_STATE permission."
+            printf '%s\\n' "$PERMISSIONS"
+            exit 1
+          fi
+          BADGING="$(aapt dump badging "$APK")"
+          grep -Fq "name='com.nova.robot.v3'" <<<"$BADGING"
+          grep -Fq "versionCode='10'" <<<"$BADGING"
+          grep -Fq "versionName='1.0.8'" <<<"$BADGING"
           grep -Fq 'android.permission.CAMERA' nova-project/app/src/main/AndroidManifest.xml
           grep -Fq 'android.permission.RECORD_AUDIO' nova-project/app/src/main/AndroidManifest.xml
           grep -Fq 'createOnDeviceSpeechRecognizer' nova-project/app/src/main/java/com/nova/robot/NovaOfflineSpeechInput.kt
           grep -Fq 'isNetworkConnectionRequired' nova-project/app/src/main/java/com/nova/robot/NovaLocalTts.kt
-          echo "PASS: no internet permission; camera/microphone are opt-in and speech uses on-device recognition/local Arabic TTS voices."
+          echo "PASS: packaged APK version 1.0.8 has no INTERNET/ACCESS_NETWORK_STATE permission; camera/mic remain opt-in; speech uses on-device recognition/local TTS."
 
       - name: Upload Nova installable APK
         uses: actions/upload-artifact@v4

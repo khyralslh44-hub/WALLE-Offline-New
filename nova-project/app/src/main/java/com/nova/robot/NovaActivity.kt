@@ -67,12 +67,14 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
     private lateinit var message: TextView
     private lateinit var status: TextView
     private lateinit var brain: NovaBrain
+    private lateinit var perceptionDecisionBridge: NovaPerceptionDecisionBridge
     private lateinit var mind: NovaMind
     private lateinit var store: SharedPreferencesNovaMemory
     private lateinit var localPreferences: SharedPreferences
     private lateinit var affect: NovaAffectEngine
     private lateinit var peopleMemory: NovaPeopleMemory
     private lateinit var curiosity: NovaCuriosityEngine
+    private lateinit var localLanguageModel: NovaLocalLanguageModel
     private lateinit var placeMemory: NovaPlaceMemory
     private lateinit var experienceMemory: NovaExperienceMemory
     private lateinit var visualConceptMemory: NovaVisualConceptMemory
@@ -130,7 +132,7 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
                 enableVision()
             } else {
                 message.text = "لا أستطيع ملاحظة ما حولي دون إذن الكاميرا، لكن يمكننا التفاعل وتبقى ذاكرتي المحلية متاحة."
-                status.text = "N O V A • أعمل محليًا"
+                status.text = "N O V A • 1.0.8 • أعمل محليًا"
                 face.setMood(NovaMood.CALM)
             }
         }
@@ -142,7 +144,7 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
             } else {
                 pendingSpeechTarget = null
                 message.text = "لم تمنحني إذن الميكروفون، لذلك لم أستمع إلى أي صوت. ما زال بإمكانك الكتابة لي."
-                status.text = "N O V A • أعمل محليًا"
+                status.text = "N O V A • 1.0.8 • أعمل محليًا"
             }
         }
 
@@ -191,9 +193,11 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
         store = SharedPreferencesNovaMemory(localPreferences)
         visualConceptMemory = NovaVisualConceptMemory(store)
         curiosity = NovaCuriosityEngine(store)
+        localLanguageModel = NovaLocalLanguageModel(this)
         placeMemory = NovaPlaceMemory(store)
         experienceMemory = NovaExperienceMemory(store)
         brain = NovaBrain(store)
+        perceptionDecisionBridge = NovaPerceptionDecisionBridge(brain)
         mind = NovaMind(store)
         affect = NovaAffectEngine()
         peopleMemory = NovaPeopleMemory(this)
@@ -212,7 +216,12 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
         NovaLocalNotifications.markInteraction(this)
 
         val root = FrameLayout(this).apply { setBackgroundColor(Color.rgb(4, 8, 21)) }
-        face = NovaFaceView(this)
+        // New native Kotlin face replaces the old visible artwork. All drawing and animation
+        // run locally on-device; the existing emotion engine drives the face state.
+        face = NovaFaceView(this).apply {
+            contentDescription = "وجه نوفا الجديد وتعبيراته المتحركة"
+            isFocusable = false
+        }
         root.addView(face, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT,
             FrameLayout.LayoutParams.MATCH_PARENT
@@ -229,11 +238,7 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
             isClickable = false
             isFocusable = false
         }
-        root.addView(status, FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.WRAP_CONTENT,
-            FrameLayout.LayoutParams.WRAP_CONTENT,
-            Gravity.TOP or Gravity.CENTER_HORIZONTAL
-        ).apply { topMargin = dp(20) })
+
 
         message = TextView(this).apply {
             text = "أنا نوفا. أتعلم مما ألاحظه ومن تفاعلاتنا، وأفضّل التحقق قبل الاستنتاج. المس وجهي للتفاعل أو اضغط مطولًا لتكتب لي."
@@ -245,13 +250,7 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
             setPadding(dp(18), dp(14), dp(18), dp(14))
             background = pillBackground(0xE9081225.toInt(), 0x884F8DDF.toInt())
         }
-        root.addView(message, FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT,
-            FrameLayout.LayoutParams.WRAP_CONTENT,
-            Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-        ).apply {
-            setMargins(dp(24), 0, dp(24), dp(76))
-        })
+
 
         val hint = TextView(this).apply {
             text = "اسحب أفقيًا لتغيير زاوية ملاحظتي • لمسة: تفاعل • لمستان: مرح • ضغط مطوّل: اكتب أو تحدث إليّ"
@@ -260,13 +259,9 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
             gravity = Gravity.CENTER
             setPadding(dp(12), dp(8), dp(12), dp(12))
         }
-        root.addView(hint, FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT,
-            FrameLayout.LayoutParams.WRAP_CONTENT,
-            Gravity.BOTTOM
-        ))
 
-        face.setOnTouchListener { view, event ->
+
+        root.setOnTouchListener { view, event ->
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     pressDownX = event.x
@@ -292,8 +287,9 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
                         val longPress = event.eventTime - event.downTime >= 650L
                         when {
                             longPress -> {
+                                // Face-only screen: no visible text-entry UI.
                                 lastTapElapsed = 0L
-                                showMindInputDialog()
+                                showEvent(brain.onTap(), playSound = true)
                             }
                             lastTapElapsed > 0L && now - lastTapElapsed <= 340L -> {
                                 lastTapElapsed = 0L
@@ -436,6 +432,7 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
         store = SharedPreferencesNovaMemory(localPreferences)
         visualConceptMemory = NovaVisualConceptMemory(store)
         brain = NovaBrain(store)
+        perceptionDecisionBridge = NovaPerceptionDecisionBridge(brain)
         mind = NovaMind(store)
         affect = NovaAffectEngine()
         affect.observe(NovaAffectEvent.USER_RETURNED, System.currentTimeMillis())
@@ -451,7 +448,7 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
         face.setMood(NovaMood.CALM)
         message.text = "مسحت ذاكرتي المحلية: الملاحظات الشخصية وأسماء الوجوه والتعلّم السابق. لم أحتفظ بصور للوجوه."
         status.text = if (visionEnabled) {
-            if (useFrontCamera) "N O V A • ألاحظ محيطي • أمامية" else "N O V A • ألاحظ محيطي • خلفية"
+            if (useFrontCamera) "N O V A • 1.0.8 • ألاحظ محيطي • أمامية" else "N O V A • 1.0.8 • ألاحظ محيطي • خلفية"
         } else "N O V A • LOCAL ROBOT"
     }
 
@@ -460,6 +457,8 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
         if (userText.isBlank()) return
         lastInteractionElapsed = SystemClock.elapsedRealtime()
         NovaLocalNotifications.markInteraction(this)
+        // A real typed/spoken interaction is evidence of engagement; clear accumulated concern gently.
+        brain.observeAndDecide(NovaObservation(NovaSignal.ATTENTION_RECEIVED, 0.8f))
         if (handleNotificationCommand(userText)) return
         if (openNovaGameIfRequested(userText)) return
         NovaExpressionCommand.parse(userText)?.let { request ->
@@ -476,9 +475,10 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
         if (correction != null) {
             runCatching { mind.learnFromCorrection(correction.second, correction.first) }
                 .onSuccess {
+                    perceptionDecisionBridge.onTaskFailed(0.65f)
                     showEvent(NovaEvent(
                         NovaMood.THINKING,
-                        "حفظت تصحيحًا صريحًا في النموذج المحلي. هذا يحسّن التصنيف تدريجيًا، لكنه لا يضمن فهمًا عامًا.",
+                        "حفظت تصحيحًا صريحًا في النموذج المحلي. سأتعامل معه كإشارة إلى أن استنتاجي السابق يحتاج مراجعة؛ هذا لا يضمن فهمًا عامًا.",
                         hapticMillis = 18L
                     ), playSound = false)
                 }
@@ -488,6 +488,35 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
                 }
             return
         }
+        NovaEveSocialCuePolicy.match(userText)?.let { cue ->
+            // Keep this as a local, explicit textual cue; the camera is not used to infer private intent.
+            brain.observeAndDecide(NovaObservation(cue.signal, 0.85f, cue.messageArabic))
+            showEvent(NovaEvent(cue.mood, cue.messageArabic, hapticMillis = 16L), playSound = true)
+            localTts?.speak(cue.messageArabic)
+            return
+        }
+        // If the user has placed a compatible model file locally, prefer generated Arabic dialogue.
+        // Otherwise keep the existing deterministic offline mind; no model download or network is used.
+        if (localLanguageModel.isModelInstalled()) {
+            val visualContext = lastVisionSummary.takeIf { visionEnabled }
+            Thread({
+                val generated = kotlinx.coroutines.runBlocking {
+                    localLanguageModel.reply(userText, visualContext)
+                }
+                runOnUiThread {
+                    if (!isFinishing && !isDestroyed) {
+                        if (generated != null) {
+                            showEvent(NovaEvent(NovaMood.THINKING, generated, isQuestion = generated.contains('؟'), hapticMillis = 12L), playSound = true)
+                            localTts?.speak(generated)
+                        } else {
+                            showEvent(NovaEvent(NovaMood.CAUTIOUS, "تعذّر تشغيل النموذج اللغوي المحلي. لم أستخدم الإنترنت؛ تحقّق من ملف النموذج وتوافقه.", hapticMillis = 12L), playSound = false)
+                        }
+                    }
+                }
+            }, "Nova-Local-LLM").start()
+            return
+        }
+
         val reply = runCatching {
             mind.respond(NovaMindInput(text = userText, visualSummary = lastVisionSummary.takeIf { visionEnabled }))
         }.getOrElse {
@@ -660,7 +689,7 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
             visionEnabled = false
             stopVisionCamera()
             lastVisionSummary = ""
-            status.text = "N O V A • LOCAL ROBOT"
+            status.text = "N O V A • 1.0.8 • LOCAL ROBOT"
             message.text = "توقفت عن ملاحظة محيطي. لا أحتفظ بصور المشهد، ويمكنني العودة للملاحظة عندما تسمح بذلك."
             face.setMood(NovaMood.CALM)
             return
@@ -725,7 +754,7 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
             val selector = if (useFrontCamera) CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA
             provider.bindToLifecycle(this, selector, useCase)
             analysisUseCase = useCase
-            status.text = if (useFrontCamera) "N O V A • ألاحظ محيطي • أمامية" else "N O V A • ألاحظ محيطي • خلفية"
+            status.text = if (useFrontCamera) "N O V A • 1.0.8 • ألاحظ محيطي • أمامية" else "N O V A • 1.0.8 • ألاحظ محيطي • خلفية"
             Log.i("NOVA_VISION", "Camera started: ${if (useFrontCamera) "front" else "back"} camera, 320x240, throttled local inference.")
         } catch (error: Exception) {
             Log.w("NOVA_VISION", "Binding the camera analyzer failed.", error)
@@ -789,9 +818,12 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
                     var gazeY = 0.5f
                     var emotionPrediction: NovaEmotionPrediction? = null
                     var sleepNote = ""
+                    var attentionAway = false
                     if (hasFace) {
                         val largest = detectedFaces.maxByOrNull { it.boundingBox.width() * it.boundingBox.height() }
                         if (largest != null) {
+                            // On the front camera, a sustained head turn is a weak attention cue, not proof of intent.
+                            attentionAway = useFrontCamera && kotlin.math.abs(largest.headEulerAngleY) >= 25f
                             sleepNote = sleepCueTracker.observe(true, largest.leftEyeOpenProbability, largest.rightEyeOpenProbability, now).orEmpty()
                             val rotatedWidth = if (proxy.imageInfo.rotationDegrees % 180 == 0) proxy.width else proxy.height
                             val rotatedHeight = if (proxy.imageInfo.rotationDegrees % 180 == 0) proxy.height else proxy.width
@@ -908,7 +940,7 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
                     runOnUiThread {
                         if (visionEnabled && resumed && !isFinishing && !isDestroyed) {
                             face.setGaze(gazeX, gazeY)
-                            applyVisionSummary(summary, hasFace, stableExpressionMood)
+                            applyVisionSummary(summary, hasFace, stableExpressionMood, attentionAway)
                         }
                     }
                 } catch (error: Exception) {
@@ -1054,8 +1086,18 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
         }
     }
 
-    private fun applyVisionSummary(summary: String, hasFace: Boolean, expressionMood: NovaMood? = null) {
-        if (summary == lastVisionSummary) return
+    private fun applyVisionSummary(summary: String, hasFace: Boolean, expressionMood: NovaMood? = null, attentionAway: Boolean = false) {
+        // Feed only face-presence transitions to the offline decision engine, not every camera frame.
+        // This signal means "a face is visible", not "the person is ignoring Nova".
+        val presenceEvent = perceptionDecisionBridge.onPersonPresence(hasFace, 0.75f)
+        val attentionEvent = if (hasFace) {
+            perceptionDecisionBridge.onAttentionOrientation(attentionAway, 0.70f)
+        } else null
+        val cameraDecisionEvent = attentionEvent ?: presenceEvent
+        if (summary == lastVisionSummary) {
+            if (cameraDecisionEvent != null) showEvent(cameraDecisionEvent, playSound = false)
+            return
+        }
         lastVisionSummary = summary
         val elapsedNow = SystemClock.elapsedRealtime()
         val affectMood = if (
@@ -1075,7 +1117,12 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
         message.text = if (question == null) displaySummary else displaySummary + System.lineSeparator() + question
         experienceMemory.observe(latestExperienceObservation, System.currentTimeMillis())
         face.setMood(NovaBehaviorPlanner.chooseFaceMood(expressionMood, affectMood, hasFace))
-        status.text = if (useFrontCamera) "N O V A • ألاحظ محيطي • أمامية" else "N O V A • ألاحظ محيطي • خلفية"
+        if (cameraDecisionEvent != null) {
+            // Camera evidence influences expression, but the text still preserves the visual summary.
+            message.text = displaySummary + System.lineSeparator() + cameraDecisionEvent.messageArabic
+            face.setMood(cameraDecisionEvent.mood)
+        }
+        status.text = if (useFrontCamera) "N O V A • 1.0.8 • ألاحظ محيطي • أمامية" else "N O V A • 1.0.8 • ألاحظ محيطي • خلفية"
         Log.i("NOVA_VISION", "LOCAL_FRAME_SUMMARY face=$hasFace; imagesStored=false; network=false")
     }
 
@@ -1169,8 +1216,9 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
 
     private fun showEvent(event: NovaEvent, playSound: Boolean) {
         val affectSignal = when (event.mood) {
-            NovaMood.HAPPY, NovaMood.PLAYFUL, NovaMood.WARM, NovaMood.LOVE -> NovaAffectEvent.FRIENDLY_INTERACTION
-            NovaMood.FRUSTRATED -> NovaAffectEvent.USER_CORRECTION
+            NovaMood.HAPPY, NovaMood.PLAYFUL, NovaMood.WARM, NovaMood.LOVE,
+            NovaMood.EXCITED, NovaMood.PROUD -> NovaAffectEvent.FRIENDLY_INTERACTION
+            NovaMood.FRUSTRATED, NovaMood.ANGRY -> NovaAffectEvent.USER_CORRECTION
             NovaMood.THINKING, NovaMood.CURIOUS, NovaMood.CONFUSED, NovaMood.SAD,
             NovaMood.AFRAID, NovaMood.DISGUSTED -> NovaAffectEvent.UNCERTAIN_OBSERVATION
             else -> NovaAffectEvent.FRIENDLY_INTERACTION
@@ -1186,7 +1234,7 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
         face.setMood(visibleMood)
         message.text = event.messageArabic
         status.text = if (visionEnabled) {
-            if (useFrontCamera) "N O V A • ألاحظ محيطي • أمامية" else "N O V A • ألاحظ محيطي • خلفية"
+            if (useFrontCamera) "N O V A • 1.0.8 • ألاحظ محيطي • أمامية" else "N O V A • 1.0.8 • ألاحظ محيطي • خلفية"
         } else when (visibleMood) {
             NovaMood.CURIOUS -> "N O V A • C U R I O U S"
             NovaMood.HAPPY, NovaMood.PLAYFUL -> "N O V A • P L A Y F U L"
@@ -1207,9 +1255,17 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
             NovaMood.JEALOUS -> "N O V A • JEALOUS"
             NovaMood.ADMIRING -> "N O V A • ADMIRING"
             NovaMood.DIZZY -> "N O V A • DIZZY"
+            NovaMood.ANGRY -> "N O V A • ANGRY"
+            NovaMood.EXCITED -> "N O V A • EXCITED"
+            NovaMood.PROUD -> "N O V A • PROUD"
+            NovaMood.DETERMINED -> "N O V A • DETERMINED"
             NovaMood.CALM -> "N O V A • LOCAL ROBOT"
         }
-        if (event.hapticMillis > 0L) face.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+        // Keep an unmistakable build label even when camera vision is off.
+        if (!status.text.toString().contains("1.0.8")) {
+            status.text = "${status.text} • 1.0.8"
+        }
+        if (event.hapticMillis > 0L) window.decorView.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
         if (playSound) {
             novaVoice?.play(visibleMood, event.isQuestion)
         }

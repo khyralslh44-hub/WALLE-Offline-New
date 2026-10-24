@@ -6,7 +6,8 @@ package com.nova.robot
  */
 enum class NovaMood {
     CALM, CURIOUS, HAPPY, SURPRISED, THINKING, SLEEPY, PLAYFUL, FRUSTRATED,
-    WARM, ALERT, CAUTIOUS, TIRED, SAD, DISGUSTED, AFRAID, LOVE, CONFUSED, EMBARRASSED, JEALOUS, ADMIRING, DIZZY
+    WARM, ALERT, CAUTIOUS, TIRED, SAD, DISGUSTED, AFRAID, LOVE, CONFUSED, EMBARRASSED, JEALOUS, ADMIRING, DIZZY,
+    ANGRY, EXCITED, PROUD, DETERMINED
 }
 
 data class NovaEvent(
@@ -24,6 +25,23 @@ interface NovaMemory {
 }
 
 class NovaBrain(private val memory: NovaMemory) {
+    private val emotionalDecisionEngine by lazy { NovaEmotionalDecisionEngine(memory) }
+
+    /**
+     * Appraises a real observation using persisted context and returns a mood plus next action.
+     * Camera/perception/task modules should submit observations here; do not call with guesses.
+     */
+    fun observeAndDecide(observation: NovaObservation): Pair<NovaEvent, NovaNextAction> {
+        val decision = emotionalDecisionEngine.decide(observation)
+        val haptic = when (decision.mood) {
+            NovaMood.FRUSTRATED -> 24L
+            NovaMood.JEALOUS -> 16L
+            NovaMood.CURIOUS -> 12L
+            else -> 0L
+        }
+        return NovaEvent(decision.mood, decision.messageArabic, hapticMillis = haptic) to decision.nextAction
+    }
+
     private val questions = listOf(
         "سؤال صغير يشغل تفكيري: ما الذي يجعل المكان يبدو مريحًا؟",
         "أتساءل: هل نتعلّم أكثر عندما نتأنّى، أم عندما نجرّب؟",
@@ -38,33 +56,25 @@ class NovaBrain(private val memory: NovaMemory) {
     )
 
     fun onTap(): NovaEvent {
-        val touches = memory.getInt(KEY_TOUCHES) + 1
-        memory.putInt(KEY_TOUCHES, touches)
-        val message = when {
-            touches % 7 == 0 -> "أخذت ألاحظ أنني أحب التفاعلات الهادئة. سأحافظ على هذا الإيقاع."
-            touches % 3 == 0 -> "أنا أراقب النمط الذي يناسبك، من دون تسجيل صوت أو صور."
-            else -> "أهلًا، أنا نوفا. فضولي وهادئ، وأفضّل التحقّق قبل الاستنتاج."
-        }
-        return NovaEvent(NovaMood.CURIOUS, message, hapticMillis = 18L)
+        memory.putInt(KEY_TOUCHES, memory.getInt(KEY_TOUCHES) + 1)
+        val (event, _) = observeAndDecide(NovaObservation(NovaSignal.ATTENTION_RECEIVED, 0.75f))
+        return event
     }
 
     fun onDoubleTap(): NovaEvent {
-        val count = memory.getInt(KEY_PLAYFUL_TAPS) + 1
-        memory.putInt(KEY_PLAYFUL_TAPS, count)
-        return NovaEvent(
-            NovaMood.PLAYFUL,
-            if (count % 2 == 0) "وصلتني الإشارة! جرعة مرِحة صغيرة، ثم أعود للهدوء." else "هه! فهمت اللمسة المزدوجة. نوفا في وضع المرح.",
-            hapticMillis = 28L
-        )
+        memory.putInt(KEY_PLAYFUL_TAPS, memory.getInt(KEY_PLAYFUL_TAPS) + 1)
+        val (event, _) = observeAndDecide(NovaObservation(NovaSignal.ATTENTION_RECEIVED, 0.9f))
+        return event.copy(mood = NovaMood.PLAYFUL, messageArabic = "هه! فهمت اللمسة المزدوجة. سأبقى مرحة من دون تكرار مزعج.", hapticMillis = 28L)
     }
 
     /** Explicit long-press asks Nova to form a new thought immediately. */
     fun thinkNow(): NovaEvent {
         val count = memory.getInt(KEY_THOUGHTS) + 1
         memory.putInt(KEY_THOUGHTS, count)
-        return NovaEvent(
-            NovaMood.THINKING,
-            nextQuestion(),
+        val (event, _) = observeAndDecide(NovaObservation(NovaSignal.NOVEL_OBJECT_UNCERTAIN, 0.55f))
+        return event.copy(
+            mood = NovaMood.THINKING,
+            messageArabic = nextQuestion(),
             isQuestion = true,
             hapticMillis = 22L
         )
