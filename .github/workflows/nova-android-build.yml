@@ -105,6 +105,7 @@ jobs:
             exit 1
           fi
           BADGING="$(aapt dump badging "$APK")"
+          grep -Fq "name='com.nova.robot.v2'" <<<"$BADGING"
           grep -Fq "versionCode='3'" <<<"$BADGING"
           grep -Fq "versionName='1.0.2'" <<<"$BADGING"
           grep -Fq 'android.permission.CAMERA' nova-project/app/src/main/AndroidManifest.xml
