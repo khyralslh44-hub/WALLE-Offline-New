@@ -438,6 +438,7 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
         store = SharedPreferencesNovaMemory(localPreferences)
         visualConceptMemory = NovaVisualConceptMemory(store)
         brain = NovaBrain(store)
+        perceptionDecisionBridge = NovaPerceptionDecisionBridge(brain)
         mind = NovaMind(store)
         affect = NovaAffectEngine()
         affect.observe(NovaAffectEvent.USER_RETURNED, System.currentTimeMillis())
@@ -462,6 +463,8 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
         if (userText.isBlank()) return
         lastInteractionElapsed = SystemClock.elapsedRealtime()
         NovaLocalNotifications.markInteraction(this)
+        // A real typed/spoken interaction is evidence of engagement; clear accumulated concern gently.
+        brain.observeAndDecide(NovaObservation(NovaSignal.ATTENTION_RECEIVED, 0.8f))
         if (handleNotificationCommand(userText)) return
         if (openNovaGameIfRequested(userText)) return
         NovaExpressionCommand.parse(userText)?.let { request ->
@@ -478,9 +481,10 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
         if (correction != null) {
             runCatching { mind.learnFromCorrection(correction.second, correction.first) }
                 .onSuccess {
+                    perceptionDecisionBridge.onTaskFailed(0.65f)
                     showEvent(NovaEvent(
                         NovaMood.THINKING,
-                        "حفظت تصحيحًا صريحًا في النموذج المحلي. هذا يحسّن التصنيف تدريجيًا، لكنه لا يضمن فهمًا عامًا.",
+                        "حفظت تصحيحًا صريحًا في النموذج المحلي. سأتعامل معه كإشارة إلى أن استنتاجي السابق يحتاج مراجعة؛ هذا لا يضمن فهمًا عامًا.",
                         hapticMillis = 18L
                     ), playSound = false)
                 }
