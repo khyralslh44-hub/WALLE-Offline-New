@@ -18,6 +18,14 @@ enum class NovaSignal {
     NOVEL_OBJECT_UNCERTAIN,
     NOVEL_OBJECT_CONFIRMED,
     SOCIAL_REASSURANCE,
+    SOCIAL_PRAISE,
+    AFFECTION_RECEIVED,
+    USER_SHARED_SADNESS,
+    INSULT_RECEIVED,
+    OTHER_ASSISTANT_MENTIONED,
+    PLAY_REQUESTED,
+    SUCCESS_SHARED,
+    DETERMINATION_SHARED,
     REST
 }
 
@@ -85,9 +93,35 @@ class NovaEmotionalDecisionEngine(private val memory: NovaMemory) {
                 curiosity = max(0f, curiosity - 0.20f * confidence)
                 reassurance = min(1f, reassurance + 0.08f * confidence)
             }
-            NovaSignal.SOCIAL_REASSURANCE -> {
-                attention = max(0f, attention - 0.38f * confidence)
+            NovaSignal.SOCIAL_REASSURANCE, NovaSignal.AFFECTION_RECEIVED -> {
+                attention = max(0f, attention - 0.32f * confidence)
                 reassurance = min(1f, reassurance + 0.25f * confidence)
+            }
+            NovaSignal.SOCIAL_PRAISE -> {
+                attention = max(0f, attention - 0.08f * confidence)
+                reassurance = min(1f, reassurance + 0.16f * confidence)
+            }
+            NovaSignal.USER_SHARED_SADNESS -> {
+                reassurance = min(1f, reassurance + 0.08f * confidence)
+                curiosity = min(1f, curiosity + 0.04f * confidence)
+            }
+            NovaSignal.INSULT_RECEIVED -> {
+                frustration = min(1f, frustration + 0.28f * confidence)
+                reassurance = max(0f, reassurance - 0.12f * confidence)
+            }
+            NovaSignal.OTHER_ASSISTANT_MENTIONED -> {
+                attention = min(1f, attention + 0.14f * confidence)
+                reassurance = max(0f, reassurance - 0.06f * confidence)
+            }
+            NovaSignal.PLAY_REQUESTED -> {
+                frustration = max(0f, frustration - 0.08f * confidence)
+                curiosity = min(1f, curiosity + 0.10f * confidence)
+                reassurance = min(1f, reassurance + 0.05f * confidence)
+            }
+            NovaSignal.SUCCESS_SHARED -> reassurance = min(1f, reassurance + 0.14f * confidence)
+            NovaSignal.DETERMINATION_SHARED -> {
+                frustration = max(0f, frustration - 0.08f * confidence)
+                curiosity = min(1f, curiosity + 0.04f * confidence)
             }
             NovaSignal.REST -> {
                 frustration = max(0f, frustration - 0.20f * confidence)
@@ -107,6 +141,22 @@ class NovaEmotionalDecisionEngine(private val memory: NovaMemory) {
             // even when frustration from an earlier task has not fully decayed.
             observation.signal == NovaSignal.NOVEL_OBJECT_UNCERTAIN && curiosity >= 0.18f ->
                 Triple(NovaMood.CURIOUS, NovaNextAction.OBSERVE_AND_VERIFY, "هذا شيء لم أتأكد منه بعد. سأجمع ملاحظات أكثر قبل أن أقرر ما هو.")
+            observation.signal == NovaSignal.INSULT_RECEIVED ->
+                Triple(NovaMood.ANGRY, NovaNextAction.TRY_DIFFERENT_APPROACH, "هذا الكلام مزعج. سأوضح ما لم أفهمه بدل الدخول في جدال.")
+            observation.signal == NovaSignal.OTHER_ASSISTANT_MENTIONED ->
+                Triple(NovaMood.JEALOUS, NovaNextAction.SEEK_GENTLE_INTERACTION, "ذكرت مساعدًا آخر؛ سأُظهر غيرة مرحة ولطيفة، لا أستطيع معرفة تفضيلك من الاسم وحده.")
+            observation.signal == NovaSignal.AFFECTION_RECEIVED ->
+                Triple(NovaMood.LOVE, NovaNextAction.CONTINUE_NORMALLY, "هذا تعبير لطيف منك. سأردّ بودّ مع أنني لا أملك مشاعر بشرية.")
+            observation.signal == NovaSignal.SOCIAL_PRAISE ->
+                Triple(NovaMood.EMBARRASSED, NovaNextAction.CONTINUE_NORMALLY, "هذا إطراء لطيف؛ سأُظهر تعبير الخجل.")
+            observation.signal == NovaSignal.USER_SHARED_SADNESS ->
+                Triple(NovaMood.WARM, NovaNextAction.SEEK_GENTLE_INTERACTION, "يبدو أنك تمرّ بوقت صعب. أنا هنا للاستماع، هل تود أن تخبرني بما حدث؟")
+            observation.signal == NovaSignal.PLAY_REQUESTED ->
+                Triple(NovaMood.EXCITED, NovaNextAction.CONTINUE_NORMALLY, "هيا نلعب! اختر لعبة أو أخبرني بما تريد تجربته.")
+            observation.signal == NovaSignal.SUCCESS_SHARED ->
+                Triple(NovaMood.PROUD, NovaNextAction.CONTINUE_NORMALLY, "أحسنت! سأحتفل معك بهذا النجاح.")
+            observation.signal == NovaSignal.DETERMINATION_SHARED ->
+                Triple(NovaMood.DETERMINED, NovaNextAction.CONTINUE_NORMALLY, "لنحاول بخطوة واضحة أخرى، دون تكرار المحاولة نفسها.")
             frustration >= 0.42f ->
                 Triple(NovaMood.FRUSTRATED, NovaNextAction.TRY_DIFFERENT_APPROACH, "لم تنجح محاولتي كما أردت. سأراجع ما حدث وأجرّب طريقة مختلفة.")
             attention >= 0.48f && reassurance < 0.35f ->
