@@ -31,6 +31,58 @@ class NovaFaceView @JvmOverloads constructor(
     private var gazeAnimatorY: ValueAnimator? = null
     private var dizzyAngle = 0f
     private var dizzyAnimator: ValueAnimator? = null
+    // Bounded idle glances add life without random mood changes or a constant animation loop.
+    private var idleGlanceIndex = 0
+    private var idleGlanceAnimator: ValueAnimator? = null
+    private val idleGlanceRunnable = object : Runnable {
+        override fun run() {
+            if (!isAttachedToWindow) return
+            val idleMood = mood == NovaMood.CALM || mood == NovaMood.HAPPY ||
+                mood == NovaMood.WARM || mood == NovaMood.CURIOUS
+            if (idleMood && idleGlanceAnimator?.isRunning != true) {
+                val targets = arrayOf(
+                    Pair(-0.10f, 0.00f), Pair(0.08f, -0.04f),
+                    Pair(0.00f, 0.03f), Pair(0.11f, 0.00f), Pair(0.00f, 0.00f)
+                )
+                val target = targets[idleGlanceIndex % targets.size]
+                idleGlanceIndex++
+                animateIdleGaze(target.first, target.second)
+            }
+            postDelayed(this, 5_600L)
+        }
+    }
+
+    private fun animateIdleGaze(targetX: Float, targetY: Float) {
+        idleGlanceAnimator?.cancel()
+        val fromX = gazeX
+        val fromY = gazeY
+        idleGlanceAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 420L
+            addUpdateListener {
+                val t = it.animatedValue as Float
+                gazeX = fromX + (targetX - fromX) * t
+                gazeY = fromY + (targetY - fromY) * t
+                invalidate()
+            }
+            start()
+        }
+        postDelayed({
+            if (!isAttachedToWindow || mood !in listOf(
+                    NovaMood.CALM, NovaMood.HAPPY, NovaMood.WARM, NovaMood.CURIOUS
+                )) return@postDelayed
+            idleGlanceAnimator?.cancel()
+            idleGlanceAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
+                duration = 520L
+                addUpdateListener {
+                    val t = it.animatedValue as Float
+                    gazeX = targetX * (1f - t)
+                    gazeY = targetY * (1f - t)
+                    invalidate()
+                }
+                start()
+            }
+        }, 720L)
+    }
 
     private val blinkRunnable = object : Runnable {
         override fun run() {
@@ -102,11 +154,16 @@ class NovaFaceView @JvmOverloads constructor(
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         removeCallbacks(blinkRunnable)
+        removeCallbacks(idleGlanceRunnable)
         postDelayed(blinkRunnable, 2_400L)
+        postDelayed(idleGlanceRunnable, 3_100L)
     }
 
     override fun onDetachedFromWindow() {
         removeCallbacks(blinkRunnable)
+        removeCallbacks(idleGlanceRunnable)
+        idleGlanceAnimator?.cancel()
+        idleGlanceAnimator = null
         gazeAnimatorX?.cancel()
         gazeAnimatorY?.cancel()
         gazeAnimatorX = null
