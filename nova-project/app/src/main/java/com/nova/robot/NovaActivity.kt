@@ -454,7 +454,7 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
         face.setMood(NovaMood.CALM)
         message.text = "مسحت ذاكرتي المحلية: الملاحظات الشخصية وأسماء الوجوه والتعلّم السابق. لم أحتفظ بصور للوجوه."
         status.text = if (visionEnabled) {
-            if (useFrontCamera) "N O V A • ألاحظ محيطي • أمامية" else "N O V A • ألاحظ محيطي • خلفية"
+            if (useFrontCamera) "N O V A • 1.0.2 • ألاحظ محيطي • أمامية" else "N O V A • 1.0.2 • ألاحظ محيطي • خلفية"
         } else "N O V A • LOCAL ROBOT"
     }
 
@@ -731,7 +731,7 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
             val selector = if (useFrontCamera) CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA
             provider.bindToLifecycle(this, selector, useCase)
             analysisUseCase = useCase
-            status.text = if (useFrontCamera) "N O V A • ألاحظ محيطي • أمامية" else "N O V A • ألاحظ محيطي • خلفية"
+            status.text = if (useFrontCamera) "N O V A • 1.0.2 • ألاحظ محيطي • أمامية" else "N O V A • 1.0.2 • ألاحظ محيطي • خلفية"
             Log.i("NOVA_VISION", "Camera started: ${if (useFrontCamera) "front" else "back"} camera, 320x240, throttled local inference.")
         } catch (error: Exception) {
             Log.w("NOVA_VISION", "Binding the camera analyzer failed.", error)
@@ -1099,7 +1099,7 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
             message.text = displaySummary + System.lineSeparator() + cameraDecisionEvent.messageArabic
             face.setMood(cameraDecisionEvent.mood)
         }
-        status.text = if (useFrontCamera) "N O V A • ألاحظ محيطي • أمامية" else "N O V A • ألاحظ محيطي • خلفية"
+        status.text = if (useFrontCamera) "N O V A • 1.0.2 • ألاحظ محيطي • أمامية" else "N O V A • 1.0.2 • ألاحظ محيطي • خلفية"
         Log.i("NOVA_VISION", "LOCAL_FRAME_SUMMARY face=$hasFace; imagesStored=false; network=false")
     }
 
@@ -1210,7 +1210,7 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
         face.setMood(visibleMood)
         message.text = event.messageArabic
         status.text = if (visionEnabled) {
-            if (useFrontCamera) "N O V A • ألاحظ محيطي • أمامية" else "N O V A • ألاحظ محيطي • خلفية"
+            if (useFrontCamera) "N O V A • 1.0.2 • ألاحظ محيطي • أمامية" else "N O V A • 1.0.2 • ألاحظ محيطي • خلفية"
         } else when (visibleMood) {
             NovaMood.CURIOUS -> "N O V A • C U R I O U S"
             NovaMood.HAPPY, NovaMood.PLAYFUL -> "N O V A • P L A Y F U L"
