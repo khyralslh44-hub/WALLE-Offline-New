@@ -12,9 +12,9 @@ import kotlin.math.sin
 /**
  * Nova's original offline sound identity.
  *
- * Synthesizes short, soft, layered electronic motifs locally instead of using generic beeps,
- * recorded speech, microphone input, or network services. These are expressive vocal-like cues,
- * not spoken language or a human voice.
+ * Synthesizes short, soft, layered electronic motifs locally, shaped by Nova's current mood.
+ * These are expressive robot vocalizations, not spoken language or a human voice.
+ * Audio uses the media stream so the phone's physical volume keys adjust Nova's sound level.
  */
 internal class NovaVoice(
     private val context: Context,
@@ -43,7 +43,7 @@ internal class NovaVoice(
             AudioTrack.Builder()
                 .setAudioAttributes(
                     AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
                         .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                         .build()
                 )
@@ -66,7 +66,7 @@ internal class NovaVoice(
         }
         activeTrack = track
         runCatching {
-            track.setVolume(0.62f)
+            track.setVolume(1.0f)
             track.play()
         }.onFailure {
             stopCurrent()
