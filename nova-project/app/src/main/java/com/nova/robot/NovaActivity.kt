@@ -131,7 +131,7 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
                 enableVision()
             } else {
                 message.text = "لا أستطيع ملاحظة ما حولي دون إذن الكاميرا، لكن يمكننا التفاعل وتبقى ذاكرتي المحلية متاحة."
-                status.text = "N O V A • أعمل محليًا"
+                status.text = "N O V A • 1.0.2 • أعمل محليًا"
                 face.setMood(NovaMood.CALM)
             }
         }
@@ -143,7 +143,7 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
             } else {
                 pendingSpeechTarget = null
                 message.text = "لم تمنحني إذن الميكروفون، لذلك لم أستمع إلى أي صوت. ما زال بإمكانك الكتابة لي."
-                status.text = "N O V A • أعمل محليًا"
+                status.text = "N O V A • 1.0.2 • أعمل محليًا"
             }
         }
 
@@ -666,7 +666,7 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
             visionEnabled = false
             stopVisionCamera()
             lastVisionSummary = ""
-            status.text = "N O V A • LOCAL ROBOT"
+            status.text = "N O V A • 1.0.2 • LOCAL ROBOT"
             message.text = "توقفت عن ملاحظة محيطي. لا أحتفظ بصور المشهد، ويمكنني العودة للملاحظة عندما تسمح بذلك."
             face.setMood(NovaMood.CALM)
             return
@@ -1232,6 +1232,10 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
             NovaMood.ADMIRING -> "N O V A • ADMIRING"
             NovaMood.DIZZY -> "N O V A • DIZZY"
             NovaMood.CALM -> "N O V A • LOCAL ROBOT"
+        }
+        // Keep an unmistakable build label even when camera vision is off.
+        if (!status.text.toString().contains("1.0.2")) {
+            status.text = "${status.text} • 1.0.2"
         }
         if (event.hapticMillis > 0L) face.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
         if (playSound) {
