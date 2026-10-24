@@ -236,11 +236,7 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
             isClickable = false
             isFocusable = false
         }
-        root.addView(status, FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.WRAP_CONTENT,
-            FrameLayout.LayoutParams.WRAP_CONTENT,
-            Gravity.TOP or Gravity.CENTER_HORIZONTAL
-        ).apply { topMargin = dp(20) })
+
 
         message = TextView(this).apply {
             text = "أنا نوفا. أتعلم مما ألاحظه ومن تفاعلاتنا، وأفضّل التحقق قبل الاستنتاج. المس وجهي للتفاعل أو اضغط مطولًا لتكتب لي."
@@ -252,13 +248,7 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
             setPadding(dp(18), dp(14), dp(18), dp(14))
             background = pillBackground(0xE9081225.toInt(), 0x884F8DDF.toInt())
         }
-        root.addView(message, FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT,
-            FrameLayout.LayoutParams.WRAP_CONTENT,
-            Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-        ).apply {
-            setMargins(dp(24), 0, dp(24), dp(76))
-        })
+
 
         val hint = TextView(this).apply {
             text = "اسحب أفقيًا لتغيير زاوية ملاحظتي • لمسة: تفاعل • لمستان: مرح • ضغط مطوّل: اكتب أو تحدث إليّ"
@@ -267,11 +257,7 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
             gravity = Gravity.CENTER
             setPadding(dp(12), dp(8), dp(12), dp(12))
         }
-        root.addView(hint, FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT,
-            FrameLayout.LayoutParams.WRAP_CONTENT,
-            Gravity.BOTTOM
-        ))
+
 
         root.setOnTouchListener { view, event ->
             when (event.actionMasked) {
@@ -299,8 +285,9 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
                         val longPress = event.eventTime - event.downTime >= 650L
                         when {
                             longPress -> {
+                                // Face-only screen: no visible text-entry UI.
                                 lastTapElapsed = 0L
-                                showMindInputDialog()
+                                showEvent(brain.onTap(), playSound = true)
                             }
                             lastTapElapsed > 0L && now - lastTapElapsed <= 340L -> {
                                 lastTapElapsed = 0L
