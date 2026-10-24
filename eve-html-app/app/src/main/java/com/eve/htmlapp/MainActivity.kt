@@ -24,10 +24,8 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     private lateinit var web: WebView
     private var tts: TextToSpeech? = null
     @Volatile private var ttsReady = false
-    private val appPermissions = arrayOf(
-        Manifest.permission.CAMERA,
-        Manifest.permission.RECORD_AUDIO
-    )
+    private var pendingWebPermission: PermissionRequest? = null
+    private val mediaPermissionRequestCode = 41
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -36,13 +34,6 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         window.navigationBarColor = Color.rgb(6, 16, 28)
 
         tts = TextToSpeech(this, this)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val missing = appPermissions.filter {
-                checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED
-            }
-            if (missing.isNotEmpty()) requestPermissions(missing.toTypedArray(), 40)
-        }
-
         val assetLoader = WebViewAssetLoader.Builder()
             .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(this))
             .build()
@@ -74,30 +65,76 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         }
         web.webChromeClient = object : WebChromeClient() {
             override fun onPermissionRequest(request: PermissionRequest) {
-                val permissionsGranted =
-                    checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED &&
-                    checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
-                val allowed = request.resources.filter { resource ->
-                    when (resource) {
-                        PermissionRequest.RESOURCE_VIDEO_CAPTURE ->
-                            checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
-                        PermissionRequest.RESOURCE_AUDIO_CAPTURE ->
-                            checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
-                        else -> false
-                    }
-                }
                 runOnUiThread {
-                    if (allowed.isNotEmpty() && (permissionsGranted || allowed.size == request.resources.size)) {
-                        request.grant(allowed.toTypedArray())
-                    } else {
+                    val needed = request.resources.mapNotNull { resource ->
+                        when (resource) {
+                            PermissionRequest.RESOURCE_VIDEO_CAPTURE -> Manifest.permission.CAMERA
+                            PermissionRequest.RESOURCE_AUDIO_CAPTURE -> Manifest.permission.RECORD_AUDIO
+                            else -> null
+                        }
+                    }.distinct()
+                    if (needed.isEmpty()) {
                         request.deny()
+                        return@runOnUiThread
+                    }
+
+                    val missing = needed.filter {
+                        checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED
+                    }
+                    if (missing.isNotEmpty()) {
+                        // Keep the WebView request alive while Android shows its permission dialog.
+                        pendingWebPermission?.deny()
+                        pendingWebPermission = request
+                        requestPermissions(missing.toTypedArray(), mediaPermissionRequestCode)
+                    } else {
+                        val allowed = request.resources.filter { resource ->
+                            when (resource) {
+                                PermissionRequest.RESOURCE_VIDEO_CAPTURE ->
+                                    checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+                                PermissionRequest.RESOURCE_AUDIO_CAPTURE ->
+                                    checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+                                else -> false
+                            }
+                        }
+                        if (allowed.isEmpty()) request.deny() else request.grant(allowed.toTypedArray())
                     }
                 }
+            }
+
+            override fun onPermissionRequestCanceled(request: PermissionRequest) {
+                if (pendingWebPermission === request) pendingWebPermission = null
+                super.onPermissionRequestCanceled(request)
             }
         }
         web.addJavascriptInterface(EveBridge(), "Android")
         setContentView(web)
         web.loadUrl("https://appassets.androidplatform.net/assets/eve.html")
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != mediaPermissionRequestCode) return
+
+        val request = pendingWebPermission ?: return
+        pendingWebPermission = null
+        val allowed = request.resources.filter { resource ->
+            when (resource) {
+                PermissionRequest.RESOURCE_VIDEO_CAPTURE ->
+                    checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+                PermissionRequest.RESOURCE_AUDIO_CAPTURE ->
+                    checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+                else -> false
+            }
+        }
+        if (allowed.isEmpty()) {
+            request.deny()
+        } else {
+            request.grant(allowed.toTypedArray())
+        }
     }
 
     private inner class EveBridge {
