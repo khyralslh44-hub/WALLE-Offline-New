@@ -106,13 +106,13 @@ jobs:
           fi
           BADGING="$(aapt dump badging "$APK")"
           grep -Fq "name='com.nova.robot.v3'" <<<"$BADGING"
-          grep -Fq "versionCode='7'" <<<"$BADGING"
-          grep -Fq "versionName='1.0.5'" <<<"$BADGING"
+          grep -Fq "versionCode='8'" <<<"$BADGING"
+          grep -Fq "versionName='1.0.6'" <<<"$BADGING"
           grep -Fq 'android.permission.CAMERA' nova-project/app/src/main/AndroidManifest.xml
           grep -Fq 'android.permission.RECORD_AUDIO' nova-project/app/src/main/AndroidManifest.xml
           grep -Fq 'createOnDeviceSpeechRecognizer' nova-project/app/src/main/java/com/nova/robot/NovaOfflineSpeechInput.kt
           grep -Fq 'isNetworkConnectionRequired' nova-project/app/src/main/java/com/nova/robot/NovaLocalTts.kt
-          echo "PASS: packaged APK version 1.0.5 has no INTERNET/ACCESS_NETWORK_STATE permission; camera/mic remain opt-in; speech uses on-device recognition/local TTS."
+          echo "PASS: packaged APK version 1.0.6 has no INTERNET/ACCESS_NETWORK_STATE permission; camera/mic remain opt-in; speech uses on-device recognition/local TTS."
 
       - name: Upload Nova installable APK
         uses: actions/upload-artifact@v4
