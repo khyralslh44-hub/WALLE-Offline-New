@@ -13,8 +13,8 @@ android {
         applicationId = "com.nova.robot"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.0.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // Nova targets modern 64-bit Android phones (including Redmi 12); omit unused x86/32-bit
         // native ML Kit binaries to keep the fully offline APK much smaller.
