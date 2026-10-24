@@ -178,91 +178,31 @@ class NovaFaceView @JvmOverloads constructor(
         val h = height.toFloat()
         if (w <= 0f || h <= 0f) return
 
-        canvas.drawColor(0xFF040815.toInt())
-        paint.style = Paint.Style.FILL
-        paint.shader = RadialGradient(
-            w * 0.5f, h * 0.43f, min(w, h) * 0.72f,
-            intArrayOf(0xFF122B54.toInt(), 0xFF08142B.toInt(), 0xFF040815.toInt()),
-            floatArrayOf(0f, 0.52f, 1f), Shader.TileMode.CLAMP
-        )
-        canvas.drawRect(0f, 0f, w, h, paint)
-        paint.shader = null
-
-        // Polished capsule shell and deep glass visor, based on the new friendly-eye concept.
-        val shell = RectF(w * 0.025f, h * 0.245f, w * 0.975f, h * 0.615f)
-        paint.style = Paint.Style.FILL
-        paint.shader = LinearGradient(
-            0f, shell.top, 0f, shell.bottom,
-            intArrayOf(0xFFE4F1FF.toInt(), 0xFF8AA9D2.toInt(), 0xFF263F67.toInt(), 0xFF9FD0FF.toInt()),
-            floatArrayOf(0f, 0.24f, 0.76f, 1f), Shader.TileMode.CLAMP
-        )
-        canvas.drawRoundRect(shell, h * 0.115f, h * 0.115f, paint)
-        paint.shader = null
-        val shellInset = RectF(shell.left + w * 0.012f, shell.top + h * 0.009f,
-            shell.right - w * 0.012f, shell.bottom - h * 0.009f)
-        paint.shader = LinearGradient(
-            shellInset.left, shellInset.top, shellInset.right, shellInset.bottom,
-            intArrayOf(0xFFB6D8FF.toInt(), 0xFF35547E.toInt(), 0xFF102342.toInt()),
-            null, Shader.TileMode.CLAMP
-        )
-        canvas.drawRoundRect(shellInset, h * 0.105f, h * 0.105f, paint)
-        paint.shader = null
-
-        val visorTop = h * 0.275f
-        val visorBottom = h * 0.585f
-        val visor = RectF(w * 0.055f, visorTop, w * 0.945f, visorBottom)
-        paint.style = Paint.Style.FILL
-        paint.shader = RadialGradient(
-            w * 0.5f, h * 0.43f, min(w, h) * 0.62f,
-            intArrayOf(0xFF10253B.toInt(), 0xFF02050C.toInt()),
-            floatArrayOf(0f, 1f), Shader.TileMode.CLAMP
-        )
-        canvas.drawRoundRect(visor, h * 0.105f, h * 0.105f, paint)
-        paint.shader = null
-        paint.style = Paint.Style.STROKE
-        paint.strokeWidth = (min(w, h) * 0.0032f).coerceAtLeast(2f)
-        paint.color = 0x884ABFFF.toInt()
-        canvas.drawRoundRect(visor, h * 0.105f, h * 0.105f, paint)
-        paint.color = 0x5539EDE1
-        paint.strokeWidth = (min(w, h) * 0.0015f).coerceAtLeast(1.5f)
-        canvas.drawRoundRect(
-            RectF(visor.left + w * 0.008f, visor.top + h * 0.007f,
-                visor.right - w * 0.008f, visor.bottom - h * 0.007f),
-            h * 0.095f, h * 0.095f, paint
-        )
-        paint.style = Paint.Style.FILL
-
-        val eyeY = h * 0.425f
-        val eyeW = min(w * 0.205f, h * 0.22f)
-        val eyeH = eyeW * 0.98f
-        val leftX = w * 0.34f
-        val rightX = w * 0.66f
+        // Vector-inspired full-screen face: pure black background, only two luminous eyes.
+        canvas.drawColor(android.graphics.Color.BLACK)
+        val eyeY = h * 0.47f
+        val eyeW = min(w * 0.285f, h * 0.245f)
+        val eyeH = eyeW * 0.92f
+        val leftX = w * 0.325f
+        val rightX = w * 0.675f
         val lookX = when (mood) {
-            NovaMood.THINKING -> eyeW * 0.20f
-            NovaMood.EXCITED, NovaMood.CURIOUS, NovaMood.PLAYFUL, NovaMood.WARM -> eyeW * 0.10f
-            NovaMood.ANGRY, NovaMood.DETERMINED -> -eyeW * 0.10f
-            NovaMood.PROUD -> eyeW * 0.03f
-            NovaMood.ALERT -> eyeW * 0.04f
-            NovaMood.JEALOUS -> -eyeW * 0.16f
-            NovaMood.DIZZY -> eyeW * 0.04f
-            NovaMood.CAUTIOUS -> -eyeW * 0.08f
+            NovaMood.THINKING -> eyeW * 0.18f
+            NovaMood.EXCITED, NovaMood.CURIOUS, NovaMood.PLAYFUL, NovaMood.WARM -> eyeW * 0.08f
+            NovaMood.ANGRY, NovaMood.DETERMINED -> -eyeW * 0.08f
+            NovaMood.PROUD -> eyeW * 0.025f
+            NovaMood.ALERT -> eyeW * 0.035f
+            NovaMood.JEALOUS -> -eyeW * 0.13f
+            NovaMood.DIZZY -> eyeW * 0.03f
+            NovaMood.CAUTIOUS -> -eyeW * 0.06f
             else -> 0f
         }
-        val lookY = if (mood == NovaMood.THINKING) -eyeH * 0.12f else 0f
+        val lookY = if (mood == NovaMood.THINKING) -eyeH * 0.10f else 0f
 
         canvas.save()
         if (mood == NovaMood.DIZZY) canvas.rotate(dizzyAngle, w * 0.5f, eyeY)
         drawEye(canvas, leftX, eyeY, eyeW, eyeH, lookX + gazeX * eyeW, lookY + gazeY * eyeH, false, true)
         drawEye(canvas, rightX, eyeY, eyeW, eyeH, lookX + gazeX * eyeW, lookY + gazeY * eyeH, mood == NovaMood.PLAYFUL, false)
         canvas.restore()
-
-        drawMouth(canvas, w, h, eyeW)
-        if (mood == NovaMood.DIZZY) drawDizzyStars(canvas, w, eyeY, eyeW)
-
-        // Small decorative lights stay dim so the eyes remain the clear focal point.
-        drawOrbit(canvas, w * 0.17f, h * 0.28f, min(w, h) * 0.008f)
-        drawOrbit(canvas, w * 0.81f, h * 0.25f, min(w, h) * 0.006f)
-        drawOrbit(canvas, w * 0.77f, h * 0.62f, min(w, h) * 0.005f)
     }
 
     private fun drawEye(
