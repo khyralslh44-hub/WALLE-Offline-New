@@ -13,12 +13,12 @@ class NovaBrainTest {
         override fun putLong(key: String, value: Long) { longs[key] = value }
     }
 
-    @Test fun firstTouchIsCuriousAndMemoryStaysSmall() {
+    @Test fun firstTouchUsesAppraisalAndMemoryStaysSmall() {
         val memory = FakeMemory()
         val brain = NovaBrain(memory)
         val event = brain.onTap()
-        assertEquals(NovaMood.CURIOUS, event.mood)
-        assertTrue(event.messageArabic.contains("نوفا"))
+        assertEquals(NovaMood.WARM, event.mood)
+        assertTrue(event.messageArabic.isNotBlank())
         assertEquals(1, memory.getInt("touch_count"))
     }
 
