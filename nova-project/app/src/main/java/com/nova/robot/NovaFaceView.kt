@@ -11,6 +11,7 @@ import android.graphics.RectF
 import android.graphics.Shader
 import android.util.AttributeSet
 import android.view.View
+import kotlin.math.max
 import kotlin.math.min
 
 /**
@@ -130,10 +131,25 @@ class NovaFaceView @JvmOverloads constructor(
         canvas.drawRect(0f, 0f, w, h, paint)
         paint.shader = null
 
-        paint.color = 0x334D9CFF
-        canvas.drawCircle(w * 0.5f, h * 0.43f, min(w, h) * 0.34f, paint)
-        paint.color = 0x225BE9FF
-        canvas.drawCircle(w * 0.5f, h * 0.43f, min(w, h) * 0.27f, paint)
+        // Wide dark visor replaces the generic circular "ball" face. The eyes are the focal point.
+        val visorTop = h * 0.275f
+        val visorBottom = h * 0.585f
+        val visor = RectF(w * 0.055f, visorTop, w * 0.945f, visorBottom)
+        paint.style = Paint.Style.FILL
+        paint.shader = RadialGradient(
+            w * 0.5f, h * 0.43f, min(w, h) * 0.58f,
+            intArrayOf(0xFF0B1A28.toInt(), 0xFF02050B.toInt()),
+            floatArrayOf(0f, 1f), Shader.TileMode.CLAMP
+        )
+        canvas.drawRoundRect(visor, h * 0.105f, h * 0.105f, paint)
+        paint.shader = null
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = (min(w, h) * 0.0024f).coerceAtLeast(1.5f)
+        paint.color = 0x6640E8E0
+        canvas.drawRoundRect(visor, h * 0.105f, h * 0.105f, paint)
+        paint.color = 0x4438DFFF
+        canvas.drawLine(w * 0.18f, visorTop + h * 0.018f, w * 0.82f, visorTop + h * 0.018f, paint)
+        paint.style = Paint.Style.FILL
 
         val eyeY = h * 0.43f
         val eyeW = min(w * 0.205f, h * 0.22f)
@@ -188,7 +204,7 @@ class NovaFaceView @JvmOverloads constructor(
             paint.style = Paint.Style.STROKE
             paint.strokeWidth = (eyeW * 0.11f).coerceAtLeast(4f)
             paint.strokeCap = Paint.Cap.ROUND
-            paint.color = if (mood == NovaMood.FRUSTRATED) 0xFFFFB5C5.toInt() else 0xFF79EFFF.toInt()
+            paint.color = paletteColors(profile.palette)[1]
             val path = Path().apply {
                 moveTo(centerX - halfW, centerY)
                 quadTo(centerX, centerY + halfH * 0.62f, centerX + halfW, centerY)
@@ -204,6 +220,17 @@ class NovaFaceView @JvmOverloads constructor(
             centerX + halfW, centerY + halfH
         )
         val eyeColors = paletteColors(profile.palette)
+        // Soft halo gives the digital eyes a self-lit look against the black visor.
+        paint.shader = RadialGradient(
+            centerX, centerY, max(halfW, halfH) * 1.65f,
+            intArrayOf(0x553DFFD0, 0x003DFFD0),
+            floatArrayOf(0f, 1f), Shader.TileMode.CLAMP
+        )
+        canvas.drawOval(
+            centerX - halfW * 1.65f, centerY - halfH * 1.65f,
+            centerX + halfW * 1.65f, centerY + halfH * 1.65f, paint
+        )
+        paint.shader = null
         if (profile.heartShaped) {
             val heart = Path().apply {
                 moveTo(centerX, centerY + halfH)
