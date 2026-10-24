@@ -24,6 +24,23 @@ interface NovaMemory {
 }
 
 class NovaBrain(private val memory: NovaMemory) {
+    private val emotionalDecisionEngine by lazy { NovaEmotionalDecisionEngine(memory) }
+
+    /**
+     * Appraises a real observation using persisted context and returns a mood plus next action.
+     * Camera/perception/task modules should submit observations here; do not call with guesses.
+     */
+    fun observeAndDecide(observation: NovaObservation): Pair<NovaEvent, NovaNextAction> {
+        val decision = emotionalDecisionEngine.decide(observation)
+        val haptic = when (decision.mood) {
+            NovaMood.FRUSTRATED -> 24L
+            NovaMood.JEALOUS -> 16L
+            NovaMood.CURIOUS -> 12L
+            else -> 0L
+        }
+        return NovaEvent(decision.mood, decision.messageArabic, hapticMillis = haptic) to decision.nextAction
+    }
+
     private val questions = listOf(
         "سؤال صغير يشغل تفكيري: ما الذي يجعل المكان يبدو مريحًا؟",
         "أتساءل: هل نتعلّم أكثر عندما نتأنّى، أم عندما نجرّب؟",
