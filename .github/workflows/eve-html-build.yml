@@ -5,6 +5,8 @@ on:
   push:
     paths:
       - 'eve-html-app/BUILD_READY'
+      - 'eve-html-app/app/src/main/java/com/eve/htmlapp/MainActivity.kt'
+      - '.github/workflows/eve-html-build.yml'
 
 permissions:
   contents: read
