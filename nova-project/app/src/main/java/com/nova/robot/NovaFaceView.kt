@@ -28,6 +28,8 @@ class NovaFaceView @JvmOverloads constructor(
     private var gazeY = 0f
     private var gazeAnimatorX: ValueAnimator? = null
     private var gazeAnimatorY: ValueAnimator? = null
+    private var dizzyAngle = 0f
+    private var dizzyAnimator: ValueAnimator? = null
 
     private val blinkRunnable = object : Runnable {
         override fun run() {
@@ -46,7 +48,29 @@ class NovaFaceView @JvmOverloads constructor(
     fun setMood(next: NovaMood) {
         if (mood == next) return
         mood = next
+        if (next == NovaMood.DIZZY) startDizzyAnimation() else stopDizzyAnimation()
         invalidate()
+    }
+
+    /** A restrained wobble makes dizziness readable without shaking the whole screen. */
+    private fun startDizzyAnimation() {
+        if (dizzyAnimator?.isRunning == true) return
+        dizzyAnimator = ValueAnimator.ofFloat(-6f, 6f).apply {
+            duration = 720L
+            repeatCount = ValueAnimator.INFINITE
+            repeatMode = ValueAnimator.REVERSE
+            addUpdateListener {
+                dizzyAngle = it.animatedValue as Float
+                invalidate()
+            }
+            start()
+        }
+    }
+
+    private fun stopDizzyAnimation() {
+        dizzyAnimator?.cancel()
+        dizzyAnimator = null
+        dizzyAngle = 0f
     }
 
     /** Smoothly glance toward the detected face position in the current camera frame. */
@@ -86,6 +110,7 @@ class NovaFaceView @JvmOverloads constructor(
         gazeAnimatorY?.cancel()
         gazeAnimatorX = null
         gazeAnimatorY = null
+        stopDizzyAnimation()
         super.onDetachedFromWindow()
     }
 
@@ -119,13 +144,20 @@ class NovaFaceView @JvmOverloads constructor(
             NovaMood.THINKING -> eyeW * 0.20f
             NovaMood.CURIOUS, NovaMood.PLAYFUL, NovaMood.WARM -> eyeW * 0.10f
             NovaMood.ALERT -> eyeW * 0.04f
+            NovaMood.JEALOUS -> -eyeW * 0.16f
+            NovaMood.DIZZY -> eyeW * 0.04f
             NovaMood.CAUTIOUS -> -eyeW * 0.08f
             else -> 0f
         }
         val lookY = if (mood == NovaMood.THINKING) -eyeH * 0.12f else 0f
 
+        canvas.save()
+        if (mood == NovaMood.DIZZY) canvas.rotate(dizzyAngle, w * 0.5f, eyeY)
         drawEye(canvas, leftX, eyeY, eyeW, eyeH, lookX + gazeX * eyeW, lookY + gazeY * eyeH, false, true)
         drawEye(canvas, rightX, eyeY, eyeW, eyeH, lookX + gazeX * eyeW, lookY + gazeY * eyeH, mood == NovaMood.PLAYFUL, false)
+        canvas.restore()
+
+        if (mood == NovaMood.DIZZY) drawDizzyStars(canvas, w, eyeY, eyeW)
 
         // Small decorative lights stay dim so the eyes remain the clear focal point.
         drawOrbit(canvas, w * 0.17f, h * 0.28f, min(w, h) * 0.008f)
@@ -243,7 +275,11 @@ class NovaFaceView @JvmOverloads constructor(
             paint.style = Paint.Style.FILL
         } else if (profile.brow) {
             // Clear inward-leaning brows make frustration readable, but not threatening.
-            paint.color = if (mood == NovaMood.CONFUSED) 0xFF9BE9FF.toInt() else 0xFFFFB5C5.toInt()
+            paint.color = when (mood) {
+                NovaMood.CONFUSED -> 0xFF9BE9FF.toInt()
+                NovaMood.JEALOUS -> 0xFFB7F46A.toInt()
+                else -> 0xFFFFB5C5.toInt()
+            }
             paint.style = Paint.Style.STROKE
             paint.strokeCap = Paint.Cap.ROUND
             paint.strokeWidth = (eyeW * 0.075f).coerceAtLeast(3f)
@@ -284,6 +320,24 @@ class NovaFaceView @JvmOverloads constructor(
             canvas.drawPath(tear, paint)
         }
         canvas.restore()
+    }
+
+    private fun drawDizzyStars(canvas: Canvas, w: Float, eyeY: Float, eyeW: Float) {
+        paint.shader = null
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = (eyeW * 0.035f).coerceAtLeast(2f)
+        paint.strokeCap = Paint.Cap.ROUND
+        paint.color = 0xFFC9B8FF.toInt()
+        val radius = eyeW * 0.09f
+        val orbit = eyeW * 0.84f
+        val leftX = w * 0.34f - orbit
+        val rightX = w * 0.66f + orbit
+        val y = eyeY - eyeW * 0.55f
+        canvas.drawLine(leftX - radius, y, leftX + radius, y, paint)
+        canvas.drawLine(leftX, y - radius, leftX, y + radius, paint)
+        canvas.drawLine(rightX - radius, y, rightX + radius, y, paint)
+        canvas.drawLine(rightX, y - radius, rightX, y + radius, paint)
+        paint.style = Paint.Style.FILL
     }
 
     private fun paletteColors(palette: NovaEyePalette): IntArray = when (palette) {
