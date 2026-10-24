@@ -19,8 +19,9 @@ class NovaPerceptionDecisionBridgeTest {
     @Test
     fun cameraPresenceIsDeduplicatedAcrossRepeatedFrames() {
         val bridge = NovaPerceptionDecisionBridge(NovaBrain(Memory()))
+        assertNotNull(bridge.onPersonPresence(true, 0.9f))
         assertNull(bridge.onPersonPresence(true, 0.9f))
-        assertNotNull(bridge.onPersonPresence(false, 0.9f))
+        assertNull(bridge.onPersonPresence(false, 0.9f))
         assertNull(bridge.onPersonPresence(false, 0.9f))
         assertNotNull(bridge.onPersonPresence(true, 0.9f))
     }
