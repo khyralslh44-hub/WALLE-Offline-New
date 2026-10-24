@@ -10,6 +10,7 @@ import android.os.SystemClock
 import android.view.View
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.sin
 
 private data class EyeContour(
     val upperPeak: Float,
@@ -22,6 +23,10 @@ private data class EyeContour(
 /** Draws two expressive cyan robot eyes only: no pupils, mouth, text, or visible control buttons. */
 class RobotFaceView(context: Context) : View(context) {
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
+    // A restrained LED halo makes the eyes read as luminous pixels, not flat painted blocks.
+    private val halo = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+    }
     private val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeCap = Paint.Cap.ROUND
@@ -29,6 +34,7 @@ class RobotFaceView(context: Context) : View(context) {
     }
     private val shape = Path()
     private var mood = EveMood.AWAKE
+    private var intent: EveIntent? = null
     private var silhouette = EyeSilhouette.ALMOND
     private var previousSilhouette = silhouette
     private var silhouetteTransitionStartedAt = 0L
@@ -99,6 +105,7 @@ class RobotFaceView(context: Context) : View(context) {
         silhouette = profile.silhouette
         silhouetteTransitionStartedAt = now
         mood = profile.mood
+        intent = profile.intent
         targetContour = contourFor(profile.silhouette)
         targetOpening = profile.opening
         targetTilt = profile.tilt
@@ -189,12 +196,25 @@ class RobotFaceView(context: Context) : View(context) {
             if (p < 0.5f) 1f - p * 1.8f else 0.1f + (p - 0.5f) * 1.8f
         } else 1f
         if (blinkStarted > 0L && blinkAge >= blinkDurationMs) blinkStarted = 0L
-        // Do not invent a new emotion/gaze every few seconds. Cozmo-style micro-animation
-        // is driven by explicit interaction decisions; idle mode only blinks. This prevents
-        // the face from changing when the camera has seen nothing new.
-        val idleGaze = 0f
-        val idleGazeY = 0f
-        val breath = 1f
+        // Living-style micro-animation is deliberately subtle and state-bound:
+        // a slow breath never changes mood, silhouette, or colour; exploratory scanning is
+        // enabled only while EVE has an explore/curiosity cue. No random pose changes.
+        val seconds = now / 1000f
+        val breath = if (animate) {
+            1f + 0.010f * sin(seconds * 0.71f) + 0.003f * sin(seconds * 0.27f + 0.8f)
+        } else 1f
+        val lookingAround = animate && (
+            intent == EveIntent.EXPLORE ||
+                silhouette == EyeSilhouette.CURIOUS ||
+                silhouette == EyeSilhouette.ANTICIPATING
+            )
+        val idleGaze = when {
+            lookingAround -> 0.014f * sin(seconds * 0.43f)
+            animate && (intent == EveIntent.FOCUS || mood == EveMood.FOCUSED) ->
+                0.0035f * sin(seconds * 0.24f)
+            else -> 0f
+        }
+        val idleGazeY = if (lookingAround) 0.006f * sin(seconds * 0.31f + 0.9f) else 0f
         // The reference sheet uses compact horizontal LED blocks (about 2:1), not square tiles.
         // Keep a dark bridge between the eyes and scale with the actual view size on phone screens.
         // Compact cyan LED blocks: the reference has two distinct rounded pixels with a
@@ -204,10 +224,11 @@ class RobotFaceView(context: Context) : View(context) {
         // Scale both axes independently so the eyes keep their proportions on tall phone screens.
         // Keep the display pixels horizontally rectangular like the Cozmo sheet.
         // The old near-square eye height made the face read as two large tiles instead of LED eyes.
-        val w = min(width * 0.23f, height * 0.15f) * eyeWidth
-        // Neutral Cozmo-style LED blocks are close to square; each expression then changes its own aperture.
-        val h = min(height * 0.11f, w * 0.82f) * eyeHeight
-        val gap = min(width * 0.21f, w * 0.62f) * spacing
+        // A slightly larger glyph leaves room for the eyelid geometry to remain readable on a phone.
+        // Keep a clear dark bridge between the eyes; never let the two pixels merge.
+        val w = min(width * 0.245f, height * 0.16f) * eyeWidth
+        val h = min(height * 0.12f, w * 0.86f) * eyeHeight
+        val gap = min(width * 0.20f, w * 0.64f) * spacing
         val cy = height * 0.50f
         val silhouetteRaw = if (silhouetteTransitionStartedAt == 0L) 1f else
             ((now - silhouetteTransitionStartedAt).toFloat() / silhouetteTransitionDurationMs).coerceIn(0f, 1f)
@@ -248,6 +269,8 @@ class RobotFaceView(context: Context) : View(context) {
             EyeSilhouette.AWE -> 0.96f
             EyeSilhouette.SCARED -> 0.90f
             EyeSilhouette.SKEPTIC, EyeSilhouette.SUSPICIOUS -> 0.92f
+            EyeSilhouette.ANTICIPATING -> 0.98f
+            EyeSilhouette.DISAPPOINTED -> 0.96f
             else -> 1f
         }
         val heightScale = when (eyeSilhouette) {
@@ -257,6 +280,9 @@ class RobotFaceView(context: Context) : View(context) {
             EyeSilhouette.ROUND_SURPRISE -> 1.00f
             EyeSilhouette.AWE -> 1.18f
             EyeSilhouette.SCARED -> 1.12f
+            EyeSilhouette.CONFUSED -> 1.10f
+            EyeSilhouette.ANTICIPATING -> 1.22f
+            EyeSilhouette.DISAPPOINTED -> 1.06f
             else -> 1f
         }
         val hw = baseHalfWidth * widthScale
@@ -282,6 +308,9 @@ class RobotFaceView(context: Context) : View(context) {
             EyeSilhouette.ANNOYED, EyeSilhouette.SHARP, EyeSilhouette.FURIOUS -> 0.98f
             EyeSilhouette.PLAYFUL, EyeSilhouette.SKEPTIC, EyeSilhouette.SUSPICIOUS -> 0.96f
             EyeSilhouette.SQUINT, EyeSilhouette.BORED, EyeSilhouette.UNIMPRESSED -> 0.72f
+            EyeSilhouette.CONFUSED -> 1.04f
+            EyeSilhouette.ANTICIPATING -> 1.10f
+            EyeSilhouette.DISAPPOINTED -> 1.08f
             else -> 1f
         }
         val glyphHh = hh * when (eyeSilhouette) {
@@ -297,6 +326,9 @@ class RobotFaceView(context: Context) : View(context) {
             EyeSilhouette.BLINK_HIGH -> -hh * 0.50f
             EyeSilhouette.BLINK_LOW, EyeSilhouette.SAD_DOWN -> hh * 0.30f
             EyeSilhouette.BORED, EyeSilhouette.UNIMPRESSED -> hh * 0.12f
+            EyeSilhouette.CONFUSED -> if (side < 0) -hh * 0.06f else hh * 0.12f
+            EyeSilhouette.ANTICIPATING -> -hh * 0.04f
+            EyeSilhouette.DISAPPOINTED -> hh * 0.18f
             else -> 0f
         }
         val eyeRect = RectF(cx - hw, centerY - glyphHh, cx + hw, centerY + glyphHh)
@@ -543,6 +575,53 @@ class RobotFaceView(context: Context) : View(context) {
                     rounded(min(hw * 0.28f, glyphHh * 0.36f))
                 }
             }
+
+            EyeSilhouette.CONFUSED -> {
+                // Confusion is intentionally asymmetric: one raised eye, one hesitant, lowered eye.
+                if (side < 0) {
+                    shape.moveTo(cx - hw, centerY + glyphHh * 0.22f)
+                    shape.quadTo(cx - hw * 0.82f, centerY - glyphHh * 0.88f,
+                        cx - hw * 0.10f, centerY - glyphHh * 0.72f)
+                    shape.quadTo(cx + hw * 0.78f, centerY - glyphHh * 0.78f,
+                        cx + hw, centerY - glyphHh * 0.35f)
+                    shape.lineTo(cx + hw * 0.92f, centerY + glyphHh * 0.48f)
+                    shape.quadTo(cx, centerY + glyphHh * 0.72f,
+                        cx - hw, centerY + glyphHh * 0.35f)
+                } else {
+                    shape.moveTo(cx - hw, centerY - glyphHh * 0.38f)
+                    shape.quadTo(cx, centerY - glyphHh * 0.66f,
+                        cx + hw, centerY - glyphHh * 0.08f)
+                    shape.lineTo(cx + hw * 0.94f, centerY + glyphHh * 0.44f)
+                    shape.quadTo(cx, centerY + glyphHh * 0.58f,
+                        cx - hw, centerY + glyphHh * 0.38f)
+                }
+                shape.close()
+            }
+
+            EyeSilhouette.ANTICIPATING -> {
+                // Expectant eyes are lifted and open, with a gentle upper arch rather than alarm-round eyes.
+                shape.moveTo(cx - hw, centerY + glyphHh * 0.42f)
+                shape.cubicTo(cx - hw * 1.02f, centerY - glyphHh * 0.42f,
+                    cx - hw * 0.34f, centerY - glyphHh * 1.02f,
+                    cx, centerY - glyphHh * 0.82f)
+                shape.cubicTo(cx + hw * 0.34f, centerY - glyphHh * 1.02f,
+                    cx + hw * 1.02f, centerY - glyphHh * 0.42f,
+                    cx + hw, centerY + glyphHh * 0.42f)
+                shape.quadTo(cx, centerY + glyphHh * 0.84f,
+                    cx - hw, centerY + glyphHh * 0.42f)
+                shape.close()
+            }
+
+            EyeSilhouette.DISAPPOINTED -> {
+                // Disappointment has a falling upper lid and a subdued lower bowl; it is not anger.
+                shape.moveTo(cx - hw, centerY - glyphHh * 0.22f)
+                shape.quadTo(cx, centerY + glyphHh * 0.34f,
+                    cx + hw, centerY + glyphHh * 0.02f)
+                shape.lineTo(cx + hw, centerY + glyphHh * 0.48f)
+                shape.quadTo(cx, centerY + glyphHh * 0.64f,
+                    cx - hw, centerY + glyphHh * 0.44f)
+                shape.close()
+            }
         }
         if (opacity <= 0.005f) return
         val layerBounds = RectF(cx - hw * 1.8f, cy - hh * 1.8f, cx + hw * 1.8f, cy + hh * 1.8f)
@@ -550,16 +629,28 @@ class RobotFaceView(context: Context) : View(context) {
         c.save()
         c.rotate(angle, cx, cy)
 
-        // Cozmo/Vector-style face reference: flat cyan LED glyphs, nearly black screen,
-        // no white glints, no shiny gradient, and only a faint halo around the pixels.
+        // Soft cyan halo + crisp solid core: clear LED eyes without pupils or white shine.
+        // Intensity is driven by EVE's current affect profile, not random colour cycling.
+        halo.shader = null
+        halo.color = Color.argb((20f + 22f * intensity).toInt().coerceIn(0, 48), 0, 205, 215)
+        halo.setShadowLayer(
+            max(2f, w * (0.08f + 0.045f * intensity)),
+            0f, 0f,
+            Color.argb((42f * intensity).toInt().coerceIn(0, 48), 0, 205, 215)
+        )
+        c.drawPath(shape, halo)
+        halo.clearShadowLayer()
+
         edge.shader = null
         edge.strokeWidth = max(1f, w * 0.025f)
-        edge.color = Color.argb((18f * intensity).toInt().coerceIn(0, 24), 0, 225, 236)
+        edge.color = Color.argb((20f * intensity).toInt().coerceIn(0, 28), 0, 205, 215)
         c.drawPath(shape, edge)
 
         fill.style = Paint.Style.FILL
         fill.shader = null
         fill.alpha = 255
+        // Preserve EVE's original, consistent cyan palette. Emotional nuance comes from
+        // geometry, gaze, eyelids and timing—not from recolouring the eyes by mood.
         fill.color = when (mood) {
             EveMood.SLEEPY, EveMood.CONCERNED, EveMood.IRRITATED, EveMood.ANGRY ->
                 Color.rgb(0, 158, 174)
@@ -581,6 +672,9 @@ class RobotFaceView(context: Context) : View(context) {
         EyeSilhouette.WORRIED -> EyeContour(0.83f, 0.47f, 0.76f, 0.61f, 0f)
         EyeSilhouette.SHARP, EyeSilhouette.FURIOUS, EyeSilhouette.ANNOYED -> EyeContour(0.70f, 0.29f, 0.48f, 0.35f, -0.11f)
         EyeSilhouette.CURIOUS, EyeSilhouette.PLAYFUL, EyeSilhouette.SKEPTIC, EyeSilhouette.SUSPICIOUS -> EyeContour(0.94f, 0.49f, 0.72f, 0.53f, 0f)
+        EyeSilhouette.ANTICIPATING -> EyeContour(1.04f, 0.54f, 0.86f, 0.61f, 0f)
+        EyeSilhouette.CONFUSED -> EyeContour(0.78f, 0.40f, 0.66f, 0.51f, 0.07f)
+        EyeSilhouette.DISAPPOINTED -> EyeContour(0.56f, 0.36f, 0.73f, 0.54f, 0f)
         EyeSilhouette.SOFT -> EyeContour(0.96f, 0.47f, 0.84f, 0.56f, 0f)
         EyeSilhouette.ALMOND -> EyeContour(0.90f, 0.46f, 0.80f, 0.54f, 0f)
         EyeSilhouette.NEUTRAL, EyeSilhouette.BLINK_HIGH, EyeSilhouette.BORED,

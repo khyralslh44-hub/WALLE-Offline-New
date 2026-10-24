@@ -210,13 +210,66 @@ class EyeExpressionGeneratorTest {
             glyph(EveMood.CONCERNED, valence = -0.45f, arousal = 0.90f),       // scared
             glyph(EveMood.SURPRISED, valence = 0.85f),                         // awe
             glyph(EveMood.PLAYFUL, valence = 0.40f),                           // playful
-            glyph(EveMood.FAMILIAR, valence = 0.25f, familiarity = 0.50f)      // warm / soft
+            glyph(EveMood.FAMILIAR, valence = 0.25f, familiarity = 0.50f),     // warm / soft
+            glyph(EveMood.CONCERNED, valence = -0.08f, arousal = 0.36f,
+                frustration = 0.10f),                                           // confused
+            glyph(EveMood.CURIOUS, valence = 0.30f, arousal = 0.68f,
+                curiosity = 0.70f),                                             // anticipating
+            glyph(EveMood.CONCERNED, valence = -0.42f, arousal = 0.35f,
+                fatigue = 0.10f, frustration = 0.10f)                            // disappointed
         )
         assertEquals(
             "Every reference-inspired glyph should be reachable from affect state and intent, not text labels.",
             EyeSilhouette.values().toSet(),
             actual
         )
+    }
+
+    @Test fun subtleEmotionStatesHaveDistinctReadableExpressions() {
+        val confused = EyeExpressionGenerator.generate(
+            EveDecision(EveMood.CONCERNED, "uncertain", valence = -0.08f, arousal = 0.36f,
+                curiosity = 0.55f, fatigue = 0.10f, frustration = 0.10f), 1L)
+        val anticipating = EyeExpressionGenerator.generate(
+            EveDecision(EveMood.CURIOUS, "expecting a familiar event", valence = 0.30f,
+                arousal = 0.68f, curiosity = 0.70f), 1L)
+        val disappointed = EyeExpressionGenerator.generate(
+            EveDecision(EveMood.CONCERNED, "mild disappointment", valence = -0.42f,
+                arousal = 0.35f, fatigue = 0.10f, frustration = 0.10f), 1L)
+
+        assertEquals(EyeSilhouette.CONFUSED, confused.silhouette)
+        assertEquals(EyeSilhouette.ANTICIPATING, anticipating.silhouette)
+        assertEquals(EyeSilhouette.DISAPPOINTED, disappointed.silhouette)
+        assertEquals("Affect nuances change eye poses, not the established mood label.",
+            EveMood.CONCERNED, confused.mood)
+        assertTrue(setOf(confused.silhouette, anticipating.silhouette, disappointed.silhouette).size == 3)
+    }
+
+    @Test fun generatedFaceKeepsItsGoalForStateDrivenMicroMovement() {
+        val exploring = EyeExpressionGenerator.generate(
+            EveDecision(
+                mood = EveMood.CURIOUS,
+                reason = "a new unfamiliar object",
+                valence = 0.30f,
+                curiosity = 0.78f,
+                arousal = 0.68f,
+                intent = EveIntent.EXPLORE
+            ),
+            seed = 20261021L
+        )
+        val resting = EyeExpressionGenerator.generate(
+            EveDecision(
+                mood = EveMood.SLEEPY,
+                reason = "energy recovery",
+                fatigue = 0.85f,
+                intent = EveIntent.REST
+            ),
+            seed = 20261021L
+        )
+
+        assertEquals(EveIntent.EXPLORE, exploring.intent)
+        assertEquals(EveIntent.REST, resting.intent)
+        assertEquals(EyeSilhouette.ANTICIPATING, exploring.silhouette)
+        assertEquals(EyeSilhouette.DROOPY, resting.silhouette)
     }
 
     @Test fun intentCanChangeEyesWithoutChangingTheCurrentMood() {
@@ -281,4 +334,48 @@ class EyeExpressionGeneratorTest {
         assertEquals(EyeSilhouette.DROOPY, tiredRest.silhouette)
         assertEquals(EyeSilhouette.DROOPY, tiredFocus.silhouette)
     }
+
+    @Test fun primaryEmotionRemainsReadableWhenIntentSuggestsSomethingElse() {
+        fun pose(
+            mood: EveMood,
+            intent: EveIntent,
+            valence: Float = 0.12f,
+            arousal: Float = 0.40f,
+            fatigue: Float = 0f,
+            frustration: Float = 0.20f
+        ) = EyeExpressionGenerator.generate(
+            EveDecision(
+                mood = mood,
+                reason = "emotion-legibility regression test",
+                valence = valence,
+                arousal = arousal,
+                fatigue = fatigue,
+                frustration = frustration,
+                intent = intent
+            ),
+            seed = 20261021L
+        )
+
+        assertEquals(
+            "A social goal must not hide a happy smile.",
+            EyeSilhouette.SMILE,
+            pose(EveMood.HAPPY, EveIntent.CONNECT, valence = 0.25f).silhouette
+        )
+        assertEquals(
+            "A social goal must not hide an angry expression.",
+            EyeSilhouette.SHARP,
+            pose(EveMood.ANGRY, EveIntent.CONNECT, arousal = 0.50f).silhouette
+        )
+        assertEquals(
+            "A play goal must not hide sustained sleepiness.",
+            EyeSilhouette.DROOPY,
+            pose(EveMood.SLEEPY, EveIntent.PLAY, fatigue = 0.92f).silhouette
+        )
+        assertEquals(
+            "A rest goal must not hide surprise.",
+            EyeSilhouette.ROUND_SURPRISE,
+            pose(EveMood.SURPRISED, EveIntent.REST, valence = 0.12f).silhouette
+        )
+    }
+
 }

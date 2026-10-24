@@ -43,6 +43,10 @@
             android:screenOrientation="portrait"
             android:exported="false" />
         <activity
+            android:name=".EmbodiedGamesActivity"
+            android:screenOrientation="portrait"
+            android:exported="false" />
+        <activity
             android:name=".CameraShotActivity"
             android:screenOrientation="portrait"
             android:exported="false" />
