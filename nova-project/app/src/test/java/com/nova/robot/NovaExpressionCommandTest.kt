@@ -22,4 +22,11 @@ class NovaExpressionCommandTest {
         assertNotNull(request)
         assertEquals(NovaMood.DIZZY, request!!.mood)
     }
+
+    @Test fun parsesTheFourAddedEveExpressions() {
+        assertEquals(NovaMood.ANGRY, NovaExpressionCommand.parse("تعبير: الغضب")!!.mood)
+        assertEquals(NovaMood.EXCITED, NovaExpressionCommand.parse("تعبير: الحماس")!!.mood)
+        assertEquals(NovaMood.PROUD, NovaExpressionCommand.parse("تعبير: الفخر")!!.mood)
+        assertEquals(NovaMood.DETERMINED, NovaExpressionCommand.parse("تعبير: الإصرار")!!.mood)
+    }
 }
