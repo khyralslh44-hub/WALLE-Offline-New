@@ -10,7 +10,7 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.nova.robot"
+        applicationId = "com.nova.robot.v2"
         minSdk = 26
         targetSdk = 35
         versionCode = 3
