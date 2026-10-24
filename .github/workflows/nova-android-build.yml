@@ -86,9 +86,9 @@ jobs:
           SIZE="$(stat -c '%s' "$APK")"
           echo "Nova APK bytes=$SIZE"
           # Bundled offline vision models and Android runtimes make this APK larger.
-          # Keep the guard at 100 MB and retain ABI filters to exclude unused native libraries.
-          if [ "$SIZE" -gt 100000000 ]; then
-            echo "FAIL: Nova arm64 APK exceeded 100 MB; inspect for accidental universal ABIs."
+          # LiteRT-LM adds native runtime libraries; keep a conservative size ceiling while still catching universal-ABI packaging.
+          if [ "$SIZE" -gt 130000000 ]; then
+            echo "FAIL: Nova arm64 APK exceeded 130 MB; inspect for accidental universal ABIs or duplicated native libraries."
             exit 1
           fi
           apksigner verify --verbose "$APK"
