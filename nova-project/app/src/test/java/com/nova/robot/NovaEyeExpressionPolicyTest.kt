@@ -30,6 +30,18 @@ class NovaEyeExpressionPolicyTest {
     }
 
     @Test
+    fun jealousyAndDizzinessHaveDistinctReadableEyeProfiles() {
+        val jealous = NovaEyeExpressionPolicy.profile(NovaMood.JEALOUS, true)
+        val dizzyLeft = NovaEyeExpressionPolicy.profile(NovaMood.DIZZY, true)
+        val dizzyRight = NovaEyeExpressionPolicy.profile(NovaMood.DIZZY, false)
+        assertEquals(NovaEyePalette.LIME, jealous.palette)
+        assertTrue(jealous.brow)
+        assertEquals(NovaEyePalette.VIOLET, dizzyLeft.palette)
+        assertNotEquals(dizzyLeft.tiltDegrees, dizzyRight.tiltDegrees)
+        assertNotEquals(dizzyLeft.heightFactor, dizzyRight.heightFactor)
+    }
+
+    @Test
     fun curiosityAndConfusionHaveDifferentAsymmetry() {
         val curious = NovaEyeExpressionPolicy.profile(NovaMood.CURIOUS, true)
         val confused = NovaEyeExpressionPolicy.profile(NovaMood.CONFUSED, true)
