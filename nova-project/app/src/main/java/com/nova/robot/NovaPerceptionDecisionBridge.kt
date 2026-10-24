@@ -9,6 +9,7 @@ package com.nova.robot
  */
 class NovaPerceptionDecisionBridge(private val brain: NovaBrain) {
     private var lastPersonVisible: Boolean? = null
+    private var lastAttentionAway: Boolean? = null
 
     fun onPersonPresence(visible: Boolean, confidence: Float): NovaEvent? {
         val c = confidence.coerceIn(0f, 1f)
@@ -22,9 +23,13 @@ class NovaPerceptionDecisionBridge(private val brain: NovaBrain) {
         return brain.observeAndDecide(NovaObservation(NovaSignal.ATTENTION_RECEIVED, c)).first
     }
 
-    fun onAttentionShiftedAway(confidence: Float): NovaEvent? {
+    fun onAttentionOrientation(attentionAway: Boolean, confidence: Float): NovaEvent? {
         val c = confidence.coerceIn(0f, 1f)
         if (c < MIN_CONFIDENCE || lastPersonVisible != true) return null
+        val changed = lastAttentionAway != attentionAway
+        lastAttentionAway = attentionAway
+        // Only the transition into looking away is evidence; repeated frames do not stack.
+        if (!changed || !attentionAway) return null
         return brain.observeAndDecide(NovaObservation(NovaSignal.ATTENTION_SHIFTED_AWAY, c)).first
     }
 
