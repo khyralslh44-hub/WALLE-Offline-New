@@ -214,11 +214,12 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
         NovaLocalNotifications.markInteraction(this)
 
         val root = FrameLayout(this).apply { setBackgroundColor(Color.rgb(4, 8, 21)) }
-        face = NovaFaceView(this)
-        root.addView(face, FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT,
-            FrameLayout.LayoutParams.MATCH_PARENT
-        ))
+        // The previous Nova face artwork is deliberately removed from the visible UI.
+        // Keep the view model only as a hidden expression state sink while the robot logic is retained.
+        face = NovaFaceView(this).apply {
+            visibility = View.GONE
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
 
         status = TextView(this).apply {
             text = "N O V A • LOCAL ROBOT"
@@ -268,7 +269,7 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
             Gravity.BOTTOM
         ))
 
-        face.setOnTouchListener { view, event ->
+        root.setOnTouchListener { view, event ->
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     pressDownX = event.x
@@ -1249,7 +1250,7 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
         if (!status.text.toString().contains("1.0.5")) {
             status.text = "${status.text} • 1.0.5"
         }
-        if (event.hapticMillis > 0L) face.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+        if (event.hapticMillis > 0L) window.decorView.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
         if (playSound) {
             novaVoice?.play(visibleMood, event.isQuestion)
         }
