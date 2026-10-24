@@ -48,6 +48,6 @@ internal object NovaEyeExpressionPolicy {
         NovaMood.CURIOUS ->
             NovaEyeProfile(if (isLeft) 0.48f else 0.51f, if (isLeft) 0.58f else 0.48f,
                 if (isLeft) -2f else 2f, NovaEyePalette.AQUA)
-        else -> NovaEyeProfile(0.50f, 0.50f, 0f, NovaEyePalette.AQUA)
+        else -> NovaEyeProfile(if (isLeft) 0.48f else 0.54f, if (isLeft) 0.39f else 0.49f, if (isLeft) -3f else 2f, NovaEyePalette.VIOLET)
     }
 }
