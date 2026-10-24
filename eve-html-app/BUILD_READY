@@ -1,1 +1,1 @@
-Build trigger for the standalone Android wrapper around the uploaded EVE HTML. This file is only used to start the APK workflow.
+Build trigger for standalone EVE HTML Android APK. Workflow syntax was corrected; build again.
