@@ -38,7 +38,8 @@ jobs:
           curl --fail --location --retry 3 "https://services.gradle.org/distributions/gradle-8.9-bin.zip" --output "$RUNNER_TEMP/gradle-8.9-bin.zip"
           unzip -q "$RUNNER_TEMP/gradle-8.9-bin.zip" -d "$RUNNER_TEMP"
       - name: Build APK
-        run: "$RUNNER_TEMP/gradle-8.9/bin/gradle" -p eve-html-app assembleDebug --no-daemon
+        run: |
+          "$RUNNER_TEMP/gradle-8.9/bin/gradle" -p eve-html-app assembleDebug --no-daemon
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
