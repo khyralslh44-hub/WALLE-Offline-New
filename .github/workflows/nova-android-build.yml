@@ -105,8 +105,8 @@ jobs:
             exit 1
           fi
           BADGING="$(aapt dump badging "$APK")"
-          grep -Fq "name='com.nova.robot.v2'" <<<"$BADGING"
-          grep -Fq "versionCode='5'" <<<"$BADGING"
+          grep -Fq "name='com.nova.robot.v3'" <<<"$BADGING"
+          grep -Fq "versionCode='6'" <<<"$BADGING"
           grep -Fq "versionName='1.0.4'" <<<"$BADGING"
           grep -Fq 'android.permission.CAMERA' nova-project/app/src/main/AndroidManifest.xml
           grep -Fq 'android.permission.RECORD_AUDIO' nova-project/app/src/main/AndroidManifest.xml
