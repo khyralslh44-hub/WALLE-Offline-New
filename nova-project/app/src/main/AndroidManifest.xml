@@ -21,7 +21,7 @@
         android:fullBackupContent="false"
         android:icon="@drawable/ic_nova_launcher"
         android:roundIcon="@drawable/ic_nova_launcher"
-        android:label="Nova 1.0.2 — Offline Robot"
+        android:label="Nova 1.0.3 — Offline Robot"
         android:supportsRtl="true"
         android:theme="@style/NovaTheme"
         android:usesCleartextTraffic="false">
