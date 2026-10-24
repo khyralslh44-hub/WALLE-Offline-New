@@ -41,13 +41,15 @@ internal object NovaEyeExpressionPolicy {
         NovaMood.DISGUSTED ->
             NovaEyeProfile(0.48f, if (isLeft) 0.43f else 0.31f, if (isLeft) -8f else 4f, NovaEyePalette.LIME)
         NovaMood.SAD ->
-            NovaEyeProfile(0.49f, 0.42f, if (isLeft) 7f else -7f, NovaEyePalette.VIOLET, tear = isLeft)
+            NovaEyeProfile(0.49f, 0.42f, if (isLeft) 7f else -7f, NovaEyePalette.AQUA, tear = isLeft)
         NovaMood.CONFUSED ->
             NovaEyeProfile(if (isLeft) 0.48f else 0.52f, if (isLeft) 0.56f else 0.41f,
                 if (isLeft) 5f else -4f, NovaEyePalette.ICE, brow = true)
         NovaMood.CURIOUS ->
             NovaEyeProfile(if (isLeft) 0.48f else 0.51f, if (isLeft) 0.58f else 0.48f,
                 if (isLeft) -2f else 2f, NovaEyePalette.AQUA)
-        else -> NovaEyeProfile(if (isLeft) 0.48f else 0.54f, if (isLeft) 0.39f else 0.49f, if (isLeft) -3f else 2f, NovaEyePalette.VIOLET)
+        NovaMood.CALM ->
+            NovaEyeProfile(if (isLeft) 0.50f else 0.52f, if (isLeft) 0.45f else 0.44f, if (isLeft) -2f else 2f, NovaEyePalette.LIME)
+        else -> NovaEyeProfile(if (isLeft) 0.50f else 0.52f, if (isLeft) 0.44f else 0.46f, if (isLeft) -2f else 2f, NovaEyePalette.LIME)
     }
 }
