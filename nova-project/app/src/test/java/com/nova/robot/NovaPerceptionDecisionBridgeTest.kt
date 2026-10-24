@@ -27,6 +27,16 @@ class NovaPerceptionDecisionBridgeTest {
     }
 
     @Test
+    fun attentionAwayOnlyCountsAsOneTransitionWhilePersonRemainsVisible() {
+        val bridge = NovaPerceptionDecisionBridge(NovaBrain(Memory()))
+        assertNotNull(bridge.onPersonPresence(true, 0.9f))
+        assertNotNull(bridge.onAttentionOrientation(true, 0.8f))
+        assertNull(bridge.onAttentionOrientation(true, 0.8f))
+        assertNull(bridge.onAttentionOrientation(false, 0.8f))
+        assertNotNull(bridge.onAttentionOrientation(true, 0.8f))
+    }
+
+    @Test
     fun uncertainLowConfidenceVisionDoesNotDriveEmotion() {
         val bridge = NovaPerceptionDecisionBridge(NovaBrain(Memory()))
         assertNull(bridge.onUnknownObject(0.25f))
