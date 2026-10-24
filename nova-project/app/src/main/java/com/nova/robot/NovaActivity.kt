@@ -131,7 +131,7 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
                 enableVision()
             } else {
                 message.text = "لا أستطيع ملاحظة ما حولي دون إذن الكاميرا، لكن يمكننا التفاعل وتبقى ذاكرتي المحلية متاحة."
-                status.text = "N O V A • 1.0.3 • أعمل محليًا"
+                status.text = "N O V A • 1.0.4 • أعمل محليًا"
                 face.setMood(NovaMood.CALM)
             }
         }
@@ -143,7 +143,7 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
             } else {
                 pendingSpeechTarget = null
                 message.text = "لم تمنحني إذن الميكروفون، لذلك لم أستمع إلى أي صوت. ما زال بإمكانك الكتابة لي."
-                status.text = "N O V A • 1.0.3 • أعمل محليًا"
+                status.text = "N O V A • 1.0.4 • أعمل محليًا"
             }
         }
 
@@ -454,7 +454,7 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
         face.setMood(NovaMood.CALM)
         message.text = "مسحت ذاكرتي المحلية: الملاحظات الشخصية وأسماء الوجوه والتعلّم السابق. لم أحتفظ بصور للوجوه."
         status.text = if (visionEnabled) {
-            if (useFrontCamera) "N O V A • 1.0.3 • ألاحظ محيطي • أمامية" else "N O V A • 1.0.3 • ألاحظ محيطي • خلفية"
+            if (useFrontCamera) "N O V A • 1.0.4 • ألاحظ محيطي • أمامية" else "N O V A • 1.0.4 • ألاحظ محيطي • خلفية"
         } else "N O V A • LOCAL ROBOT"
     }
 
@@ -673,7 +673,7 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
             visionEnabled = false
             stopVisionCamera()
             lastVisionSummary = ""
-            status.text = "N O V A • 1.0.3 • LOCAL ROBOT"
+            status.text = "N O V A • 1.0.4 • LOCAL ROBOT"
             message.text = "توقفت عن ملاحظة محيطي. لا أحتفظ بصور المشهد، ويمكنني العودة للملاحظة عندما تسمح بذلك."
             face.setMood(NovaMood.CALM)
             return
@@ -738,7 +738,7 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
             val selector = if (useFrontCamera) CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA
             provider.bindToLifecycle(this, selector, useCase)
             analysisUseCase = useCase
-            status.text = if (useFrontCamera) "N O V A • 1.0.3 • ألاحظ محيطي • أمامية" else "N O V A • 1.0.3 • ألاحظ محيطي • خلفية"
+            status.text = if (useFrontCamera) "N O V A • 1.0.4 • ألاحظ محيطي • أمامية" else "N O V A • 1.0.4 • ألاحظ محيطي • خلفية"
             Log.i("NOVA_VISION", "Camera started: ${if (useFrontCamera) "front" else "back"} camera, 320x240, throttled local inference.")
         } catch (error: Exception) {
             Log.w("NOVA_VISION", "Binding the camera analyzer failed.", error)
@@ -1106,7 +1106,7 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
             message.text = displaySummary + System.lineSeparator() + cameraDecisionEvent.messageArabic
             face.setMood(cameraDecisionEvent.mood)
         }
-        status.text = if (useFrontCamera) "N O V A • 1.0.3 • ألاحظ محيطي • أمامية" else "N O V A • 1.0.3 • ألاحظ محيطي • خلفية"
+        status.text = if (useFrontCamera) "N O V A • 1.0.4 • ألاحظ محيطي • أمامية" else "N O V A • 1.0.4 • ألاحظ محيطي • خلفية"
         Log.i("NOVA_VISION", "LOCAL_FRAME_SUMMARY face=$hasFace; imagesStored=false; network=false")
     }
 
@@ -1218,7 +1218,7 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
         face.setMood(visibleMood)
         message.text = event.messageArabic
         status.text = if (visionEnabled) {
-            if (useFrontCamera) "N O V A • 1.0.3 • ألاحظ محيطي • أمامية" else "N O V A • 1.0.3 • ألاحظ محيطي • خلفية"
+            if (useFrontCamera) "N O V A • 1.0.4 • ألاحظ محيطي • أمامية" else "N O V A • 1.0.4 • ألاحظ محيطي • خلفية"
         } else when (visibleMood) {
             NovaMood.CURIOUS -> "N O V A • C U R I O U S"
             NovaMood.HAPPY, NovaMood.PLAYFUL -> "N O V A • P L A Y F U L"
@@ -1246,8 +1246,8 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
             NovaMood.CALM -> "N O V A • LOCAL ROBOT"
         }
         // Keep an unmistakable build label even when camera vision is off.
-        if (!status.text.toString().contains("1.0.3")) {
-            status.text = "${status.text} • 1.0.3"
+        if (!status.text.toString().contains("1.0.4")) {
+            status.text = "${status.text} • 1.0.4"
         }
         if (event.hapticMillis > 0L) face.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
         if (playSound) {
