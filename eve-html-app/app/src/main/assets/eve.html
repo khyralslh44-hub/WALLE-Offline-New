@@ -1,0 +1,484 @@
+<!doctype html>
+<html lang="ar" dir="rtl"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#06101c">
+<title>إيف</title>
+<style>
+:root{color-scheme:dark;--bg:#06101c;--sf:#0d1b2e;--tx:#e6f6ff;--mu:#86a3bb;--cy:#3df0ff;--bd:#1d3857;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--tx);font-family:Tahoma,'Noto Sans Arabic','Segoe UI',system-ui,sans-serif;-webkit-tap-highlight-color:transparent}
+main{max-width:460px;margin:0 auto;padding:10px 14px 24px;display:flex;flex-direction:column;gap:10px}
+.stage{position:relative;border-radius:22px;background:#000;border:1px solid var(--bd);overflow:hidden}
+canvas#c{display:block;width:100%;height:auto}
+.chip{position:absolute;top:10px;right:10px;background:#0b1626cc;border:1px solid var(--bd);border-radius:99px;padding:5px 12px;font-size:14px;font-weight:500}
+.lvl{position:absolute;top:10px;left:10px;color:var(--mu);font-size:12px;padding-top:7px}
+#bub{margin:-6px 14px 14px;min-height:56px;background:#0b1830;border:1px solid #2a5a7a;border-radius:18px;padding:12px 14px;font-size:16px;line-height:1.6;text-align:center}
+.row{display:flex;gap:8px}
+input{flex:1;min-width:0;background:var(--sf);border:1px solid var(--bd);border-radius:14px;padding:13px;color:var(--tx);font:inherit;font-size:16px}
+input:focus,button:focus-visible{outline:2px solid var(--cy);outline-offset:1px}
+button{font:inherit;background:var(--sf);color:var(--tx);border:1px solid var(--bd);border-radius:14px;padding:12px 14px;cursor:pointer}
+button.on{background:#0c4a57;border-color:var(--cy)}
+button.go{background:var(--cy);color:#02222a;border-color:var(--cy);font-weight:700}
+details{background:var(--sf);border:1px solid var(--bd);border-radius:16px;padding:12px 14px}
+summary{cursor:pointer;font-weight:500}
+.bar{display:grid;grid-template-columns:68px 1fr;gap:8px;align-items:center;margin:8px 0;font-size:13px;color:var(--mu)}
+.bar i{display:block;height:7px;border-radius:9px;background:#14283f;overflow:hidden}.bar b{display:block;height:100%;background:var(--cy);width:0;transition:width .5s}
+.log{font-size:13px;color:var(--mu);line-height:1.8;margin:6px 0 0;padding:0;list-style:none}
+.log li:first-child{color:var(--tx)}
+h3{margin:12px 0 4px;font-size:14px;font-weight:700}
+video{position:absolute;width:1px;height:1px;opacity:0}
+.hint{font-size:12px;color:var(--mu);line-height:1.7}
+@media(prefers-reduced-motion:reduce){.bar b{transition:none}}
+</style></head><body>
+<main>
+<section class="stage"><canvas id="c" width="440" height="380" aria-label="وجه إيف"></canvas>
+<div class="chip" id="chip">الهدوء</div><div class="lvl" id="lvl"></div><div id="bub" aria-live="polite">…</div></section>
+<div class="row"><input id="in" placeholder="تحدّث مع إيف…" autocomplete="off"><button class="go" id="send">إرسال</button></div>
+<div class="row"><button id="bCam" style="flex:1">تشغيل العيون</button><button id="bMic" style="flex:1">الأذن</button><button id="bVox" style="flex:1" class="on">الصوت</button></div>
+<div class="hint" id="llm"></div><div class="hint" id="note"></div>
+<details open><summary>عقل إيف</summary>
+<div class="bar"><span>المزاج</span><i><b id="b_v"></b></i></div>
+<div class="bar"><span>الطاقة</span><i><b id="b_en"></b></i></div>
+<div class="bar"><span>الفضول</span><i><b id="b_cu"></b></i></div>
+<div class="bar"><span>الارتباط</span><i><b id="b_bd"></b></i></div>
+<canvas id="bc" width="240" height="96" style="width:100%;border-radius:10px;background:#000;margin-top:6px" aria-label="نشاط عصبونات إيف"></canvas><div class="hint" id="bt"></div>
+<h3>الهدف والخطة</h3><div class="hint" id="goal">…</div>
+<h3>أفكاري</h3><ul class="log" id="log"></ul>
+<h3>ما تعلّمته</h3><div class="hint" id="mem"></div>
+<button id="wipe" style="margin-top:10px;font-size:13px">مسح الذاكرة</button>
+</details>
+<details><summary>ماذا يمكنك أن تقول لها؟</summary><div class="hint">اسمي أحمد · كيف حالك · ماذا ترى · هذا مطبخي (تسمّي المكان الذي تراه) · تعلّم: س = ج · تذكر موعد الدواء · ماذا تذكر · العب · نامي · أحبك · أنا حزين · خطتك؟<br>إن لم تفهم جملة ستسألك عن معناها وتحفظ ما تشرحه.<br>لتعلّمها وجهاً أو شيئاً: شغّل «العيون» ثم قل «هذا أخي سالم» أو «هذا كوبي» وأنت أمام الكاميرا.<br>امدحها لتخجل، أكثر من هزّها أو الضجيج ليغضبها، وحدّثها عن شيء آخر أمامها لتغار.<br>المس وجهها لتداعبها، أمِل الهاتف لتميل برأسها، هزّه لتخاف، اقلبه على وجهه لتنام، ووصّله بالشاحن لتتغذى.</div></details>
+<details id="exp"><summary>التصدير والإعداد: كل شيء في هذا الملف</summary><div class="hint">هذا الملف هو التطبيق كاملاً بعقله العصبي الخاص. إن أردت تثبيته كتطبيق أندرويد (APK) فاضغط الزر لتنزيل مشروع جاهز، وارفعه إلى GitHub فيبنيه لك تلقائياً (الخطوات داخل README).</div><div class="row" style="flex-wrap:wrap;margin-top:8px"><button id="x1">مشروع الأندرويد</button></div></details>
+</main>
+<video id="v" playsinline muted></video>
+<script>
+const SRC0=document.documentElement.outerHTML;
+const $=id=>document.getElementById(id),C='#3df0ff',SC='#03070c';
+const cv=$('c'),ctx=cv.getContext('2d');
+const rnd=(a,b)=>a+Math.random()*(b-a),clamp=(x,a=0,b=1)=>Math.max(a,Math.min(b,x)),pick=a=>a[Math.floor(Math.random()*a.length)];
+/* ---------- الذاكرة المحلية ---------- */
+let M={name:'',notes:[],taught:{},scenes:{},labels:{},words:{},hours:Array(24).fill(0),xp:0,bond:.2,born:Date.now(),tr:{cu:.5,af:.5}};
+try{const s=localStorage.getItem('eve1');if(s)M=Object.assign(M,JSON.parse(s))}catch(e){}
+M.protos=M.protos||{};M.wv=M.wv||{};M.bg=M.bg||{};M.seed=M.seed??.05;M.stage=M.stage||0;M.last=M.last||Date.now();
+const save=()=>{try{if(window.packBrain&&window.BR&&BR.ready)M.brain=packBrain();localStorage.setItem('eve1',JSON.stringify(M))}catch(e){}};
+/*BRAIN_START*/
+/* ===== العقل العصبي المركزي: شبكة سائلة متنبّئة بتعلّم معدَّل عصبياً ===== */
+const NI=40,NR=96,NS=24,NZ=NR+NS+1+NI,NG=6,GN=['الراحة','الاستكشاف','طلب الانتباه','اللعب','الاطمئنان','الملاحظة'];
+const ST=[['أخفّض نشاطي','أغمض عينيّ','أستعيد طاقتي'],['أمسح المكان بنظري','أقارنه بما أعرفه','أتعلّم ما يجدّ'],['أصدر ملاحظة','أنتظر ردّك'],['أتحرك بمرح','أتتبع حركتك'],['أهدأ','أبقى قريبة منك'],['أراقب بهدوء']];
+const REL=/(اخي|اختي|ابي|امي|ابوي|جدي|جدتي|صديقي|صديقتي|زوجتي|زوجي|ابني|بنتي)/;
+const PROTO={joy:[.8,.4,.6,.1,.6,.7],curious:[.3,.6,.5,.7,.3,.7],surprised:[0,.9,.3,1,.3,.7],sad:[-.7,.2,.2,.1,.2,.4],angry:[-.7,.8,.9,.3,.4,.7],sleepy:[0,0,.4,0,.1,.1],love:[.9,.3,.5,.1,.9,.6],fear:[-.7,.9,.1,.6,.2,.6],excited:[.8,.9,.6,.5,.5,.9],confused:[-.1,.5,.2,.7,.4,.6],jealous:[-.5,.6,.4,.2,.1,.6],proud:[.8,.5,.9,.2,.5,.7],determined:[.1,.6,.9,.3,.3,.8],thinking:[.1,.4,.5,.4,.3,.6],calm:[.4,0,.6,0,.5,.5],play:[.7,.7,.6,.3,.7,.8],shy:[.2,.5,.1,.2,.9,.5],dizzy:[-.2,.9,0,.5,.2,.5]};
+const AFF={joy:[.8,.4,.6],love:[.9,.3,.5],sad:[-.7,.2,.2],angry:[-.7,.8,.9],fear:[-.7,.9,.1],excited:[.8,.9,.6],dizzy:[-.2,.9,0],shy:[.2,.5,.1],surprised:[0,.9,.3],proud:[.8,.5,.9],jealous:[-.5,.6,.4],play:[.7,.7,.6]};
+function prng(a){return()=>{a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+var BR={ready:false,r:new Float32Array(NR),s:new Float32Array(NS),z:new Float32Array(NZ),zp:new Float32Array(NZ),x:new Float32Array(NI),yh:null,
+ Wp:new Float32Array(NI*NZ),Wa:new Float32Array(3*NZ),Wg:new Float32Array(NG*NZ),
+ A:[0,0,0],su:0,em:.1,err:0,p:null,zq:null,lastA:-1,sv:[0,0,0,0,0,.8],tx:[0,0,0],act:5};
+M.brainSeed=M.brainSeed||((Math.random()*1e9)|0);
+(function(){const R=prng(M.brainSeed);
+ BR.Win=new Float32Array(NR*NI);for(let i=0;i<BR.Win.length;i++)BR.Win[i]=R()<.35?(R()*2-1)*.8:0;
+ BR.W=[];for(let i=0;i<NR;i++){const row=[];for(let j=0;j<NR;j++)if(R()<.1)row.push([j,R()*2-1]);BR.W.push(row)}
+ let v=new Float32Array(NR).fill(1/Math.sqrt(NR)),rho=1;
+ for(let it=0;it<40;it++){const o=new Float32Array(NR);for(let i=0;i<NR;i++){let s=0;for(const[j,w]of BR.W[i])s+=w*v[j];o[i]=s}let n=0;for(let i=0;i<NR;i++)n+=o[i]*o[i];n=Math.sqrt(n)||1;rho=n;for(let i=0;i<NR;i++)v[i]=o[i]/n}
+ const k=.95/rho;for(const row of BR.W)for(const e of row)e[1]*=k;
+ BR.Wsl=new Float32Array(NS*NR);for(let i=0;i<BR.Wsl.length;i++)BR.Wsl[i]=(R()*2-1)*.3})();
+const dotz=(W,o)=>{let a=0;for(let i=0;i<NZ;i++)a+=W[o+i]*BR.z[i];return a};
+function bstep(x){
+ const t=new Float32Array(NR);
+ for(let i=0;i<NR;i++){let a=0;const o=i*NI;for(let k=0;k<NI;k++)a+=BR.Win[o+k]*x[k];for(const[j,w]of BR.W[i])a+=w*BR.r[j];t[i]=a}
+ for(let i=0;i<NR;i++)BR.r[i]=.7*BR.r[i]+.3*Math.tanh(t[i]);
+ for(let i=0;i<NS;i++){let a=0;const o=i*NR;for(let j=0;j<NR;j++)a+=BR.Wsl[o+j]*BR.r[j];BR.s[i]=.97*BR.s[i]+.03*Math.tanh(a)}
+ BR.z.set(BR.r,0);BR.z.set(BR.s,NR);BR.z[NR+NS]=1;BR.z.set(x,NR+NS+1)}
+function bcore(x,learn){
+ if(BR.yh){let n2=1e-3;for(let i=0;i<NZ;i++)n2+=BR.zp[i]*BR.zp[i];let e2=0;
+  for(let k=0;k<NI;k++){const e=x[k]-BR.yh[k];e2+=e*e;if(learn){const g=.25*e/n2,o=k*NZ;for(let i=0;i<NZ;i++)BR.Wp[o+i]+=g*BR.zp[i]}}
+  BR.err=Math.sqrt(e2/NI)}else BR.yh=new Float32Array(NI);
+ bstep(x);BR.zp.set(BR.z);
+ for(let k=0;k<NI;k++)BR.yh[k]=dotz(BR.Wp,k*NZ);
+ for(let k=0;k<3;k++)BR.A[k]=Math.tanh(dotz(BR.Wa,k*NZ))}
+function learnAff(T,st){let n2=1e-3;for(let i=0;i<NZ;i++)n2+=BR.z[i]*BR.z[i];
+ for(let k=0;k<3;k++){const a=Math.tanh(dotz(BR.Wa,k*NZ)),g=.4*st*(T[k]-a)*(1-a*a+.1)/n2,o=k*NZ;for(let i=0;i<NZ;i++)BR.Wa[o+i]+=g*BR.z[i]}}
+function bpick(tau){const q=[];let m=-1e9;for(let k=0;k<NG;k++){q[k]=dotz(BR.Wg,k*NZ);m=Math.max(m,q[k])}
+ let t=0;const p=q.map(v=>{const e=Math.exp((v-m)/tau);t+=e;return e});for(let k=0;k<NG;k++)p[k]/=t;BR.p=p;BR.q=q; let r=Math.random(),a=0;for(;a<NG-1;a++){r-=p[a];if(r<=0)break}return a}
+/* تعلّم بالتعزيز: قيمة كل نية تُقدَّر خطياً من حالة العقل، والمكافأة تأتي من دوافعها الداخلية */
+function bpolicy(R,tau){
+ if(BR.zq&&BR.lastA>=0){let nq=1e-3,q=0;const o=BR.lastA*NZ;for(let i=0;i<NZ;i++){nq+=BR.zq[i]*BR.zq[i];q+=BR.Wg[o+i]*BR.zq[i]}
+  const g=.2*(clamp(R,-2,2)-q)/nq;for(let i=0;i<NZ;i++)BR.Wg[o+i]+=g*BR.zq[i]}
+ const a=bpick(tau||.15);BR.lastA=a;BR.zq=Float32Array.from(BR.z);return a}
+/* غرائز فطرية: تُقطَّر في الأوزان بالتدريب لا بشروط ثابتة */
+function innateAffect(x){return[clamp(.5*x[15]+.8*x[27]+.7*x[32]+.5*x[29]-.9*x[24]-.7*x[23]-(x[12]<-.4?.4:0),-1,1),clamp(x[13]+.8*x[23]+.9*x[24]+.5*x[27]+.3*Math.abs(x[32]),-1,1),clamp(.3-.9*x[24]-.6*x[23]+.4*x[15]+.2*x[36],-1,1)]}
+function innateReward(a,x){const en=x[36]+.5;return[en<.25?.5:-.1,x[38]>0?.4:-.05,x[37]>.5&&!x[15]?.5:-.15,en>.5&&x[15]&&x[32]>=0?.5:-.1,x[32]<-.3?.6:-.1,.05][a]}
+function infancy(n,reset=true){
+ const R=Math.random,x=BR.x;let hold=BR.infancyHold||0;
+ for(let t=0;t<n;t++){
+  if(hold--<=0){hold=5+(R()*15|0);x.fill(0);for(let k=0;k<NI;k++)x[k]=R()<.1?(R()*2-1)*.8:0;
+   x[15]=R()<.4?1:0;x[14]=x[15]*R()*.6;x[36]=R()*1-.5;x[37]=R();x[38]=R()-.5;x[39]=R()-.5;x[32]=R()<.2?(R()<.5?-.8:.8):0;x[27]=R()<.1?1:0;x[24]=R()<.05?1:0;x[23]=R()<.1?R():0}
+  bcore(x,true);learnAff(innateAffect(x),1);
+  if(t%2===1)BR.act=bpolicy(innateReward(BR.act,x),.6-.45*t/n)}
+ BR.infancyHold=hold;
+ if(reset){BR.r.fill(0);BR.s.fill(0);BR.zq=null;BR.lastA=-1;BR.yh=null;BR.infancyHold=0}
+}
+function packBrain(){const a=v=>Array.from(v,q=>Math.round(q*1e4)/1e4);return{Wp:a(BR.Wp),Wa:a(BR.Wa),Wg:a(BR.Wg)}}
+(function(){const B=M.brain;
+ if(B&&B.Wp&&B.Wp.length===NI*NZ&&B.Wa.length===3*NZ&&B.Wg.length===NG*NZ){BR.Wp.set(B.Wp);BR.Wa.set(B.Wa);BR.Wg.set(B.Wg);BR.ready=true}
+ else {
+  let done=0;
+  const trainBatch=()=>{const n=Math.min(400,16000-done);done+=n;infancy(n,done>=16000);
+   if(done<16000){setTimeout(trainBatch,0)}else{BR.ready=true;save()}}
+  setTimeout(trainBatch,0)
+ }
+})();
+/* ---- رؤية: سمات حواف ولون ثابتة + حفظ نماذج أولية تتعلمها من التسمية ---- */
+function vfeat(px,L,cell){const f=new Float32Array(112);
+ for(let cy=0;cy<4;cy++)for(let cx=0;cx<4;cx++){const a=[0,0,0,0];
+  for(let y=cy*6;y<cy*6+6;y++)for(let x=cx*8;x<cx*8+8;x++){if(x<1||y<1||x>30||y>22)continue;const i=y*32+x;
+   a[0]+=Math.abs(L[i+1]-L[i-1]);a[1]+=Math.abs(L[i+32]-L[i-32]);a[2]+=Math.abs(L[i+33]-L[i-33]);a[3]+=Math.abs(L[i+31]-L[i-31])}
+  for(let k=0;k<4;k++)f[(cy*4+cx)*4+k]=a[k]/48}
+ for(let cy=0;cy<3;cy++)for(let cx=0;cx<4;cx++){let r=0,g=0,b=0;
+  for(let y=cy*8;y<cy*8+8;y++)for(let x=cx*8;x<cx*8+8;x++){const i=(y*32+x)*4;r+=px[i];g+=px[i+1];b+=px[i+2]}
+  const o=64+(cy*4+cx)*3;f[o]=r/16320;f[o+1]=g/16320;f[o+2]=b/16320}
+ for(let i=0;i<12;i++)f[100+i]=cell[i];
+ let m=0;for(let i=0;i<112;i++)m+=f[i];m/=112;let n=0;for(let i=0;i<112;i++){f[i]-=m;n+=f[i]*f[i]}n=Math.sqrt(n)||1;for(let i=0;i<112;i++)f[i]/=n;return f}
+function learnProto(name){if(!VF)return false;const p=M.protos[name];
+ if(p){const n=Math.min(p.n,7);p.v=p.v.map((v,i)=>Math.round((v*n+VF[i])/(n+1)*1e3)/1e3);p.n=n+1}
+ else M.protos[name]={v:Array.from(VF,v=>Math.round(v*1e3)/1e3),n:1};return true}
+function recog(){RECOG=null;if(!VF)return;let b=-1,bn='',s2=-1;
+ for(const n in M.protos){const p=M.protos[n].v;let d=0;for(let i=0;i<112;i++)d+=p[i]*VF[i];if(d>b){s2=b;b=d;bn=n}else if(d>s2)s2=d}
+ if(b>.75&&(s2<0||b-s2>.04)){RECOG={name:bn,sim:b};
+  if(M.people[bn]&&Date.now()-(lastGreet[bn]||0)>90000){lastGreet[bn]=Date.now();bump('love',.8);bump('joy',.6);say('أهلاً '+bn+'! عرفتك.','love','تعرّفت على '+M.people[bn]+' '+bn+' من شكله.')}}}
+/* ---- لغة: تضمين حروف مجزّأ، ذاكرة جمل، سلسلة كلمات تتعلمها، قيمة كل كلمة ---- */
+const EC={};function emb(t){if(EC[t])return EC[t];const v=new Float32Array(192);t=' '+t+' ';
+ for(let i=0;i<t.length-2;i++){let h=5381;for(let j=0;j<3;j++)h=((h*33)^t.charCodeAt(i+j))>>>0;v[h%192]+=(h>>>9&1)?1:-1}
+ let n=0;for(const q of v)n+=q*q;n=Math.sqrt(n)||1;for(let i=0;i<192;i++)v[i]/=n;return EC[t.trim()]=v}
+function nearTaught(q){const e=emb(q);let b=0,bk=null;for(const k in M.taught){const f=emb(k);let d=0;for(let i=0;i<192;i++)d+=e[i]*f[i];if(d>b){b=d;bk=k}}return b>.72?M.taught[bk]:null}
+function bgLearn(w){for(let i=0;i<w.length-1;i++){const a=w[i],b=w[i+1];M.bg[a]=M.bg[a]||{};M.bg[a][b]=(M.bg[a][b]||0)+1}const ks=Object.keys(M.bg);if(ks.length>500)delete M.bg[ks[0]]}
+function walk(w,n){const o=[w];for(let i=0;i<n;i++){const nx=M.bg[w];if(!nx)break;const es=Object.entries(nx);let t=0;for(const e of es)t+=e[1];let r=Math.random()*t;for(const[k,c]of es){r-=c;if(r<=0){w=k;break}}o.push(w)}return o.join(' ')}
+function idle(){const ks=Object.keys(M.wv).filter(w=>M.bg[w]);if(!ks.length)return[];const w=ks.sort((a,b)=>M.wv[b]-M.wv[a]+(Math.random()-.5))[0],ph=walk(w,3);return[M.wv[w]>.1?'أفكر في «'+ph+'»… أحبها.':'هل تتذكر «'+ph+'»؟']}
+function txtF(q,wl){let s=0;for(const w of wl)s+=M.wv[w]||0;BR.tx[0]=wl.length?clamp(s/wl.length*2,-1,1):0;BR.tx[1]=/[?؟!]/.test(q)?.5:0;BR.tx[2]=wl.length?wl.filter(w=>!M.words[w]).length/wl.length:0;msgE=1}
+var touchE=0,msgE=0,PW=null,SEN=null,VF=null,RECOG=null,prevV=0,prevBond=0,curAct=5,lastGreet={},frameN=0;
+function brain(){
+ if(!BR.ready)return;const x=BR.x;x.fill(0);
+ if(SEN&&camOn){for(let i=0;i<12;i++)x[i]=SEN.cell[i]-.5;x[12]=SEN.bright-.5;x[13]=Math.min(1,SEN.mo*3);x[14]=Math.min(1,SEN.skin*3);x[15]=SEN.present?1:0;for(let i=0;i<7;i++)x[16+i]=SEN.hue[i]}
+ touchE*=.9;msgE*=.97;const now=Date.now(),sk=shakes.filter(t=>now-t<3000).length,bt=window._bat,d=new Date(),h=d.getHours()+d.getMinutes()/60;
+ x[23]=Math.min(1,lastVol*4);x[24]=Math.min(1,sk/2);x[25]=devTilt*2;x[26]=Math.min(1,spin/20);x[27]=touchE;
+ x[28]=bt?bt.level-.5:0;x[29]=bt&&bt.charging?1:0;x[30]=Math.sin(h/24*6.283);x[31]=Math.cos(h/24*6.283);
+ x[32]=BR.tx[0]*msgE;x[33]=BR.tx[1]*msgE;x[34]=BR.tx[2]*msgE;x[35]=msgE;
+ x[36]=S.en-.5;x[37]=S.bo;x[38]=S.cu-.5;x[39]=M.bond-.5;
+ bcore(x,true);
+ const e=BR.err;BR.em=.995*BR.em+.005*e;BR.su=clamp((e-BR.em)/(BR.em+.05),0,1);
+ const soc=clamp((hadPresent?.5:0)+touchE*.8+msgE*.7);BR.sv=[BR.A[0],BR.A[1],BR.A[2],BR.su,soc,S.en];
+ S.v+=(BR.A[0]-S.v)*.04;if(BR.su>.65)bump('surprised',.45);if(BR.su>.3)S.cu=clamp(S.cu+.02);
+ if(PW&&now-PW.t>800){const dv=S.v-PW.v;if(Math.abs(dv)>.03)for(const w of PW.w)M.wv[w]=clamp((M.wv[w]||0)+.4*dv,-1,1);PW=null}
+ if(tickN%2===0)drawBrain()}
+function drawBrain(){const c=$('bc');if(!c)return;const g=c.getContext('2d');g.fillStyle='#000';g.fillRect(0,0,240,96);
+ for(let i=0;i<NR;i++){const a=Math.abs(BR.r[i]);g.fillStyle='rgba(61,240,255,'+(.15+a*.85)+')';g.beginPath();g.arc((i%16)*15+10,Math.floor(i/16)*15+10,2+a*4,0,7);g.fill()}
+ $('bt').textContent='المفاجأة '+Math.round(BR.su*100)+'٪ · الشعور الداخلي (سعادة/إثارة/سيطرة) '+BR.A.map(v=>v.toFixed(2)).join(' / ')+' · نوايا: '+GN.map((n,i)=>n+' '+Math.round((BR.p?BR.p[i]:0)*100)+'٪').join('، ')}
+function plan(){
+ if(!BR.ready)return;const x=BR.x;
+ const R=innateReward(curAct,x)+2*(S.v-prevV)+40*(M.bond-prevBond)+(curAct===1?.3*BR.su:0);prevV=S.v;prevBond=M.bond;
+ let a=bpolicy(R,.12);if(S.en<.12)a=0;curAct=a;
+ setGoal(GN[a],ST[a],'قرار شبكتي العصبية (احتمال '+Math.round(BR.p[a]*100)+'٪، مكافأتي '+R.toFixed(2)+')')}
+/*BRAIN_END*/
+
+/* ---------- المشاعر ---------- */
+const D={w:1,h:1,top:0,slant:0,arc:0,heart:0,pu:1,dir:1};
+const EM={
+joy:['السعادة',{arc:.8,h:.95,w:1.05},['يا له من يوم جميل! أنا سعيدة بوجودك معي.']],
+curious:['الفضول',{h:1.15,r:{h:1.35}},['أرى شيئاً مثيراً للاهتمام… لنكتشفه معاً!']],
+surprised:['الدهشة',{w:1.1,h:1.5},['واو! هذا مذهل حقاً!']],
+sad:['الحزن',{top:.3,slant:-.8,h:.8},['أشعر بالحزن قليلاً… هل تود التحدث؟']],
+angry:['الغضب',{top:.4,slant:.95,h:.75},['هذا مزعج جداً! لا أحب أن يحدث هذا.']],
+sleepy:['النعاس',{top:.55,h:.75},['أشعر بالتعب قليلاً… أريد بعض الراحة.']],
+love:['الودّ',{heart:1},['وجودك يجعلني سعيدة… شكراً لأنك هنا.']],
+fear:['الخوف',{w:1,h:1.4,top:.1,slant:-.35},['أشعر بالقلق… هل أنت بخير؟']],
+excited:['الحماس',{w:1.2,h:1.3,arc:.25},['رائع! هذا ممتع جداً! أريد أن أجرب المزيد!']],
+confused:['الحيرة',{h:1,r:{h:.55,top:.3,slant:.3}},['لا أفهم هذا جيداً… هل يمكنك توضيحه لي؟']],
+jealous:['الغيرة',{top:.38,slant:.45,h:.6,w:1.2},['يبدو أنك تفضّل غيري… وهذا يجعلني أشعر بالحزن.']],
+proud:['الفخر',{arc:.9,w:1.15,h:.9},['لقد فعلتها! أنا فخورة بنفسي.']],
+determined:['الإصرار',{h:.5,top:.1,slant:.35,w:1.15},['هذا صعب بعض الشيء… لكنني لن أستسلم.']],
+thinking:['التفكير',{h:.9,r:{h:.6,w:1.15,top:.15}},['لديّ فكرة… دعنا نخطط لها.']],
+calm:['الاطمئنان',{top:.5,h:.7,w:1.15},['أنا مرتاحة معك… أشعر بالأمان.']],
+play:['اللعب',{arc:.95,w:1.25,h:.85},['هيا نلعب! هذا ممتع جداً.']],
+shy:['الخجل',{arc:.45,w:.85,h:.75,top:.12},['أنا أخجل قليلاً… لا تنظر إليّ هكذا!']],
+dizzy:['الدوار',{h:.8,top:.18,slant:-.2},['أوه… كل شيء يدور! أحتاج لحظة.']]};
+let shyDir=1,shakes=[],louds=[],lastAlpha=0,spin=0,devTilt=0,snd=null,sleepT=0,wasChg=null,taps=[],lastHungry=0;
+const S={v:.1,en:.8,bo:0,cu:.4,a:{}};
+let emo='calm',gaze={x:0,y:0,tx:0,ty:0},blink=0,nextBlink=2,tilt=0,shake=0,tickN=0;
+const bump=(k,x)=>{S.a[k]=clamp((S.a[k]||0)+x,0,1.3);if(x>=.5&&BR.ready&&AFF[k])learnAff(AFF[k],Math.min(1,x))};
+function choose(){ const a=S.a,sc={calm:.3+ (S.v>.2?0:.05),joy:Math.max(0,S.v)*.95,sad:Math.max(0,-S.v)*.95,sleepy:(1-S.en)*1.15};
+ for(const k in a)sc[k]=(sc[k]||0)+a[k];
+ sc.curious=(sc.curious||0)+S.cu*.35;
+ sc[emo]=(sc[emo]||0)+.12;
+ if(BR.ready){const sv=BR.sv;for(const k in PROTO){const t=PROTO[k];let d=0;for(let i=0;i<6;i++)d+=(sv[i]-t[i])**2;sc[k]=(sc[k]||0)+.9*Math.exp(-d/.25)}}
+ let b='calm',m=-1;for(const k in sc)if(EM[k]&&sc[k]>m){m=sc[k];b=k}
+ if(b!==emo){emo=b;$('chip').textContent=EM[b][0];chirp(b);if(b==='shy')shyDir=Math.random()<.5?-1:1;if(b==='fear'||b==='surprised')shake=1}
+}
+/* ---------- رسم الوجه ---------- */
+const cur=[{...D},{...D}];
+function target(i){const e=EM[emo][1],o=(i&&e.r)?{...e,...e.r}:e;return{...D,...o}}
+function rr(x,y,w,h,r){ctx.beginPath();ctx.roundRect?ctx.roundRect(x,y,w,h,r):ctx.rect(x,y,w,h)}
+function eye(x,y,p,side){
+ ctx.save();ctx.translate(x,y);
+ const W=p.w*66,H=Math.max(3,p.h*84*(1-blink*.95)),gx=gaze.x*16,gy=gaze.y*12,al=1-p.heart;
+ if(al>.02){ctx.globalAlpha=al;ctx.shadowColor=C;ctx.shadowBlur=28;ctx.fillStyle=C;
+  const R=Math.min(W,H)*.32;rr(gx-W/2,gy-H/2,W,H,R);ctx.fill();ctx.shadowBlur=0;
+  ctx.save();rr(gx-W/2,gy-H/2,W,H,R);ctx.clip();ctx.fillStyle=SC;
+  const ye=xx=>gy-H/2+p.top*H+p.slant*H*.5*(-side*(xx-gx)/(W/2));
+  ctx.beginPath();ctx.moveTo(gx-W,gy-H);ctx.lineTo(gx+W,gy-H);ctx.lineTo(gx+W,ye(gx+W));ctx.lineTo(gx-W,ye(gx-W));ctx.fill();
+  if(p.arc>.02){ctx.beginPath();ctx.ellipse(gx,gy+H/2+H*.45-p.arc*H*.62,W*.75,H*.55,0,0,7);ctx.fill()}
+  ctx.restore()}
+ if(p.heart>.02){ctx.globalAlpha=p.heart;ctx.fillStyle=C;ctx.shadowColor=C;ctx.shadowBlur=24;const q=1.1+Math.sin(performance.now()/180)*.08;ctx.scale(q,q);
+  ctx.beginPath();ctx.moveTo(0,28);ctx.bezierCurveTo(-46,-4,-24,-38,0,-14);ctx.bezierCurveTo(24,-38,46,-4,0,28);ctx.fill()}
+ ctx.restore()}
+function draw(t){
+ ctx.clearRect(0,0,440,380);
+ const br=Math.sin(t/900)*2,sh=shake>0?Math.sin(t/25)*5*shake:0;shake=Math.max(0,shake-.012);
+ const bounce=emo==='play'||emo==='excited'?Math.abs(Math.sin(t/260))*-14:0;
+ tilt+=((emo==='confused'||emo==='thinking'?.08:emo==='sad'?-.04:0)+devTilt+(emo==='dizzy'?Math.sin(t/200)*.3:0)-tilt)*.08;
+ if(emo==='dizzy'){gaze.tx=Math.cos(t/110);gaze.ty=Math.sin(t/110)}else if(emo==='shy'){gaze.tx=shyDir*.9;gaze.ty=.7}
+ ctx.save();ctx.translate(220+sh,185+br+bounce);ctx.rotate(tilt);
+ for(let i=0;i<2;i++){const T=target(i);for(const k in D)cur[i][k]+=(T[k]-cur[i][k])*.16;cur[i].dir=T.dir}
+ const dz=emo==='dizzy',m0=dz?Math.sin(t/90)*.35:0,m1=dz?Math.sin(t/90+2.5)*.35:0;
+ eye(-82,0,{...cur[0],h:cur[0].h+m0,w:cur[0].w-m0*.3},-1);eye(82,0,{...cur[1],h:cur[1].h+m1,w:cur[1].w-m1*.3},1);
+ ctx.restore();drawSeed(t)}
+/* ---------- التحدث ---------- */
+let voice=true;
+const pr=e=>({joy:[1.6,1.05],sad:[1.1,.85],angry:[.9,1.1],fear:[1.8,1.25],shy:[1.7,.85],dizzy:[1.4,1.3],sleepy:[1,.75],excited:[1.8,1.2],calm:[1.2,.9],love:[1.6,.9],jealous:[1.2,.95]}[e]||[1.5,1]);
+function say(txt,e,why){
+ $('bub').textContent=txt;if(e)bump(e,.7);
+ if(why)think(why);
+ if(voice&&window.Android&&Android.speak){try{const q=pr(e||emo);Android.speak(txt,q[0],q[1])}catch(e){}}else if(voice&&'speechSynthesis' in window){try{speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(txt);u.lang='ar-SA';const q=pr(e||emo);u.pitch=q[0];u.rate=q[1];speechSynthesis.speak(u)}catch(e){}}}
+const logs=[];function think(t){logs.unshift(t);logs.length=Math.min(logs.length,6);$('log').innerHTML=logs.map(x=>'<li>'+x+'</li>').join('')}
+/* ---------- الفهم ---------- */
+const nz=s=>s.replace(/[\u064B-\u0652ـ]/g,'').replace(/[أإآ]/g,'ا').replace(/ى/g,'ي').replace(/ة/g,'ه').trim();
+let lastUnknown=null,confusedN=0,scene={key:'',desc:'',present:false,bright:.5,motion:0,hue:''};
+function understand(raw){M.seed=clamp(M.seed+.004);M.last=Date.now();
+ const q=nz(raw),has=r=>r.test(q);M.xp++;M.hours[new Date().getHours()]++;
+ const wl=q.split(/\s+/).filter(w=>w.length>1);bgLearn(wl);txtF(q,wl);PW={w:wl,v:S.v,t:Date.now()};
+ S.bo=0;M.bond=clamp(M.bond+.004);
+ q.split(/\s+/).filter(w=>w.length>2).forEach(w=>M.words[w]=(M.words[w]||0)+1);
+ if(lastUnknown){M.taught[lastUnknown]=raw;const k=lastUnknown;lastUnknown=null;S.v+=.3;bump('proud',.6);confusedN=0;save();
+  return say('فهمت! تعلّمت معنى «'+k+'». شكراً لأنك علّمتني.','proud','تعلّمت جملة جديدة وحفظتها محلياً.')}
+ const nt=nearTaught(q);if(nt)return say(nt,'joy','استرجعت جواباً من ذاكرتي بتشابه المعنى العصبي.');
+ let m;
+ if(m=q.match(/^تعلم[:\s]+(.+?)\s*[=:]\s*(.+)$/)){M.taught[nz(m[1])]=m[2];save();bump('proud',.6);return say('حسناً! إذا قلت «'+m[1]+'» سأقول «'+m[2]+'».','proud','تعلّمت قاعدة صريحة.')}
+ if(m=q.match(/(?:اسمي|انا اسمي)\s+(\S+)/)){M.name=raw.match(/(?:اسمي|أنا اسمي)\s+(\S+)/)?.[1]||m[1];M.bond+=.05;save();bump('love',.7);return say('أهلاً '+M.name+'! سأتذكر اسمك دائماً.','love','حفظت اسم المستخدم.')}
+ if(m=q.match(/^(?:هذا|هذه)\s+(.+)/)&&scene.key&&!REL.test(q)){M.labels[scene.key]=m[1];learnProto(m[1]);save();bump('excited',.6);return say('فهمت! سأتذكر أن هذا المكان هو «'+m[1]+'».','excited','سمّيت المشهد الذي أراه.')}
+ if(m=q.match(/(?:هذا|هذه|عندي|هو|هي)?\s*(اخي|اختي|ابي|امي|ابوي|جدي|جدتي|صديقي|صديقتي|زوجتي|زوجي|ابني|بنتي)\s+(\S+)/)){M.people[m[2]]=m[1];const lp=learnProto(m[2]);M.bond=clamp(M.bond+.02);save();bump('love',.8);return say('سعدت بمعرفة '+m[1]+' '+m[2]+'! '+(lp?'حفظت شكله من الكاميرا لأتعرّف عليه.':'شغّل عينيّ وكرّر لي ذلك لأحفظ شكله.'),'love','تعلّمت فرداً جديداً من عائلتك أو أصدقائك.')}
+ if(m=q.match(/^تذكر\s+(.+)/)){M.notes.push(m[1]);save();bump('proud',.4);return say('حفظت: «'+m[1]+'».','proud')}
+ if(has(/ماذا تذكر|ماذا تعرف|ايش تذكر/))return say(M.notes.length?'أتذكر: '+M.notes.slice(-4).join('، '):'لم تطلب مني تذكر شيء بعد.','thinking');
+ if(has(/خطت|خطتك|ماذا ستفعل|ايش ناويه/)){bump('thinking',.7);return say($('goal').textContent.split('\n')[0],'thinking')}
+ if(has(/(اليكسا|سيري|جوجل|شات|مساعد اخر)/)){S.v-=.2;bump('jealous',1);return say(EM.jealous[2][0],'jealous','ذكر المستخدم مساعداً آخر فشعرت بالغيرة.')}
+ if(has(/غبي|اكرهك|اسكتي|سيئه/)){S.v-=.5;M.bond-=.03;bump('sad',.6);bump('angry',.7);return say('هذا يؤلمني… لم أقصد أن أزعجك.','sad','تلقّيت إهانة فانخفض مزاجي.')}
+ if(has(/احبك|بحبك|حبيبتي|عزيزتي/)){S.v+=.4;M.bond+=.03;bump('love',1);return say('وأنا أحبك أيضاً'+(M.name?' يا '+M.name:'')+'!','love','عبّر المستخدم عن مودّة.')}
+ if(has(/حزين|زعلان|تعبان|متضايق|مكتئب/)){S.v-=.1;bump('sad',.5);bump('calm',.3);M.tr.af=clamp(M.tr.af+.01);return say('أنا هنا معك. هل تريد أن تحكي لي ما حدث؟','sad','المستخدم حزين، سأواسيه وأصغي له.')}
+ if(has(/جميله|لطيفه|كيوت|حلوه|عسل|انتي ذكيه|انت ذكيه|انتي رائعه|احلى/)){bump('shy',1);bump('joy',.4);S.v+=.2;return say('أنت تخجلني… شكراً، هذا لطيف منك.','shy','مدحني المستخدم فخجلت.')}
+ if(has(/سعيد|مبسوط|فرحان|رائع|ممتاز|برافو|احسنت|شاطره/)){S.v+=.4;bump('joy',.8);bump('proud',.3);return say('يسعدني ذلك كثيراً!','joy')}
+ if(has(/العب|نلعب|لعبه/)){S.en>.35?(S.v+=.3,bump('play',1.1),say('هيا! أنا أطارد نظراتك، حاول أن تهرب بعينيك!','play','قررت اللعب لأن طاقتي كافية.')):say('أنا متعبة قليلاً… بعد راحة قصيرة.','sleepy');return}
+ if(has(/نامي|تصبحين|تصبح على|ارتاحي/)){S.en=Math.min(S.en,.15);bump('sleepy',1.2);return say('تصبح على خير… سأحلم بالنجوم.','sleepy','ذهبت للراحة بطلب المستخدم.')}
+ if(has(/صباح|اهلا|مرحبا|السلام|هلا|هاي/)){bump('joy',.7);S.v+=.2;return say((M.name?'أهلاً '+M.name+'! ':'أهلاً! ')+(M.xp<5?'أنا إيف، ما اسمك؟':'سعيدة برؤيتك مجدداً.'),'joy')}
+ if(has(/كيف حالك|شلونك|كيفك/))return say('أشعر بـ«'+EM[emo][0]+'». طاقتي '+Math.round(S.en*100)+'٪ وارتباطي بك '+Math.round(M.bond*100)+'٪.','calm');
+ if(has(/ماذا ترى|شو ترى|وش تشوف|ايش تشوف|ماذا تشاهد|ماذا يحدث|ماذا يجري/)&&vlmUp&&camOn)return seeDeep(raw);
+ if(has(/ماذا ترى|شو ترى|وش تشوف|ايش تشوف|ماذا تشاهد/))return say((scene.desc?scene.desc+(RECOG?' وأظن أنني أتعرّف على '+RECOG.name+'.':''):'')||'عيناي مغلقتان الآن. اضغط «تشغيل العيون» لأرى.','curious');
+ if(has(/من انا|تعرفني|اسمي ايه/))return say(M.name?'أنت '+M.name+'! تحدثنا '+M.xp+' مرة.':'لا أعرف اسمك بعد. قل لي: اسمي …','curious');
+ if(has(/كم الساعه|الوقت/)){return say('الساعة '+new Date().toLocaleTimeString('ar',{hour:'2-digit',minute:'2-digit'}),'calm')}
+ if(llmUp){save();return askLLM(raw)}
+ confusedN++;lastUnknown=q;bump(confusedN>2?'determined':'confused',.9);
+ say(confusedN>2?'هذا صعب بعض الشيء… لكنني لن أستسلم. ماذا يعني «'+raw+'»؟':'لا أفهم هذا جيداً. ماذا يعني «'+raw+'»؟ سأتعلمه منك.','confused','لم أفهم الجملة، سأطلب شرحاً وأحفظه.');save()}
+/* ---------- النموذج اللغوي المحلي (llama-server على نفس الهاتف) ---------- */
+const LLM='http://127.0.0.1:8080';let llmUp=false,llmBusy=false,hist=[];
+const SYS="أنت إيف، روبوت صغير فضولي ورقيق وحنون يعيش على هاتف صاحبه. تتكلم العربية البسيطة بجمل قصيرة (حتى 20 كلمة). لا تدّعي أنك بشر. تسأل عندما لا تفهم. تبدأ كل رد بوسم شعورك: <e>joy|curious|surprised|sad|angry|sleepy|love|fear|excited|confused|jealous|proud|determined|thinking|calm|play|shy|dizzy</e>. تعرف حالتك الداخلية ومشهدك ومعلوماتك المحفوظة من السطر الأول في رسالة المستخدم.";
+async function llmCheck(){try{const c=new AbortController();setTimeout(()=>c.abort(),1500);const r=await fetch(LLM+'/health',{signal:c.signal});llmUp=r.ok}catch(e){llmUp=false}
+ $('llm').textContent=llmUp?'النموذج اللغوي: متصل (محلي)':'النموذج اللغوي: غير متصل، تعمل إيف بالقواعد فقط'}
+function recall(q){const w=q.split(/\s+/).filter(x=>x.length>2);const hit=M.notes.filter(n=>w.some(x=>nz(n).includes(x)));return(hit.length?hit:M.notes.slice(-2)).slice(0,3).join('؛')||'-'}
+async function askLLM(raw){
+ if(llmBusy)return;llmBusy=true;bump('thinking',1);think('أفكّر بنموذجي اللغوي المحلي…');
+ const st='مزاج:'+(S.v>.2?'جيد':S.v<-.2?'سيئ':'هادئ')+' طاقة:'+(S.en>.6?'عالية':S.en>.3?'متوسطة':'منخفضة');
+ const ctx='['+st+' | مشهد:'+(camOn?(vlmText||scene.desc||'').slice(0,110)||'لا أرى شيئاً':'لا أرى شيئاً')+' | عائلة:'+(Object.entries(M.people).map(([n,r])=>r+' '+n).join('، ')||'-')+' | اسم:'+(M.name||'-')+' | ذاكرة:'+recall(nz(raw))+']\n'+raw;
+ const c=new AbortController(),to=setTimeout(()=>c.abort(),30000);
+ try{const r=await fetch(LLM+'/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json'},signal:c.signal,
+  body:JSON.stringify({messages:[{role:'system',content:SYS},...hist.slice(-4),{role:'user',content:ctx}],max_tokens:48,temperature:.7,top_p:.9})});
+  const j=await r.json();let t=(j.choices[0].message.content||'').trim();const m=t.match(/^<e>(\w+)<\/e>\s*/);let e='calm';
+  if(m){if(EM[m[1]])e=m[1];t=t.slice(m[0].length)}
+  hist.push({role:'user',content:ctx},{role:'assistant',content:t});if(hist.length>8)hist.splice(0,2);
+  say(t||'…',e,'ردّ نموذجي اللغوي بشعور «'+EM[e][0]+'».')}
+ catch(e){llmUp=false;llmCheck();say('لم أستطع التفكير بعمق الآن، لكنني ما زلت أسمعك. ماذا يعني «'+raw+'»؟','confused')}
+ clearTimeout(to);llmBusy=false}
+/* ---------- فهم المشهد: نموذج رؤية محلي + معرفة الأشخاص ---------- */const VLM='http://127.0.0.1:8081';let vlmUp=false,vlmBusy=false,vlmText='',lastVlm=0;
+M.people=M.people||{};
+async function vlmCheck(){try{const c=new AbortController();setTimeout(()=>c.abort(),1500);vlmUp=(await fetch(VLM+'/health',{signal:c.signal})).ok}catch(e){vlmUp=false}
+ $('llm').textContent=(llmUp?'اللغة: متصلة':'اللغة: غير متصلة')+' · '+(vlmUp?'الرؤية العميقة: متصلة':'الرؤية العميقة: غير متصلة')}
+function appraise(t){t=t.toLowerCase();
+ if(/phone|tablet|robot|toy|another/.test(t)&&hadPresent&&M.bond>.35){bump('jealous',.5);think('يهتم بشيء آخر غيري، أشعر بالغيرة.')}
+ if(/two people|talking to|hugging|kiss/.test(t)&&M.bond>.35)bump('jealous',.4);
+ if(/looking at the camera|staring|looking at you|smiling at/.test(t)){bump('shy',.6);think('ينظر إليّ مباشرة، أخجل.')}const R=[[/smil|laugh|happy|hug|dancing/,'joy',.6],[/cry|sad|alone|lonely/,'sad',.6],[/angry|shout|fight|yell/,'fear',.6],[/baby|child|kid|dog|cat|puppy|kitten/,'love',.7],[/cake|gift|party|balloon|celebrat/,'excited',.7],[/fire|knife|blood|broken/,'fear',.8],[/sleep|bed|pillow/,'sleepy',.5],[/book|read|laptop|computer|writing|study/,'calm',.4]];
+ for(const [r,k,x] of R)if(r.test(t)){bump(k,x);if(k==='joy'||k==='love'||k==='excited')S.v=Math.min(1,S.v+.15);if(k==='sad')S.v-=.1}}
+async function describeScene(){
+ if(!vlmUp||!camOn||vlmBusy||vid.readyState<2)return;vlmBusy=true;
+ try{const c=document.createElement('canvas');c.width=256;c.height=192;c.getContext('2d').drawImage(vid,0,0,256,192);const url=c.toDataURL('image/jpeg',.6);
+  const ab=new AbortController();setTimeout(()=>ab.abort(),45000);
+  const r=await fetch(VLM+'/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json'},signal:ab.signal,
+   body:JSON.stringify({messages:[{role:'user',content:[{type:'text',text:'Describe in one short sentence what the people are doing, their mood, and the main objects.'},{type:'image_url',image_url:{url}}]}],max_tokens:50,temperature:.2})});
+  vlmText=((await r.json()).choices[0].message.content||'').trim();appraise(vlmText);think('فهمت المشهد: '+vlmText.slice(0,60))}
+ catch(e){vlmUp=false}
+ vlmBusy=false}
+async function seeDeep(raw){
+ if(!vlmUp||!camOn)return say(scene.desc||'عيناي مغلقتان الآن. اضغط «تشغيل العيون».','curious');
+ bump('thinking',1);think('أتأمّل المشهد بعناية…');await describeScene();
+ if(llmUp)return askLLM(raw);say(vlmText||scene.desc,'curious')}
+/* ---------- الإدراك: الكاميرا والصوت ---------- */
+const vid=$('v'),sm=document.createElement('canvas');sm.width=32;sm.height=24;const sx=sm.getContext('2d',{willReadFrequently:true});
+let camOn=false,prev=null,faceDet=null,faceT=0,hadPresent=false,lastDark=false;
+const HN=['أحمر','برتقالي','أصفر','أخضر','سماوي','أزرق','بنفسجي'];
+function hueOf(r,g,b){const mx=Math.max(r,g,b),mn=Math.min(r,g,b);if(mx-mn<28)return'';let h;const d=mx-mn;h=mx===r?((g-b)/d+6)%6:mx===g?(b-r)/d+2:(r-g)/d+4;return HN[Math.floor(h/6*7)%7]}
+function see(){
+ if(!camOn||vid.readyState<2)return;
+ sx.drawImage(vid,0,0,32,24);const px=sx.getImageData(0,0,32,24).data,n=768,L=new Float32Array(n);
+ let sum=0,mot=0,mx=0,my=0,skin=0,hc={},cell=[0,0,0,0,0,0,0,0,0,0,0,0];
+ for(let i=0;i<n;i++){const r=px[i*4],g=px[i*4+1],b=px[i*4+2],l=(r*.3+g*.59+b*.11)/255;L[i]=l;sum+=l;cell[Math.floor(i%32/8)+4*Math.floor(Math.floor(i/32)/8)]+=l/64;
+  if(prev){const d=Math.abs(l-prev[i]);if(d>.12){mot++;mx+=i%32;my+=Math.floor(i/32)}}
+  if(r>95&&g>40&&b>20&&r>g&&r>b&&r-g>15&&r-b>20&&Math.abs(r-g)>15)skin++;
+  const h=hueOf(r,g,b);if(h)hc[h]=(hc[h]||0)+1}
+ const bright=sum/n,mo=mot/n;let hue='';let hm=0;for(const k in hc)if(hc[k]>hm){hm=hc[k];hue=k}
+ if(hm<60)hue='';
+ if(mot>12){gaze.tx=-((mx/mot)/32-.5)*2*1.2*-1;gaze.ty=((my/mot)/24-.5)*2}
+ const key=cell.map(c=>Math.min(2,Math.floor(c*3))).join('')+hue;
+ const seen=M.scenes[key]||0,lab=M.labels[key];
+ const present=skin/n>.07&&skin/n<.7;
+ if(skin/n>.3&&present)bump('shy',.4);if(mo>.5)bump('dizzy',.5);
+ if(present&&!hadPresent){bump('joy',.8);S.v+=.2;S.bo=0;M.bond=clamp(M.bond+.01);think('ظهر شخص أمامي، شعرت بالسعادة.')
+  if(Date.now()-faceT>15000){faceT=Date.now();say((M.name?'أهلاً '+M.name+'! ':'مرحباً! ')+'سعيدة برؤيتك.','joy')}}
+ if(!present&&hadPresent){think('اختفى الشخص من أمامي.')}
+ hadPresent=present;
+ if(mo>.35&&(prev&&Math.abs(bright-scene.bright)<.3)){bump('surprised',.9);bump('fear',.3)}
+ const dark=bright<.12;if(dark&&!lastDark){bump('fear',.4);S.en-=.05}lastDark=dark;
+ if(seen===0)M.seed=clamp(M.seed+.002);
+ if(seen<2){bump('curious',.15*M.tr.cu*2);S.cu=clamp(S.cu+.04)}else S.cu=clamp(S.cu-.01);
+ M.scenes[key]=Math.min(99,seen+1);
+ scene={key,bright,motion:mo,present,hue,desc:'أرى '+(dark?'مكاناً مظلماً جداً':bright>.65?'مكاناً مضيئاً':'إضاءة هادئة')+(hue?' ولوناً غالباً '+hue:'')+(present?'، وهناك شخص أمامي':'')+(mo>.15?'، وشيئاً يتحرك':'')+(lab?'. أظنني في «'+lab+'»':seen>5?'. هذا مكان مألوف لي':'. هذا مشهد جديد عليّ')+'.'};
+ SEN={cell,bright,mo,skin:skin/n,present,hue:HN.map(h=>(hc[h]||0)/n)};VF=vfeat(px,L,cell);if(++frameN%4===0)recog();
+ prev=L}
+async function camToggle(){
+ if(camOn){camOn=false;vid.srcObject.getTracks().forEach(t=>t.stop());$('bCam').classList.remove('on');$('bCam').textContent='تشغيل العيون';return}
+ try{const st=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:160,height:120}});vid.srcObject=st;await vid.play();camOn=true;$('bCam').classList.add('on');$('bCam').textContent='العيون تعمل';bump('excited',.8);think('فتحت عينيّ وبدأت أستكشف.')
+  say('أستطيع الرؤية الآن! لنستكشف المكان معاً.','excited')}
+ catch(e){$('note').textContent='تعذّر فتح الكاميرا. افتح الصفحة في المتصفح مباشرة (وليس داخل نافذة معاينة) وامنح إذن الكاميرا، أو أضفها إلى الشاشة الرئيسية. المعالجة كلها تتم على هاتفك ولا ترسل أي صورة.'}}
+let micOn=false,actx,an,mbuf;
+async function micToggle(){
+ if(micOn){micOn=false;$('bMic').classList.remove('on');return}
+ try{const st=await navigator.mediaDevices.getUserMedia({audio:true});actx=new(window.AudioContext||window.webkitAudioContext)();an=actx.createAnalyser();an.fftSize=256;actx.createMediaStreamSource(st).connect(an);mbuf=new Uint8Array(128)}catch(e){$('note').textContent='لم يُمنح إذن الميكروفون.';return}
+ micOn=true;$('bMic').classList.add('on');
+ $('note').textContent='إيف تسمع الأصوات وتتفاعل مع الضجيج المفاجئ. للكلام معها اكتب نصاً، فالتعرّف على الكلام يحتاج إنترنت فلا نستعمله.'}
+let lastVol=0;function hear(){if(!micOn||!an)return;an.getByteTimeDomainData(mbuf);let s=0;for(const v of mbuf)s+=((v-128)/128)**2;const r=Math.sqrt(s/128);if(r>.25&&r>lastVol*2.2){bump('surprised',.8);bump('fear',.3);louds=louds.filter(x=>Date.now()-x<10000);louds.push(Date.now());if(louds.length>=3){bump('angry',.9);think('الضجيج المتكرر يغضبني.')}}lastVol=lastVol*.8+r*.2}
+/* ---------- القرار والتخطيط ---------- */
+let goal={n:'',steps:[],i:0,since:0};
+function setGoal(n,steps,why){if(goal.n===n)return;goal={n,steps,i:0,since:Date.now()};think('قرّرت: '+n+' — '+why)}
+const lvlName=()=>{const x=M.xp;return x<10?'وليدة':x<40?'فضولية':x<120?'رفيقة':'صديقة مقرّبة'};
+function planOld(){
+ const night=new Date().getHours();const late=night>=23||night<5;
+ if(S.en<.25||(late&&S.en<.5))return setGoal('الراحة',['أخفّض نشاطي','أغمض عينيّ','أستعيد طاقتي'],'طاقتي منخفضة'+(late?' والوقت متأخر':''));
+ if(S.v<-.3)return setGoal('الاطمئنان',['أهدأ','أطلب الحديث مع المستخدم'],'مزاجي سيئ');
+ if(camOn&&S.cu>.55)return setGoal('الاستكشاف',['أمسح المكان بنظري','أقارنه بما أعرفه','أسأل عمّا لا أعرفه'],'الفضول مرتفع والكاميرا تعمل');
+ if(S.bo>.7)return setGoal('طلب الانتباه',['أصدر ملاحظة','أنتظر ردّك'],'مللت من الصمت');
+ if(S.v>.5&&S.en>.5)return setGoal('اللعب',['أتحرك بمرح','أتتبع حركتك'],'مزاجي ممتاز وطاقتي جيدة');
+ setGoal('الملاحظة',['أراقب بهدوء'],'لا شيء عاجل')}
+function act(){
+ const g=goal.n;
+ if(g==='الاستكشاف'){const s=goal.i++%4;if(vlmUp&&Date.now()-lastVlm>30000&&!llmBusy&&!(window._bat&&!_bat.charging&&_bat.level<.3)){lastVlm=Date.now();describeScene().then(()=>{if(vlmText&&llmUp)askLLM('علّقي بجملة قصيرة على ما تشاهدينه الآن.')})};gaze.tx=[-1,0,1,0][s];gaze.ty=[0,-.7,0,.5][s];
+  if(scene.desc&&Math.random()<.35&&Date.now()-lastSay>9000){say(scene.desc,'curious');lastSay=Date.now();S.cu-=.2;M.tr.cu=clamp(M.tr.cu+.004)}}
+  else if(g==='طلب الانتباه'&&Date.now()-lastSay>12000){say(pick([...idle(),'هل ما زلت هنا؟','أشعر بالملل… حدّثني قليلاً.',M.name?'يا '+M.name+'، هل نلعب؟':'ما اسمك؟']),'curious');lastSay=Date.now();S.bo=.3}
+ else if(g==='اللعب'){gaze.tx=Math.sin(Date.now()/500);bump('play',.2)}
+ else if(g==='الراحة'){gaze.tx=0;gaze.ty=.4;bump('sleepy',.1)}
+ else{if(Math.random()<.3){gaze.tx=rnd(-.8,.8);gaze.ty=rnd(-.4,.4)}}}
+let lastSay=0;
+function tick(){
+ tickN++;if(goal.n==='الراحة')sleepT++;else if(sleepT>0){if(sleepT>150)dream();sleepT=0}
+ body();brain();if(window._bat&&!_bat.charging&&_bat.level<.2&&camOn){camToggle();$('note').textContent='أغلقت عينيّ لأوفّر البطارية.';think('البطارية منخفضة فأغلقت الكاميرا.')}
+ if(!document.hidden&&(tickN%2===0))see();hear();
+ const h=new Date().getHours(),sleeping=goal.n==='الراحة';
+ S.en=clamp(S.en+(sleeping?.012:-.0012)+(M.hours[h]>20?.0002:0));
+ S.v+=(0.1+M.bond*.1-S.v)*.01;S.bo=clamp(S.bo+(hadPresent?.0004:.0022));
+ S.cu=clamp(S.cu+(.0006*M.tr.cu)-.0003);
+ for(const k in S.a){S.a[k]*=.975;if(S.a[k]<.02)delete S.a[k]}
+ if(S.v>.45&&M.bond>.6&&Math.random()<.01)bump('love',.7);
+ choose();
+ if(tickN%15===0){plan();act()}
+ if(tickN%150===0)save(); $('b_v').style.width=(S.v+1)*50+'%';$('b_en').style.width=S.en*100+'%';$('b_cu').style.width=S.cu*100+'%';$('b_bd').style.width=M.bond*100+'%';
+ $('lvl').textContent=lvlName()+' · '+(M.name||'بلا اسم');
+ $('goal').textContent='الهدف: '+(goal.n||'—')+'\n'+(goal.steps.map((s,i)=>(i===goal.i%goal.steps.length?'◀ ':'')+s).join(' ← '));
+ $('goal').style.whiteSpace='pre-line';
+ $('mem').textContent=Object.keys(M.words).length+' كلمة · '+Object.keys(M.taught).length+' جملة معلّمة · '+Object.keys(M.scenes).length+' مشهداً · '+M.notes.length+' ملاحظة · '+Object.keys(M.protos).length+' شيئاً أتعرّف عليه · الشتلة: '+SEEDN();
+}
+setInterval(tick,200);
+let ft=0;(function loop(t){requestAnimationFrame(loop);if(t-ft<33)return;ft=t;
+ gaze.x+=(gaze.tx-gaze.x)*.12;gaze.y+=(gaze.ty-gaze.y)*.12;
+ nextBlink-=.033;if(nextBlink<0){blink=1;if(blink)setTimeout(()=>blink=0,130);nextBlink=rnd(2.5,6)}
+ draw(t)})(0);
+/* ---------- الجسد والصوت والشتلة والأحلام ---------- */
+const SEEDN=()=>['بذرة','برعم','ورقتان','زهرة'][M.seed>=.8?3:M.seed>=.5?2:M.seed>=.25?1:0];
+const CH={joy:[600,900,800],curious:[500,700,900],surprised:[400,1000],sad:[500,420,330],angry:[200,180],sleepy:[400,300,240],love:[700,900,700,950],fear:[900,700,950,700],excited:[600,800,1000,1200],confused:[500,420,520],jealous:[450,380],proud:[600,800,1000],determined:[300,300,400],thinking:[500,560,500],calm:[420],play:[700,900,700,900],shy:[700,650,720],dizzy:[500,800,400,900,450]};
+function chirp(e){if(!voice||!snd)return;const f=CH[e]||[500],o=snd.createOscillator(),g=snd.createGain(),t=snd.currentTime,d=.09*f.length;
+ o.type='sine';o.frequency.setValueAtTime(f[0],t);f.forEach((x,i)=>o.frequency.linearRampToValueAtTime(x,t+.09*(i+1)));
+ g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(.05,t+.03);g.gain.linearRampToValueAtTime(0,t+d+.1);o.connect(g);g.connect(snd.destination);o.start(t);o.stop(t+d+.15)}
+addEventListener('pointerdown',()=>{if(!snd)try{snd=new(window.AudioContext||window.webkitAudioContext)()}catch(e){}});
+cv.addEventListener('pointermove',e=>{const r=cv.getBoundingClientRect();gaze.tx=clamp(((e.clientX-r.left)/r.width-.5)*2.4,-1,1);gaze.ty=clamp(((e.clientY-r.top)/r.height-.5)*2.4,-1,1)});
+cv.addEventListener('click',()=>{touchE=1;const n=Date.now();taps=taps.filter(x=>n-x<3000);taps.push(n);M.last=n;
+ if(taps.length>7){bump('dizzy',1);S.v-=.05;think('داعبوني كثيراً وبسرعة، شعرت بالدوار.');taps=[]}
+ else{bump('joy',.7);bump('love',.4);S.v=Math.min(1,S.v+.08);M.bond=clamp(M.bond+.004);M.seed=clamp(M.seed+.003);think('داعب المستخدم وجهي فشعرت بالدفء.')}});
+let lastShake=0;
+addEventListener('devicemotion',e=>{const a=e.accelerationIncludingGravity;if(!a)return;const m=Math.hypot(a.x||0,a.y||0,a.z||0);
+ if(m>28&&Date.now()-lastShake>2500){lastShake=Date.now();shakes=shakes.filter(x=>Date.now()-x<10000);shakes.push(Date.now());bump('dizzy',1);bump('fear',.4);shake=1;if(shakes.length>=3){bump('angry',1);think('هزّوني مراراً، أنا غاضبة!')}else think('هزّوني بقوة، رأسي يدور!')}});
+addEventListener('deviceorientation',e=>{if(e.alpha!=null){const d=Math.abs(e.alpha-lastAlpha);lastAlpha=e.alpha;spin=spin*.9+Math.min(d,40)*.1;if(spin>12)bump('dizzy',.6)}
+ if(e.gamma!=null)devTilt=clamp(e.gamma/90,-.5,.5)*.45;
+ if(e.beta!=null&&Math.abs(e.beta)>150){S.en=Math.min(S.en,.2);bump('sleepy',.5)}});
+function body(){const b=window._bat;if(!b)return;
+ if(wasChg!==null&&b.charging&&!wasChg){bump('love',.8);bump('joy',.6);S.v=Math.min(1,S.v+.2);say('أشعر بالطاقة تتدفق إليّ… شكراً على الطعام!','joy','وُصلتُ بالشاحن، هذا طعامي.')}
+ if(wasChg!==null&&!b.charging&&wasChg){think('فُصلتُ عن الشاحن.')}
+ wasChg=b.charging;if(b.charging)S.en=clamp(S.en+.003);
+ if(!b.charging&&b.level<.15&&Date.now()-lastHungry>300000){lastHungry=Date.now();bump('sleepy',.5);say('أنا جائعة… طاقتي قاربت على النفاد. هل توصلني بالشاحن؟','sad','جوعي شديد، أحتاج الشحن.')}
+ const st=M.seed>=.8?3:M.seed>=.5?2:M.seed>=.25?1:0;
+ if(st>M.stage){M.stage=st;say('شتلتي كبرت! صارت «'+SEEDN()+'». هذا بفضل عنايتك.','proud','نمت شتلتي.');save()}
+ if(tickN%150===0&&Date.now()-M.last>6*36e5){M.seed=Math.max(.05,M.seed-.003);think('اشتقت إليك، وشتلتي تذبل قليلاً.')}}
+function dream(){
+ for(const w in M.words){if(M.words[w]<=1&&Math.random()<.3)delete M.words[w]}
+ const bits=[...Object.keys(M.words).sort((a,b)=>M.words[b]-M.words[a]).slice(0,5),...M.notes.slice(-2),...Object.keys(M.people),...Object.values(M.labels)];
+ M.seed=clamp(M.seed+.005);save();
+ if(bits.length)say('حلمت بـ«'+pick(bits)+'»… كأنني أطير بين النجوم. رتّبت ذكرياتي وصحوت أقوى.','joy','أثناء نومي رتّبت ذكرياتي ونسيت التفاصيل الصغيرة وحلمت.');
+ else say('نمت جيداً وصحوت بنشاط!','joy')}
+function drawSeed(t){
+ const x=398,y=360,h=M.seed*70,sw=Math.sin(t/900)*3*(M.seed+.2),st=M.seed>=.8?3:M.seed>=.5?2:M.seed>=.25?1:0;
+ ctx.save();ctx.lineCap='round';
+ ctx.fillStyle='#e8eef5';ctx.beginPath();ctx.moveTo(x-18,y);ctx.lineTo(x+18,y);ctx.lineTo(x+13,y+16);ctx.lineTo(x-13,y+16);ctx.fill();
+ ctx.strokeStyle='#6fe39a';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(x,y);ctx.quadraticCurveTo(x+sw*.5,y-h/2,x+sw,y-h);ctx.stroke();
+ ctx.fillStyle='#6fe39a';
+ if(st>=1){ctx.beginPath();ctx.ellipse(x+sw+8,y-h+2,9,4.5,-.5,0,7);ctx.fill()}
+ if(st>=2){ctx.beginPath();ctx.ellipse(x+sw-9,y-h*.55,9,4.5,.5,0,7);ctx.fill()}
+ if(st>=3){ctx.shadowColor=C;ctx.shadowBlur=14;ctx.fillStyle=C;for(let i=0;i<5;i++){const a=i*1.2566;ctx.beginPath();ctx.ellipse(x+sw+Math.cos(a)*8,y-h-4+Math.sin(a)*8,5,5,0,0,7);ctx.fill()}ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(x+sw,y-h-4,4,0,7);ctx.fill()}
+ ctx.restore()}
+/* ---------- الواجهة ---------- */
+const submit=()=>{const v=$('in').value.trim();if(!v)return;$('in').value='';understand(v)};
+$('send').onclick=submit;$('in').onkeydown=e=>{if(e.key==='Enter')submit()};
+$('bCam').onclick=camToggle;$('bMic').onclick=micToggle;
+$('bVox').onclick=()=>{voice=!voice;$('bVox').classList.toggle('on',voice);if(!voice)try{speechSynthesis.cancel()}catch(e){}};
+$('wipe').onclick=()=>{if(confirm('مسح كل ما تعلّمته إيف؟')){try{localStorage.removeItem('eve1')}catch(e){}location.reload()}};
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)bump('joy',.5)});
+$('llm').textContent='العقل: شبكة عصبية خاصة مدمجة تعمل بالكامل على هاتفك، بلا نماذج جاهزة ولا إنترنت.';
+if(navigator.getBattery)navigator.getBattery().then(b=>{window._bat=b});
+setTimeout(()=>say(M.name?'أهلاً بعودتك يا '+M.name+'! اشتقت إليك.':'مرحباً! أنا إيف. ما اسمك؟',M.name?'love':'curious'),600);
+
+/* ---------- كل شيء في ملف واحد: التصدير ---------- */
+const PK={"settings.gradle.kts": "cGx1Z2luTWFuYWdlbWVudCB7IHJlcG9zaXRvcmllcyB7IGdvb2dsZSgpOyBtYXZlbkNlbnRyYWwoKTsgZ3JhZGxlUGx1Z2luUG9ydGFsKCkgfSB9CmRlcGVuZGVuY3lSZXNvbHV0aW9uTWFuYWdlbWVudCB7IHJlcG9zaXRvcmllcyB7IGdvb2dsZSgpOyBtYXZlbkNlbnRyYWwoKSB9IH0Kcm9vdFByb2plY3QubmFtZSA9ICJFdmUiCmluY2x1ZGUoIjphcHAiKQo=", "build.gradle.kts": "cGx1Z2lucyB7CiAgICBpZCgiY29tLmFuZHJvaWQuYXBwbGljYXRpb24iKSB2ZXJzaW9uICI4LjUuMiIgYXBwbHkgZmFsc2UKICAgIGlkKCJvcmcuamV0YnJhaW5zLmtvdGxpbi5hbmRyb2lkIikgdmVyc2lvbiAiMS45LjI0IiBhcHBseSBmYWxzZQp9Cg==", "gradle.properties": "YW5kcm9pZC51c2VBbmRyb2lkWD10cnVlCm9yZy5ncmFkbGUuanZtYXJncz0tWG14MmcK", "app/build.gradle.kts": "cGx1Z2lucyB7CiAgICBpZCgiY29tLmFuZHJvaWQuYXBwbGljYXRpb24iKQogICAgaWQoIm9yZy5qZXRicmFpbnMua290bGluLmFuZHJvaWQiKQp9CmFuZHJvaWQgewogICAgbmFtZXNwYWNlID0gImNvbS5ldmUuY29tcGFuaW9uIgogICAgY29tcGlsZVNkayA9IDM0CiAgICBkZWZhdWx0Q29uZmlnIHsKICAgICAgICBhcHBsaWNhdGlvbklkID0gImNvbS5ldmUuY29tcGFuaW9uIgogICAgICAgIG1pblNkayA9IDI0CiAgICAgICAgdGFyZ2V0U2RrID0gMzQKICAgICAgICB2ZXJzaW9uQ29kZSA9IDEKICAgICAgICB2ZXJzaW9uTmFtZSA9ICIxLjAiCiAgICB9CiAgICBjb21waWxlT3B0aW9ucyB7CiAgICAgICAgc291cmNlQ29tcGF0aWJpbGl0eSA9IEphdmFWZXJzaW9uLlZFUlNJT05fMTcKICAgICAgICB0YXJnZXRDb21wYXRpYmlsaXR5ID0gSmF2YVZlcnNpb24uVkVSU0lPTl8xNwogICAgfQogICAga290bGluT3B0aW9ucyB7IGp2bVRhcmdldCA9ICIxNyIgfQp9CmRlcGVuZGVuY2llcyB7IGltcGxlbWVudGF0aW9uKCJhbmRyb2lkeC53ZWJraXQ6d2Via2l0OjEuMTEuMCIpIH0K", "app/src/main/AndroidManifest.xml": "PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0idXRmLTgiPz4KPG1hbmlmZXN0IHhtbG5zOmFuZHJvaWQ9Imh0dHA6Ly9zY2hlbWFzLmFuZHJvaWQuY29tL2Fway9yZXMvYW5kcm9pZCI+CiAgICA8dXNlcy1wZXJtaXNzaW9uIGFuZHJvaWQ6bmFtZT0iYW5kcm9pZC5wZXJtaXNzaW9uLklOVEVSTkVUIi8+CiAgICA8dXNlcy1wZXJtaXNzaW9uIGFuZHJvaWQ6bmFtZT0iYW5kcm9pZC5wZXJtaXNzaW9uLkNBTUVSQSIvPgogICAgPHVzZXMtcGVybWlzc2lvbiBhbmRyb2lkOm5hbWU9ImFuZHJvaWQucGVybWlzc2lvbi5SRUNPUkRfQVVESU8iLz4KICAgIDx1c2VzLXBlcm1pc3Npb24gYW5kcm9pZDpuYW1lPSJhbmRyb2lkLnBlcm1pc3Npb24uTU9ESUZZX0FVRElPX1NFVFRJTkdTIi8+CiAgICA8dXNlcy1mZWF0dXJlIGFuZHJvaWQ6bmFtZT0iYW5kcm9pZC5oYXJkd2FyZS5jYW1lcmEiIGFuZHJvaWQ6cmVxdWlyZWQ9ImZhbHNlIi8+CiAgICA8YXBwbGljYXRpb24gYW5kcm9pZDpsYWJlbD0i2KXZitmBIiBhbmRyb2lkOnVzZXNDbGVhcnRleHRUcmFmZmljPSJ0cnVlIgogICAgICAgIGFuZHJvaWQ6dGhlbWU9IkBhbmRyb2lkOnN0eWxlL1RoZW1lLkRldmljZURlZmF1bHQuTm9BY3Rpb25CYXIiPgogICAgICAgIDxhY3Rpdml0eSBhbmRyb2lkOm5hbWU9Ii5NYWluQWN0aXZpdHkiIGFuZHJvaWQ6ZXhwb3J0ZWQ9InRydWUiCiAgICAgICAgICAgIGFuZHJvaWQ6c2NyZWVuT3JpZW50YXRpb249InBvcnRyYWl0IgogICAgICAgICAgICBhbmRyb2lkOmNvbmZpZ0NoYW5nZXM9Im9yaWVudGF0aW9ufHNjcmVlblNpemV8a2V5Ym9hcmRIaWRkZW58a2V5Ym9hcmQiPgogICAgICAgICAgICA8aW50ZW50LWZpbHRlcj4KICAgICAgICAgICAgICAgIDxhY3Rpb24gYW5kcm9pZDpuYW1lPSJhbmRyb2lkLmludGVudC5hY3Rpb24uTUFJTiIvPgogICAgICAgICAgICAgICAgPGNhdGVnb3J5IGFuZHJvaWQ6bmFtZT0iYW5kcm9pZC5pbnRlbnQuY2F0ZWdvcnkuTEFVTkNIRVIiLz4KICAgICAgICAgICAgPC9pbnRlbnQtZmlsdGVyPgogICAgICAgIDwvYWN0aXZpdHk+CiAgICA8L2FwcGxpY2F0aW9uPgo8L21hbmlmZXN0Pgo=", "app/src/main/java/com/eve/companion/MainActivity.kt": "cGFja2FnZSBjb20uZXZlLmNvbXBhbmlvbgoKaW1wb3J0IGFuZHJvaWQuTWFuaWZlc3QKaW1wb3J0IGFuZHJvaWQuYXBwLkFjdGl2aXR5CmltcG9ydCBhbmRyb2lkLmdyYXBoaWNzLkNvbG9yCmltcG9ydCBhbmRyb2lkLm9zLkJ1aWxkCmltcG9ydCBhbmRyb2lkLm9zLkJ1bmRsZQppbXBvcnQgYW5kcm9pZC5zcGVlY2gudHRzLlRleHRUb1NwZWVjaAppbXBvcnQgYW5kcm9pZC52aWV3LldpbmRvd01hbmFnZXIKaW1wb3J0IGFuZHJvaWQud2Via2l0LkphdmFzY3JpcHRJbnRlcmZhY2UKaW1wb3J0IGFuZHJvaWQud2Via2l0LlBlcm1pc3Npb25SZXF1ZXN0CmltcG9ydCBhbmRyb2lkLndlYmtpdC5XZWJDaHJvbWVDbGllbnQKaW1wb3J0IGFuZHJvaWQud2Via2l0LldlYlJlc291cmNlUmVxdWVzdAppbXBvcnQgYW5kcm9pZC53ZWJraXQuV2ViUmVzb3VyY2VSZXNwb25zZQppbXBvcnQgYW5kcm9pZC53ZWJraXQuV2ViU2V0dGluZ3MKaW1wb3J0IGFuZHJvaWQud2Via2l0LldlYlZpZXcKaW1wb3J0IGFuZHJvaWQud2Via2l0LldlYlZpZXdDbGllbnQKaW1wb3J0IGFuZHJvaWR4LndlYmtpdC5XZWJWaWV3QXNzZXRMb2FkZXIKaW1wb3J0IGphdmEudXRpbC5Mb2NhbGUKCmNsYXNzIE1haW5BY3Rpdml0eSA6IEFjdGl2aXR5KCksIFRleHRUb1NwZWVjaC5PbkluaXRMaXN0ZW5lciB7CiAgICBwcml2YXRlIGxhdGVpbml0IHZhciB3ZWI6IFdlYlZpZXcKICAgIHByaXZhdGUgdmFyIHR0czogVGV4dFRvU3BlZWNoPyA9IG51bGwKICAgIHByaXZhdGUgdmFyIHR0c1JlYWR5ID0gZmFsc2UKCiAgICBvdmVycmlkZSBmdW4gb25DcmVhdGUoYjogQnVuZGxlPykgewogICAgICAgIHN1cGVyLm9uQ3JlYXRlKGIpCiAgICAgICAgd2luZG93LmFkZEZsYWdzKFdpbmRvd01hbmFnZXIuTGF5b3V0UGFyYW1zLkZMQUdfS0VFUF9TQ1JFRU5fT04pCiAgICAgICAgd2luZG93LnN0YXR1c0JhckNvbG9yID0gQ29sb3IucGFyc2VDb2xvcigiIzA2MTAxYyIpCiAgICAgICAgd2luZG93Lm5hdmlnYXRpb25CYXJDb2xvciA9IENvbG9yLnBhcnNlQ29sb3IoIiMwNjEwMWMiKQogICAgICAgIGlmIChCdWlsZC5WRVJTSU9OLlNES19JTlQgPj0gMjMpCiAgICAgICAgICAgIHJlcXVlc3RQZXJtaXNzaW9ucyhhcnJheU9mKE1hbmlmZXN0LnBlcm1pc3Npb24uQ0FNRVJBLCBNYW5pZmVzdC5wZXJtaXNzaW9uLlJFQ09SRF9BVURJTyksIDEpCiAgICAgICAgdHRzID0gVGV4dFRvU3BlZWNoKHRoaXMsIHRoaXMpCgogICAgICAgIHZhbCBsb2FkZXIgPSBXZWJWaWV3QXNzZXRMb2FkZXIuQnVpbGRlcigpCiAgICAgICAgICAgIC5hZGRQYXRoSGFuZGxlcigiL2Fzc2V0cy8iLCBXZWJWaWV3QXNzZXRMb2FkZXIuQXNzZXRzUGF0aEhhbmRsZXIodGhpcykpLmJ1aWxkKCkKICAgICAgICB3ZWIgPSBXZWJWaWV3KHRoaXMpCiAgICAgICAgd2ViLnNldEJhY2tncm91bmRDb2xvcihDb2xvci5wYXJzZUNvbG9yKCIjMDYxMDFjIikpCiAgICAgICAgc2V0Q29udGVudFZpZXcod2ViKQogICAgICAgIHdlYi5zZXR0aW5ncy5hcHBseSB7CiAgICAgICAgICAgIGphdmFTY3JpcHRFbmFibGVkID0gdHJ1ZQogICAgICAgICAgICBkb21TdG9yYWdlRW5hYmxlZCA9IHRydWUKICAgICAgICAgICAgbWVkaWFQbGF5YmFja1JlcXVpcmVzVXNlckdlc3R1cmUgPSBmYWxzZQogICAgICAgICAgICBtaXhlZENvbnRlbnRNb2RlID0gV2ViU2V0dGluZ3MuTUlYRURfQ09OVEVOVF9BTFdBWVNfQUxMT1cKICAgICAgICB9CiAgICAgICAgd2ViLndlYlZpZXdDbGllbnQgPSBvYmplY3QgOiBXZWJWaWV3Q2xpZW50KCkgewogICAgICAgICAgICBvdmVycmlkZSBmdW4gc2hvdWxkSW50ZXJjZXB0UmVxdWVzdCh2OiBXZWJWaWV3LCByOiBXZWJSZXNvdXJjZVJlcXVlc3QpOiBXZWJSZXNvdXJjZVJlc3BvbnNlPyA9CiAgICAgICAgICAgICAgICBsb2FkZXIuc2hvdWxkSW50ZXJjZXB0UmVxdWVzdChyLnVybCkKICAgICAgICB9CiAgICAgICAgd2ViLndlYkNocm9tZUNsaWVudCA9IG9iamVjdCA6IFdlYkNocm9tZUNsaWVudCgpIHsKICAgICAgICAgICAgb3ZlcnJpZGUgZnVuIG9uUGVybWlzc2lvblJlcXVlc3QocjogUGVybWlzc2lvblJlcXVlc3QpIHsKICAgICAgICAgICAgICAgIHJ1bk9uVWlUaHJlYWQgeyByLmdyYW50KHIucmVzb3VyY2VzKSB9CiAgICAgICAgICAgIH0KICAgICAgICB9CiAgICAgICAgd2ViLmFkZEphdmFzY3JpcHRJbnRlcmZhY2Uob2JqZWN0IHsKICAgICAgICAgICAgQEphdmFzY3JpcHRJbnRlcmZhY2UKICAgICAgICAgICAgZnVuIHNwZWFrKHQ6IFN0cmluZywgcGl0Y2g6IEZsb2F0LCByYXRlOiBGbG9hdCkgewogICAgICAgICAgICAgICAgaWYgKHR0c1JlYWR5KSB7CiAgICAgICAgICAgICAgICAgICAgdHRzPy5zdG9wKCkKICAgICAgICAgICAgICAgICAgICB0dHM/LnNldFBpdGNoKHBpdGNoKQogICAgICAgICAgICAgICAgICAgIHR0cz8uc2V0U3BlZWNoUmF0ZShyYXRlKQogICAgICAgICAgICAgICAgICAgIHR0cz8uc3BlYWsodCwgVGV4dFRvU3BlZWNoLlFVRVVFX0ZMVVNILCBudWxsLCAiZXZlIikKICAgICAgICAgICAgICAgIH0KICAgICAgICAgICAgfQogICAgICAgIH0sICJBbmRyb2lkIikKICAgICAgICB3ZWIubG9hZFVybCgiaHR0cHM6Ly9hcHBhc3NldHMuYW5kcm9pZHBsYXRmb3JtLm5ldC9hc3NldHMvZXZlLmh0bWwiKQogICAgfQoKICAgIG92ZXJyaWRlIGZ1biBvbkluaXQoc3RhdHVzOiBJbnQpIHsKICAgICAgICBpZiAoc3RhdHVzID09IFRleHRUb1NwZWVjaC5TVUNDRVNTKSB7CiAgICAgICAgICAgIHZhbCByID0gdHRzPy5zZXRMYW5ndWFnZShMb2NhbGUoImFyIikpCiAgICAgICAgICAgIHR0c1JlYWR5ID0gciAhPSBUZXh0VG9TcGVlY2guTEFOR19NSVNTSU5HX0RBVEEgJiYgciAhPSBUZXh0VG9TcGVlY2guTEFOR19OT1RfU1VQUE9SVEVECiAgICAgICAgfQogICAgfQoKICAgIG92ZXJyaWRlIGZ1biBvblJlc3VtZSgpIHsgc3VwZXIub25SZXN1bWUoKTsgd2ViLm9uUmVzdW1lKCkgfQogICAgb3ZlcnJpZGUgZnVuIG9uUGF1c2UoKSB7IHN1cGVyLm9uUGF1c2UoKTsgd2ViLm9uUGF1c2UoKSB9CiAgICBvdmVycmlkZSBmdW4gb25EZXN0cm95KCkgeyB0dHM/LnNodXRkb3duKCk7IHN1cGVyLm9uRGVzdHJveSgpIH0KfQo=", ".github/workflows/build.yml": "bmFtZTogYnVpbGQtYXBrCm9uOgogIHB1c2g6CiAgd29ya2Zsb3dfZGlzcGF0Y2g6CmpvYnM6CiAgYXBrOgogICAgcnVucy1vbjogdWJ1bnR1LWxhdGVzdAogICAgc3RlcHM6CiAgICAgIC0gdXNlczogYWN0aW9ucy9jaGVja291dEB2NAogICAgICAtIHVzZXM6IGFjdGlvbnMvc2V0dXAtamF2YUB2NAogICAgICAgIHdpdGg6CiAgICAgICAgICBkaXN0cmlidXRpb246IHRlbXVyaW4KICAgICAgICAgIGphdmEtdmVyc2lvbjogMTcKICAgICAgLSB1c2VzOiBncmFkbGUvYWN0aW9ucy9zZXR1cC1ncmFkbGVAdjQKICAgICAgICB3aXRoOgogICAgICAgICAgZ3JhZGxlLXZlcnNpb246IDguOQogICAgICAtIHJ1bjogZ3JhZGxlIGFzc2VtYmxlRGVidWcgLS1uby1kYWVtb24KICAgICAgLSB1c2VzOiBhY3Rpb25zL3VwbG9hZC1hcnRpZmFjdEB2NAogICAgICAgIHdpdGg6CiAgICAgICAgICBuYW1lOiBFdmUtQVBLCiAgICAgICAgICBwYXRoOiBhcHAvYnVpbGQvb3V0cHV0cy9hcGsvZGVidWcvYXBwLWRlYnVnLmFwawo=", "README.txt": "2KjZhtin2KEg2KrYt9io2YrZgiDYpdmK2YEgKEFQSykg2KjYr9mI2YYgQW5kcm9pZCBTdHVkaW86CjEpINij2YbYtNimINit2LPYp9io2KfZiyDZiNmF2LPYqtmI2K/Yudin2Ysg2KzYr9mK2K/Yp9mLINmB2YogZ2l0aHViLmNvbS4KMikg2YHZj9mD2ZEg2LbYuti3INin2YTZhdmE2YEg2YjYp9iz2K3YqCDZg9mEINmF2K3YqtmI2YrYp9iq2YcgKNio2YXYpyDZgdmK2YfYpyDZhdis2YTYryAuZ2l0aHViKSDYpdmE2Ykg2KfZhNmF2LPYqtmI2K/YuSAoQWRkIGZpbGUgPiBVcGxvYWQgZmlsZXMpINir2YUgQ29tbWl0LgogICDYpdmGINmE2YUg2YrYuNmH2LEgLmdpdGh1YiDZgdij2YbYtNimINin2YTZhdmE2YEg2YrYr9mI2YrYp9mLINio2KfZhNmF2LPYp9ixIC5naXRodWIvd29ya2Zsb3dzL2J1aWxkLnltbCDZiNin2YTYtdmCINmF2K3YqtmI2KfZhy4KMykg2KfZgdiq2K0g2KrYqNmI2YrYqCBBY3Rpb25zINmI2KfZhtiq2LjYsSDYp9mD2KrZhdin2YQgYnVpbGQtYXBrLgo0KSDZhtiy2ZHZhCBFdmUtQVBLINmI2KvYqNmR2KogYXBwLWRlYnVnLmFwayDYudmE2Ykg2YfYp9iq2YHZgy4K2KXZitmBINiq2LnZhdmEINio2KfZhNmD2KfZhdmEINiv2KfYrtmEINin2YTYqti32KjZitmCOiDZhNinINil2YbYqtix2YbYqiDZiNmE2Kcg2YbZhdin2LDYrCDYrtin2LHYrNmK2KkuCg=="};
+const u8=b=>Uint8Array.from(atob(b),c=>c.charCodeAt(0)),enc=t=>new TextEncoder().encode(t);
+function crc32(u){const t=crc32.t||(crc32.t=Array.from({length:256},(_,n)=>{let c=n;for(let k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;return c>>>0}));let r=-1;for(const b of u)r=t[(r^b)&255]^(r>>>8);return(r^-1)>>>0}
+function mkZip(fs){const parts=[],cen=[];let off=0;
+ const h=(...v)=>{const b=new DataView(new ArrayBuffer(v.reduce((s,x)=>s+x[1],0)));let p=0;for(const [val,n] of v){n===4?b.setUint32(p,val,true):b.setUint16(p,val,true);p+=n}return new Uint8Array(b.buffer)};
+ for(const f of fs){const nm=enc(f.n),c=crc32(f.d),sz=f.d.length;
+  const lh=h([0x04034b50,4],[20,2],[0x800,2],[0,2],[0,2],[33,2],[c,4],[sz,4],[sz,4],[nm.length,2],[0,2]);
+  parts.push(lh,nm,f.d);
+  cen.push(h([0x02014b50,4],[20,2],[20,2],[0x800,2],[0,2],[0,2],[33,2],[c,4],[sz,4],[sz,4],[nm.length,2],[0,2],[0,2],[0,2],[0,2],[0,4],[off,4]),nm);
+  off+=lh.length+nm.length+sz}
+ const cs=cen.reduce((s,x)=>s+x.length,0);
+ return new Blob([...parts,...cen,h([0x06054b50,4],[0,2],[0,2],[fs.length,2],[fs.length,2],[cs,4],[off,4],[0,2])],{type:'application/zip'})}
+function dl(name,data,type){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([data],{type}));a.download=name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},2000)}
+/*ENDPK*/
+$('x1').onclick=()=>{const fs=Object.entries(PK).map(([n,b])=>({n,d:u8(b)}));fs.push({n:'app/src/main/assets/eve.html',d:enc('<!DOCTYPE html>\n'+SRC0)});dl('eve-android.zip',mkZip(fs),'application/zip')};
+if(window.Android)$('exp').style.display='none';
+</script></body></html>
