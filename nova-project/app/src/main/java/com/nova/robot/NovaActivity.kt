@@ -214,12 +214,16 @@ class NovaActivity : ComponentActivity(), SensorEventListener {
         NovaLocalNotifications.markInteraction(this)
 
         val root = FrameLayout(this).apply { setBackgroundColor(Color.rgb(4, 8, 21)) }
-        // The previous Nova face artwork is deliberately removed from the visible UI.
-        // Keep the view model only as a hidden expression state sink while the robot logic is retained.
+        // New native Kotlin face replaces the old visible artwork. All drawing and animation
+        // run locally on-device; the existing emotion engine drives the face state.
         face = NovaFaceView(this).apply {
-            visibility = View.GONE
-            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            contentDescription = "وجه نوفا الجديد وتعبيراته المتحركة"
+            isFocusable = false
         }
+        root.addView(face, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.MATCH_PARENT
+        ))
 
         status = TextView(this).apply {
             text = "N O V A • LOCAL ROBOT"
