@@ -158,7 +158,9 @@ class NovaFaceView @JvmOverloads constructor(
         val rightX = w * 0.66f
         val lookX = when (mood) {
             NovaMood.THINKING -> eyeW * 0.20f
-            NovaMood.CURIOUS, NovaMood.PLAYFUL, NovaMood.WARM -> eyeW * 0.10f
+            NovaMood.EXCITED, NovaMood.CURIOUS, NovaMood.PLAYFUL, NovaMood.WARM -> eyeW * 0.10f
+            NovaMood.ANGRY, NovaMood.DETERMINED -> -eyeW * 0.10f
+            NovaMood.PROUD -> eyeW * 0.03f
             NovaMood.ALERT -> eyeW * 0.04f
             NovaMood.JEALOUS -> -eyeW * 0.16f
             NovaMood.DIZZY -> eyeW * 0.04f
@@ -263,7 +265,7 @@ class NovaFaceView @JvmOverloads constructor(
         val cornerRadius = (min(halfW, halfH) * when (mood) {
             NovaMood.SURPRISED, NovaMood.AFRAID, NovaMood.ALERT -> 0.68f
             NovaMood.SLEEPY, NovaMood.TIRED -> 0.82f
-            NovaMood.DISGUSTED, NovaMood.FRUSTRATED -> 0.54f
+            NovaMood.DISGUSTED, NovaMood.FRUSTRATED, NovaMood.ANGRY, NovaMood.DETERMINED -> 0.54f
             else -> 0.72f
         }).coerceAtLeast(2f)
         paint.style = Paint.Style.FILL
@@ -304,7 +306,8 @@ class NovaFaceView @JvmOverloads constructor(
             // Clear inward-leaning brows make frustration readable, but not threatening.
             paint.color = when (mood) {
                 NovaMood.CONFUSED -> 0xFF9BE9FF.toInt()
-                NovaMood.JEALOUS -> 0xFFB7F46A.toInt()
+                NovaMood.JEALOUS, NovaMood.DETERMINED -> 0xFFB7F46A.toInt()
+                NovaMood.ANGRY -> 0xFFFF677C.toInt()
                 else -> 0xFFFFB5C5.toInt()
             }
             paint.style = Paint.Style.STROKE
