@@ -44,9 +44,9 @@ class NovaCuriosityEngineTest {
 
     @Test fun rateLimitsDifferentVisualTriggersToAvoidNoisyChatter() {
         val engine = NovaCuriosityEngine(minimumGapMillis = 30_000L)
-        assertNull(engine.questionFor("أرى وجهًا جديدًا بالنسبة إلى ذاكرتي", 1_000L))
-        assertNull(engine.questionFor("أظن أن في محيطي: زهرة (82٪).", 15_000L))
-        assertNotNull(engine.questionFor("أظن أن في محيطي: زهرة (82٪).", 32_000L))
+        assertNotNull(engine.questionFor("أظن أن في محيطي: زهرة (82٪).", 1_000L))
+        assertNull(engine.questionFor("أظن أن في محيطي: كتاب (70٪).", 15_000L))
+        assertNotNull(engine.questionFor("أظن أن في محيطي: كتاب (70٪).", 32_000L))
     }
 
     @Test fun repeatedSameCueVariesItsWordingDeterministicallyAfterCooldown() {
