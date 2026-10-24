@@ -13,7 +13,8 @@ internal object NovaExpressionCommand{
   }.removePrefix("ال").trim()
   return when{
    e.contains("احراج")||e.contains("خجل")->NovaExpressionRequest(NovaMood.EMBARRASSED,"الإحراج")
-   e.contains("غيرة")->NovaExpressionRequest(NovaMood.JEALOUS,"الغيرة")
+   e.contains("غيرة")||e.contains("اغار")->NovaExpressionRequest(NovaMood.JEALOUS,"الغيرة")
+   e.contains("دوار")||e.contains("دوخه")||e.contains("دوخة")->NovaExpressionRequest(NovaMood.DIZZY,"الدوار")
    e.contains("اعجاب")->NovaExpressionRequest(NovaMood.ADMIRING,"الإعجاب")
    e.contains("سعاده")||e.contains("فرح")->NovaExpressionRequest(NovaMood.HAPPY,"الفرح")
    e.contains("فضول")->NovaExpressionRequest(NovaMood.CURIOUS,"الفضول")
