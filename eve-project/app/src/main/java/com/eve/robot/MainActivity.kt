@@ -210,6 +210,8 @@ class MainActivity : ComponentActivity() {
     private var dispatchLastTapY = 0f
     private var dispatchDownRawX = 0f
     private var dispatchDownRawY = 0f
+    // Tracks whether the face listener already opened the game room for this touch.
+    private var gameRoomGestureSerial = 0
     private var cameraSwitchGestureSerial = 0
     @Volatile private var lastFaceSeenAt = 0L
     private var lastFaceReactionAt = 0L
@@ -255,9 +257,21 @@ class MainActivity : ComponentActivity() {
             event.eventTime - dispatchLastTapUptime in 0L..1500L &&
             tapDistance <= maxTravel
         val gestureSerialBeforeDispatch = cameraSwitchGestureSerial
+        val gameRoomSerialBeforeDispatch = gameRoomGestureSerial
+        // Independent fallback: open games on a steady long press on the face even if
+        // RobotFaceView's touch listener does not receive ACTION_UP on some Android builds.
+        val fallbackGameRoomLongPress = action == MotionEvent.ACTION_UP &&
+            duration >= 550L && travel <= maxTravel && y > dp(64)
         val handled = super.dispatchTouchEvent(event)
 
         if (action == MotionEvent.ACTION_UP) {
+            if (fallbackGameRoomLongPress &&
+                gameRoomGestureSerial == gameRoomSerialBeforeDispatch) {
+                gameRoomGestureSerial++
+                dispatchLastTapUptime = 0L
+                Log.i("EVE", "GAME_ROOM_OPEN_GESTURE source=activity_dispatch_fallback")
+                startActivity(Intent(this@MainActivity, RobotGamesActivity::class.java))
+            }
             if (fallbackDoubleTap) {
                 // Prefer the face listener when it saw the gesture. Only take over when that
                 // listener did not switch cameras, preventing duplicate switches on newer APIs.
@@ -511,6 +525,7 @@ class MainActivity : ComponentActivity() {
                     // This makes chess reachable without relying on the short-lived camera status chip.
                     if (longPress) {
                         lastTapUptime = 0L
+                        gameRoomGestureSerial++
                         Log.i("EVE", "GAME_ROOM_OPEN_GESTURE source=face_long_press")
                         startActivity(Intent(this@MainActivity, RobotGamesActivity::class.java))
                         return@setOnTouchListener true
