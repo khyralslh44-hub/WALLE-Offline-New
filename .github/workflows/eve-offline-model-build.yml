@@ -41,10 +41,13 @@ jobs:
                         return@setOnTouchListener true
                     }
                     if (doubleTap) {"""
-          if old not in s:
+          if 'GAME_ROOM_OPEN_GESTURE source=face_long_press' in s:
+              print("Game-room gesture already present in the checked-out EVE project.")
+          elif old in s:
+              p.write_text(s.replace(old, new, 1))
+              print("Patched: long-press EVE eyes opens offline game room.")
+          else:
               raise SystemExit("Expected face touch handler was not found; refusing to build unpatched APK.")
-          p.write_text(s.replace(old, new, 1))
-          print("Patched: long-press EVE eyes opens offline game room.")
           PY
       - uses: actions/setup-java@v4
         with:
