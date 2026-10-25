@@ -21,6 +21,31 @@ jobs:
           echo "b4c5100dc58b925ec1eb422e3c9a50ce0a0587543837cbfdb5cffb4f546b21d1  /tmp/eve-source.zip" | sha256sum --check
           unzip -t /tmp/eve-source.zip
           unzip -q /tmp/eve-source.zip -d /tmp/eve-source
+      - name: Fix game-room entry gesture in source archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("/tmp/eve-source/app/src/main/java/com/eve/robot/MainActivity.kt")
+          s = p.read_text()
+          old = """                    lastInteractionAt = SystemClock.elapsedRealtime()
+                    if (doubleTap) {"""
+          new = """                    lastInteractionAt = SystemClock.elapsedRealtime()
+                    // Long-press anywhere on EVE's eyes opens the game room.
+                    // Avoid depending on the temporary camera status chip to reach chess.
+                    if (longPress) {
+                        lastTapUptime = 0L
+                        Log.i("EVE", "GAME_ROOM_OPEN_GESTURE source=face_long_press")
+                        startActivity(Intent(this@MainActivity, RobotGamesActivity::class.java))
+                        return@setOnTouchListener true
+                    }
+                    if (doubleTap) {"""
+          if old not in s:
+              raise SystemExit("Expected face touch handler was not found; refusing to build unpatched APK.")
+          p.write_text(s.replace(old, new, 1))
+          print("Patched: long-press EVE eyes opens offline game room.")
+          PY
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
