@@ -48,6 +48,61 @@ jobs:
               print("Patched: long-press EVE eyes opens offline game room.")
           else:
               raise SystemExit("Expected face touch handler was not found; refusing to build unpatched APK.")
+
+          # Add a second, Activity-level long-press path. This matters because the workflow
+          # reconstructs source from an archive, so edits to the tracked Kotlin file alone
+          # would not be included in the APK.
+          state_old = """    private var dispatchDownRawY = 0f
+              private var cameraSwitchGestureSerial = 0"""
+          state_new = """    private var dispatchDownRawY = 0f
+              // Prevent the Activity fallback from opening a second game room for one gesture.
+              private var gameRoomGestureSerial = 0
+              private var cameraSwitchGestureSerial = 0"""
+          if "private var gameRoomGestureSerial = 0" not in s:
+              if state_old not in s:
+                  raise SystemExit("Cannot add Activity-level fallback: gesture state anchor not found.")
+              s = s.replace(state_old, state_new, 1)
+
+          dispatch_old = """        val gestureSerialBeforeDispatch = cameraSwitchGestureSerial
+                  val handled = super.dispatchTouchEvent(event)
+
+                  if (action == MotionEvent.ACTION_UP) {
+                      if (fallbackDoubleTap) {"""
+          dispatch_new = """        val gestureSerialBeforeDispatch = cameraSwitchGestureSerial
+                  val gameRoomSerialBeforeDispatch = gameRoomGestureSerial
+                  // Fallback long-press handler at Activity level for Android touch dispatch edge cases.
+                  val fallbackGameRoomLongPress = action == MotionEvent.ACTION_UP &&
+                      duration >= 550L && travel <= maxTravel && y > dp(64)
+                  val handled = super.dispatchTouchEvent(event)
+
+                  if (action == MotionEvent.ACTION_UP) {
+                      if (fallbackGameRoomLongPress &&
+                          gameRoomGestureSerial == gameRoomSerialBeforeDispatch) {
+                          gameRoomGestureSerial++
+                          dispatchLastTapUptime = 0L
+                          Log.i("EVE", "GAME_ROOM_OPEN_GESTURE source=activity_dispatch_fallback")
+                          startActivity(Intent(this@MainActivity, RobotGamesActivity::class.java))
+                      }
+                      if (fallbackDoubleTap) {"""
+          if "fallbackGameRoomLongPress" not in s:
+              if dispatch_old not in s:
+                  raise SystemExit("Cannot add Activity-level fallback: dispatchTouchEvent anchor not found.")
+              s = s.replace(dispatch_old, dispatch_new, 1)
+
+          face_old = """                    if (longPress) {
+                          lastTapUptime = 0L
+                          Log.i("EVE", "GAME_ROOM_OPEN_GESTURE source=face_long_press")"""
+          face_new = """                    if (longPress) {
+                          lastTapUptime = 0L
+                          gameRoomGestureSerial++
+                          Log.i("EVE", "GAME_ROOM_OPEN_GESTURE source=face_long_press")"""
+          if "gameRoomGestureSerial++" not in s:
+              if face_old not in s:
+                  raise SystemExit("Cannot add gesture guard: face long-press anchor not found.")
+              s = s.replace(face_old, face_new, 1)
+
+          p.write_text(s)
+          print("Source archive patch includes Activity-level long-press fallback.")
           PY
       - uses: actions/setup-java@v4
         with:
