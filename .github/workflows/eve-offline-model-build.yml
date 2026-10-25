@@ -27,7 +27,7 @@ jobs:
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
-          p = Path("/tmp/eve-source/app/src/main/java/com/eve/robot/MainActivity.kt")
+          p = Path("eve-project/app/src/main/java/com/eve/robot/MainActivity.kt")
           s = p.read_text()
           old = """                    lastInteractionAt = SystemClock.elapsedRealtime()
                     if (doubleTap) {"""
@@ -67,7 +67,7 @@ jobs:
         run: |
           set -euo pipefail
           BASE="https://storage.googleapis.com/mediapipe-models"
-          DIR="/tmp/eve-source/app/src/main/assets/models"
+          DIR="$GITHUB_WORKSPACE/eve-project/app/src/main/assets/models"
           mkdir -p "$DIR"
           fetch() {
             local url="$1" out="$2" min_bytes="$3"
@@ -89,13 +89,13 @@ jobs:
         with:
           gradle-version: '8.9'
       - name: Build debug APK
-        working-directory: /tmp/eve-source
+        working-directory: eve-project
         run: gradle assembleDebug --no-daemon
       - name: Verify models are inside the APK
         shell: bash
         run: |
           set -euo pipefail
-          APK=/tmp/eve-source/app/build/outputs/apk/debug/app-debug.apk
+          APK=eve-project/app/build/outputs/apk/debug/app-debug.apk
           test -s "$APK"
           for f in objects.tflite face.task gesture.task embed.tflite classifier.tflite pose.task; do
             unzip -l "$APK" | grep -q "assets/models/$f" || { echo "Missing model asset inside APK: $f"; exit 1; }
@@ -105,5 +105,5 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: EVE-Offline-Vision-APK
-          path: /tmp/eve-source/app/build/outputs/apk/debug/app-debug.apk
+          path: eve-project/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
