@@ -186,6 +186,19 @@ jobs:
           fetch "$BASE/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task" "$DIR/pose.task" 1000000
           echo "All six models downloaded and size-checked."
           ls -lh "$DIR"
+      - name: Bundle on-device Arabic conversation model for first-run offline use
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="https://huggingface.co/litert-community/Qwen3-0.6B/resolve/a3c5d805ae362dff7f580bc25f2dfb9a5a7eaa76/Qwen3-0.6B_dynamic_wi4b32_afp32.litertlm"
+          OUT="$GITHUB_WORKSPACE/eve-project/app/src/main/assets/Qwen3-0.6B_dynamic_wi4b32_afp32.litertlm"
+          mkdir -p "$(dirname "$OUT")"
+          curl --fail --location --retry 4 --retry-delay 3 --connect-timeout 30 --max-time 900 "$URL" --output "$OUT"
+          BYTES="$(stat -c '%s' "$OUT")"
+          if [ "$BYTES" -lt 300000000 ]; then echo "Invalid/truncated local language model: $BYTES bytes"; exit 1; fi
+          echo "03e7da1eb1108b50dffaa9bb52cc7bcbad2eb0c66ca990267f480c1e545d2856  $OUT" | sha256sum --check
+          echo "Verified pinned Qwen3-0.6B language model for offline first launch:"
+          ls -lh "$OUT"
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
@@ -201,6 +214,10 @@ jobs:
           for f in objects.tflite face.task gesture.task embed.tflite classifier.tflite pose.task; do
             unzip -l "$APK" | grep -q "assets/models/$f" || { echo "Missing model asset inside APK: $f"; exit 1; }
           done
+          unzip -l "$APK" | grep -q "assets/Qwen3-0.6B_dynamic_wi4b32_afp32.litertlm" || { echo "Missing bundled offline language model"; exit 1; }
+          LANG_HASH="$(unzip -p "$APK" assets/Qwen3-0.6B_dynamic_wi4b32_afp32.litertlm | sha256sum | cut -d' ' -f1)"
+          test "$LANG_HASH" = "03e7da1eb1108b50dffaa9bb52cc7bcbad2eb0c66ca990267f480c1e545d2856" || { echo "Bundled offline language model hash mismatch"; exit 1; }
+          echo "Bundled offline language model verified inside APK."
           sha256sum "$APK"
           ls -lh "$APK"
       - uses: actions/upload-artifact@v4
