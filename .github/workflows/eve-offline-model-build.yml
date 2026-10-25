@@ -204,7 +204,7 @@ jobs:
           gradle-version: '8.9'
       - name: Build debug APK
         working-directory: eve-project
-        run: gradle assembleDebug --no-daemon
+        run: gradle testDebugUnitTest assembleDebug --no-daemon
       - name: Verify models are inside the APK
         shell: bash
         run: |
