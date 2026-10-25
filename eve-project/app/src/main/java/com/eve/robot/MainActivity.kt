@@ -507,6 +507,14 @@ class MainActivity : ComponentActivity() {
                         tapDistance <= 72f * resources.displayMetrics.density
 
                     lastInteractionAt = SystemClock.elapsedRealtime()
+                    // Long-press anywhere on EVE's eyes opens the game room.
+                    // This makes chess reachable without relying on the short-lived camera status chip.
+                    if (longPress) {
+                        lastTapUptime = 0L
+                        Log.i("EVE", "GAME_ROOM_OPEN_GESTURE source=face_long_press")
+                        startActivity(Intent(this@MainActivity, RobotGamesActivity::class.java))
+                        return@setOnTouchListener true
+                    }
                     if (doubleTap) {
                         // Keeps the face button-free: double-tap anywhere on the eyes to switch lens.
                         lastTapUptime = 0L
