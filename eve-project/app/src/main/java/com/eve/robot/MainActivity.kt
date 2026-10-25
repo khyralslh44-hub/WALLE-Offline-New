@@ -56,6 +56,7 @@ import java.util.UUID
 class MainActivity : ComponentActivity() {
     private lateinit var face: RobotFaceView
     private lateinit var brain: RobotBrain
+    private lateinit var cognitionCore: EveCognitionCore
     private lateinit var memory: EveMemory
     private lateinit var peopleMemory: EvePeopleMemory
     private lateinit var faceIdentityMemory: EveFaceIdentityMemory
@@ -491,6 +492,7 @@ class MainActivity : ComponentActivity() {
             )
             lastAutonomyReflectionAt = SystemClock.elapsedRealtime()
         }
+        cognitionCore = EveCognitionCore()
         brain = RobotBrain(memory.learnedPersonality())
         voice = RobotVoice()
         localLanguageBrain = LocalLanguageBrain(applicationContext) { state, percent, message ->
@@ -2752,6 +2754,27 @@ class MainActivity : ComponentActivity() {
         val lastForLabel = preferences.getLong("label_question_at:" + safeKey, 0L)
         val countForLabel = preferences.getInt("label_question_count:" + safeKey, 0)
         val learned = memory.learnedPersonality()
+        val cognitiveGate = cognitionCore.evaluate(
+            EveCognitionInput(
+                label = label,
+                confidence = confidence,
+                sightings = sightings,
+                curiosityBias = learned.curiosityBias,
+                nowMs = now,
+                lastAnyQuestionAtMs = lastAny,
+                lastSameLabelQuestionAtMs = lastForLabel,
+                quietForMs = (SystemClock.elapsedRealtime() - lastDirectUserActionAt).coerceAtLeast(0L),
+                isUserConversationActive = pendingLocalQuestion != null
+            )
+        )
+        if (!cognitiveGate.shouldAsk) {
+            Log.d(
+                "EVE_COGNITION",
+                "AUTONOMOUS_QUESTION_GATED label=$label action=${cognitiveGate.action} " +
+                    "priority=${"%.2f".format(Locale.ROOT, cognitiveGate.priority)} reason=${cognitiveGate.reason}"
+            )
+            return false
+        }
         val thought = EveCuriosityEngine.consider(
             label = label,
             confidence = confidence,
