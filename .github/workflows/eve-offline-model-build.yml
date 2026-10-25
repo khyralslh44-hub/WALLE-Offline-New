@@ -126,19 +126,21 @@ jobs:
           if old_task not in brain:
               raise SystemExit("Expected USER-mode task was not found in the language brain.")
           brain = brain.replace(old_task, new_task, 1)
-          old_chat = '''        context.recentDialogues.lastOrNull()?.trim()?.takeIf { it.isNotBlank() }?.let {
-                    fields += "CHAT=${it.take(56)}"
-                }'''
-          new_chat = '''        context.recentDialogues.takeLast(2)
-            .map { it.trim().take(54) }
-            .filter { it.isNotBlank() }
-            .joinToString(" | ")
-            .take(110)
-            .takeIf { it.isNotBlank() }
-            ?.let { fields += "CHAT=$it" }'''
-          if old_chat not in brain:
-              raise SystemExit("Expected recent-chat context block was not found in the language brain.")
-          brain = brain.replace(old_chat, new_chat, 1)
+          chat_start = brain.find("        context.recentDialogues.lastOrNull()")
+          if chat_start < 0:
+              raise SystemExit("Expected recent-chat context anchor was not found in the language brain.")
+          chat_end = brain.find("\n        }", chat_start)
+          if chat_end < 0:
+              raise SystemExit("Expected recent-chat context block did not close.")
+          chat_end += len("\n        }")
+          new_chat = """        context.recentDialogues.takeLast(2)
+              .map { it.trim().take(54) }
+              .filter { it.isNotBlank() }
+              .joinToString(" | ")
+              .take(110)
+              .takeIf { it.isNotBlank() }
+              ?.let { fields += "CHAT=$it" }"""
+          brain = brain[:chat_start] + new_chat + brain[chat_end:]
           brain_path.write_text(brain)
           assert "موظفة خدمة عملاء" in brain and "natural conversational Arabic" in brain
           assert 'fields += "CHAT=$it"' in brain
