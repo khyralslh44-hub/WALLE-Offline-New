@@ -1,0 +1,123 @@
+name: Build uploaded EVE Android ZIP
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'eve-android-upload.zip'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build installable EVE APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Extract and validate uploaded project
+        shell: bash
+        run: |
+          set -euo pipefail
+          ARCHIVE="$GITHUB_WORKSPACE/eve-android-upload.zip"
+          SRC="$RUNNER_TEMP/eve-src"
+          test -s "$ARCHIVE"
+          mkdir -p "$SRC"
+          unzip -q "$ARCHIVE" -d "$SRC"
+          test -s "$SRC/settings.gradle.kts"
+          test -s "$SRC/build.gradle.kts"
+          test -s "$SRC/app/build.gradle.kts"
+          test -s "$SRC/app/src/main/AndroidManifest.xml"
+          test -s "$SRC/app/src/main/assets/eve.html"
+          test -s "$SRC/app/src/main/java/com/eve/companion/MainActivity.kt"
+          if grep -Eq 'uses-permission[^>]*android.permission.INTERNET' "$SRC/app/src/main/AndroidManifest.xml"; then
+            echo "ERROR: internet permission found in this offline app's manifest."
+            exit 1
+          fi
+          echo "Validated project source at $SRC"
+          echo "EVE app source ZIP: $(du -h "$ARCHIVE" | cut -f1)"
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+          sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools"
+
+      - name: Download required offline vision models (build time only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$RUNNER_TEMP/eve-src"
+          BASE="https://storage.googleapis.com/mediapipe-models"
+          DEST="$SRC/app/src/main/assets/models"
+          mkdir -p "$DEST"
+          curl --fail --location --retry 4 --retry-delay 2 --connect-timeout 20 --max-time 240 "$BASE/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite" --output "$DEST/objects.tflite"
+          curl --fail --location --retry 4 --retry-delay 2 --connect-timeout 20 --max-time 240 "$BASE/face_landmarker/face_landmarker/float16/1/face_landmarker.task" --output "$DEST/face.task"
+          curl --fail --location --retry 4 --retry-delay 2 --connect-timeout 20 --max-time 240 "$BASE/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task" --output "$DEST/gesture.task"
+          curl --fail --location --retry 4 --retry-delay 2 --connect-timeout 20 --max-time 240 "$BASE/image_embedder/mobilenet_v3_small/float32/1/mobilenet_v3_small.tflite" --output "$DEST/embed.tflite"
+          curl --fail --location --retry 4 --retry-delay 2 --connect-timeout 20 --max-time 240 "$BASE/image_classifier/efficientnet_lite0/float32/1/efficientnet_lite0.tflite" --output "$DEST/classify.tflite"
+          for f in objects.tflite face.task gesture.task embed.tflite classify.tflite; do
+            test -s "$DEST/$f"
+            echo "$f: $(stat -c '%s' "$DEST/$f") bytes"
+          done
+
+      - name: Set up Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Run unit tests and build APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$RUNNER_TEMP/eve-src"
+          gradle --no-daemon --stacktrace -p "$SRC" testDebugUnitTest assembleDebug
+
+      - name: Verify installable APK and offline model assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="$RUNNER_TEMP/eve-src/app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$APK"
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose "$APK"
+          unzip -Z1 "$APK" > "$RUNNER_TEMP/apk-files.txt"
+          for f in objects.tflite face.task gesture.task embed.tflite classify.tflite; do
+            grep -Fxq "assets/models/$f" "$RUNNER_TEMP/apk-files.txt"
+          done
+          echo "APK_SIZE=$(du -h "$APK" | cut -f1)" >> "$GITHUB_ENV"
+          echo "PASS: APK exists, is signature-verified, and bundles all 5 offline vision models."
+
+      - name: Publish build result summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## EVE APK build"
+            echo ""
+            echo "- Source: uploaded eve-android-upload.zip"
+            echo "- Target: Android / Redmi 12 compatible ARM64 build configuration"
+            echo "- Internet permission in source manifest: not declared"
+            if [ -n "\${APK_SIZE:-}" ]; then echo "- APK size: $APK_SIZE"; fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload installable APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Eve-APK
+          path: \${{ runner.temp }}/eve-src/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
