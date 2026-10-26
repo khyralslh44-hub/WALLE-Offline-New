@@ -1,3 +1,4 @@
+# Rebuild verification requested 2026-10-26; build behavior is unchanged.
 name: EVE Android Build
 
 concurrency:
