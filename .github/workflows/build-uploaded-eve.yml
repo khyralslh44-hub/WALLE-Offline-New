@@ -85,10 +85,33 @@ jobs:
         run: |
           set -euo pipefail
           SRC="$RUNNER_TEMP/eve-src"
-          echo "---- MainActivity.kt around reported compiler error ----"
-          nl -ba "$SRC/app/src/main/java/com/eve/companion/MainActivity.kt" | sed -n '65,85p'
-          echo "---- Occurrences of factor ----"
-          grep -n -C 3 -w factor "$SRC/app/src/main/java/com/eve/companion/MainActivity.kt" || true
+          # Repair a missing helper referenced by MainActivity in the uploaded v6 source.
+          python3 - "$SRC/app/src/main/java/com/eve/companion/MainActivity.kt" <<'PY'
+          from pathlib import Path
+          import sys
+
+          p = Path(sys.argv[1])
+          source = p.read_text(encoding="utf-8")
+          target = "voice.factor(style)"
+          if target not in source:
+              raise SystemExit("Expected v6 compile-error expression not found; stopping rather than silently changing another source.")
+          if "private fun voiceFactor(" not in source:
+              bridge = "    inner class Bridge {"
+              if bridge not in source:
+                  raise SystemExit("Could not find Bridge insertion point in MainActivity.kt.")
+              helper = (
+                  "    private fun voiceFactor(style: String): Float = when (style.lowercase()) {\\n"
+                  '        "angry", "annoyed", "frustrated" -> 1.08f\\n'
+                  '        "sad", "sleepy", "calm" -> 0.92f\\n'
+                  '        "fear", "surprised", "excited" -> 1.05f\\n'
+                  "        else -> 1.0f\\n"
+                  "    }\\n\\n"
+              )
+              source = source.replace(bridge, helper + bridge, 1)
+          source = source.replace(target, "voiceFactor(style)")
+          p.write_text(source, encoding="utf-8")
+          print("Applied targeted Kotlin fix: voice.factor(style) -> voiceFactor(style)")
+          PY
           gradle --no-daemon --stacktrace -p "$SRC" testDebugUnitTest assembleDebug
 
       - name: Verify installable APK and offline model assets
