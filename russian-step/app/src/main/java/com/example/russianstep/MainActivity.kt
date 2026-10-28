@@ -180,12 +180,12 @@ class MainActivity : Activity() {
         }
         root.addView(statsContainer, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) })
 
-        val scroll = ScrollView(this).apply { fillViewport = true; clipToPadding = false }
+        val scroll = ScrollView(this).apply { isFillViewport = true; clipToPadding = false }
         bodyContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(0), dp(2), dp(0), dp(12))
         }
-        scroll.addView(bodyContainer, ScrollView.LayoutParams(-1, -2))
+        scroll.addView(bodyContainer, android.widget.FrameLayout.LayoutParams(-1, -2))
         root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
 
         tabsContainer = LinearLayout(this).apply {
