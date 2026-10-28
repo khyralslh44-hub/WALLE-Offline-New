@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - 'eve-android (5).zip'
+      - 'eve-android (6).zip'
       - '.github/workflows/build-uploaded-eve.yml'
 
 permissions:
@@ -23,7 +23,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ARCHIVE="$GITHUB_WORKSPACE/eve-android (5).zip"
+          ARCHIVE="$GITHUB_WORKSPACE/eve-android (6).zip"
           SRC="$RUNNER_TEMP/eve-src"
           test -s "$ARCHIVE"
           mkdir -p "$SRC"
@@ -108,7 +108,7 @@ jobs:
           {
             echo "## EVE APK build"
             echo ""
-            echo "- Source: eve-android (5).zip"
+            echo "- Source: eve-android (6).zip"
             echo "- Target: Android / Redmi 12 compatible ARM64 build configuration"
             echo "- Internet permission in source manifest: not declared"
             if [ -n "${APK_SIZE:-}" ]; then echo "- APK size: $APK_SIZE"; fi
