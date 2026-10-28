@@ -85,6 +85,10 @@ jobs:
         run: |
           set -euo pipefail
           SRC="$RUNNER_TEMP/eve-src"
+          echo "---- MainActivity.kt around reported compiler error ----"
+          nl -ba "$SRC/app/src/main/java/com/eve/companion/MainActivity.kt" | sed -n '65,85p'
+          echo "---- Occurrences of factor ----"
+          grep -n -C 3 -w factor "$SRC/app/src/main/java/com/eve/companion/MainActivity.kt" || true
           gradle --no-daemon --stacktrace -p "$SRC" testDebugUnitTest assembleDebug
 
       - name: Verify installable APK and offline model assets
