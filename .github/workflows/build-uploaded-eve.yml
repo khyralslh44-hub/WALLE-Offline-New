@@ -100,12 +100,12 @@ jobs:
               if bridge not in source:
                   raise SystemExit("Could not find Bridge insertion point in MainActivity.kt.")
               helper = (
-                  "    private fun voiceFactor(style: String): Float = when (style.lowercase()) {\\n"
-                  '        "angry", "annoyed", "frustrated" -> 1.08f\\n'
-                  '        "sad", "sleepy", "calm" -> 0.92f\\n'
-                  '        "fear", "surprised", "excited" -> 1.05f\\n'
-                  "        else -> 1.0f\\n"
-                  "    }\\n\\n"
+                  "    private fun voiceFactor(style: String): Float = when (style.lowercase()) {\n"
+                  '        "angry", "annoyed", "frustrated" -> 1.08f\n'
+                  '        "sad", "sleepy", "calm" -> 0.92f\n'
+                  '        "fear", "surprised", "excited" -> 1.05f\n'
+                  "        else -> 1.0f\n"
+                  "    }\n\n"
               )
               source = source.replace(bridge, helper + bridge, 1)
           source = source.replace(target, "voiceFactor(style)")
