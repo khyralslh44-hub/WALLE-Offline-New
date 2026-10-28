@@ -71,6 +71,47 @@ jobs:
           sha256sum "$APK" | tee "$RUNNER_TEMP/apk-sha256.txt"
           echo "PASS: APK builds, signature verifies, and INTERNET permission is absent."
 
+      - name: Install and launch APK on Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: default
+          arch: x86_64
+          profile: pixel_2
+          emulator-options: -no-window -no-audio -no-boot-anim
+          script: |
+            set -euo pipefail
+            APK="$GITHUB_WORKSPACE/russian-step/app/build/outputs/apk/debug/app-debug.apk"
+            RESULT_DIR="$GITHUB_WORKSPACE/russian-step-smoke"
+            mkdir -p "$RESULT_DIR"
+            adb logcat -c
+            adb install "$APK"
+            adb shell am start -W -n com.example.russianstep/.MainActivity
+            sleep 5
+            PID="$(adb shell pidof com.example.russianstep | tr -d '\\r' || true)"
+            if [ -z "$PID" ]; then
+              echo "FAIL: Russian Step did not remain running after launch."
+              adb logcat -d -v threadtime > "$RESULT_DIR/logcat.txt"
+              exit 1
+            fi
+            adb exec-out screencap -p > "$RESULT_DIR/russian-step-home.png"
+            adb logcat -d -v threadtime > "$RESULT_DIR/logcat.txt"
+            if grep -F "FATAL EXCEPTION" "$RESULT_DIR/logcat.txt" >/dev/null; then
+              echo "FAIL: fatal exception found after app launch."
+              grep -A 30 -F "FATAL EXCEPTION" "$RESULT_DIR/logcat.txt" | tail -60
+              exit 1
+            fi
+            echo "PASS: Russian Step installed and stayed alive after launch (pid=$PID)."
+
+      - name: Upload emulator launch screenshot and log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Russian-Step-Emulator-Smoke
+          path: russian-step-smoke/
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Upload installable APK
         uses: actions/upload-artifact@v4
         with:
