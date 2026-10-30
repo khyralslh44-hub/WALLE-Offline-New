@@ -93,5 +93,9 @@ if ! grep -Fq 'TINY_ARABIC_BRAIN_ANDROID_PASS' "$RESULT_DIR/logcat.txt"; then
   echo "FAIL: expected local brain success marker missing from logcat." | tee -a "$RESULT_DIR/environment.txt"
   exit 9
 fi
+if ! grep -Fq 'TINY_ARABIC_BRAIN_SPEED_PASS' "$RESULT_DIR/logcat.txt"; then
+  echo "FAIL: response-generation performance marker missing from logcat." | tee -a "$RESULT_DIR/environment.txt"
+  exit 10
+fi
 
 echo "PASS: EVE Tiny Arabic Brain ran on Android with radios disabled and no bundled large language model." | tee -a "$RESULT_DIR/environment.txt"
