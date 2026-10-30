@@ -17,8 +17,7 @@ on:
       - '.github/scripts/run-deep-face-test.sh'
       - '.github/scripts/fetch-arabic-vosk-model.sh'
       - '.github/scripts/run-local-llm-test.sh'
-      - '.github/scripts/fetch-eve-qwen3-model.sh'
-      - '.github/scripts/verify-eve-qwen3-model.sh'
+      - '.github/scripts/build-eve-arabic-gguf.sh'
       - 'EVE_BRAIN_ARCHITECTURE_V2.md'
       - 'EVE_ARABIC_LLM.md'
 
@@ -188,36 +187,15 @@ jobs:
         shell: bash
         run: bash .github/scripts/fetch-arabic-vosk-model.sh
 
-      - name: Restore cached Qwen3 model
-        id: qwen3-model-cache
-        uses: actions/cache/restore@v4
+      - name: Set up Python 3.12 for reproducible Arabic model conversion
+        uses: actions/setup-python@v5
         with:
-          path: |
-            eve-project/app/src/main/assets/models/eve-qwen3-0.6b-q4km.gguf
-            eve-project/app/src/main/assets/models/eve-qwen3-0.6b-q4km.sha256
-            eve-project/app/src/main/assets/models/Apache-2.0-LICENSE.txt
-            eve-project/app/src/main/assets/models/QWEN3-MODEL-NOTICE.txt
-          key: eve-qwen3-0.6b-q4km-f2d6f9c-ac2d97712095a558e31573f62f466a3f9d93990898b0ec79d7c974c1780d524a
+          python-version: '3.12'
 
-      - name: Download and verify pinned Qwen3 model
+      - name: Build, quantize, and test fast Arabic model
         shell: bash
-        run: bash .github/scripts/fetch-eve-qwen3-model.sh
-
-      - name: Save verified Qwen3 model cache
-        if: steps.qwen3-model-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            eve-project/app/src/main/assets/models/eve-qwen3-0.6b-q4km.gguf
-            eve-project/app/src/main/assets/models/eve-qwen3-0.6b-q4km.sha256
-            eve-project/app/src/main/assets/models/Apache-2.0-LICENSE.txt
-            eve-project/app/src/main/assets/models/QWEN3-MODEL-NOTICE.txt
-          key: eve-qwen3-0.6b-q4km-f2d6f9c-ac2d97712095a558e31573f62f466a3f9d93990898b0ec79d7c974c1780d524a
-
-      - name: Run bounded Qwen3 Arabic inference smoke test
-        shell: bash
-        continue-on-error: true
-        run: bash .github/scripts/verify-eve-qwen3-model.sh
+        timeout-minutes: 35
+        run: bash .github/scripts/build-eve-arabic-gguf.sh
 
       - name: Run logic tests and build debug APK
         run: |
@@ -298,39 +276,37 @@ jobs:
             echo "PASS: $APK contains the pinned offline identity model and license."
           done
 
-      - name: Verify Qwen3 model and checksum are packaged in both APKs
+      - name: Verify compact Arabic model is packaged in both APKs
         shell: bash
         run: |
           set -euo pipefail
-          MODEL="eve-project/app/src/main/assets/models/eve-qwen3-0.6b-q4km.gguf"
+          MODEL="eve-project/app/src/main/assets/models/eve-arabic-50m-q4.gguf"
           LICENSE="eve-project/app/src/main/assets/models/Apache-2.0-LICENSE.txt"
-          NOTICE="eve-project/app/src/main/assets/models/QWEN3-MODEL-NOTICE.txt"
-          EXPECTED_SHA256="ac2d97712095a558e31573f62f466a3f9d93990898b0ec79d7c974c1780d524a"
+          NOTICE="eve-project/app/src/main/assets/models/MODEL-NOTICE.txt"
           test -s "$MODEL"
           test -s "$LICENSE"
           test -s "$NOTICE"
           grep -Fq "Apache License" "$LICENSE"
           MODEL_BYTES="$(stat -c '%s' "$MODEL")"
-          test "$MODEL_BYTES" -ge 350000000
-          test "$MODEL_BYTES" -le 450000000
+          test "$MODEL_BYTES" -lt 50000000
           SOURCE_SHA256="$(sha256sum "$MODEL" | awk '{print $1}')"
-          test "$SOURCE_SHA256" = "$EXPECTED_SHA256"
           for APK in \
             "eve-project/app/build/outputs/apk/debug/app-debug.apk" \
             "eve-project/app/build/outputs/apk/release/app-release.apk"; do
             test -s "$APK"
-            unzip -Z1 "$APK" | grep -Fxq "assets/models/eve-qwen3-0.6b-q4km.gguf"
+            unzip -Z1 "$APK" | grep -Fxq "assets/models/eve-arabic-50m-q4.gguf"
             unzip -Z1 "$APK" | grep -Fxq "assets/models/Apache-2.0-LICENSE.txt"
-            PACKAGED_SHA256="$(unzip -p "$APK" assets/models/eve-qwen3-0.6b-q4km.gguf | sha256sum | awk '{print $1}')"
-            test "$PACKAGED_SHA256" = "$EXPECTED_SHA256"
-            echo "PASS: $APK contains Qwen3 GGUF ($MODEL_BYTES bytes), SHA-256=$PACKAGED_SHA256"
+            unzip -Z1 "$APK" | grep -Fxq "assets/models/MODEL-NOTICE.txt"
+            PACKAGED_SHA256="$(unzip -p "$APK" assets/models/eve-arabic-50m-q4.gguf | sha256sum | awk '{print $1}')"
+            test "$PACKAGED_SHA256" = "$SOURCE_SHA256"
+            echo "PASS: $APK contains compact Arabic GGUF ($MODEL_BYTES bytes), SHA-256=$PACKAGED_SHA256"
           done
 
       - name: Upload quantization and held-out generation evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: EVE-Qwen3-0.6B-Q4-Model-Report
+          name: EVE-Arabic-50M-Q4-Model-Report
           path: eve-model-build/**
           if-no-files-found: warn
           retention-days: 14
@@ -339,12 +315,11 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: EVE-Qwen3-0.6B-Q4-Model
+          name: EVE-Arabic-50M-Q4-Model
           path: |
-            eve-project/app/src/main/assets/models/eve-qwen3-0.6b-q4km.gguf
-            eve-project/app/src/main/assets/models/eve-qwen3-0.6b-q4km.sha256
+            eve-project/app/src/main/assets/models/eve-arabic-50m-q4.gguf
             eve-project/app/src/main/assets/models/Apache-2.0-LICENSE.txt
-            eve-project/app/src/main/assets/models/QWEN3-MODEL-NOTICE.txt
+            eve-project/app/src/main/assets/models/MODEL-NOTICE.txt
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
@@ -404,7 +379,7 @@ jobs:
           body: |
             Direct-install APK built by GitHub Actions.
             Source commit: ${{ github.sha }}
-            Qwen3-0.6B local language model, offline camera perception, face and gesture inference, local memory, and the EVE behaviour controller run on-device.
+            Compact Arabic 50M offline text generation, offline camera perception, face and gesture inference, local memory, and the EVE behaviour controller run on-device.
           files: eve-project/app/build/outputs/apk/release/app-release.apk
           generate_release_notes: false
           make_latest: true
