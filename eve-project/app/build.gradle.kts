@@ -9,13 +9,9 @@ android {
     namespace = "com.eve.robot"
     compileSdk = 35
 
-    // Keep large binary model assets out of Gradle's DEFLATE pass. The pinned Qwen
-    // .litertlm and TFLite models are already compact binary formats, and the offline brain
-    // stream-extracts Qwen through AssetManager.open() before SHA-256 verification.
-    // Storing those bytes as-is avoids high heap use during release packaging while preserving
-    // every model byte and every offline feature. The Vosk model remains a ZIP asset.
+    // The bundled Vosk ZIP and TFLite vision models are already compact binary assets.
     androidResources {
-        noCompress += listOf("zip", "tflite", "litertlm")
+        noCompress += listOf("zip", "tflite")
     }
 
     // Include legacy JAR (v1) signing as well as modern APK signing so OEM installers
@@ -83,8 +79,6 @@ dependencies {
     implementation("com.alphacephei:vosk-android:0.3.75@aar")
     // Offline hand-sign recognition: model is pinned/downloaded during the build and packaged locally.
     implementation("com.google.mediapipe:tasks-vision:1.0.0")
-    // Real on-device generative language model; the model file is downloaded once to private storage.
-    implementation("com.google.ai.edge.litertlm:litertlm-android:0.18.0")
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test:rules:1.6.1")
