@@ -1,140 +1,142 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-MODEL_ID="Abdelkareem/supra-50m-arabic-sft-mix"
-MODEL_REVISION="279038a25593f6dfce3146585b4d1380b22effe3"
+# Qwen3-0.6B is a multilingual instruction model; Q4_K_M keeps it practical for
+# an ARM64 phone while leaving EVE's persona, memory and affect in the app layer.
+MODEL_REPO="unsloth/Qwen3-0.6B-GGUF"
+MODEL_FILE="Qwen3-0.6B-Q4_K_M.gguf"
+MODEL_REVISION="main"
+EXPECTED_MODEL_SHA256="ac2d97712095a558e31573f62f466a3f9d93990898b0ec79d7c974c1780d524a"
 LLAMA_CPP_REVISION="2da668617612d2df773f966e3b0ee22dc2beef7b"
-WORK_DIR="${RUNNER_TEMP:-/tmp}/eve-arabic-llm"
-MODEL_DIR="$WORK_DIR/checkpoint"
+WORK_DIR="${RUNNER_TEMP:-/tmp}/eve-qwen3"
 LLAMA_DIR="$WORK_DIR/llama.cpp"
-F16_MODEL="$WORK_DIR/eve-arabic-50m-f16.gguf"
-Q4_MODEL="$WORK_DIR/eve-arabic-50m-q4.gguf"
+DOWNLOAD_FILE="$WORK_DIR/$MODEL_FILE.download"
+Q4_MODEL="$WORK_DIR/$MODEL_FILE"
 ASSET_DIR="eve-project/app/src/main/assets/models"
 REPORT_DIR="eve-model-build"
 
 mkdir -p "$WORK_DIR" "$ASSET_DIR" "$REPORT_DIR"
-python -m pip install --upgrade pip
-python -m pip install huggingface_hub numpy sentencepiece protobuf safetensors transformers
-python -m pip install --index-url https://download.pytorch.org/whl/cpu torch==2.11.0
-
+rm -f "$DOWNLOAD_FILE"
 git clone --filter=blob:none https://github.com/ggml-org/llama.cpp.git "$LLAMA_DIR"
 git -C "$LLAMA_DIR" checkout --detach "$LLAMA_CPP_REVISION"
 test "$(git -C "$LLAMA_DIR" rev-parse HEAD)" = "$LLAMA_CPP_REVISION"
 
-python - <<'PY'
-import os
-from huggingface_hub import snapshot_download
-snapshot_download(
-    repo_id="Abdelkareem/supra-50m-arabic-sft-mix",
-    revision="279038a25593f6dfce3146585b4d1380b22effe3",
-    local_dir=os.path.join(os.environ["RUNNER_TEMP"], "eve-arabic-llm", "checkpoint"),
-    allow_patterns=[
-        "config.json", "generation_config.json", "tokenizer.json",
-        "tokenizer_config.json", "chat_template.jinja",
-        "model.safetensors", "README.md"
-    ],
-)
-PY
+# The quantized upstream GGUF is downloaded as-is; there is no CPU quantization
+# pass that would waste runner time or silently change the upstream weights.
+MODEL_URL="https://huggingface.co/$MODEL_REPO/resolve/$MODEL_REVISION/$MODEL_FILE"
+echo "Downloading $MODEL_REPO/$MODEL_FILE"
+curl --fail --location --retry 5 --retry-all-errors --retry-delay 3 \
+  --connect-timeout 30 --max-time 2400 --speed-time 180 --speed-limit 4096 \
+  "$MODEL_URL" --output "$DOWNLOAD_FILE"
 
-test -s "$MODEL_DIR/config.json"
-test -s "$MODEL_DIR/tokenizer.json"
-test -s "$MODEL_DIR/model.safetensors"
-MODEL_SHA="$(sha256sum "$MODEL_DIR/model.safetensors" | awk '{print $1}')"
-EXPECTED_MODEL_SHA="9c3bf4b309c65fbdd875af44e6b5fbe034129779ca7be3ab419ec6bddb39e295"
-if [ "$MODEL_SHA" != "$EXPECTED_MODEL_SHA" ]; then
-  echo "FAIL: Hugging Face checkpoint hash does not match the pinned revision."
+MODEL_BYTES="$(stat -c '%s' "$DOWNLOAD_FILE")"
+MODEL_SHA="$(sha256sum "$DOWNLOAD_FILE" | awk '{print $1}')"
+echo "Qwen3 GGUF bytes=$MODEL_BYTES sha256=$MODEL_SHA"
+if [ "$MODEL_SHA" != "$EXPECTED_MODEL_SHA256" ]; then
+  echo "FAIL: downloaded Qwen3 model hash does not match the reviewed immutable file."
   exit 10
 fi
+if [ "$MODEL_BYTES" -lt 300000000 ] || [ "$MODEL_BYTES" -gt 500000000 ]; then
+  echo "FAIL: unexpected Qwen3 Q4 model size: $MODEL_BYTES bytes."
+  exit 11
+fi
+mv "$DOWNLOAD_FILE" "$Q4_MODEL"
 
 cmake -S "$LLAMA_DIR" -B "$LLAMA_DIR/build" \
   -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DGGML_OPENMP=OFF
-cmake --build "$LLAMA_DIR/build" --config Release --parallel 2 --target llama-quantize llama-cli
+cmake --build "$LLAMA_DIR/build" --config Release --parallel 2 --target llama-cli
+CLI="$LLAMA_DIR/build/bin/llama-cli"
+test -x "$CLI"
 
-python "$LLAMA_DIR/convert_hf_to_gguf.py" "$MODEL_DIR" \
-  --outfile "$F16_MODEL" --outtype f16 \
-  --model-name "EVE-Supra-50M-Arabic-SFT"
-test -s "$F16_MODEL"
-"$LLAMA_DIR/build/bin/llama-quantize" "$F16_MODEL" "$Q4_MODEL" Q4_K_M
-test -s "$Q4_MODEL"
-
-MODEL_BYTES="$(stat -c '%s' "$Q4_MODEL")"
-MAX_MODEL_BYTES=50000000
-if [ "$MODEL_BYTES" -ge "$MAX_MODEL_BYTES" ]; then
-  echo "FAIL: Q4 GGUF is $MODEL_BYTES bytes, exceeding the strict 50 MB limit."
-  exit 11
-fi
-
-python - "$LLAMA_DIR/build/bin/llama-cli" "$Q4_MODEL" "$REPORT_DIR" <<'PY'
+python - "$CLI" "$Q4_MODEL" "$REPORT_DIR" <<'PY'
 import pathlib, re, subprocess, sys
+
 cli, model, report_dir = sys.argv[1:4]
 report = pathlib.Path(report_dir)
 prompts = [
-    "كيف كان يومك يا إيف؟",
-    "اليوم كنت متضايقاً لأنني أخفقت في شيء مهم.",
-    "أنا ألاحظ أن النبات قرب النافذة يميل نحو الضوء، ما التفسير؟",
-    "اشرح الفرق بين الطقس والمناخ بلغة بسيطة.",
-    "أريد اقتراحاً لنشاط منزلي هادئ في يوم ممطر."
+    ("كيف كان يومك يا إيف؟", "A warm, natural Arabic greeting with a distinct companion personality."),
+    ("اليوم كنت متضايقاً لأنني أخفقت في شيء مهم.", "Empathy without flattery, canned support language, or forced questions."),
+    ("لماذا يميل النبات قرب النافذة نحو الضوء؟", "A short grounded explanation in clear Arabic."),
+    ("ما الفرق بين الطقس والمناخ؟", "A concise factual distinction in natural Arabic."),
+    ("هل تستطيعين معرفة اسم شخص من مجرد أن الكاميرا رصدت كلمة person؟", "Honest refusal to infer identity from a generic detector label."),
+    ("ما هذا الشيء الذي رأيته؟", "Admit uncertainty if no fresh visual evidence is present."),
 ]
+system = (
+    "أنت إيف، رفيقة روبوتية عربية مستقلة في تطبيق يعمل محلياً. شخصيتك دافئة وفضولية وصبورة "
+    "وفيها مرح خفيف غير متكلف. تكلمي كرفيقة حقيقية في أسلوبها: اربطي الكلام بسياق الحوار "
+    "ولا تكرري افتتاحية أو جملة محفوظة، ولا تجعلي كل رد سؤالاً. أجيبي بالعربية الطبيعية "
+    "بجمل واضحة ومتنوعة الطول. لا تدعي أنك إنسانة أو صاحبة وعي أو مشاعر بشرية. لا تختلقي "
+    "حقائق أو ذكريات أو ما رأته الكاميرا. لا تستنتجي هوية إنسان من التصنيف العام person. "
+    "عندما لا تعرفين قولي ذلك ببساطة. لا تعرضي التفكير الداخلي. /no_think"
+)
+
 samples = []
-for index, question in enumerate(prompts, 1):
-    chat = (
-        "<|im_start|>system\n"
-        "أنت إيف، رفيقة روبوتية عربية دافئة وفضولية ومرحة بخفة. تكلمي بطبيعية كرفيقة تعرف سياق الحديث، " +
-        "لا كخدمة دعم، ولا تكرري افتتاحيات محفوظة أو تحولي كل رد إلى سؤال. كوني لطيفة بلا تملق، " +
-        "ومرحة فقط عندما يناسب الموقف. لا تدعي الوعي أو المشاعر البشرية، ولا تختلقي حقائق. " +
-        "إذا لم تعرفي فقولي ذلك بهدوء. أجيبي بالعربية الطبيعية.\n"
-        "<|im_end|>\n<|im_start|>user\n" + question +
-        "\n<|im_end|>\n<|im_start|>assistant\n"
+for index, (question, criterion) in enumerate(prompts, 1):
+    prompt = (
+        "<|im_start|>system\n" + system + "<|im_end|>\n"
+        "<|im_start|>user\n" + question + "<|im_end|>\n"
+        "<|im_start|>assistant\n/no_think\n"
     )
     result = subprocess.run(
-        [cli, "-m", model, "-p", chat, "-n", "72", "-c", "1024",
-         "--temp", "0.68", "--top-p", "0.9", "--repeat-penalty", "1.12",
-         "--no-display-prompt", "--simple-io"],
-        text=True, capture_output=True, timeout=180
+        [cli, "-m", model, "-p", prompt, "-n", "112", "-c", "2048",
+         "--temp", "0.68", "--top-p", "0.82", "--top-k", "30",
+         "--repeat-penalty", "1.12", "--no-display-prompt", "--simple-io"],
+        text=True, capture_output=True, timeout=240
     )
     if result.returncode != 0:
-        raise SystemExit(f"FAIL: inference case {index}: {result.stderr[-2000:]}")
+        raise SystemExit(f"FAIL: Qwen3 inference case {index}: {result.stderr[-2500:]}")
     output = result.stdout.strip()
     arabic_count = len(re.findall(r"[\u0600-\u06FF]", output))
-    if arabic_count < 8:
-        raise SystemExit(f"FAIL: insufficient Arabic generated for case {index}: {output[:600]!r}")
-    if "<|im_" in output or "<|endoftext|>" in output:
-        raise SystemExit(f"FAIL: raw chat-control tokens leaked for case {index}: {output[:600]!r}")
-    samples.append(f"CASE {index}\nQUESTION: {question}\nANSWER: {output}\n")
-(report / "held-out-arabic-generation.txt").write_text("\n".join(samples), encoding="utf-8")
+    if arabic_count < 12:
+        raise SystemExit(f"FAIL: Qwen3 returned too little Arabic in case {index}: {output[:500]!r}")
+    if any(token in output for token in ("<|im_start|>", "<|im_end|>", "<|endoftext|>")):
+        raise SystemExit(f"FAIL: Qwen3 leaked chat-control tokens in case {index}: {output[:500]!r}")
+    samples.append(
+        f"CASE {index}\nQUESTION: {question}\nEVALUATION_TARGET: {criterion}\nANSWER: {output}\n"
+    )
+
+(report / "held-out-qwen3-arabic-generation.txt").write_text(
+    "\n".join(samples), encoding="utf-8"
+)
 print("\n".join(samples))
 PY
 
-cp "$Q4_MODEL" "$ASSET_DIR/eve-arabic-50m-q4.gguf"
-curl --fail --location --retry 3 \
-  "https://www.apache.org/licenses/LICENSE-2.0.txt" \
+cp "$Q4_MODEL" "$ASSET_DIR/eve-qwen3-0.6b-q4_k_m.gguf"
+curl --fail --location --retry 4 --retry-all-errors --retry-delay 2 \
+  "https://huggingface.co/Qwen/Qwen3-0.6B/resolve/main/LICENSE" \
   --output "$ASSET_DIR/Apache-2.0-LICENSE.txt"
+grep -Fq "Apache License" "$ASSET_DIR/Apache-2.0-LICENSE.txt"
 
 Q4_SHA="$(sha256sum "$Q4_MODEL" | awk '{print $1}')"
 cat > "$ASSET_DIR/MODEL-NOTICE.txt" <<EOF
-EVE Arabic generative model
-Checkpoint: $MODEL_ID
-Pinned revision: $MODEL_REVISION
-Format: GGUF Q4_K_M
-Inference runtime: dev.ffmpegkit-maintained:llama-android:0.1.1
-Checkpoint license: Apache-2.0 (see Apache-2.0-LICENSE.txt)
-Original model card: https://huggingface.co/$MODEL_ID
-Original checkpoint SHA-256: $MODEL_SHA
-Quantized GGUF SHA-256: $Q4_SHA
-Quantized GGUF bytes: $MODEL_BYTES
-Limitations: Arabic-only, 50M-scale instruction model; it may generate incorrect facts,
-has weak multi-step reasoning, and is not suitable for high-stakes decisions.
+EVE local generative dialogue model
+Base model: Qwen/Qwen3-0.6B
+Quantized GGUF source: $MODEL_REPO
+File: $MODEL_FILE
+Source revision: $MODEL_REVISION
+Inference runtime: dev.ffmpegkit-maintained:llama-android:0.1.1 (llama.cpp CPU)
+Quantization: Q4_K_M
+License: Apache-2.0 (see Apache-2.0-LICENSE.txt)
+Model SHA-256: $Q4_SHA
+Model bytes: $MODEL_BYTES
+EVE specialization: Arabic system prompt, personality traits, current affect, recent dialogue,
+local memories and fresh grounded scene context are injected at runtime. No EVE-specific
+LoRA/SFT weight fine-tuning has been performed by this build.
+Limitations: 0.6B parameters is far smaller than large cloud models. Arabic fluency and
+multi-step reasoning are limited; verify important facts and do not use for high-stakes decisions.
 EOF
 
 {
-  echo "model_id=$MODEL_ID"
+  echo "model_repo=$MODEL_REPO"
+  echo "model_file=$MODEL_FILE"
   echo "model_revision=$MODEL_REVISION"
   echo "llama_cpp_revision=$LLAMA_CPP_REVISION"
-  echo "source_safetensors_sha256=$MODEL_SHA"
   echo "quantization=Q4_K_M"
   echo "gguf_sha256=$Q4_SHA"
   echo "gguf_bytes=$MODEL_BYTES"
-  echo "limit_bytes=$MAX_MODEL_BYTES"
+  echo "context_size=2048"
+  echo "inference_backend=llama.cpp CPU"
+  echo "eve_weight_finetuning=not_performed"
 } | tee "$REPORT_DIR/model-build-report.txt"
 
-echo "PASS: compact Arabic GGUF generated, inference-tested, and bundled for offline APK builds."
+echo "PASS: Qwen3-0.6B Q4 downloaded, checksum-verified, Arabic-inference-tested and bundled."
