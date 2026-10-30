@@ -86,24 +86,21 @@ replace_once(
     "training lifecycle",
 )
 
-replace_once(
-    "function packBrain(){const a=v=>Array.from(v,q=>Math.round(q*1e4)/1e4);return{Wp:a(BR.Wp),Wa:a(BR.Wa),Wg:a(BR.Wg)}}\n"
-    "(function(){const B=M.brain;\n"
-    " if(B&&B.Wp&&B.Wp.length===NI*NZ&&B.Wa&&B.Wa.length===3*NZ&&B.Wg&&B.Wg.length===NG*NZ){BR.Wp.set(B.Wp);BR.Wa.set(B.Wa);BR.Wg.set(B.Wg)}\n"
-    " else{BR.booting=true;infancyAsync(12000,()=>{BR.ready=true;BR.booting=false;save()});return}\n"
-    " BR.ready=true})();",
-    "function packBrain(){const a=v=>Array.from(v,q=>Math.round(q*1e4)/1e4);return{ni:NI,version:2,Wp:a(BR.Wp),Wa:a(BR.Wa),Wg:a(BR.Wg)}}\n"
-    "function migrateBrain(B){if(!B||!B.Wp||!B.Wa||!B.Wg)return false;const prefix=NR+NS+1;\n"
-    " let oldNi=Number(B.ni)||0;if(!oldNi){if(B.Wp.length===40*(prefix+40))oldNi=40;else if(B.Wp.length===NI*NZ)oldNi=NI}\n"
-    " if(oldNi!==40&&oldNi!==NI)return false;const oldNz=prefix+oldNi;\n"
-    " if(B.Wp.length!==oldNi*oldNz||B.Wa.length!==3*oldNz||B.Wg.length!==NG*oldNz)return false;\n"
-    " const copy=(dst,src,rows)=>{for(let r=0;r<rows;r++)for(let c=0;c<oldNz;c++){const nc=c<prefix?c:c+(NZ-oldNz);dst[r*NZ+nc]=Number(src[r*oldNz+c])||0}};\n"
-    " copy(BR.Wp,B.Wp,Math.min(oldNi,NI));copy(BR.Wa,B.Wa,3);copy(BR.Wg,B.Wg,NG);return true}\n"
-    "(function(){const B=M.brain;\n"
-    " if(!migrateBrain(B)){BR.booting=true;infancyAsync(12000,()=>{BR.ready=true;BR.booting=false;save()});return}\n"
-    " BR.ready=true})();",
-    "backward-compatible learned-weight migration",
+import re
+pattern = re.compile(r"function packBrain\\(\\)\\{[^\\n]*\\}\\n\\(function\\(\\)\\{const B=M\\.brain;.*?BR\\.ready=true\\}\\)\\(\\);", re.S)
+replacement = (
+    "function packBrain(){const a=v=>Array.from(v,q=>Math.round(q*1e4)/1e4);return{ni:NI,version:2,Wp:a(BR.Wp),Wa:a(BR.Wa),Wg:a(BR.Wg)}}\\n"
+    "function migrateBrain(B){if(!B||!B.Wp||!B.Wa||!B.Wg)return false;const prefix=NR+NS+1;\\n"
+    " let oldNi=Number(B.ni)||0;if(!oldNi){if(B.Wp.length===40*(prefix+40))oldNi=40;else if(B.Wp.length===NI*NZ)oldNi=NI}\\n"
+    " if(oldNi!==40&&oldNi!==NI)return false;const oldNz=prefix+oldNi;\\n"
+    " if(B.Wp.length!==oldNi*oldNz||B.Wa.length!==3*oldNz||B.Wg.length!==NG*oldNz)return false;\\n"
+    " const copy=(dst,src,rows)=>{for(let r=0;r<rows;r++)for(let c=0;c<oldNz;c++){const nc=c<prefix?c:c+(NZ-oldNz);dst[r*NZ+nc]=Number(src[r*oldNz+c])||0}};\\n"
+    " copy(BR.Wp,B.Wp,Math.min(oldNi,NI));copy(BR.Wa,B.Wa,3);copy(BR.Wg,B.Wg,NG);return true}\\n"
+    "(function(){const B=M.brain;if(!migrateBrain(B)){BR.booting=true;infancyAsync(12000,()=>{BR.ready=true;BR.booting=false;save()});return}BR.ready=true})();"
 )
+src, count = pattern.subn(lambda _: replacement, src, count=1)
+if count != 1:
+    raise SystemExit(f"Weight migration block: expected one match, found {count}")
 
 replace_once(
     "  touchE*=.9;msgE*=.97;const now=Date.now(),sk=shakes.filter(t=>now-t<3000).length,bt=window._bat,d=new Date(),h=d.getHours()+d.getMinutes()/60;",
