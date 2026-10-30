@@ -103,7 +103,7 @@ if count != 1:
     raise SystemExit(f"Weight migration block: expected one match, found {count}")
 
 replace_once(
-    "  touchE*=.9;msgE*=.97;const now=Date.now(),sk=shakes.filter(t=>now-t<3000).length,bt=window._bat,d=new Date(),h=d.getHours()+d.getMinutes()/60;",
+    " touchE*=.9;msgE*=.97;const now=Date.now(),sk=shakes.filter(t=>now-t<3000).length,bt=window._bat,d=new Date(),h=d.getHours()+d.getMinutes()/60;",
     "  const now=Date.now(),visualFresh=now-lastVisT<3000,objs=visualFresh&&Array.isArray(OBJ)?OBJ:[];\n"
     "  const labels=objs.map(o=>String(o.l||'').toLowerCase()),food=!!(typeof CLS!=='undefined'&&CLS&&now-CLS.t<7000&&CLS.food)||/banana|apple|sandwich|orange|broccoli|carrot|hot dog|pizza|donut|cake|bowl of food|food/.test(labels.join('|'));\n"
     "  const sport=!!(typeof CLS!=='undefined'&&CLS&&now-CLS.t<7000&&CLS.sport)||/sports ball|tennis racket|skateboard|bicycle|dumbbell|barbell/.test(labels.join('|'));\n"
