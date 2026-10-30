@@ -14,7 +14,7 @@ import java.io.File
 
 /**
  * Real autoregressive Arabic text generation through llama.cpp.
- * The quantized GGUF is packaged by CI at assets/models/eve-arabic-50m-q4.gguf.
+ * Qwen3-0.6B Q4_K_M is packaged by CI at assets/models/eve-qwen3-0.6b-q4_k_m.gguf.
  * It is copied to app-private storage and inferred locally. There is no network client.
  */
 internal class EveArabicLlmRuntime(context: Context) : AutoCloseable {
@@ -36,7 +36,7 @@ internal class EveArabicLlmRuntime(context: Context) : AutoCloseable {
                 model = model,
                 prompt = userText,
                 systemPrompt = EveArabicPromptBuilder.systemPrompt(context),
-                maxTokens = maxOutputTokens.coerceIn(32, 128)
+                maxTokens = maxOutputTokens.coerceIn(64, 192)
             )
             val answer = EveArabicPromptBuilder.cleanGeneratedText(result.text)
             if (answer.isBlank() || answer.none { it in '\u0600'..'\u06FF' }) {
@@ -78,7 +78,7 @@ internal class EveArabicLlmRuntime(context: Context) : AutoCloseable {
     private suspend fun loadModel(): LlamaModel? = modelMutex.withLock {
         loadedModel?.takeIf { it.isLoaded }?.let { return@withLock it }
 
-        val modelFile = File(appContext.filesDir, "models/eve-arabic-50m-q4.gguf")
+        val modelFile = File(appContext.filesDir, MODEL_FILE_NAME)
         withContext(Dispatchers.IO) {
             if (!modelFile.isFile || modelFile.length() < MIN_MODEL_BYTES) {
                 modelFile.parentFile?.mkdirs()
@@ -92,18 +92,18 @@ internal class EveArabicLlmRuntime(context: Context) : AutoCloseable {
         }
 
         val config = LlamaConfig(
-            contextSize = 1_024,
+            contextSize = 2_048,
             threads = Runtime.getRuntime().availableProcessors().coerceIn(2, 4),
             gpuLayers = 0,
             temperature = 0.68f,
-            topP = 0.90f,
-            topK = 40
+            topP = 0.82f,
+            topK = 30
         )
         Llama.loadModel(modelPath = modelFile.absolutePath, config = config).also {
             loadedModel = it
             Log.i(
                 TAG,
-                "ARABIC_LLM_LOADED bytes=${modelFile.length()} context=1024 threads=${config.threads} " +
+                "ARABIC_LLM_LOADED bytes=${modelFile.length()} context=2048 threads=${config.threads} " +
                     "backend=llama.cpp cpu_only=true"
             )
         }
@@ -120,7 +120,8 @@ internal class EveArabicLlmRuntime(context: Context) : AutoCloseable {
 
     companion object {
         private const val TAG = "EVE_ARABIC_LLM"
-        private const val MODEL_ASSET = "models/eve-arabic-50m-q4.gguf"
-        private const val MIN_MODEL_BYTES = 5_000_000L
+        private const val MODEL_FILE_NAME = "models/eve-qwen3-0.6b-q4_k_m.gguf"
+        private const val MODEL_ASSET = MODEL_FILE_NAME
+        private const val MIN_MODEL_BYTES = 300_000_000L
     }
 }
