@@ -17,7 +17,7 @@ TEST_APK="$GITHUB_WORKSPACE/eve-project/app/build/outputs/apk/androidTest/debug/
 GRADLE_EXIT=0
 mkdir -p "$RESULT_DIR"
 echo "EVE deep face test on Android API $API_LEVEL" | tee "$RESULT_DIR/environment.txt"
-echo "Offline vision invariant: network is disabled before camera/FER instrumentation. INTERNET permission is reserved for the one-time local Qwen model download; inference is tested separately after the model is cached." | tee -a "$RESULT_DIR/environment.txt"
+echo "Offline verification invariant: all required perception and speech assets are bundled before the emulator starts; network radios are disabled before tests." | tee -a "$RESULT_DIR/environment.txt"
 
 # Preserve diagnostics even if emulator setup, ADB, Gradle or instrumentation fails.
 capture_diagnostics() {
@@ -38,12 +38,6 @@ capture_diagnostics() {
 }
 trap capture_diagnostics EXIT
 
-MANIFEST="$GITHUB_WORKSPACE/eve-project/app/src/main/AndroidManifest.xml"
-if ! grep -Eq 'android.permission.INTERNET' "$MANIFEST"; then
-  echo "FAIL: INTERNET permission is missing; first-run local Qwen setup cannot download model weights." | tee -a "$RESULT_DIR/environment.txt"
-  exit 1
-fi
-echo "PASS: INTERNET permission exists for initial model bootstrap; offline tests disconnect the emulator before local inference." | tee -a "$RESULT_DIR/environment.txt"
 if [ ! -s "$GITHUB_WORKSPACE/eve-project/app/src/androidTest/assets/face_fixture.jpg" ]; then
   echo "FAIL: pinned face fixture is missing." | tee -a "$RESULT_DIR/environment.txt"
   exit 2
@@ -114,15 +108,19 @@ if [ ! -s "$GITHUB_WORKSPACE/eve-project/app/src/androidTest/assets/gesture_thum
   echo "FAIL: pinned thumb-up image fixture is missing." | tee -a "$RESULT_DIR/environment.txt"
   exit 16
 fi
-VOSK_ARCHIVE="$GITHUB_WORKSPACE/eve-project/app/src/main/assets/vosk-model-ar-mgb2-0.4.zip"
-if [ ! -s "$VOSK_ARCHIVE" ] ||
-   ! unzip -Z1 "$VOSK_ARCHIVE" | grep -Eq '(^|/)conf/model\.conf$' ||
-   ! unzip -Z1 "$VOSK_ARCHIVE" | grep -Eq '(^|/)am/final\.mdl$' ||
-   ! unzip -Z1 "$VOSK_ARCHIVE" | grep -Eq '(^|/)graph/HCLG\.fst$'; then
-  echo "FAIL: bundled Arabic Vosk model archive is missing required local model files." | tee -a "$RESULT_DIR/environment.txt"
+ARABIC_MODEL_DIR="$GITHUB_WORKSPACE/eve-project/app/src/main/assets/moonshine/ar"
+if [ ! -d "$ARABIC_MODEL_DIR" ] ||
+   ! find "$ARABIC_MODEL_DIR" -type f -name '*.ort' -print -quit | grep -q . ||
+   [ ! -s "$ARABIC_MODEL_DIR/tokenizer.bin" ]; then
+  echo "FAIL: compact bundled Moonshine Arabic Tiny Streaming model is incomplete." | tee -a "$RESULT_DIR/environment.txt"
   exit 17
 fi
-echo "PASS: compressed Arabic Vosk model archive is bundled for local extraction and offline speech." | tee -a "$RESULT_DIR/environment.txt"
+ARABIC_MODEL_BYTES="$(du -sb "$ARABIC_MODEL_DIR" | awk '{print $1}')"
+if [ "$ARABIC_MODEL_BYTES" -le 0 ] || [ "$ARABIC_MODEL_BYTES" -gt 100000000 ]; then
+  echo "FAIL: unexpected bundled Moonshine Arabic model size: $ARABIC_MODEL_BYTES bytes." | tee -a "$RESULT_DIR/environment.txt"
+  exit 17
+fi
+echo "PASS: compact Moonshine Arabic Tiny Streaming model is bundled offline ($ARABIC_MODEL_BYTES bytes)." | tee -a "$RESULT_DIR/environment.txt"
 if [ ! -x "$GRADLE" ]; then
   echo "FAIL: Gradle executable not found at $GRADLE" | tee -a "$RESULT_DIR/environment.txt"
   exit 4
@@ -178,8 +176,7 @@ if [ "$BOOTED" != true ]; then
 fi
 echo "PASS: Android boot and Package Manager are ready." | tee -a "$RESULT_DIR/environment.txt"
 
-# Disable all available network paths during vision/perception instrumentation. INTERNET permission
-# is retained only because the language model is fetched once into app-private storage.
+# Disable all available network paths during bundled-model perception instrumentation.
 timeout 10s adb shell svc wifi disable >> "$RESULT_DIR/environment.txt" 2>&1 || true
 timeout 10s adb shell svc data disable >> "$RESULT_DIR/environment.txt" 2>&1 || true
 timeout 10s adb logcat -c >/dev/null 2>&1 || echo "WARN: logcat buffer could not be cleared." | tee -a "$RESULT_DIR/environment.txt"
@@ -278,9 +275,8 @@ if ! install_apk "instrumentation APK" "$TEST_APK" "$RESULT_DIR/install-test-apk
 fi
 timeout 10s adb logcat -c >/dev/null 2>&1 || true
 
-# Keep the face/gesture suite independent from the separate 329 MB Qwen model test.
-# This workflow intentionally does not bundle Qwen weights; running every instrumentation
-# class here would make unrelated LocalLanguageBrainIntegrationTest fail before it can test.
+# Keep the face/gesture suite focused on perception and rendering. Dialogue generation has
+# its own Qwen3 model build and offline validation pipeline; this run does not test that model.
 # Run the four offline perception/rendering classes explicitly and keep one combined report.
 INSTRUMENTATION_EXIT=0
 : > "$RESULT_DIR/instrumentation-output.txt"
