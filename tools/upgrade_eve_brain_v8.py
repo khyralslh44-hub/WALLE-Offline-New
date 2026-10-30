@@ -162,6 +162,38 @@ replace_once(
     "salience-directed non-random attention",
 )
 
+app_gradle = path.parents[3] / "build.gradle.kts"
+if not app_gradle.exists():
+    raise SystemExit(f"Android app Gradle file not found: {app_gradle}")
+gradle = app_gradle.read_text(encoding="utf-8")
+code_match = re.search(r"(?m)^(\\s*versionCode\\s*=\\s*)(\\d+)(\\s*)$", gradle)
+if not code_match:
+    raise SystemExit("Could not identify Android versionCode for safe upgrade.")
+old_code = int(code_match.group(2))
+new_code = old_code + 1
+gradle, count = re.subn(
+    r"(?m)^(\\s*versionCode\\s*=\\s*)\\d+(\\s*)$",
+    lambda m: m.group(1) + str(new_code) + m.group(2),
+    gradle,
+    count=1,
+)
+if count != 1:
+    raise SystemExit("Could not increment Android versionCode.")
+name_match = re.search(r'(?m)^(\\s*versionName\\s*=\\s*")([^"]+)(".*)$', gradle)
+if not name_match:
+    raise SystemExit("Could not identify Android versionName.")
+new_name = f"{new_code}.0"
+gradle, count = re.subn(
+    r'(?m)^(\\s*versionName\\s*=\\s*")[^"]+(".*)$',
+    lambda m: m.group(1) + new_name + m.group(2),
+    gradle,
+    count=1,
+)
+if count != 1:
+    raise SystemExit("Could not update Android versionName.")
+app_gradle.write_text(gradle, encoding="utf-8")
+print(f"Updated Android version {old_code} -> {new_code} ({new_name}).")
+
 path.write_text(src, encoding="utf-8")
 print(f"Upgraded {path}")
 print("Central brain: 40 -> 48 sensory inputs; learned-weight migration enabled.")
