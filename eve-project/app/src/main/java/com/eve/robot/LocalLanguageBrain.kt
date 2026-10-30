@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import kotlinx.coroutines.runBlocking
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -47,6 +48,7 @@ class LocalLanguageBrain(
     private val statusListener: (LocalLlmState, Int, String) -> Unit
 ) : AutoCloseable {
     private val appContext = context.applicationContext
+    private val generativeArabic = EveArabicLlmRuntime(appContext)
     private val main = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor { task ->
         Thread(task, "eve-tiny-arabic-brain").apply { isDaemon = true }
@@ -70,12 +72,21 @@ class LocalLanguageBrain(
 
     fun start() {
         if (closed.get()) return
-        publish(
-            LocalLlmState.READY,
-            100,
-            "دماغ إيف العربي الصغير جاهز • يعمل بالكامل دون إنترنت"
+        val generativeModelBundled = runCatching {
+            appContext.assets.open("models/eve-arabic-50m-q4.gguf").use { }
+            true
+        }.getOrDefault(false)
+        val readyMessage = if (generativeModelBundled) {
+            "النموذج اللغوي العربي التوليدي موجود • يعمل محلياً دون إنترنت ويُحمّل عند أول محادثة"
+        } else {
+            "الدماغ المحلي الاحتياطي جاهز • نموذج التوليد غير مضمّن في هذا البناء"
+        }
+        publish(LocalLlmState.READY, 100, readyMessage)
+        Log.i(
+            TAG,
+            "LOCAL_LANGUAGE_BRAIN_READY generativeModelBundled=$generativeModelBundled " +
+                "fallback=hashed_char_ngram_prototypes offline=true"
         )
-        Log.i(TAG, "TINY_ARABIC_BRAIN_READY engine=hashed_char_ngram_prototypes offline=true")
     }
 
     fun ensureReady() {
@@ -94,7 +105,11 @@ class LocalLanguageBrain(
         callback: (Result<LocalLlmResult>) -> Unit
     ) {
         enqueue(background = false, operation = {
-            EveTinyArabicBrain.answerUser(userText, context)
+            // The autoregressive Arabic model is the primary generator. The tiny intent/template
+            // engine remains only as a local fallback if the GGUF/native runtime cannot load.
+            runBlocking {
+                generativeArabic.answerUser(userText, context, maxOutputTokens)
+            } ?: EveTinyArabicBrain.answerUser(userText, context)
         }, callback = callback)
     }
 
@@ -231,8 +246,11 @@ class LocalLanguageBrain(
         if (!closed.compareAndSet(false, true)) return
         if (activeInstance === this) activeInstance = null
         try {
+            // Release the native model on the same serialized worker after any active inference.
+            worker.execute { generativeArabic.close() }
             worker.shutdown()
         } catch (_: Exception) {
+            try { generativeArabic.close() } catch (_: Exception) { }
             try { worker.shutdownNow() } catch (_: Exception) { }
         }
     }
