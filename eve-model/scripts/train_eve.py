@@ -65,7 +65,8 @@ class PackedBlocks(IterableDataset):
                             chunk = carry[: self.seq_len + 1]
                             del carry[: self.seq_len]
                             produced += 1
-                            yield chunk[:-1], chunk[1:]
+                            # Yield tensors so DataLoader collates each sequence into [batch, seq_len].
+                            yield torch.tensor(chunk[:-1], dtype=torch.long), torch.tensor(chunk[1:], dtype=torch.long)
             if produced == 0:
                 raise RuntimeError("The text corpus did not produce a training block. Add more licensed Arabic text.")
 
@@ -103,7 +104,8 @@ class PackedBlocks(IterableDataset):
                             if not any(label != -100 for label in labels):
                                 continue
                             produced += 1
-                            yield ids[:-1], labels
+                            # Tensor samples avoid default_collate transposing Python lists into a list of tensors.
+                            yield torch.tensor(ids[:-1], dtype=torch.long), torch.tensor(labels, dtype=torch.long)
             if produced == 0:
                 raise RuntimeError("Persona JSONL did not produce an assistant training block.")
 
@@ -131,6 +133,7 @@ def main() -> None:
     parser.add_argument("--learning-rate", type=float, default=3e-4)
     parser.add_argument("--save-every", type=int, default=500)
     parser.add_argument("--seed", type=int, default=20261030)
+    parser.add_argument("--allow-cpu", action="store_true", help="Allow a slow CPU run for debugging only")
     args = parser.parse_args()
     if args.stage == "sft" and args.init_checkpoint is None:
         raise SystemExit("SFT must start from the EVE pretraining checkpoint via --init-checkpoint.")
@@ -162,8 +165,10 @@ def main() -> None:
     dataset = PackedBlocks(files, tokenizer, args.seq_len, args.stage)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    if device.type != "cuda":
-        print("WARNING: CPU training selected. This architecture is intended to be trained on a GPU.")
+    if device.type != "cuda" and not args.allow_cpu:
+        raise SystemExit("A CUDA GPU is required for training. Pass --allow-cpu only for a small debugging run.")
+    if device.type == "cuda":
+        print(f"GPU training device: {torch.cuda.get_device_name(0)}", flush=True)
     model.to(device)
     model.train()
     model.config.use_cache = False
