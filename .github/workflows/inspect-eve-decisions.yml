@@ -1,0 +1,22 @@
+name: Temporary EVE v7 decision-path inspection
+on:
+  push:
+    paths:
+      - '.github/workflows/inspect-eve-decisions.yml'
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Print exact decision source
+        run: |
+          python3 - <<'PY'
+          import zipfile
+          with zipfile.ZipFile("eve-android (7).zip") as z:
+              p="app/src/main/assets/eve.html"
+              s=z.read(p).decode("utf-8","replace").splitlines()
+              for a,b in [(72,123),(125,175),(190,244),(482,560),(800,855),(982,1020)]:
+                  print(f"\n===== LINES {a}-{b} =====")
+                  for i in range(a-1,min(b,len(s))):
+                      print(f"{i+1}: {s[i]}")
+          PY
