@@ -66,7 +66,7 @@ if [ -z "$AAPT" ]; then
   echo "FAIL: aapt not found." | tee -a "$RESULT_DIR/environment.txt"
   exit 5
 fi
-TEST_PACKAGE="$("$AAPT" dump badging "$TEST_APK" | sed -n "s/^package: name='\\([^']*\\)'.*/\\1/p" | head -n 1)"
+TEST_PACKAGE="$("$AAPT" dump badging "$TEST_APK" | sed -n "s/^package: name='\([^']*\)'.*/\1/p" | head -n 1)"
 if [ -z "$TEST_PACKAGE" ]; then
   echo "FAIL: instrumentation package not found." | tee -a "$RESULT_DIR/environment.txt"
   exit 6
@@ -85,7 +85,7 @@ if [ "$INSTRUMENTATION_EXIT" -ne 0 ] ||
   echo "FAIL: Tiny Arabic Brain instrumentation failed (exit=$INSTRUMENTATION_EXIT)." | tee -a "$RESULT_DIR/environment.txt"
   exit 7
 fi
-if ! grep -Eq 'OK \\([0-9]+ tests?\\)' "$RESULT_DIR/instrumentation-output.txt"; then
+if ! grep -Eq 'OK \([0-9]+ tests?\)' "$RESULT_DIR/instrumentation-output.txt"; then
   echo "FAIL: AndroidJUnitRunner did not report completed passing tests." | tee -a "$RESULT_DIR/environment.txt"
   exit 8
 fi
