@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Use the compact Arabic-only checkpoint to prioritize responsive CPU inference on modest phones.
 MODEL_ID="Abdelkareem/supra-50m-arabic-sft-mix"
 MODEL_REVISION="279038a25593f6dfce3146585b4d1380b22effe3"
 LLAMA_CPP_REVISION="2da668617612d2df773f966e3b0ee22dc2beef7b"
