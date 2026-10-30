@@ -201,6 +201,11 @@ jobs:
           file "$MODEL"
           echo "Pose model downloaded: $(wc -c < "$MODEL") bytes"
 
+      - name: Set up Python 3.12 for reproducible model conversion
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
       - name: Build, quantize, and inference-test the Arabic generative model
         shell: bash
         run: bash .github/scripts/build-eve-arabic-gguf.sh
