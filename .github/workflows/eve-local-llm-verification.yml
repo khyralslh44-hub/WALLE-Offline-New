@@ -1,10 +1,13 @@
-name: EVE Tiny Arabic Brain Offline Verification
+name: EVE Local Dialogue Fallback Offline Verification
 
 on:
   workflow_dispatch:
   push:
     paths:
       - 'eve-project/app/src/main/java/com/eve/robot/LocalLanguageBrain.kt'
+      - 'eve-project/app/src/main/java/com/eve/robot/EveArabicPromptBuilder.kt'
+      - 'eve-project/app/src/main/java/com/eve/robot/EveArabicLlmRuntime.kt'
+      - 'eve-project/app/src/test/java/com/eve/robot/EveArabicPromptBuilderTest.kt'
       - 'eve-project/app/src/main/java/com/eve/robot/EveTinyArabicBrain.kt'
       - 'eve-project/app/src/test/java/com/eve/robot/EveTinyArabicBrainTest.kt'
       - 'eve-project/app/src/androidTest/java/com/eve/robot/LocalLanguageBrainIntegrationTest.kt'
@@ -23,9 +26,9 @@ concurrency:
 
 jobs:
   tiny-arabic-offline:
-    name: EVE Tiny Arabic Brain on Android (offline)
+    name: EVE Offline dialogue fallback on Android
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 40
     steps:
       - name: Check out exact source revision
         uses: actions/checkout@v4
@@ -68,11 +71,40 @@ jobs:
           test -s eve-project/app/build/outputs/apk/debug/app-debug.apk
           test -s eve-project/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
           APP_APK=eve-project/app/build/outputs/apk/debug/app-debug.apk
-          if unzip -Z1 "$APP_APK" | grep -Eiq 'Qwen|litertlm|llama'; then
-            echo "FAIL: large LLM assets must not be bundled."
+          if unzip -Z1 "$APP_APK" | grep -Eiq 'Qwen|litertlm|[.]gguf
+
+      - name: Run Android emulator test with radios disabled
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: default
+          arch: x86_64
+          profile: pixel_2
+          cores: 4
+          ram-size: 4096M
+          heap-size: 1024M
+          emulator-boot-timeout: 900
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -no-audio -no-boot-anim
+          disable-animations: true
+          script: bash "$GITHUB_WORKSPACE/.github/scripts/run-local-llm-test.sh"
+
+      - name: Upload Tiny Arabic Brain test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EVE-Tiny-Arabic-Brain-Offline-Proof
+          path: |
+            eve-tiny-results/**
+            eve-project/app/build/reports/tests/testDebugUnitTest/**
+            eve-project/app/build/test-results/testDebugUnitTest/**
+            eve-project/app/build/reports/androidTests/connected/**
+          if-no-files-found: warn
+          retention-days: 14
+; then
+            echo "FAIL: model weights are not expected in this fallback-only test APK."
             exit 2
           fi
-          echo "PASS: compiled APK contains no large LLM asset."
+          echo "PASS: fallback-only APK has no GGUF weights; llama.cpp runtime library is permitted."
 
       - name: Run Android emulator test with radios disabled
         uses: reactivecircus/android-emulator-runner@v2
