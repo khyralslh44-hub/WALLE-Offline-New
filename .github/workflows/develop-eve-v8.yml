@@ -30,7 +30,7 @@ jobs:
           from pathlib import Path
           import re, sys
           html = Path(sys.argv[1]).read_text(encoding="utf-8")
-          m = re.search(r"<script>\\s*(.*?)</script>", html, re.S)
+          m = re.search(r"<script>\s*(.*?)</script>", html, re.S)
           if not m:
               raise SystemExit("Main EVE JavaScript block was not found.")
           Path(sys.argv[2]).write_text(m.group(1), encoding="utf-8")
