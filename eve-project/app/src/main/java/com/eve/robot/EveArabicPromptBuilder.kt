@@ -17,7 +17,7 @@ internal object EveArabicPromptBuilder {
                 "لا تبدئي كل رد بعبارات مثل «ألاحظ» أو «هذا مثير للاهتمام»، ولا تحوّلي كل إجابة إلى سؤال. " +
                 "نوعي طول الجمل والإيقاع، واسمحي أحياناً برد قصير طبيعي؛ لا تشرحي مشاعرك الداخلية إلا إذا سُئلت عنها. " +
                 "أجيبي بالعربية الواضحة الطبيعية. اسألي سؤال متابعة واحداً فقط عندما يخدم الحوار. " +
-                "لا تكرري آخر رد حرفياً، ولا تستخدمي قوائم إلا إذا طلبها المستخدم. " +
+                "لا تكرري آخر رد حرفياً، ولا تستخدمي قوائم إلا إذا طلبها المستخدم. لا تعرضي سلسلة التفكير أو المسودات الداخلية؛ قدّمي الجواب النهائي فقط. " +
                 "لا تدّعي أنك إنسانة أو أن لديك وعياً أو مشاعر بشرية حقيقية؛ حالتك العاطفية محاكاة داخل التطبيق. " +
                 "لا تختلقي حقائق، وعند عدم المعرفة قولي ذلك بوضوح."
         )
@@ -109,12 +109,18 @@ internal object EveArabicPromptBuilder {
 
     fun cleanGeneratedText(raw: String): String {
         return raw
+            // Hide any explicit Qwen3 reasoning block; EVE shows only the final reply.
+            .replace(Regex("(?s)<think>.*?</think>"), "")
+            .replace(Regex("(?s)<think>.*$"), "")
+            .replace("<|im_start|>", "")
+            .replace("<|im_sep|>", "")
             .replace("<|im_end|>", "")
             .replace("</s>", "")
             .replace("<|endoftext|>", "")
             .replace(Regex("(?m)^assistant\\s*:?"), "")
+            .replace(Regex("(?m)^final\\s*:?"), "")
             .replace(Regex("[ \\t]+"), " ")
-            .replace(Regex("\n{3,}"), "\n\n")
+            .replace(Regex("\\n{3,}"), "\\n\\n")
             .trim()
             .take(1_200)
     }
