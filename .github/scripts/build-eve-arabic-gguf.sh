@@ -39,6 +39,34 @@ PY
 test -s "$MODEL_DIR/config.json"
 test -s "$MODEL_DIR/tokenizer.json"
 test -s "$MODEL_DIR/model.safetensors"
+
+# Preserve tokenizer diagnostics in the CI log/report. Do not guess a tokenizer
+# family: an incorrect pre-tokenizer mapping can silently corrupt Arabic prompts.
+python - "$MODEL_DIR" "$REPORT_DIR" <<'PY'
+import json, pathlib, sys
+from transformers import AutoTokenizer
+model_dir, report_dir = map(pathlib.Path, sys.argv[1:3])
+cfg = json.loads((model_dir / "tokenizer.json").read_text(encoding="utf-8"))
+tokenizer = AutoTokenizer.from_pretrained(str(model_dir))
+probe = "\\n \\n\\n 3 33 3333 🚀 العربيةُ، كيف حالك؟ "
+ids = tokenizer.encode(probe)
+diagnostic = {
+    "model_type": json.loads((model_dir / "config.json").read_text(encoding="utf-8")).get("model_type"),
+    "tokenizer_class": json.loads((model_dir / "tokenizer_config.json").read_text(encoding="utf-8")).get("tokenizer_class"),
+    "vocab_size": len(tokenizer),
+    "normalizer": cfg.get("normalizer"),
+    "pre_tokenizer": cfg.get("pre_tokenizer"),
+    "decoder": cfg.get("decoder"),
+    "probe_ids": ids,
+    "probe_decoded": tokenizer.decode(ids),
+}
+path = report_dir / "tokenizer-diagnostics.json"
+path.write_text(json.dumps(diagnostic, ensure_ascii=False, indent=2), encoding="utf-8")
+print("EVE_TOKENIZER_DIAGNOSTICS_BEGIN")
+print(json.dumps(diagnostic, ensure_ascii=False, indent=2))
+print("EVE_TOKENIZER_DIAGNOSTICS_END")
+PY
+
 MODEL_SHA="$(sha256sum "$MODEL_DIR/model.safetensors" | awk '{print $1}')"
 EXPECTED_MODEL_SHA="9c3bf4b309c65fbdd875af44e6b5fbe034129779ca7be3ab419ec6bddb39e295"
 if [ "$MODEL_SHA" != "$EXPECTED_MODEL_SHA" ]; then
