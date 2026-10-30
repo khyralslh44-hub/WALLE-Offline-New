@@ -49,11 +49,15 @@ internal class EveArabicLlmRuntime(context: Context) : AutoCloseable {
                 "ARABIC_LLM_GENERATED tokens=${result.tokensGenerated} " +
                     "tokensPerSecond=${result.tokensPerSecond} chars=${answer.length} offline=true"
             )
+            // Keep the character's emotional state machine in charge of affect. The LLM
+            // writes the natural-language reply, while the deterministic companion planner
+            // supplies only bounded mood/goal hints and internal reflection context.
+            val behavior = EveTinyArabicBrain.answerUser(userText, context)
             LocalLlmResult(
                 replyArabic = answer,
-                moodHint = "curious",
-                intentHint = "connect",
-                reflectionArabic = "",
+                moodHint = behavior.moodHint ?: context.currentMood.lowercase(),
+                intentHint = behavior.intentHint ?: "connect",
+                reflectionArabic = behavior.reflectionArabic,
                 // The current app result contract has no calibrated token-confidence field.
                 // This is a neutral availability score, not a probability of factual correctness.
                 confidence = 0.55f
