@@ -80,15 +80,17 @@ internal class EveArabicLlmRuntime(context: Context) : AutoCloseable {
 
         val modelFile = File(appContext.filesDir, "models/eve-arabic-50m-q4.gguf")
         withContext(Dispatchers.IO) {
-            if (!modelFile.isFile || modelFile.length() < MIN_MODEL_BYTES) {
+            if (!modelFile.isFile || modelFile.length() < MIN_MODEL_BYTES ||
+                modelFile.length() >= MAX_MODEL_BYTES
+            ) {
                 modelFile.parentFile?.mkdirs()
                 appContext.assets.open(MODEL_ASSET).use { input ->
                     modelFile.outputStream().use { output -> input.copyTo(output) }
                 }
             }
         }
-        if (!modelFile.isFile || modelFile.length() < MIN_MODEL_BYTES) {
-            throw IllegalStateException("The bundled EVE Arabic GGUF asset is missing or truncated.")
+        if (!modelFile.isFile || modelFile.length() !in MIN_MODEL_BYTES until MAX_MODEL_BYTES) {
+            throw IllegalStateException("The bundled EVE Arabic 50M GGUF asset is missing, oversized, or truncated.")
         }
 
         val config = LlamaConfig(
@@ -122,5 +124,6 @@ internal class EveArabicLlmRuntime(context: Context) : AutoCloseable {
         private const val TAG = "EVE_ARABIC_50M_LLM"
         private const val MODEL_ASSET = "models/eve-arabic-50m-q4.gguf"
         private const val MIN_MODEL_BYTES = 20_000_000L
+        private const val MAX_MODEL_BYTES = 50_000_000L
     }
 }
