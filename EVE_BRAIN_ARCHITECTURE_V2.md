@@ -15,7 +15,7 @@ A deterministic state controller owns the current mood, its intensity, causes, a
 A behaviour planner selects bounded actions from current evidence and recent history. It suppresses repeated questions, avoids random actions, and asks for clarification when confidence is weak. Internal reflections stay internal; only a useful, context-aware question is shown to the user.
 
 ## 5. Language layer
-Qwen3-0.6B Q4_K_M runs locally through llama.cpp. It turns the grounded context into natural Arabic dialogue. It does not process camera frames and does not own identity, mood, memory, or safety decisions. If native inference is unavailable, EVE falls back to the deterministic Arabic companion brain.
+Supra-50M Arabic SFT Q4_K_M runs locally through llama.cpp. It turns the grounded context into natural Arabic dialogue. It does not process camera frames and does not own identity, mood, memory, or safety decisions. If native inference is unavailable, EVE falls back to the deterministic Arabic companion brain.
 
 ## 6. Offline and future body interface
 The app ships its model assets and uses local inference; the conversation path has no cloud API. A future Bluetooth movement base should connect through a separate command adapter with obstacle and edge-stop interlocks. Motion commands must be rejected whenever sensor health or distance confidence is insufficient.
