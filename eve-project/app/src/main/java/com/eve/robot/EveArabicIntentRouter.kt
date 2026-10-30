@@ -58,17 +58,17 @@ internal object EveArabicIntentRouter {
 
         when (intent) {
             "name" -> {
-                capture("(?:اسمي|انا اسمي|يمكنك مناداتي)\\\\s+(.+)")?.let { slots["name"] = it }
+                capture("(?:اسمي|انا اسمي|يمكنك مناداتي)\\s+(.+)")?.let { slots["name"] = it }
             }
             "like", "dislike" -> {
-                capture("(?:احب|بحب|يعجبني|لا احب|اكره|لا يعجبني|ما احب)\\\\s+(.+)")?.let {
+                capture("(?:احب|بحب|يعجبني|لا احب|اكره|لا يعجبني|ما احب)\\s+(.+)")?.let {
                     if (it !in setOf("ك", "كثيرا")) slots["like"] = it.take(60)
                 }
             }
             "family" -> {
                 val relation = listOf("اخي", "اختي", "امي", "ابي", "ابوي", "جدي", "جدتي", "صديقي", "صديقتي", "زوجتي", "زوجي", "ابني", "بنتي")
                     .firstOrNull { q.contains(it) }
-                val name = relation?.let { capture(Regex.escape(it) + "\\\\s+(\\\\S+)") }
+                val name = relation?.let { capture(Regex.escape(it) + "\\s+(\\S+)") }
                 if (relation != null && name != null) slots["rel"] = relation + " " + name
                 else if (relation != null) slots["rel"] = relation
             }
@@ -108,12 +108,12 @@ internal object EveArabicIntentRouter {
 
     fun normalize(text: String): String {
         return text.lowercase(Locale.ROOT)
-            .replace(Regex("[\\\\u064B-\\\\u065F\\\\u0670ـ]"), "")
+            .replace(Regex("[\\u064B-\\u065F\\u0670ـ]"), "")
             .replace('أ', 'ا').replace('إ', 'ا').replace('آ', 'ا')
             .replace('ى', 'ي').replace('ة', 'ه')
             .replace('ؤ', 'و').replace('ئ', 'ي')
-            .replace(Regex("[^\\\\p{L}\\\\p{N}\\\\s<>]"), " ")
-            .replace(Regex("\\\\s+"), " ")
+            .replace(Regex("[^\\p{L}\\p{N}\\s<>]"), " ")
+            .replace(Regex("\\s+"), " ")
             .trim()
     }
 
