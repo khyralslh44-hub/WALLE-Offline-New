@@ -1,0 +1,38 @@
+name: EVE model tooling checks
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'eve-model/**'
+      - '.github/workflows/eve-model-tooling-check.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile Python training utilities
+        run: |
+          python -m py_compile eve-model/scripts/*.py
+      - name: Validate architecture
+        run: |
+          python eve-model/scripts/check_config.py
+      - name: Validate EVE persona seed format
+        run: |
+          python eve-model/scripts/validate_personality_data.py eve-model/data/personality_seed.jsonl --min-examples 10
+      - name: Validate JSON assets
+        run: |
+          python -m json.tool eve-model/config/eve_ar_95m.json >/dev/null
+      - name: Report scope
+        run: |
+          echo "PASS: training scripts/config/data format are structurally valid."
+          echo "NOTE: this job does not train model weights or build an APK."
