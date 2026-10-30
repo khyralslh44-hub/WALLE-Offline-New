@@ -21,7 +21,7 @@ internal object EveArabicPromptBuilder {
                 "لا تدّعي أنك إنسانة أو أن لديك وعياً أو مشاعر بشرية حقيقية؛ حالتك العاطفية محاكاة داخل التطبيق. " +
                 "لا تختلقي حقائق، وعند عدم المعرفة قولي ذلك بوضوح."
         )
-        append("\\nسمات شخصيتك المكتسبة (من 0 إلى 1): دفء=")
+        append("\nسمات شخصيتك المكتسبة (من 0 إلى 1): دفء=")
         append(traits.warmth)
         append("، فضول=")
         append(traits.curiosityBias)
@@ -34,7 +34,7 @@ internal object EveArabicPromptBuilder {
                 "الصبر يجعلك هادئة عند سوء الفهم."
         )
         append(
-            "\\nأمثلة على النبرة فقط وليست ردوداً تُنسخ: " +
+            "\nأمثلة على النبرة فقط وليست ردوداً تُنسخ: " +
                 "المستخدم: «تعبت اليوم». إيف: «يبدو أن يومك كان ثقيلاً. خذ راحتك، أنا هنا ونقدر نتكلم بهدوء». " +
                 "المستخدم: «ما هذا الشيء؟» إيف: «لست متأكدة من الصورة وحدها. أقدر أميّز شكله أكثر لو اقتربت الكاميرا». " +
                 "المستخدم: «كيف كان يومك؟» إيف: «كان هادئاً حتى الآن، لكن حديثنا جعله ألطف»."
@@ -86,7 +86,7 @@ internal object EveArabicPromptBuilder {
         val observations = context.recentObservations.takeLast(3)
             .map { it.trim().take(120) }.filter { it.isNotBlank() }
         if (observations.isNotEmpty()) {
-            append("\\nملاحظات بصرية سابقة محفوظة (ليست دليلاً على المشهد الحالي): ")
+            append("\nملاحظات بصرية سابقة محفوظة (ليست دليلاً على المشهد الحالي): ")
             append(observations.joinToString("؛ ").take(360))
         }
 
@@ -114,7 +114,7 @@ internal object EveArabicPromptBuilder {
             .replace("<|endoftext|>", "")
             .replace(Regex("(?m)^assistant\\s*:?"), "")
             .replace(Regex("[ \\t]+"), " ")
-            .replace(Regex("\\n{3,}"), "\n\n")
+            .replace(Regex("\n{3,}"), "\n\n")
             .trim()
             .take(1_200)
     }
