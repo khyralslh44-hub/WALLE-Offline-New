@@ -1,0 +1,41 @@
+name: Temporary inspect EVE embedded language model
+on:
+  push:
+    paths:
+      - '.github/workflows/inspect-eve-language.yml'
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect embedded model and inference path
+        run: |
+          python3 - <<'PY'
+          import zipfile, json, re
+          with zipfile.ZipFile("eve-android (7).zip") as z:
+              print("=== LM FILES ===")
+              for n in z.namelist():
+                  if n.startswith("lm/"):
+                      info=z.getinfo(n)
+                      print(n, info.file_size)
+              for n in ["lm/README.txt","lm/gru.py","lm/sample.py","lm/embed_lm.py","lm/evaluate.py","lm/eve_lm.json"]:
+                  if n not in z.namelist(): continue
+                  print("\\n===== "+n+" =====")
+                  raw=z.read(n).decode("utf-8","replace")
+                  if n.endswith(".json"):
+                      d=json.loads(raw)
+                      def shape(x):
+                          if isinstance(x,list):
+                              return {"type":"list","len":len(x),"first":shape(x[0]) if x else None}
+                          if isinstance(x,dict):
+                              return {"type":"dict","keys":list(x.keys())[:80],"values":{k:shape(v) for k,v in list(x.items())[:20]}}
+                          return type(x).__name__
+                      print("MODEL STRUCTURE:",json.dumps(shape(d),ensure_ascii=False)[:14000])
+                      print("SAMPLE METADATA:",json.dumps({k:v for k,v in d.items() if not isinstance(v,list) or len(v)<12},ensure_ascii=False)[:5000])
+                  else:
+                      print(raw[:16000])
+              html=z.read("app/src/main/assets/eve.html").decode("utf-8","replace").splitlines()
+              for i,line in enumerate(html):
+                  if "lmReply" in line or "elm" in line or "function extraIntent" in line or "function understand" in line or "function askLLM" in line or "const SYS=" in line:
+                      print(f"\\nHTML LINE {i+1}: {line[:3000]}")
+          PY
