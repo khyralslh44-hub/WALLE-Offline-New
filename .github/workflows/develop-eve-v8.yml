@@ -1,0 +1,179 @@
+name: Develop and build EVE v8
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'tools/upgrade_eve_brain_v8.py'
+      - '.github/workflows/develop-eve-v8.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  upgrade-build:
+    name: Upgrade existing brain and verify EVE APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Upgrade v7 source and check JavaScript
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$RUNNER_TEMP/eve-v8-src"
+          mkdir -p "$SRC"
+          unzip -q "eve-android (7).zip" -d "$SRC"
+          python3 tools/upgrade_eve_brain_v8.py "$SRC/app/src/main/assets/eve.html"
+          python3 - "$SRC/app/src/main/assets/eve.html" "$RUNNER_TEMP/eve-v8.js" <<'PY'
+          from pathlib import Path
+          import re, sys
+          html = Path(sys.argv[1]).read_text(encoding="utf-8")
+          m = re.search(r"<script>\\s*(.*?)</script>", html, re.S)
+          if not m:
+              raise SystemExit("Main EVE JavaScript block was not found.")
+          Path(sys.argv[2]).write_text(m.group(1), encoding="utf-8")
+          for required in ("const NI=48", "function migrateBrain", "M.agent.episodes", "x[47]=gesture", "function focusScene"):
+              if required not in html:
+                  raise SystemExit("Missing upgrade component: " + required)
+          print("PASS: upgraded brain markers and persistent migration found.")
+          PY
+          node --check "$RUNNER_TEMP/eve-v8.js"
+          echo "PASS: EVE JavaScript syntax is valid."
+
+      - name: Prepare upgraded source archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$RUNNER_TEMP/eve-v8-src"
+          (cd "$SRC" && zip -q -r "$RUNNER_TEMP/eve-android-v8.zip" . -x './.gradle/*' './**/build/*' './app/src/main/assets/models/*')
+          test -s "$RUNNER_TEMP/eve-android-v8.zip"
+          echo "SOURCE_ARCHIVE_SIZE=$(du -h "$RUNNER_TEMP/eve-android-v8.zip" | cut -f1)" >> "$GITHUB_ENV"
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Install Android SDK packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+          sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools"
+
+      - name: Download required offline vision models (build time only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$RUNNER_TEMP/eve-v8-src"
+          BASE="https://storage.googleapis.com/mediapipe-models"
+          DEST="$SRC/app/src/main/assets/models"
+          mkdir -p "$DEST"
+          curl --fail --location --retry 4 --retry-delay 2 --connect-timeout 20 --max-time 240 "$BASE/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite" --output "$DEST/objects.tflite"
+          curl --fail --location --retry 4 --retry-delay 2 --connect-timeout 20 --max-time 240 "$BASE/face_landmarker/face_landmarker/float16/1/face_landmarker.task" --output "$DEST/face.task"
+          curl --fail --location --retry 4 --retry-delay 2 --connect-timeout 20 --max-time 240 "$BASE/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task" --output "$DEST/gesture.task"
+          curl --fail --location --retry 4 --retry-delay 2 --connect-timeout 20 --max-time 240 "$BASE/image_embedder/mobilenet_v3_small/float32/1/mobilenet_v3_small.tflite" --output "$DEST/embed.tflite"
+          curl --fail --location --retry 4 --retry-delay 2 --connect-timeout 20 --max-time 240 "$BASE/image_classifier/efficientnet_lite0/float32/1/efficientnet_lite0.tflite" --output "$DEST/classify.tflite"
+          for f in objects.tflite face.task gesture.task embed.tflite classify.tflite; do test -s "$DEST/$f"; done
+
+      - name: Set up Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Run unit tests and build APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$RUNNER_TEMP/eve-v8-src"
+          python3 - "$SRC/app/src/main/java/com/eve/companion/MainActivity.kt" <<'PY'
+          from pathlib import Path
+          import sys
+          p = Path(sys.argv[1])
+          source = p.read_text(encoding="utf-8")
+          target = "voice.factor(style)"
+          if target in source:
+              if "private fun voiceFactor(" not in source:
+                  bridge = "    inner class Bridge {"
+                  if bridge not in source:
+                      raise SystemExit("Could not find Bridge insertion point for compatibility fix.")
+                  helper = (
+                      "    private fun voiceFactor(style: String): Float = when (style.lowercase()) {\n"
+                      '        "angry", "annoyed", "frustrated" -> 1.08f\n'
+                      '        "sad", "sleepy", "calm" -> 0.92f\n'
+                      '        "fear", "surprised", "excited" -> 1.05f\n'
+                      "        else -> 1.0f\n"
+                      "    }\n\n"
+                  )
+                  source = source.replace(bridge, helper + bridge, 1)
+              source = source.replace(target, "voiceFactor(style)")
+              p.write_text(source, encoding="utf-8")
+          PY
+          gradle --no-daemon --stacktrace -p "$SRC" testDebugUnitTest assembleDebug
+
+      - name: Verify APK and bundled offline models
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="$RUNNER_TEMP/eve-v8-src/app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$APK"
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose "$APK"
+          unzip -Z1 "$APK" > "$RUNNER_TEMP/eve-v8-apk-files.txt"
+          for f in objects.tflite face.task gesture.task embed.tflite classify.tflite; do grep -Fxq "assets/models/$f" "$RUNNER_TEMP/eve-v8-apk-files.txt"; done
+          echo "APK_SIZE=$(du -h "$APK" | cut -f1)" >> "$GITHUB_ENV"
+          echo "PASS: v8 APK built, signature verified, and all five offline vision assets are bundled."
+
+      - name: Commit upgraded source archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp "$RUNNER_TEMP/eve-android-v8.zip" "eve-android (8).zip"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "eve-android (8).zip"
+          if git diff --cached --quiet; then
+            echo "Source archive already up to date."
+          else
+            git commit -m "Upgrade EVE central brain to v8"
+            git push
+          fi
+
+      - name: Publish build summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## EVE v8 central-brain upgrade"
+            echo ""
+            echo "- Preserved the existing central-brain architecture and migrated v7 learned weights."
+            echo "- Expanded live sensory input from 40 to 48 signals."
+            echo "- Added persistent action-outcome statistics and a bounded episodic record."
+            echo "- Added action gating, a minimum goal dwell period, and object/face-directed attention."
+            echo "- Source archive size: ${SOURCE_ARCHIVE_SIZE:-not produced}"
+            if [ -n "${APK_SIZE:-}" ]; then echo "- APK size: $APK_SIZE"; fi
+            echo "- JavaScript syntax, unit-test/build, APK signature, and bundled-model checks are required to pass."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload EVE v8 APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: EVE-v8-APK
+          path: ${{ runner.temp }}/eve-v8-src/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+      - name: Upload upgraded source archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: EVE-v8-Source
+          path: ${{ runner.temp }}/eve-android-v8.zip
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
