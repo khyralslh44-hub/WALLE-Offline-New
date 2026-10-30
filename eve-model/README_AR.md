@@ -2,6 +2,10 @@
 
 هذه البنية تنشئ EVE-AR-95M بأوزان عشوائية؛ لا تستورد أوزان Supra أو Qwen أو أي نموذج آخر. تستخدم بنية Llama-compatible لتسهيل التصدير لاحقاً إلى GGUF وتشغيلها محلياً عبر llama.cpp.
 
+## تشغيل التدريب السحابي
+
+يوجد دفتر جاهز لـKaggle في [`notebooks/kaggle_train_eve.ipynb`](notebooks/kaggle_train_eve.ipynb). افتحه من Kaggle عبر File → Open Notebook / Load from URL، ثم اختر GPU T4 x2 وفعّل Internet. الدفتر يفحص CUDA قبل تنزيل البيانات. الجلسة السحابية يجب أن يبدأها مالك حساب Kaggle؛ لا يستطيع مستودع GitHub وحده تفعيل GPU.
+
 ## الحالة الحالية
 - بنية النموذج وإعداداته موجودة.
 - tokenizer عربي ByteLevel BPE يُدرّب من بيانات محلية.
