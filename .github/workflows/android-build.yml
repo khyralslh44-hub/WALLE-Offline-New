@@ -17,6 +17,8 @@ on:
       - '.github/scripts/run-deep-face-test.sh'
       - '.github/scripts/fetch-arabic-vosk-model.sh'
       - '.github/scripts/run-local-llm-test.sh'
+      - '.github/scripts/build-eve-arabic-gguf.sh'
+      - 'EVE_ARABIC_LLM.md'
       - '.github/workflows/eve-local-llm-verification.yml'
 
 permissions:
@@ -26,7 +28,7 @@ jobs:
   build:
     name: Build and unit-test the EVE app
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 60
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -199,6 +201,10 @@ jobs:
           file "$MODEL"
           echo "Pose model downloaded: $(wc -c < "$MODEL") bytes"
 
+      - name: Build, quantize, and inference-test the Arabic generative model
+        shell: bash
+        run: bash .github/scripts/build-eve-arabic-gguf.sh
+
       - name: Run logic tests and build debug APK
         run: |
           "$RUNNER_TEMP/gradle-8.9/bin/gradle"             --no-daemon --stacktrace -p eve-project             testDebugUnitTest assembleDebug assembleRelease
@@ -266,6 +272,58 @@ jobs:
             fi
             echo "PASS: $APK contains the pinned offline identity model and license."
           done
+
+      - name: Verify the real Arabic GGUF model is bundled in both APKs
+        shell: bash
+        run: |
+          set -euo pipefail
+          MODEL="eve-project/app/src/main/assets/models/eve-arabic-50m-q4.gguf"
+          LICENSE="eve-project/app/src/main/assets/models/Apache-2.0-LICENSE.txt"
+          NOTICE="eve-project/app/src/main/assets/models/MODEL-NOTICE.txt"
+          test -s "$MODEL"
+          test -s "$LICENSE"
+          test -s "$NOTICE"
+          MODEL_BYTES="$(stat -c '%s' "$MODEL")"
+          if [ "$MODEL_BYTES" -ge 50000000 ]; then
+            echo "FAIL: quantized Arabic model exceeds the 50 MB limit."
+            exit 1
+          fi
+          SOURCE_SHA="$(sha256sum "$MODEL" | awk '{print $1}')"
+          for APK in \
+            "eve-project/app/build/outputs/apk/debug/app-debug.apk" \
+            "eve-project/app/build/outputs/apk/release/app-release.apk"; do
+            test -s "$APK"
+            unzip -Z1 "$APK" | grep -Fxq "assets/models/eve-arabic-50m-q4.gguf"
+            unzip -Z1 "$APK" | grep -Fxq "assets/models/Apache-2.0-LICENSE.txt"
+            PACKAGED_SHA="$(unzip -p "$APK" assets/models/eve-arabic-50m-q4.gguf | sha256sum | awk '{print $1}')"
+            if [ "$PACKAGED_SHA" != "$SOURCE_SHA" ]; then
+              echo "FAIL: Arabic GGUF checksum differs inside $APK."
+              exit 1
+            fi
+            echo "PASS: $APK contains Arabic GGUF ($MODEL_BYTES bytes), SHA-256=$PACKAGED_SHA"
+          done
+
+      - name: Upload quantization and held-out generation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EVE-Arabic-50M-Q4-Model-Report
+          path: eve-model-build/**
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload standalone quantized Arabic model and license
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EVE-Arabic-50M-Q4-Model
+          path: |
+            eve-project/app/src/main/assets/models/eve-arabic-50m-q4.gguf
+            eve-project/app/src/main/assets/models/Apache-2.0-LICENSE.txt
+            eve-project/app/src/main/assets/models/MODEL-NOTICE.txt
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
 
       - name: Verify APK signatures for installer compatibility
         shell: bash
