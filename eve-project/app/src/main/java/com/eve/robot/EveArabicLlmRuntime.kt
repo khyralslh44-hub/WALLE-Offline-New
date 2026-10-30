@@ -14,7 +14,7 @@ import java.io.File
 
 /**
  * Real autoregressive Arabic text generation through llama.cpp.
- * The quantized GGUF is packaged by CI at assets/models/eve-arabic-50m-q4.gguf.
+ * The quantized GGUF is packaged by CI at assets/models/eve-qwen3-0.6b-q4km.gguf.
  * It is copied to app-private storage and inferred locally. There is no network client.
  */
 internal class EveArabicLlmRuntime(context: Context) : AutoCloseable {
@@ -34,7 +34,7 @@ internal class EveArabicLlmRuntime(context: Context) : AutoCloseable {
             val model = loadModel() ?: return null
             val result = Llama.complete(
                 model = model,
-                prompt = userText,
+                prompt = "/no_think\n$userText",
                 systemPrompt = EveArabicPromptBuilder.systemPrompt(context),
                 maxTokens = maxOutputTokens.coerceIn(32, 128)
             )
@@ -92,12 +92,12 @@ internal class EveArabicLlmRuntime(context: Context) : AutoCloseable {
         }
 
         val config = LlamaConfig(
-            contextSize = 1_024,
+            contextSize = 2_048,
             threads = Runtime.getRuntime().availableProcessors().coerceIn(2, 4),
             gpuLayers = 0,
-            temperature = 0.68f,
-            topP = 0.90f,
-            topK = 40
+            temperature = 0.70f,
+            topP = 0.80f,
+            topK = 20
         )
         Llama.loadModel(modelPath = modelFile.absolutePath, config = config).also {
             loadedModel = it
@@ -119,8 +119,8 @@ internal class EveArabicLlmRuntime(context: Context) : AutoCloseable {
     }
 
     companion object {
-        private const val TAG = "EVE_ARABIC_LLM"
+        private const val TAG = "EVE_QWEN3_LLM"
         private const val MODEL_ASSET = "models/eve-arabic-50m-q4.gguf"
-        private const val MIN_MODEL_BYTES = 5_000_000L
+        private const val MIN_MODEL_BYTES = 350_000_000L
     }
 }
