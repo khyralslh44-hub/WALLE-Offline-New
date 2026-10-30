@@ -217,33 +217,6 @@ jobs:
         shell: bash
         run: bash .github/scripts/fetch-arabic-vosk-model.sh
 
-      - name: Bundle and verify the pinned Qwen model for API 35 offline tests
-        if: ${{ matrix.api-level == 35 }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          ASSETS="eve-project/app/src/main/assets"
-          MODEL="$ASSETS/Qwen3-0.6B_dynamic_wi4b32_afp32.litertlm"
-          mkdir -p "$ASSETS"
-          curl --fail --location --retry 4 --retry-delay 3 --connect-timeout 30 --max-time 1200 \
-            "https://huggingface.co/litert-community/Qwen3-0.6B/resolve/a3c5d805ae362dff7f580bc25f2dfb9a5a7eaa76/Qwen3-0.6B_dynamic_wi4b32_afp32.litertlm" \
-            --output "$MODEL"
-          EXPECTED="03e7da1eb1108b50dffaa9bb52cc7bcbad2eb0c66ca990267f480c1e545d2856"
-          ACTUAL="$(sha256sum "$MODEL" | awk '{print $1}')"
-          BYTES="$(stat -c '%s' "$MODEL")"
-          echo "Qwen SHA-256: $ACTUAL"
-          echo "Qwen model bytes: $BYTES"
-          if [ "$ACTUAL" != "$EXPECTED" ] || [ "$BYTES" -lt 300000000 ]; then
-            echo "FAIL: Qwen weights failed pinned digest/size verification."
-            exit 1
-          fi
-          curl --fail --location --retry 3 --connect-timeout 20 --max-time 120 \
-            "https://huggingface.co/Qwen/Qwen3-0.6B/resolve/main/LICENSE" \
-            --output "$ASSETS/qwen3_model_license.txt"
-          grep -Fq "Apache License" "$ASSETS/qwen3_model_license.txt"
-          cp eve-project/THIRD_PARTY_NOTICES.md "$ASSETS/THIRD_PARTY_NOTICES.txt"
-          echo "PASS: exact pinned Qwen weights and license are present before instrumentation APK build."
-
       - name: Download and verify offline MediaPipe pose model
         shell: bash
         run: |
@@ -271,20 +244,13 @@ jobs:
           TEST_APK="$GITHUB_WORKSPACE/eve-project/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk"
           test -s "$LOCAL_APK"
           test -s "$TEST_APK"
-          # Fail fast with clear evidence if the large offline model was omitted by Gradle.
           unzip -Z1 "$LOCAL_APK" > "$RUNNER_TEMP/eve-api35-app-apk-entries.txt"
-          if ! grep -Fxq "assets/Qwen3-0.6B_dynamic_wi4b32_afp32.litertlm" "$RUNNER_TEMP/eve-api35-app-apk-entries.txt"; then
-            echo "FAIL: API 35 local app APK is missing Qwen model weights."
-            grep -Fi "Qwen2_0.5B_Instruct" "$RUNNER_TEMP/eve-api35-app-apk-entries.txt" || true
-            exit 21
+          if grep -Eiq 'Qwen|litertlm|llama' "$RUNNER_TEMP/eve-api35-app-apk-entries.txt"; then
+            echo "FAIL: obsolete large LLM assets remain in the compact EVE APK."
+            grep -Ei 'Qwen|litertlm|llama' "$RUNNER_TEMP/eve-api35-app-apk-entries.txt" || true
+            exit 20
           fi
-          PACKAGED_SHA256="$(unzip -p "$LOCAL_APK" assets/Qwen3-0.6B_dynamic_wi4b32_afp32.litertlm | sha256sum | awk '{print $1}')"
-          EXPECTED_SHA256="03e7da1eb1108b50dffaa9bb52cc7bcbad2eb0c66ca990267f480c1e545d2856"
-          if [ "$PACKAGED_SHA256" != "$EXPECTED_SHA256" ]; then
-            echo "FAIL: API 35 local app APK Qwen digest mismatch: $PACKAGED_SHA256"
-            exit 22
-          fi
-          echo "PASS: API 35 APK contains the pinned Qwen asset (SHA-256 verified)."
+          echo "PASS: compact EVE APK contains no Qwen/LiteRT-LM model weights."
           unzip -Z1 "$LOCAL_APK" > "$RUNNER_TEMP/eve-api35-vision-apk-entries.txt"
           if ! grep -Fxq "assets/efficientnet_lite0_int8.tflite" "$RUNNER_TEMP/eve-api35-vision-apk-entries.txt"; then
             echo "FAIL: API 35 local app APK is missing the broad ImageNet classifier."
