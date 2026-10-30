@@ -76,12 +76,116 @@ fi
 
 cmake -S "$LLAMA_DIR" -B "$LLAMA_DIR/build" \
   -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DGGML_OPENMP=OFF
-cmake --build "$LLAMA_DIR/build" --config Release --parallel 2 --target llama-quantize llama-cli
+cmake --build "$LLAMA_DIR/build" --config Release --parallel 2 --target llama-quantize llama-cli llama-tokenize
+
+# The pinned upstream converter recognizes BPE pre-tokenizers by a vocabulary-
+# dependent hash. This checkpoint has its own Arabic vocabulary, so the hash is
+# necessarily new even though its pre-tokenization is standard GPT-2 ByteLevel.
+# Add a narrow, structure-validated mapping instead of guessing from the hash.
+python - "$LLAMA_DIR/conversion/base.py" <<'PY'
+import pathlib, sys
+
+base_path = pathlib.Path(sys.argv[1])
+source = base_path.read_text(encoding="utf-8")
+marker = '        if res is None:\n            logger.warning("\\n")'
+if source.count(marker) != 1:
+    raise SystemExit("FAIL: pinned llama.cpp converter structure changed; refusing an unsafe patch.")
+
+compatibility = '''        if res is None:
+            tokenizer_path = self.dir_model / "tokenizer.json"
+            if tokenizer_path.is_file():
+                with tokenizer_path.open("r", encoding="utf-8") as tokenizer_file:
+                    tokenizer_json = json.load(tokenizer_file)
+                tokenizer_model = tokenizer_json.get("model") or {}
+                pre_tokenizer = tokenizer_json.get("pre_tokenizer") or {}
+                decoder = tokenizer_json.get("decoder") or {}
+                tokenizer_config_path = self.dir_model / "tokenizer_config.json"
+                tokenizer_config = {}
+                if tokenizer_config_path.is_file():
+                    with tokenizer_config_path.open("r", encoding="utf-8") as config_file:
+                        tokenizer_config = json.load(config_file)
+                # ByteLevel(use_regex=True, add_prefix_space=False) uses the
+                # same GPT-2 split regex and byte-to-unicode mapping implemented
+                # by llama.cpp's "gpt-2" pre-tokenizer. This does NOT reuse a
+                # different model's vocabulary: get_vocab_base() and the
+                # tokenizer.json merges below remain the checkpoint's own.
+                validated_bytelevel_bpe = (
+                    tokenizer_model.get("type") == "BPE"
+                    and isinstance(tokenizer_model.get("merges"), list)
+                    and len(tokenizer_model["merges"]) > 0
+                    and not tokenizer_model.get("byte_fallback", False)
+                    and tokenizer_json.get("normalizer") is None
+                    and pre_tokenizer == {
+                        "type": "ByteLevel",
+                        "add_prefix_space": False,
+                        "trim_offsets": True,
+                        "use_regex": True,
+                    }
+                    and decoder.get("type") == "ByteLevel"
+                    and tokenizer_config.get("add_prefix_space", False) is not True
+                )
+                if validated_bytelevel_bpe:
+                    res = "gpt-2"
+                    logger.info(
+                        "Detected structurally validated custom ByteLevel BPE; "
+                        "using llama.cpp GPT-2 pre-tokenizer with the checkpoint's own vocab and merges."
+                    )
+'''
+source = source.replace(marker, compatibility + marker, 1)
+base_path.write_text(source, encoding="utf-8")
+print("PASS: narrow ByteLevel-BPE compatibility mapping installed.")
+PY
 
 python "$LLAMA_DIR/convert_hf_to_gguf.py" "$MODEL_DIR" \
   --outfile "$F16_MODEL" --outtype f16 \
   --model-name "EVE-Supra-50M-Arabic-SFT"
 test -s "$F16_MODEL"
+
+# Prove that llama.cpp token IDs match the original Arabic tokenizer. This catches
+# an incorrect pre-tokenizer label before quantization or APK packaging.
+python - "$MODEL_DIR" "$F16_MODEL" "$LLAMA_DIR/build/bin/llama-tokenize" "$REPORT_DIR" <<'PY'
+import ast, pathlib, subprocess, sys, tempfile
+from transformers import AutoTokenizer
+
+model_dir, gguf_model, llama_tokenize, report_dir = map(pathlib.Path, sys.argv[1:5])
+tokenizer = AutoTokenizer.from_pretrained(str(model_dir))
+cases = [
+    "السلام عليكم، كيف حالك يا إيف؟",
+    "الطقسُ ممطرٌ اليوم؛ هل نخرج؟ 12345",
+    "  مسافتان\tوسطر\nثانٍ ",
+    "🚀 أهلاً بالعالم! EVE",
+]
+evidence = []
+with tempfile.TemporaryDirectory(prefix="eve-tokenizer-parity-") as tmp:
+    for index, text in enumerate(cases, 1):
+        prompt_file = pathlib.Path(tmp) / f"case-{index}.txt"
+        prompt_file.write_text(text, encoding="utf-8")
+        expected = tokenizer.encode(text, add_special_tokens=False)
+        result = subprocess.run(
+            [str(llama_tokenize), "-m", str(gguf_model), "-f", str(prompt_file),
+             "--ids", "--no-bos", "--no-escape", "--no-parse-special", "--log-disable"],
+            text=True, capture_output=True, timeout=60
+        )
+        if result.returncode != 0:
+            raise SystemExit(f"FAIL: llama-tokenize case {index}: {result.stderr[-1600:]}")
+        try:
+            actual = ast.literal_eval(result.stdout.strip().splitlines()[-1])
+        except Exception as exc:
+            raise SystemExit(f"FAIL: could not parse llama.cpp token IDs for case {index}: {result.stdout!r}") from exc
+        if expected != actual:
+            raise SystemExit(
+                f"FAIL: tokenizer parity case {index}: HF={expected}, llama.cpp={actual}"
+            )
+        evidence.append(
+            f"CASE {index}: exact token-ID parity ({len(expected)} tokens) | {text!r}"
+        )
+pathlib.Path(report_dir, "tokenizer-parity.txt").write_text(
+    "\n".join(evidence) + "\n", encoding="utf-8"
+)
+print("\n".join(evidence))
+print("PASS: Arabic tokenizer token IDs exactly match in Hugging Face and llama.cpp.")
+PY
+
 "$LLAMA_DIR/build/bin/llama-quantize" "$F16_MODEL" "$Q4_MODEL" Q4_K_M
 test -s "$Q4_MODEL"
 
