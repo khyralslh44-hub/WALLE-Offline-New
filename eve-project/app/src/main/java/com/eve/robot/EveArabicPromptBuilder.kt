@@ -5,7 +5,7 @@ package com.eve.robot
  * Stored spoken introductions are deliberately distinguished from visual identity evidence.
  */
 internal object EveArabicPromptBuilder {
-    private const val MAX_MEMORY_CHARS = 900
+    private const val MAX_MEMORY_CHARS = 360
     private const val FRESH_EVIDENCE_MS = 15_000L
 
     fun systemPrompt(context: LocalLlmContext): String = buildString {
@@ -51,7 +51,7 @@ internal object EveArabicPromptBuilder {
         append(context.currentMood.take(48))
         if (context.moodReason.isNotBlank()) {
             append("؛ سبب الحالة: ")
-            append(context.moodReason.trim().take(180))
+            append(context.moodReason.trim().take(90))
         }
 
         val age = context.visionObservationAgeMs
@@ -74,31 +74,31 @@ internal object EveArabicPromptBuilder {
             context.sceneObservationAgeMs in 0L..FRESH_EVIDENCE_MS
         ) {
             append("\nملخص المشهد المحلي الحديث: ")
-            append(context.latestSceneSummary.trim().take(220))
+            append(context.latestSceneSummary.trim().take(120))
         }
 
         if (context.knownPeople.isNotBlank()) {
             append("\nأسماء محفوظة في الذاكرة اللفظية: ")
-            append(context.knownPeople.trim().take(180))
+            append(context.knownPeople.trim().take(100))
             append(". هذه الأسماء ليست دليلاً على هوية أي وجه أمام الكاميرا.")
         }
 
-        val observations = context.recentObservations.takeLast(3)
-            .map { it.trim().take(120) }.filter { it.isNotBlank() }
+        val observations = context.recentObservations.takeLast(2)
+            .map { it.trim().take(90) }.filter { it.isNotBlank() }
         if (observations.isNotEmpty()) {
             append("\nملاحظات بصرية سابقة محفوظة (ليست دليلاً على المشهد الحالي): ")
-            append(observations.joinToString("؛ ").take(360))
+            append(observations.joinToString("؛ ").take(180))
         }
 
-        val memories = context.recentReflections.takeLast(3)
-            .map { it.trim().take(150) }.filter { it.isNotBlank() }
+        val memories = context.recentReflections.takeLast(2)
+            .map { it.trim().take(100) }.filter { it.isNotBlank() }
         if (memories.isNotEmpty()) {
             append("\nملاحظات داخلية سابقة: ")
             append(memories.joinToString("؛ ").take(MAX_MEMORY_CHARS))
         }
 
-        val dialogue = context.recentDialogues.takeLast(3)
-            .map { it.trim().take(180) }.filter { it.isNotBlank() }
+        val dialogue = context.recentDialogues.takeLast(2)
+            .map { it.trim().take(130) }.filter { it.isNotBlank() }
         if (dialogue.isNotEmpty()) {
             append("\nآخر سياق محادثة لتجنب التكرار: ")
             append(dialogue.joinToString("\n").take(MAX_MEMORY_CHARS))
