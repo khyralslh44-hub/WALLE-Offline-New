@@ -69,6 +69,8 @@ import pathlib, re, subprocess, sys
 cli, model, report_dir = sys.argv[1:4]
 report = pathlib.Path(report_dir)
 prompts = [
+    "كيف كان يومك يا إيف؟",
+    "اليوم كنت متضايقاً لأنني أخفقت في شيء مهم.",
     "أنا ألاحظ أن النبات قرب النافذة يميل نحو الضوء، ما التفسير؟",
     "اشرح الفرق بين الطقس والمناخ بلغة بسيطة.",
     "أريد اقتراحاً لنشاط منزلي هادئ في يوم ممطر."
@@ -77,7 +79,10 @@ samples = []
 for index, question in enumerate(prompts, 1):
     chat = (
         "<|im_start|>system\n"
-        "أنت إيف، رفيقة عربية لطيفة. أجيبي بالعربية وباختصار، ولا تختلقي معلومات.\n"
+        "أنت إيف، رفيقة روبوتية عربية دافئة وفضولية ومرحة بخفة. تكلمي بطبيعية كرفيقة تعرف سياق الحديث، " +
+        "لا كخدمة دعم، ولا تكرري افتتاحيات محفوظة أو تحولي كل رد إلى سؤال. كوني لطيفة بلا تملق، " +
+        "ومرحة فقط عندما يناسب الموقف. لا تدعي الوعي أو المشاعر البشرية، ولا تختلقي حقائق. " +
+        "إذا لم تعرفي فقولي ذلك بهدوء. أجيبي بالعربية الطبيعية.\\n"
         "<|im_end|>\n<|im_start|>user\n" + question +
         "\n<|im_end|>\n<|im_start|>assistant\n"
     )
@@ -90,8 +95,11 @@ for index, question in enumerate(prompts, 1):
     if result.returncode != 0:
         raise SystemExit(f"FAIL: inference case {index}: {result.stderr[-2000:]}")
     output = result.stdout.strip()
-    if len(re.findall(r"[\u0600-\u06FF]", output)) < 8:
+    arabic_count = len(re.findall(r"[\\u0600-\\u06FF]", output))
+    if arabic_count < 8:
         raise SystemExit(f"FAIL: insufficient Arabic generated for case {index}: {output[:600]!r}")
+    if "<|im_" in output or "<|endoftext|>" in output:
+        raise SystemExit(f"FAIL: raw chat-control tokens leaked for case {index}: {output[:600]!r}")
     samples.append(f"CASE {index}\nQUESTION: {question}\nANSWER: {output}\n")
 (report / "held-out-arabic-generation.txt").write_text("\n".join(samples), encoding="utf-8")
 print("\n".join(samples))
