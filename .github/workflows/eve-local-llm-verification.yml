@@ -71,36 +71,7 @@ jobs:
           test -s eve-project/app/build/outputs/apk/debug/app-debug.apk
           test -s eve-project/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
           APP_APK=eve-project/app/build/outputs/apk/debug/app-debug.apk
-          if unzip -Z1 "$APP_APK" | grep -Eiq 'Qwen|litertlm|[.]gguf
-
-      - name: Run Android emulator test with radios disabled
-        uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: 35
-          target: default
-          arch: x86_64
-          profile: pixel_2
-          cores: 4
-          ram-size: 4096M
-          heap-size: 1024M
-          emulator-boot-timeout: 900
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -no-audio -no-boot-anim
-          disable-animations: true
-          script: bash "$GITHUB_WORKSPACE/.github/scripts/run-local-llm-test.sh"
-
-      - name: Upload Tiny Arabic Brain test evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: EVE-Tiny-Arabic-Brain-Offline-Proof
-          path: |
-            eve-tiny-results/**
-            eve-project/app/build/reports/tests/testDebugUnitTest/**
-            eve-project/app/build/test-results/testDebugUnitTest/**
-            eve-project/app/build/reports/androidTests/connected/**
-          if-no-files-found: warn
-          retention-days: 14
-; then
+          if unzip -Z1 "$APP_APK" | grep -Eiq 'Qwen|litertlm|[.]gguf$'; then
             echo "FAIL: model weights are not expected in this fallback-only test APK."
             exit 2
           fi
@@ -121,11 +92,11 @@ jobs:
           disable-animations: true
           script: bash "$GITHUB_WORKSPACE/.github/scripts/run-local-llm-test.sh"
 
-      - name: Upload Tiny Arabic Brain test evidence
+      - name: Upload local dialogue verification evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: EVE-Tiny-Arabic-Brain-Offline-Proof
+          name: EVE-Local-Dialogue-Offline-Proof
           path: |
             eve-tiny-results/**
             eve-project/app/build/reports/tests/testDebugUnitTest/**
