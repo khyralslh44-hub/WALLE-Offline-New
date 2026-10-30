@@ -21,7 +21,7 @@ cmake -S "$LLAMA_DIR" -B "$LLAMA_DIR/build" \
   -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_SERVER=OFF
 cmake --build "$LLAMA_DIR/build" --config Release --parallel 2 --target llama-cli
 
-PROMPT=
+PROMPT=$'<|im_start|>system\nأنت إيف. أجيبي بالعربية بجملة قصيرة وصحيحة، بلا تفكير داخلي.\n<|im_end|>\n<|im_start|>user\n/no_think\nقولي مرحباً وعرّفي بنفسك باختصار.\n<|im_end|>\n<|im_start|>assistant\n'
 OUT="$WORK_DIR/qwen3-output.txt"
 ERR="$WORK_DIR/qwen3-stderr.txt"
 
@@ -48,41 +48,7 @@ fi
 {
   echo "model_sha256=$EXPECTED_SHA256"
   echo "llama_cpp_revision=$LLAMA_CPP_REVISION"
-  echo "prompt=Arabic EVE identity and offline operation"
-  echo "arabic_character_count=$ARABIC_CHARS"
-  echo "generation_output:"
-  cat "$OUT"
-} | tee "$REPORT_DIR/qwen3-inference-smoke-test.txt"
-
-echo "PASS: Qwen3 generated Arabic locally through llama.cpp."
-<|im_start|>system\nأنت إيف. أجيبي بالعربية بجملة قصيرة وصحيحة، بلا تفكير داخلي.\n<|im_end|>\n<|im_start|>user\n/no_think\nقولي مرحباً وعرّفي بنفسك باختصار.\n<|im_end|>\n<|im_start|>assistant\n'
-OUT="$WORK_DIR/qwen3-output.txt"
-ERR="$WORK_DIR/qwen3-stderr.txt"
-
-# Hard cap the smoke test so a slow inference can never stall the whole APK build.
-if ! timeout --signal=TERM --kill-after=5s 90s \
-  "$LLAMA_DIR/build/bin/llama-cli" \
-  -m "$MODEL" -p "$PROMPT" -n 40 -c 1024 -t 2 \
-  --temp 0.7 --top-p 0.8 --top-k 20 --repeat-penalty 1.10 \
-  --no-display-prompt --simple-io \
-  > "$OUT" 2> "$ERR"; then
-  echo "FAIL: Qwen3 local inference smoke test failed or exceeded 90 seconds."
-  tail -n 60 "$ERR" || true
-  exit 30
-fi
-
-ARABIC_CHARS="$(grep -oP '[\x{0600}-\x{06FF}]' "$OUT" | wc -l | tr -d ' ')"
-if [ "$ARABIC_CHARS" -lt 8 ]; then
-  echo "FAIL: Qwen3 smoke test did not produce enough Arabic text."
-  cat "$OUT"
-  tail -n 40 "$ERR" || true
-  exit 31
-fi
-
-{
-  echo "model_sha256=$EXPECTED_SHA256"
-  echo "llama_cpp_revision=$LLAMA_CPP_REVISION"
-  echo "prompt=Arabic EVE identity and offline operation"
+  echo "prompt=Arabic EVE greeting"
   echo "arabic_character_count=$ARABIC_CHARS"
   echo "generation_output:"
   cat "$OUT"
