@@ -472,7 +472,7 @@ internal object EveTinyArabicBrain {
         val sums = LinkedHashMap<String, FloatArray>()
         examples.forEach { example ->
             val vector = featureVector(example.text)
-            val norm = sqrt(vector.values.sumOf { it * it }.toDouble()).toFloat().coerceAtLeast(1e-6f)
+            val norm = sqrt(vector.values.sumOf { value -> value.toDouble() * value.toDouble() }).toFloat().coerceAtLeast(1e-6f)
             val prototype = sums.getOrPut(example.intent) { FloatArray(FEATURE_COUNT) }
             vector.forEach { (index, value) -> prototype[index] += value / norm }
         }
