@@ -20,12 +20,27 @@ internal object EveTinyArabicBrain {
     )
 
     private data class Example(val intent: String, val text: String)
+    private data class ScoredIntent(
+        val intent: String,
+        val score: Float,
+        val characterScore: Float,
+        val lexicalCoverage: Float,
+        val matchedWordCount: Int,
+        val distinctiveMatches: Int
+    )
 
     private const val FEATURE_COUNT = 2048
     private const val MIN_SIMILARITY = 0.22f
     private const val MIN_MARGIN = 0.028f
     private const val MIN_CONFIDENCE = 0.44f
     private const val MAX_GENERATED_REPLY_CHARS = 420
+    private val STOP_WORDS = setOf(
+        "ما", "ماذا", "كيف", "لماذا", "هل", "من", "هذا", "هذه", "هذي", "في", "على",
+        "الى", "عن", "مع", "يا", "ان", "انت", "انا", "هو", "هي", "هم", "هن", "كان",
+        "كانت", "يكون", "تكون", "لا", "لم", "لن", "قد", "متى", "اين", "أين", "كم",
+        "الان", "اليوم", "بدون", "دون", "لي", "لك", "بك", "به", "بها", "ثم", "او",
+        "أو", "و", "ف", "الذي", "التي", "الذين", "اللذين"
+    )
 
     private val examples = listOf(
         "greeting" to listOf(
@@ -124,31 +139,81 @@ internal object EveTinyArabicBrain {
         )
     ).flatMap { (intent, phrases) -> phrases.map { Example(intent, it) } }
 
+    private val vocabularyByIntent: Map<String, Set<String>> by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        examples.groupBy { it.intent }.mapValues { (_, rows) ->
+            rows.flatMap { normalize(it.text).split(' ') }.toSet()
+        }
+    }
+
+    private val tokenIntentFrequency: Map<String, Int> by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        val counts = HashMap<String, Int>()
+        vocabularyByIntent.values.forEach { words ->
+            words.forEach { word -> counts[word] = (counts[word] ?: 0) + 1 }
+        }
+        counts
+    }
+
+    private val exactIntentByPhrase: Map<String, String> by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        examples.associate { normalize(it.text) to it.intent }
+    }
+
     private val prototypes: Map<String, FloatArray> by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         trainPrototypes()
     }
 
     fun classify(rawText: String): Prediction {
-        val input = featureVector(rawText)
-        if (input.isEmpty()) return Prediction(null, 0f, 0f, 0f)
+        val normalized = normalize(rawText)
+        if (normalized.isBlank()) return Prediction(null, 0f, 0f, 0f)
 
+        // Exact curated phrases are safe high-confidence anchors, including short Arabic forms
+        // such as "ما هذا" which contain only function words.
+        val exactIntent = exactIntentByPhrase[normalized]
+        if (exactIntent != null) return Prediction(exactIntent, 0.96f, 1f, 1f)
+
+        val input = featureVector(normalized)
+        if (input.isEmpty()) return Prediction(null, 0f, 0f, 0f)
+        val queryWords = normalized.split(' ')
+            .filter { it.length > 1 && it !in STOP_WORDS }
+            .distinct()
+        if (queryWords.isEmpty()) return Prediction(null, 0f, 0f, 0f)
+
+        // Character n-grams tolerate spelling and inflection changes. A word-evidence gate
+        // prevents one common token (for example "لماذا") from making an unknown science
+        // question look like a learned curiosity intent.
+        val vocab = vocabularyByIntent
         val ranked = prototypes.map { (intent, prototype) ->
-            var score = 0f
-            input.forEach { (index, value) -> score += value * prototype[index] }
-            intent to score
-        }.sortedByDescending { it.second }
+            var characterScore = 0f
+            input.forEach { (index, value) -> characterScore += value * prototype[index] }
+            val intentWords = vocab[intent].orEmpty()
+            val matchedWords = queryWords.filter { it in intentWords }.distinct()
+            val lexicalCoverage = matchedWords.size.toFloat() / queryWords.size.toFloat()
+            val combinedScore = characterScore * 0.58f + lexicalCoverage * 0.42f
+            val distinctiveMatches = matchedWords.count { tokenIntentFrequency[it] == 1 }
+            ScoredIntent(
+                intent = intent,
+                score = combinedScore,
+                characterScore = characterScore,
+                lexicalCoverage = lexicalCoverage,
+                matchedWordCount = matchedWords.size,
+                distinctiveMatches = distinctiveMatches
+            )
+        }.sortedByDescending { it.score }
 
         val best = ranked.firstOrNull() ?: return Prediction(null, 0f, 0f, 0f)
-        val second = ranked.getOrNull(1)?.second ?: 0f
-        val margin = (best.second - second).coerceAtLeast(0f)
-        val confidence = ((best.second - 0.12f) * 1.55f + margin * 2.2f).coerceIn(0f, 0.99f)
-        val accepted = best.second >= MIN_SIMILARITY &&
+        val second = ranked.getOrNull(1)?.score ?: 0f
+        val margin = (best.score - second).coerceAtLeast(0f)
+        val confidence = ((best.score - 0.12f) * 1.55f + margin * 2.2f).coerceIn(0f, 0.99f)
+        val lexicalSupport =
+            (best.matchedWordCount >= 2 && best.lexicalCoverage >= 0.45f) ||
+                (queryWords.size <= 2 && best.distinctiveMatches >= 1)
+        val accepted = lexicalSupport &&
+            best.characterScore >= MIN_SIMILARITY &&
             margin >= MIN_MARGIN &&
             confidence >= MIN_CONFIDENCE
         return Prediction(
-            intent = best.first.takeIf { accepted },
+            intent = best.intent.takeIf { accepted },
             confidence = if (accepted) confidence else confidence.coerceAtMost(0.35f),
-            bestSimilarity = best.second,
+            bestSimilarity = best.score,
             margin = margin
         )
     }
