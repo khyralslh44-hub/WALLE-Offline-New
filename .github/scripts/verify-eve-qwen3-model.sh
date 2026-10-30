@@ -18,10 +18,44 @@ test "$(git -C "$LLAMA_DIR" rev-parse HEAD)" = "$LLAMA_CPP_REVISION"
 
 cmake -S "$LLAMA_DIR" -B "$LLAMA_DIR/build" \
   -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DGGML_OPENMP=OFF \
-  -DLLAMA_BUILD_TESTS=OFF
+  -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_SERVER=OFF
 cmake --build "$LLAMA_DIR/build" --config Release --parallel 2 --target llama-cli
 
-PROMPT=$'<|im_start|>system\nأنت إيف، رفيقة روبوتية عربية ودودة وفضولية. أجيبي بالعربية الطبيعية، باختصار وبدون عرض التفكير الداخلي. لا تختلقي حقائق.\n<|im_end|>\n<|im_start|>user\n/no_think\nعرّفي بنفسك بجملتين قصيرتين، واذكري أنك تعملين محلياً على الهاتف.\n<|im_end|>\n<|im_start|>assistant\n'
+PROMPT=
+OUT="$WORK_DIR/qwen3-output.txt"
+ERR="$WORK_DIR/qwen3-stderr.txt"
+
+# Keep the prompt, context and output small so the CPU smoke test fits a modest runner.
+if ! timeout --signal=TERM --kill-after=10s 240s \
+  "$LLAMA_DIR/build/bin/llama-cli" \
+  -m "$MODEL" -p "$PROMPT" -n 16 -c 512 -t 1 -b 32 -ub 16 \
+  --temp 0.7 --top-p 0.8 --top-k 20 --repeat-penalty 1.10 \
+  --no-warmup --no-display-prompt --simple-io \
+  > "$OUT" 2> "$ERR"; then
+  echo "FAIL: Qwen3 local inference smoke test failed or exceeded 240 seconds."
+  tail -n 60 "$ERR" || true
+  exit 30
+fi
+
+ARABIC_CHARS="$(grep -oP '[\x{0600}-\x{06FF}]' "$OUT" | wc -l | tr -d ' ')"
+if [ "$ARABIC_CHARS" -lt 8 ]; then
+  echo "FAIL: Qwen3 smoke test did not produce enough Arabic text."
+  cat "$OUT"
+  tail -n 40 "$ERR" || true
+  exit 31
+fi
+
+{
+  echo "model_sha256=$EXPECTED_SHA256"
+  echo "llama_cpp_revision=$LLAMA_CPP_REVISION"
+  echo "prompt=Arabic EVE identity and offline operation"
+  echo "arabic_character_count=$ARABIC_CHARS"
+  echo "generation_output:"
+  cat "$OUT"
+} | tee "$REPORT_DIR/qwen3-inference-smoke-test.txt"
+
+echo "PASS: Qwen3 generated Arabic locally through llama.cpp."
+<|im_start|>system\nأنت إيف. أجيبي بالعربية بجملة قصيرة وصحيحة، بلا تفكير داخلي.\n<|im_end|>\n<|im_start|>user\n/no_think\nقولي مرحباً وعرّفي بنفسك باختصار.\n<|im_end|>\n<|im_start|>assistant\n'
 OUT="$WORK_DIR/qwen3-output.txt"
 ERR="$WORK_DIR/qwen3-stderr.txt"
 
