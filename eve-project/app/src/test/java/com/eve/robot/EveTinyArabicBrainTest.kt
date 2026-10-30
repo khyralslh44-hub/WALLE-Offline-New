@@ -24,6 +24,35 @@ class EveTinyArabicBrainTest {
         }
     }
 
+    @Test fun generatesDifferentButGroundedArabicRepliesForRepeatedGreeting() {
+        val prompt = "أهلاً يا إيف"
+        val first = EveTinyArabicBrain.answerUser(prompt, LocalLlmContext())
+        val history = listOf("المستخدم: $prompt | إيف: ${first.replyArabic}")
+        val second = EveTinyArabicBrain.answerUser(
+            prompt,
+            LocalLlmContext(recentDialogues = history)
+        )
+        assertNotNull(first.replyArabic)
+        assertTrue(first.replyArabic.isNotBlank())
+        assertTrue(second.replyArabic.isNotBlank())
+        assertFalse(
+            "The response generator should avoid repeating the previous assistant sentence.",
+            first.replyArabic == second.replyArabic
+        )
+        assertTrue(
+            "Both outputs should remain natural Arabic greetings.",
+            listOf("أهلًا", "مرحباً", "أهلاً").any(first.replyArabic::contains) &&
+                listOf("أهلًا", "مرحباً", "أهلاً").any(second.replyArabic::contains)
+        )
+    }
+
+    @Test fun generationIsStableForIdenticalContextAndDoesNotUseRandomNoise() {
+        val context = LocalLlmContext(currentMood = "CURIOUS")
+        val first = EveTinyArabicBrain.answerUser("كيف حالك يا إيف؟", context)
+        val second = EveTinyArabicBrain.answerUser("كيف حالك يا إيف؟", context)
+        assertEquals(first.replyArabic, second.replyArabic)
+    }
+
     @Test fun unknownGeneralKnowledgeQuestionIsNotForcedIntoAKnownIntent() {
         val prediction = EveTinyArabicBrain.classify("لماذا تمطر على المريخ اليوم؟")
         assertNull("The compact model must admit unsupported questions.", prediction.intent)
