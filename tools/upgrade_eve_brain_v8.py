@@ -87,15 +87,15 @@ replace_once(
 )
 
 import re
-pattern = re.compile(r"function packBrain\\(\\)\\{[^\\n]*\\}\\n\\(function\\(\\)\\{const B=M\\.brain;.*?BR\\.ready=true\\}\\)\\(\\);", re.S)
+pattern = re.compile(r"function packBrain\(\)\{[^\n]*\}\n\(function\(\)\{const B=M\.brain;.*?BR\.ready=true\}\)\(\);", re.S)
 replacement = (
-    "function packBrain(){const a=v=>Array.from(v,q=>Math.round(q*1e4)/1e4);return{ni:NI,version:2,Wp:a(BR.Wp),Wa:a(BR.Wa),Wg:a(BR.Wg)}}\\n"
-    "function migrateBrain(B){if(!B||!B.Wp||!B.Wa||!B.Wg)return false;const prefix=NR+NS+1;\\n"
-    " let oldNi=Number(B.ni)||0;if(!oldNi){if(B.Wp.length===40*(prefix+40))oldNi=40;else if(B.Wp.length===NI*NZ)oldNi=NI}\\n"
-    " if(oldNi!==40&&oldNi!==NI)return false;const oldNz=prefix+oldNi;\\n"
-    " if(B.Wp.length!==oldNi*oldNz||B.Wa.length!==3*oldNz||B.Wg.length!==NG*oldNz)return false;\\n"
-    " const copy=(dst,src,rows)=>{for(let r=0;r<rows;r++)for(let c=0;c<oldNz;c++){const nc=c<prefix?c:c+(NZ-oldNz);dst[r*NZ+nc]=Number(src[r*oldNz+c])||0}};\\n"
-    " copy(BR.Wp,B.Wp,Math.min(oldNi,NI));copy(BR.Wa,B.Wa,3);copy(BR.Wg,B.Wg,NG);return true}\\n"
+    "function packBrain(){const a=v=>Array.from(v,q=>Math.round(q*1e4)/1e4);return{ni:NI,version:2,Wp:a(BR.Wp),Wa:a(BR.Wa),Wg:a(BR.Wg)}}\n"
+    "function migrateBrain(B){if(!B||!B.Wp||!B.Wa||!B.Wg)return false;const prefix=NR+NS+1;\n"
+    " let oldNi=Number(B.ni)||0;if(!oldNi){if(B.Wp.length===40*(prefix+40))oldNi=40;else if(B.Wp.length===NI*NZ)oldNi=NI}\n"
+    " if(oldNi!==40&&oldNi!==NI)return false;const oldNz=prefix+oldNi;\n"
+    " if(B.Wp.length!==oldNi*oldNz||B.Wa.length!==3*oldNz||B.Wg.length!==NG*oldNz)return false;\n"
+    " const copy=(dst,src,rows)=>{for(let r=0;r<rows;r++)for(let c=0;c<oldNz;c++){const nc=c<prefix?c:c+(NZ-oldNz);dst[r*NZ+nc]=Number(src[r*oldNz+c])||0}};\n"
+    " copy(BR.Wp,B.Wp,Math.min(oldNi,NI));copy(BR.Wa,B.Wa,3);copy(BR.Wg,B.Wg,NG);return true}\n"
     "(function(){const B=M.brain;if(!migrateBrain(B)){BR.booting=true;infancyAsync(12000,()=>{BR.ready=true;BR.booting=false;save()});return}BR.ready=true})();"
 )
 src, count = pattern.subn(lambda _: replacement, src, count=1)
