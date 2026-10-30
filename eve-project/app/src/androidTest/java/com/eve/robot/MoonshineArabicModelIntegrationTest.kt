@@ -35,11 +35,14 @@ class MoonshineArabicModelIntegrationTest {
             )
             assertTrue("Arabic Tiny Streaming transcriber did not load.", transcriber.isLoaded)
 
-            // A short silent PCM buffer exercises the native inference entrypoint as well as
-            // model loading, without microphone permission or a remote speech service.
-            val silence = FloatArray(16_000)
-            val result = transcriber.transcribeWithoutStreaming(silence, 16_000)
-            assertNotNull("Arabic local inference returned no transcript object.", result)
+            // Exercise the streaming decoder with a short synthetic PCM segment rather than
+            // calling the non-streaming API on a streaming-only model architecture.
+            transcriber.start()
+            val pcm = FloatArray(8_000) { index ->
+                (0.08 * kotlin.math.sin(2.0 * Math.PI * 440.0 * index / 16_000.0)).toFloat()
+            }
+            transcriber.addAudio(pcm, 16_000)
+            transcriber.stop()
 
             val modelBytes = files.sumOf { it.length() }
             Log.i(TAG, "MOONSHINE_ARABIC_ASR_PASS modelBytes=$modelBytes files=${files.size} offline=true")
