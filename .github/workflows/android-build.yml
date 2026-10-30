@@ -323,7 +323,7 @@ jobs:
           test -s "$LICENSE"
           test -s "$NOTICE"
           MODEL_BYTES="$(stat -c '%s' "$MODEL")"
-          if [ "$MODEL_BYTES" -ge 500000000 ]; then
+          if [ "$MODEL_BYTES" -ge 500000000 ] || [ "$MODEL_BYTES" -lt 300000000 ]; then
             echo "FAIL: Qwen3-0.6B Q4 model exceeds the 500 MB safety limit."
             exit 1
           fi
@@ -334,7 +334,7 @@ jobs:
             test -s "$APK"
             unzip -Z1 "$APK" | grep -Fxq "assets/models/eve-qwen3-0.6b-q4_k_m.gguf"
             unzip -Z1 "$APK" | grep -Fxq "assets/models/Apache-2.0-LICENSE.txt"
-            PACKAGED_SHA="$(unzip -p "$APK" assets/models/eve-arabic-50m-q4.gguf | sha256sum | awk '{print $1}')"
+            PACKAGED_SHA="$(unzip -p "$APK" assets/models/eve-qwen3-0.6b-q4_k_m.gguf | sha256sum | awk '{print $1}')"
             if [ "$PACKAGED_SHA" != "$SOURCE_SHA" ]; then
               echo "FAIL: Arabic GGUF checksum differs inside $APK."
               exit 1
@@ -357,7 +357,7 @@ jobs:
         with:
           name: EVE-Qwen3-0.6B-Q4-Model
           path: |
-            eve-project/app/src/main/assets/models/eve-arabic-50m-q4.gguf
+            eve-project/app/src/main/assets/models/eve-qwen3-0.6b-q4_k_m.gguf
             eve-project/app/src/main/assets/models/Apache-2.0-LICENSE.txt
             eve-project/app/src/main/assets/models/MODEL-NOTICE.txt
           if-no-files-found: error
