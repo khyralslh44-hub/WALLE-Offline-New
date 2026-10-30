@@ -1,33 +1,31 @@
-name: EVE Local LLM Offline Verification
+name: EVE Tiny Arabic Brain Offline Verification
 
 on:
   workflow_dispatch:
   push:
     paths:
       - 'eve-project/app/src/main/java/com/eve/robot/LocalLanguageBrain.kt'
+      - 'eve-project/app/src/main/java/com/eve/robot/EveTinyArabicBrain.kt'
+      - 'eve-project/app/src/test/java/com/eve/robot/EveTinyArabicBrainTest.kt'
       - 'eve-project/app/src/androidTest/java/com/eve/robot/LocalLanguageBrainIntegrationTest.kt'
       - 'eve-project/app/build.gradle.kts'
-      - 'eve-project/settings.gradle.kts'
       - 'eve-project/app/src/main/AndroidManifest.xml'
       - '.github/scripts/run-local-llm-test.sh'
       - '.github/workflows/eve-local-llm-verification.yml'
       - '.github/workflows/android-build.yml'
-      - '.github/workflows/emulator-smoke-test.yml'
 
 permissions:
   contents: read
 
 concurrency:
-  # Keep each expensive 329 MB model-inference run tied to its exact source revision.
-  # New commits must not silently cancel an in-progress diagnostic run.
-  group: eve-local-llm-verification-${{ github.ref }}-${{ github.sha }}
+  group: eve-tiny-arabic-verification-${{ github.ref }}-${{ github.sha }}
   cancel-in-progress: false
 
 jobs:
-  local-llm-offline:
-    name: Real Qwen inference followed by offline engine reload
+  tiny-arabic-offline:
+    name: EVE Tiny Arabic Brain on Android (offline)
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 35
     steps:
       - name: Check out exact source revision
         uses: actions/checkout@v4
@@ -61,126 +59,24 @@ jobs:
             --output "$RUNNER_TEMP/gradle-8.9-bin.zip"
           unzip -q "$RUNNER_TEMP/gradle-8.9-bin.zip" -d "$RUNNER_TEMP"
 
-      - name: Bundle and verify Qwen weights before building the app
+      - name: Run unit tests and build compact app/instrumentation APKs
         shell: bash
         run: |
           set -euo pipefail
-          MODEL="$RUNNER_TEMP/Qwen3-0.6B_dynamic_wi4b32_afp32.litertlm"
-          EXPECTED="03e7da1eb1108b50dffaa9bb52cc7bcbad2eb0c66ca990267f480c1e545d2856"
-          curl --fail --location --retry 4 --retry-delay 3 --connect-timeout 30 --max-time 1200 \
-            "https://huggingface.co/litert-community/Qwen3-0.6B/resolve/a3c5d805ae362dff7f580bc25f2dfb9a5a7eaa76/Qwen3-0.6B_dynamic_wi4b32_afp32.litertlm" \
-            --output "$MODEL"
-          ACTUAL="$(sha256sum "$MODEL" | awk '{print $1}')"
-          BYTES="$(stat -c '%s' "$MODEL")"
-          echo "Qwen model SHA-256: $ACTUAL"
-          echo "Qwen model bytes: $BYTES"
-          if [ "$ACTUAL" != "$EXPECTED" ] || [ "$BYTES" -lt 300000000 ]; then
-            echo "FAIL: pinned Qwen weights failed digest/size verification."
-            exit 1
-          fi
-          sha256sum "$MODEL" | tee "$RUNNER_TEMP/qwen-model-sha256.txt"
-          ASSETS="eve-project/app/src/main/assets"
-          mkdir -p "$ASSETS"
-          cp "$MODEL" "$ASSETS/Qwen3-0.6B_dynamic_wi4b32_afp32.litertlm"
-          curl --fail --location --retry 3 --connect-timeout 20 --max-time 120 \
-            "https://huggingface.co/Qwen/Qwen3-0.6B/resolve/main/LICENSE" \
-            --output "$ASSETS/qwen3_model_license.txt"
-          grep -Fq "Apache License" "$ASSETS/qwen3_model_license.txt"
-          cp eve-project/THIRD_PARTY_NOTICES.md "$ASSETS/THIRD_PARTY_NOTICES.txt"
-          cat >> "$ASSETS/THIRD_PARTY_NOTICES.txt" <<'NOTICE'
-
-          ## Qwen3-0.6B language model
-
-          The bundled Qwen3-0.6B_dynamic_wi4b32_afp32.litertlm weights are the LiteRT-LM conversion
-          of Qwen/Qwen3-0.6B from litert-community/Qwen3-0.6B.
-          The upstream model is licensed under Apache License 2.0; the full license is
-          included in qwen3_model_license.txt in this APK's assets.
-          NOTICE
-          echo "PASS: Qwen weights verified and copied into APK assets before compilation."
-
-      - name: Download broad offline ImageNet classifier before building
-        shell: bash
-        run: |
-          set -euo pipefail
-          MODEL="eve-project/app/src/main/assets/efficientnet_lite0_int8.tflite"
-          mkdir -p "$(dirname "$MODEL")"
-          curl --fail --location --retry 4 --retry-delay 2 --connect-timeout 20 --max-time 240 \
-            "https://storage.googleapis.com/mediapipe-models/image_classifier/efficientnet_lite0/int8/latest/efficientnet_lite0.tflite" \
-            --output "$MODEL"
-          BYTES="$(stat -c '%s' "$MODEL")"
-          SHA256="$(sha256sum "$MODEL" | awk '{print $1}')"
-          EXPECTED_SHA256="bc2ffe19c1118de0c0c2a9088992da5589722656e0fba81421385300a4a34b16"
-          EXPECTED_BYTES=5434517
-          echo "EfficientNet-Lite0 ImageNet SHA-256: $SHA256"
-          echo "EfficientNet-Lite0 ImageNet bytes: $BYTES"
-          if [ "$SHA256" != "$EXPECTED_SHA256" ] || [ "$BYTES" -ne "$EXPECTED_BYTES" ]; then
-            echo "FAIL: ImageNet classifier model differs from the reviewed pinned model."
-            exit 1
-          fi
-          sha256sum "$MODEL" | tee "$RUNNER_TEMP/imagenet-classifier-sha256.txt"
-
-      - name: Build app and the dedicated language-model instrumentation APK
-        shell: bash
-        run: |
-          set -euo pipefail
-          # The pinned Qwen weights are embedded in the APK assets for offline first-run setup.
           "$RUNNER_TEMP/gradle-8.9/bin/gradle" --no-daemon --stacktrace -p eve-project \
             testDebugUnitTest assembleDebug assembleDebugAndroidTest
-          APP_APK="eve-project/app/build/outputs/apk/debug/app-debug.apk"
-          TEST_APK="eve-project/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk"
-          test -s "$APP_APK"
-          test -s "$TEST_APK"
-          # Verify the exact output APK before spending 20+ minutes booting the emulator.
-          # Persist ZIP entries first to avoid pipefail/SIGPIPE false negatives from grep -q.
-          unzip -Z1 "$APP_APK" > "$RUNNER_TEMP/eve-app-apk-entries.txt"
-          if ! grep -Fxq "assets/Qwen3-0.6B_dynamic_wi4b32_afp32.litertlm" "$RUNNER_TEMP/eve-app-apk-entries.txt"; then
-            echo "FAIL: build output app-debug.apk is missing the Qwen asset."
-            grep -Fi "Qwen3-0.6B_dynamic_wi4b32_afp32" "$RUNNER_TEMP/eve-app-apk-entries.txt" || true
-            exit 21
+          test -s eve-project/app/build/outputs/apk/debug/app-debug.apk
+          test -s eve-project/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+          APP_APK=eve-project/app/build/outputs/apk/debug/app-debug.apk
+          if unzip -Z1 "$APP_APK" | grep -Eiq 'Qwen|litertlm|llama'; then
+            echo "FAIL: large LLM assets must not be bundled."
+            exit 2
           fi
-          PACKAGED_SHA256="$(unzip -p "$APP_APK" assets/Qwen3-0.6B_dynamic_wi4b32_afp32.litertlm | sha256sum | awk '{print $1}')"
-          EXPECTED_SHA256="03e7da1eb1108b50dffaa9bb52cc7bcbad2eb0c66ca990267f480c1e545d2856"
-          if [ "$PACKAGED_SHA256" != "$EXPECTED_SHA256" ]; then
-            echo "FAIL: APK Qwen model digest mismatch: $PACKAGED_SHA256"
-            exit 22
-          fi
-          echo "PASS: APK contains the pinned Qwen asset (SHA-256 verified)."
-          unzip -Z1 "$APP_APK" > "$RUNNER_TEMP/eve-llm-apk-entries.txt"
-          if ! grep -Fxq "assets/efficientnet_lite0_int8.tflite" "$RUNNER_TEMP/eve-llm-apk-entries.txt"; then
-            echo "FAIL: app-debug.apk is missing the broad ImageNet classifier."
-            exit 23
-          fi
-          PACKAGED_IMAGENET_SHA256="$(unzip -p "$APP_APK" assets/efficientnet_lite0_int8.tflite | sha256sum | awk '{print $1}')"
-          SOURCE_IMAGENET_SHA256="$(sha256sum eve-project/app/src/main/assets/efficientnet_lite0_int8.tflite | awk '{print $1}')"
-          if [ "$PACKAGED_IMAGENET_SHA256" != "$SOURCE_IMAGENET_SHA256" ]; then
-            echo "FAIL: local LLM test APK ImageNet model hash mismatch."
-            exit 24
-          fi
-          echo "PASS: app-debug.apk contains the broad offline ImageNet classifier (SHA-256 verified)."
-          sha256sum "$APP_APK" "$TEST_APK" | tee "$RUNNER_TEMP/eve-llm-apk-sha256.txt"
+          echo "PASS: compiled APK contains no large LLM asset."
 
-      - name: Enable KVM acceleration for local model inference
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ ! -e /dev/kvm ]; then
-            echo "::error::KVM is unavailable; x86_64 model prefill would be emulated too slowly to give a valid inference result."
-            exit 1
-          fi
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
-          sudo chmod 666 /dev/kvm
-          test -r /dev/kvm && test -w /dev/kvm
-          ls -l /dev/kvm
-          echo "PASS: hardware virtualization device is readable and writable."
-
-      - name: Run real local model test on Android API 35
+      - name: Run Android emulator test with radios disabled
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          # API 35 is installed above. Require KVM so Qwen prefill runs in a virtualized
-          # x86_64 guest rather than unaccelerated instruction emulation; the Redmi 12
-          # production path uses the ARM64 GPU backend instead.
           api-level: 35
           target: default
           arch: x86_64
@@ -189,17 +85,17 @@ jobs:
           ram-size: 4096M
           heap-size: 1024M
           emulator-boot-timeout: 900
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -no-audio -no-boot-anim -accel on
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -no-audio -no-boot-anim
           disable-animations: true
           script: bash "$GITHUB_WORKSPACE/.github/scripts/run-local-llm-test.sh"
 
-      - name: Upload local LLM inference proof and diagnostics
+      - name: Upload Tiny Arabic Brain test evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: EVE-Local-LLM-Offline-Proof
+          name: EVE-Tiny-Arabic-Brain-Offline-Proof
           path: |
-            eve-llm-results/**
+            eve-tiny-results/**
             eve-project/app/build/reports/tests/testDebugUnitTest/**
             eve-project/app/build/test-results/testDebugUnitTest/**
             eve-project/app/build/reports/androidTests/connected/**
