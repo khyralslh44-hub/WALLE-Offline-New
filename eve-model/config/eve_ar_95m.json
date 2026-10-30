@@ -1,0 +1,47 @@
+{
+  "model_name": "EVE-AR-95M",
+  "model_type": "llama",
+  "architecture": "decoder_only_transformer",
+  "parameter_count_estimate": 94400000,
+  "vocab_size": 24576,
+  "hidden_size": 768,
+  "intermediate_size": 2048,
+  "num_hidden_layers": 12,
+  "num_attention_heads": 12,
+  "num_key_value_heads": 4,
+  "hidden_act": "silu",
+  "max_position_embeddings": 2048,
+  "initializer_range": 0.02,
+  "rms_norm_eps": 0.00001,
+  "rope_theta": 10000,
+  "attention_bias": false,
+  "mlp_bias": false,
+  "tie_word_embeddings": true,
+  "use_cache": true,
+  "tokenizer": {
+    "status": "not_built",
+    "method": "train_sentencepiece_or_hf_tokenizers_on_eve_arabic_corpus",
+    "target_vocab_size": 24576,
+    "byte_fallback": true,
+    "preserve_diacritics": true,
+    "validate_round_trip": true
+  },
+  "training": {
+    "initialization": "random",
+    "pretrained_weights": false,
+    "base_pretraining": "arabic_corpus",
+    "supervised_finetuning": "eve_persona_and_grounded_dialogue",
+    "preference_tuning": "dpo_after_sft_validation",
+    "training_context_length": 2048,
+    "target_corpus_tokens": "hundreds_of_millions_to_low_billions; determine by validation loss and compute budget",
+    "note": "The token target is a planning range, not a claim that the corpus or training run already exists."
+  },
+  "android_export": {
+    "target_format": "GGUF",
+    "quantization_target": "Q4_K_M",
+    "backend": "llama.cpp",
+    "runtime_context_initial": 1024,
+    "test_required_on_real_arm64_device": true
+  },
+  "status": "DESIGN_ONLY_NOT_TRAINED"
+}
