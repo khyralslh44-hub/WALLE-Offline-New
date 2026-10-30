@@ -60,9 +60,12 @@ internal class EveArabicLlmRuntime(context: Context) : AutoCloseable {
             )
         } catch (cancelled: CancellationException) {
             throw cancelled
-        } catch (failure: Throwable) {
-            // Missing ARM64 native library, absent asset, or model load/inference failure
-            // returns control to LocalLanguageBrain's deterministic offline fallback.
+        } catch (failure: LinkageError) {
+            // For example, the AAR's ARM64 JNI library is unavailable on an x86 emulator.
+            Log.w(TAG, "ARABIC_LLM_NATIVE_UNAVAILABLE fallback=EveTinyArabicBrain", failure)
+            null
+        } catch (failure: Exception) {
+            // Missing asset or model load/inference failure returns to the deterministic fallback.
             Log.w(TAG, "ARABIC_LLM_UNAVAILABLE fallback=EveTinyArabicBrain", failure)
             null
         }
