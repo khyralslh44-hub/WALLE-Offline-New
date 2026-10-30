@@ -7,19 +7,6 @@ concurrency:
 
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - 'eve-project/**'
-      - '.github/workflows/android-build.yml'
-      - '.github/workflows/emulator-smoke-test.yml'
-      - '.github/workflows/eve-deep-verification.yml'
-      - '.github/scripts/emulator-smoke-test.sh'
-      - '.github/scripts/run-deep-face-test.sh'
-      - '.github/scripts/fetch-arabic-vosk-model.sh'
-      - '.github/scripts/run-local-llm-test.sh'
-      - '.github/scripts/build-eve-arabic-gguf.sh'
-      - 'EVE_ARABIC_LLM.md'
-      - '.github/workflows/eve-local-llm-verification.yml'
 
 permissions:
   contents: write
