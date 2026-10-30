@@ -73,11 +73,11 @@ class LocalLanguageBrain(
     fun start() {
         if (closed.get()) return
         val generativeModelBundled = runCatching {
-            appContext.assets.open("models/eve-arabic-50m-q4.gguf").use { }
+            appContext.assets.open("models/eve-qwen3-0.6b-q4_k_m.gguf").use { }
             true
         }.getOrDefault(false)
         val readyMessage = if (generativeModelBundled) {
-            "النموذج اللغوي العربي التوليدي موجود • يعمل محلياً دون إنترنت ويُحمّل عند أول محادثة"
+            "نموذج Qwen3-0.6B التوليدي موجود • يعمل محلياً دون إنترنت"
         } else {
             "الدماغ المحلي الاحتياطي جاهز • نموذج التوليد غير مضمّن في هذا البناء"
         }
@@ -101,7 +101,7 @@ class LocalLanguageBrain(
     fun answerUser(
         userText: String,
         context: LocalLlmContext,
-        maxOutputTokens: Int = 32,
+        maxOutputTokens: Int = 96,
         callback: (Result<LocalLlmResult>) -> Unit
     ) {
         enqueue(background = false, operation = {
