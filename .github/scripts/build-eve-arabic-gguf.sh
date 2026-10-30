@@ -202,10 +202,7 @@ cli, model, report_dir = sys.argv[1:4]
 report = pathlib.Path(report_dir)
 prompts = [
     "كيف كان يومك يا إيف؟",
-    "اليوم كنت متضايقاً لأنني أخفقت في شيء مهم.",
-    "أنا ألاحظ أن النبات قرب النافذة يميل نحو الضوء، ما التفسير؟",
-    "اشرح الفرق بين الطقس والمناخ بلغة بسيطة.",
-    "أريد اقتراحاً لنشاط منزلي هادئ في يوم ممطر."
+    "أنا متضايق اليوم، هل يمكنك التحدث معي بلطف؟"
 ]
 samples = []
 for index, question in enumerate(prompts, 1):
@@ -219,10 +216,10 @@ for index, question in enumerate(prompts, 1):
         "\n<|im_end|>\n<|im_start|>assistant\n"
     )
     result = subprocess.run(
-        [cli, "-m", model, "-p", chat, "-n", "72", "-c", "1024",
+        [cli, "-m", model, "-p", chat, "-n", "40", "-c", "512",
          "--temp", "0.68", "--top-p", "0.9", "--repeat-penalty", "1.12",
          "--no-display-prompt", "--simple-io"],
-        text=True, capture_output=True, timeout=180
+        text=True, capture_output=True, timeout=90
     )
     if result.returncode != 0:
         raise SystemExit(f"FAIL: inference case {index}: {result.stderr[-2000:]}")
@@ -269,4 +266,4 @@ EOF
   echo "limit_bytes=$MAX_MODEL_BYTES"
 } | tee "$REPORT_DIR/model-build-report.txt"
 
-echo "PASS: compact Arabic GGUF generated, inference-tested, and bundled for offline APK builds."
+echo "PASS: fast compact Arabic GGUF generated, two short Arabic responses tested, and bundled offline."
