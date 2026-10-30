@@ -31,6 +31,28 @@ class EveArabicPromptBuilderTest {
         assertTrue(prompt.contains("التصنيف=person"))
     }
 
+    @Test fun learnedPersonalityAndRecentConversationShapeTheVoice() {
+        val prompt = EveArabicPromptBuilder.systemPrompt(
+            LocalLlmContext(
+                personality = EvePersonality(
+                    curiosityBias = 0.91f,
+                    warmth = 0.88f,
+                    playfulness = 0.24f,
+                    patience = 0.95f
+                ),
+                recentDialogues = listOf("المستخدم: أحب النباتات | إيف: النباتات تضيف حياة للمكان."),
+                recentObservations = listOf("رأيت نبتة قرب النافذة أمس.")
+            )
+        )
+        assertTrue(prompt.contains("دفء=0.88"))
+        assertTrue(prompt.contains("فضول=0.91"))
+        assertTrue(prompt.contains("مرح=0.24"))
+        assertTrue(prompt.contains("صبر=0.95"))
+        assertTrue(prompt.contains("النباتات تضيف حياة للمكان"))
+        assertTrue(prompt.contains("ليست دليلاً على المشهد الحالي"))
+        assertTrue(prompt.contains("لا تبدئي كل رد"))
+    }
+
     @Test fun cleansChatTokensAndBoundsGeneratedText() {
         val cleaned = EveArabicPromptBuilder.cleanGeneratedText(
             "assistant: أهلاً بكِ!<|im_end|>\n\n\nسعدت برؤيتك."
