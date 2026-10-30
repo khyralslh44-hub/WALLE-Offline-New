@@ -1,0 +1,45 @@
+name: Temporary EVE v7 brain audit
+on:
+  push:
+    paths:
+      - '.github/workflows/audit-eve-brain.yml'
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect EVE v7 source
+        run: |
+          python - <<'PY'
+          import zipfile, os, re
+          zname = "eve-android (7).zip"
+          with zipfile.ZipFile(zname) as z:
+              names = z.namelist()
+              print("=== ARCHIVE FILES ===")
+              for n in names: print(n)
+              srcs = [n for n in names if n.lower().endswith(('.kt','.java','.js','.html','.json'))]
+              print("\\n=== SOURCE SIZES ===")
+              for n in srcs:
+                  try: print(n, len(z.read(n)))
+                  except: pass
+              print("\\n=== KOTLIN/JAVA SOURCES (FULL, LIMITED) ===")
+              for n in srcs:
+                  if n.lower().endswith(('.kt','.java')):
+                      data = z.read(n).decode('utf-8', 'replace')
+                      print("\\n===== FILE:", n, "=====")
+                      print(data[:18000])
+              print("\\n=== HTML/JS KEY LOGIC CONTEXT ===")
+              for n in srcs:
+                  if n.lower().endswith(('.html','.js')):
+                      lines = z.read(n).decode('utf-8','replace').splitlines()
+                      print("\\n===== FILE:", n, "=====")
+                      pats = re.compile(r'brain|decid|plan|memory|learn|emotion|behavior|curios|percept|vision|camera|action|observe|think|autonom|offline|recogn|model|feedback|state', re.I)
+                      shown=set()
+                      for i,line in enumerate(lines):
+                          if pats.search(line):
+                              for j in range(max(0,i-2), min(len(lines),i+3)):
+                                  if j not in shown:
+                                      print(f"{j+1}: {lines[j][:500]}")
+                                      shown.add(j)
+                              if len(shown)>450: break
+          PY
