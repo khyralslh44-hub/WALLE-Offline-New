@@ -67,6 +67,8 @@ dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.activity:activity-ktx:1.10.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
+    // Real autoregressive GGUF inference with llama.cpp (CPU/NEON, arm64-v8a, API 24+).
+    implementation("dev.ffmpegkit-maintained:llama-android:0.1.1")
     implementation("androidx.camera:camera-core:1.4.2")
     implementation("androidx.camera:camera-camera2:1.4.2")
     implementation("androidx.camera:camera-lifecycle:1.4.2")
