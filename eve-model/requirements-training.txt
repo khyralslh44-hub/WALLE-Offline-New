@@ -1,0 +1,6 @@
+torch>=2.3
+transformers>=4.45,<5
+tokenizers>=0.20
+sentencepiece>=0.2
+safetensors>=0.4
+tqdm>=4.66
