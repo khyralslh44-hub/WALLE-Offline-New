@@ -27,7 +27,7 @@ internal class EveArabicLlmRuntime(context: Context) : AutoCloseable {
         context: LocalLlmContext,
         maxOutputTokens: Int
     ): LocalLlmResult? {
-        val userText = rawText.trim().take(1_600)
+        val userText = rawText.trim().take(800)
         if (userText.isBlank()) return null
 
         return try {
