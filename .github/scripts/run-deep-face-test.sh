@@ -281,6 +281,7 @@ timeout 10s adb logcat -c >/dev/null 2>&1 || true
 INSTRUMENTATION_EXIT=0
 : > "$RESULT_DIR/instrumentation-output.txt"
 FACE_TEST_CLASSES=(
+  "com.eve.robot.MoonshineArabicModelIntegrationTest"
   "com.eve.robot.FaceVisionIntegrationTest"
   "com.eve.robot.ObjectVisionIntegrationTest"
   "com.eve.robot.FaceIdentityIntegrationTest"
@@ -355,7 +356,7 @@ if grep -E "INSTRUMENTATION_FAILED|FAILURES!!!|INSTRUMENTATION_STATUS_CODE: -2" 
   exit 11
 fi
 
-for marker in FACE_ROBUSTNESS_PASS FACE_FIXTURE_PASS FER_MODEL_PASS OBJECT_MODEL_PASS FACE_IDENTITY_MODEL_PASS IMAGENET_CLASSIFIER_PASS POSE_MODEL_PASS HAND_GESTURE_FIXTURE_PASS OFFLINE_AFFECT_LEARNING_PASS EYE_RENDER_GALLERY_PASS GENERATED_NOTIFICATION_PASS; do
+for marker in MOONSHINE_ARABIC_ASR_PASS FACE_ROBUSTNESS_PASS FACE_FIXTURE_PASS FER_MODEL_PASS OBJECT_MODEL_PASS FACE_IDENTITY_MODEL_PASS IMAGENET_CLASSIFIER_PASS POSE_MODEL_PASS HAND_GESTURE_FIXTURE_PASS OFFLINE_AFFECT_LEARNING_PASS EYE_RENDER_GALLERY_PASS GENERATED_NOTIFICATION_PASS; do
   # AndroidJUnitRunner may capture test stdout while logcat can be lost if the emulator's
   # background services restart. Accept the marker from either independent diagnostic stream.
   if ! grep -F "$marker" "$RESULT_DIR/logcat.txt" "$RESULT_DIR/instrumentation-output.txt" >/dev/null 2>&1; then
