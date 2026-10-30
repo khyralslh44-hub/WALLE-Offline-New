@@ -42,6 +42,8 @@ def main() -> None:
         "{% elif message['role'] == 'assistant' %}<|assistant|>\\n{{ message['content'] }}<|end|>\\n"
         "{% endif %}{% endfor %}"
     )
+    if len(fast) != args.vocab_size:
+        raise SystemExit(f"Tokenizer produced {len(fast)} tokens; expected exactly {args.vocab_size}. Add more corpus text before training.")
     fast.save_pretrained(args.output_dir)
     tokenizer.save(str(args.output_dir / "tokenizer.json"))
     probes = [
