@@ -8,7 +8,7 @@ on:
       - '.github/workflows/eve-deep-verification.yml'
       - '.github/scripts/run-deep-face-test.sh'
       - '.github/scripts/emulator-smoke-test.sh'
-      - '.github/scripts/fetch-arabic-vosk-model.sh'
+      - '.github/scripts/fetch-arabic-moonshine-model.py'
 
 concurrency:
   group: eve-deep-offline-${{ github.ref }}
@@ -224,9 +224,18 @@ jobs:
           file "$FIXTURE" || true
           sha256sum "$FIXTURE" | tee "$RUNNER_TEMP/thumb-up-fixture-sha256.txt"
 
-      - name: Bundle fully offline Arabic speech recognition model
+      - name: Set up Python 3.12 for compact Arabic speech assets
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Bundle fully offline Arabic Moonshine Tiny Streaming model
         shell: bash
-        run: bash .github/scripts/fetch-arabic-vosk-model.sh
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install moonshine-voice==0.1.5
+          python .github/scripts/fetch-arabic-moonshine-model.py
 
       - name: Verify pinned test inputs match the integration test
         shell: bash
@@ -258,12 +267,12 @@ jobs:
           grep -Fq "POSE_MODEL_PASS" "$TEST_SCRIPT"
           test "$(sha256sum "$IMAGENET_MODEL" | awk '{print $1}')" = "bc2ffe19c1118de0c0c2a9088992da5589722656e0fba81421385300a4a34b16"
           test -s "$RUNNER_TEMP/imagenet-classifier-sha256.txt"
-          VOSK_ARCHIVE="eve-project/app/src/main/assets/vosk-model-ar-mgb2-0.4.zip"
-          test -s "$VOSK_ARCHIVE"
-          unzip -Z1 "$VOSK_ARCHIVE" > "$RUNNER_TEMP/vosk-model.entries.txt"
-          grep -Eq '(^|/)conf/model\.conf$' "$RUNNER_TEMP/vosk-model.entries.txt"
-          grep -Eq '(^|/)am/final\.mdl$' "$RUNNER_TEMP/vosk-model.entries.txt"
-          grep -Eq '(^|/)graph/HCLG\.fst$' "$RUNNER_TEMP/vosk-model.entries.txt"
+          ARABIC_MODEL_DIR="eve-project/app/src/main/assets/moonshine/ar"
+          test -n "$(find "$ARABIC_MODEL_DIR" -type f -name '*.ort' -print -quit)"
+          test -s "$ARABIC_MODEL_DIR/tokenizer.bin"
+          ARABIC_MODEL_BYTES="$(du -sb "$ARABIC_MODEL_DIR" | awk '{print $1}')"
+          test "$ARABIC_MODEL_BYTES" -gt 0
+          test "$ARABIC_MODEL_BYTES" -le 100000000
           grep -Fq 'face_fixture.jpg' "$TEST_SOURCE"
           grep -Fq 'gesture_thumb_up.jpg' "$GESTURE_TEST_SOURCE"
           grep -Fq 'gesture_thumb_up.jpg' "$TEST_SCRIPT"
@@ -315,7 +324,7 @@ jobs:
         run: |
           set -euo pipefail
           bash -n .github/scripts/run-deep-face-test.sh
-          bash -n .github/scripts/fetch-arabic-vosk-model.sh
+          python -m py_compile .github/scripts/fetch-arabic-moonshine-model.py
           echo "PASS: deep verification scripts parse cleanly."
 
       - name: Run unit, adversarial affect stress, and real face-model tests offline
