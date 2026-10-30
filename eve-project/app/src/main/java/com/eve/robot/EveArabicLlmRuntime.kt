@@ -36,7 +36,7 @@ internal class EveArabicLlmRuntime(context: Context) : AutoCloseable {
                 model = model,
                 prompt = "/no_think\n$userText",
                 systemPrompt = EveArabicPromptBuilder.systemPrompt(context),
-                maxTokens = maxOutputTokens.coerceIn(32, 128)
+                maxTokens = maxOutputTokens.coerceIn(24, 80)
             )
             val answer = EveArabicPromptBuilder.cleanGeneratedText(result.text)
             if (answer.isBlank() || answer.none { it in '\u0600'..'\u06FF' }) {
@@ -92,7 +92,7 @@ internal class EveArabicLlmRuntime(context: Context) : AutoCloseable {
         }
 
         val config = LlamaConfig(
-            contextSize = 2_048,
+            contextSize = 1_024,
             threads = Runtime.getRuntime().availableProcessors().coerceIn(2, 4),
             gpuLayers = 0,
             temperature = 0.70f,
