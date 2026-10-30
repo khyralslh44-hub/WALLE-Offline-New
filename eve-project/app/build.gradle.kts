@@ -11,7 +11,7 @@ android {
 
     // The bundled Vosk ZIP and TFLite vision models are already compact binary assets.
     androidResources {
-        noCompress += listOf("zip", "tflite")
+        noCompress += listOf("zip", "tflite", "gguf")
     }
 
     // Include legacy JAR (v1) signing as well as modern APK signing so OEM installers
