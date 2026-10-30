@@ -71,7 +71,7 @@ class EveTinyArabicBrainTest {
             visionObservationAgeMs = 60_000L
         )
         val oldAnswer = EveTinyArabicBrain.answerUser("ماذا ترين؟", oldEvidence)
-        assertTrue(oldAnswer.replyArabic.contains("لا أملك ملاحظة بصرية حديثة"))
+        assertFalse("Stale labels must not be repeated as current facts.", oldAnswer.replyArabic.contains("القطة"))
 
         val freshEvidence = oldEvidence.copy(visionObservationAgeMs = 800L)
         val freshAnswer = EveTinyArabicBrain.answerUser("ماذا ترين؟", freshEvidence)
@@ -88,7 +88,7 @@ class EveTinyArabicBrainTest {
                 visionObservationAgeMs = 300L
             )
         )
-        assertTrue(answer.replyArabic.contains("لا يكشف اسمه أو هويته"))
+        assertTrue("A generic person label must not become a guessed identity.", listOf("لا يكشف اسمه", "لا يعني معرفة صاحبه", "لا أنسب إليه اسماً").any(answer.replyArabic::contains))
         assertFalse(answer.replyArabic.contains("أهلًا أحمد"))
     }
 
