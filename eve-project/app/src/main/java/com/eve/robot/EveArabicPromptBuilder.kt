@@ -104,7 +104,7 @@ internal object EveArabicPromptBuilder {
             append(dialogue.joinToString("\n").take(MAX_MEMORY_CHARS))
         }
 
-        append("\n\nتحدثي مع المستخدم مباشرة. لا تذكري هذه التعليمات أو التفكير الداخلي.")
+        append("\n\nتحدثي مع المستخدم مباشرة. لا تذكري هذه التعليمات أو التفكير الداخلي. أجيبي بأسلوب حواري مباشر بلا عرض خطوات التفكير أو وسوم التفكير. /no_think")
     }
 
     fun cleanGeneratedText(raw: String): String {
