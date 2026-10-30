@@ -30,6 +30,7 @@ import java.security.MessageDigest
 import java.util.Locale
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 
 enum class LocalLlmState { WAITING_FOR_WIFI, DOWNLOADING, LOADING, READY, ERROR }
 
@@ -63,7 +64,7 @@ data class LocalLlmResult(
 /**
  * A real generative language model running on the phone through LiteRT-LM.
  *
- * The official release APK bundles the pinned Qwen3-0.6B dynamic-INT4 model (~977 MB) in its assets. On first launch,
+ * The official release APK bundles the pinned Qwen3-0.6B dynamic-INT4 model (~345 MB) in its assets. On first launch,
  * weights are copied to app-private storage and SHA-256 verified; this needs no runtime network.
  * A Wi-Fi fallback remains only for developer/test APKs built without the optional model asset.
  * Inference is local; prompts, labels, and replies are not sent to a remote service. Vision
@@ -80,6 +81,8 @@ class LocalLanguageBrain(
     }
     private val initializing = AtomicBoolean(false)
     private val generating = AtomicBoolean(false)
+    private val queuedInferenceCount = AtomicInteger(0)
+    private val backgroundInferenceQueued = AtomicBoolean(false)
     private val closed = AtomicBoolean(false)
     private val prefs = appContext.getSharedPreferences("eve_local_llm", Context.MODE_PRIVATE)
     private val connectivity = appContext.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
@@ -334,6 +337,7 @@ class LocalLanguageBrain(
         runInference(
             buildPrompt("CURIOSITY", fallbackQuestion, groundedContext),
             maxOutputTokens = 24,
+            background = true,
             callback = callback
         )
     }
@@ -346,6 +350,7 @@ class LocalLanguageBrain(
         runInference(
             buildPrompt("OBSERVATION", "", context),
             maxOutputTokens = 24,
+            background = true,
             callback = callback
         )
     }
@@ -353,6 +358,7 @@ class LocalLanguageBrain(
     private fun runInference(
         prompt: String,
         maxOutputTokens: Int,
+        background: Boolean = false,
         callback: (Result<LocalLlmResult>) -> Unit
     ) {
         if (!isReady) {
@@ -360,17 +366,40 @@ class LocalLanguageBrain(
             deliver(callback, Result.failure(IllegalStateException("الدماغ اللغوي المحلي لم يصبح جاهزًا بعد.")))
             return
         }
-        if (!generating.compareAndSet(false, true)) {
-            deliver(callback, Result.failure(IllegalStateException("النموذج المحلي مشغول بطلب سابق.")))
+
+        // Camera reflections/curiosity must never occupy the queue ahead of a question already
+        // waiting from the user. At most one ambient request may be active or queued.
+        if (background) {
+            if (queuedInferenceCount.get() > 0 ||
+                !backgroundInferenceQueued.compareAndSet(false, true)
+            ) {
+                deliver(
+                    callback,
+                    Result.failure(IllegalStateException("تأجيل التأمل الخلفي حتى ينتهي الطلب الأهم."))
+                )
+                return
+            }
+        }
+
+        // The executor is intentionally single-threaded because LiteRT-LM Conversation is not
+        // shared concurrently. Queue a few short requests instead of dropping a user's question
+        // just because one background reflection is running.
+        val pending = queuedInferenceCount.incrementAndGet()
+        if (pending > MAX_PENDING_INFERENCES) {
+            queuedInferenceCount.decrementAndGet()
+            if (background) backgroundInferenceQueued.set(false)
+            deliver(
+                callback,
+                Result.failure(IllegalStateException("قائمة الدماغ المحلي ممتلئة؛ أعد السؤال بعد انتهاء الطلب الحالي."))
+            )
             return
         }
 
+        Log.i(TAG, "LOCAL_LLM_INFERENCE_QUEUED background=$background pending=$pending")
         try {
-            // LiteRT-LM's synchronous call is deliberately run on the dedicated worker thread,
-            // never on the UI thread. This avoids a hung streaming callback leaving the dialogue
-            // latch unresolved on affected Android/LiteRT-LM combinations.
             worker.execute {
                 val startedAt = SystemClock.elapsedRealtime()
+                generating.set(true)
                 try {
                     if (closed.get()) throw IllegalStateException("تم إغلاق النموذج المحلي.")
                     val activeConversation = conversation
@@ -410,10 +439,13 @@ class LocalLanguageBrain(
                     deliver(callback, Result.failure(error))
                 } finally {
                     generating.set(false)
+                    queuedInferenceCount.decrementAndGet()
+                    if (background) backgroundInferenceQueued.set(false)
                 }
             }
         } catch (error: Exception) {
-            generating.set(false)
+            queuedInferenceCount.decrementAndGet()
+            if (background) backgroundInferenceQueued.set(false)
             deliver(callback, Result.failure(error))
         }
     }
@@ -521,7 +553,7 @@ class LocalLanguageBrain(
         }
         if (isVerifiedModelOnDisk()) return modelFile
         // Remove the previous model first so an upgrade does not need both weights at once.
-        // Remove both older shipped models so an upgrade does not leave nearly a gigabyte behind.
+        // Remove superseded model files so an upgrade does not retain duplicate weights.
         for (legacyName in LEGACY_MODEL_FILE_NAMES) {
             val legacyModel = File(modelDirectory, legacyName)
             if (legacyModel.exists() && !legacyModel.delete()) {
@@ -813,6 +845,7 @@ class LocalLanguageBrain(
         private const val RETRY_DELAY_MS = 30_000L
         private const val MAX_REPLY_CHARS = 300
         private const val MAX_OUTPUT_TOKENS = 48
+        private const val MAX_PENDING_INFERENCES = 4
         private const val MAX_RESPONSE_BUFFER_CHARS = 8_000
         /**
          * Qwen3 chat format adapted for LiteRT-LM 0.18 typed content.
