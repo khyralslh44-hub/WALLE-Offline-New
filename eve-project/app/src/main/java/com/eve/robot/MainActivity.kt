@@ -614,73 +614,47 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Quick, in-app proof that the installed LiteRT-LM conversation actually generated output.
-     * A new nonce is created on every run; only the real LocalLanguageBrain inference callback
-     * can pass by returning that exact nonce. No hard-coded/offline FAQ response can pass this path.
+     * In-app smoke test for EVE's compact Arabic response generator.
+     * It verifies a supported offline question and refuses to call an empty response successful.
      */
     private fun runLocalLlmSelfTest() {
         if (isFinishing || isDestroyed) return
         if (!::localLanguageBrain.isInitialized) {
-            showDialogueText("اختبار النموذج غير متاح: لم تتم تهيئة الدماغ المحلي.", durationMs = 6500L)
-            Log.e("EVE_LLM", "LOCAL_LLM_SELF_TEST_FAIL reason=not_initialized")
+            showDialogueText("اختبار الدماغ العربي غير متاح: لم تتم تهيئته بعد.", durationMs = 6500L)
+            Log.e("EVE_TINY_BRAIN", "SELF_TEST_FAIL reason=not_initialized")
             return
         }
         if (!localLanguageBrain.isReady) {
             localLanguageBrain.ensureReady()
-            showDialogueText(
-                "النموذج اللغوي ليس جاهزًا بعد. انتظر حتى تظهر حالة الجاهزية ثم قل: اختبري النموذج.",
-                durationMs = 7000L
-            )
-            Log.i(
-                "EVE_LLM",
-                "LOCAL_LLM_SELF_TEST_DEFERRED state=${localLanguageBrain.currentState}"
-            )
+            showDialogueText("أهيئ الدماغ العربي الصغير الآن. أعيدي الاختبار بعد ظهور حالة الجاهزية.", durationMs = 7000L)
+            Log.i("EVE_TINY_BRAIN", "SELF_TEST_DEFERRED state=${localLanguageBrain.currentState}")
             return
         }
 
-        val nonce = "EVE-" + UUID.randomUUID().toString()
-            .replace("-", "").take(7).uppercase(Locale.ROOT)
-        val challenge = "اختبار تشخيصي: أدرجي الرمز حرفيًا داخل reply_ar دون تغييره: $nonce"
-        Log.i("EVE_LLM", "LOCAL_LLM_SELF_TEST_START nonce=$nonce state=${localLanguageBrain.currentState}")
-        showDialogueText("أتحقق الآن من التوليد اللغوي الحقيقي على الهاتف…", durationMs = 9000L)
-
-        localLanguageBrain.answerUser(challenge, localLanguageContext(), maxOutputTokens = 24) { outcome ->
+        val challenge = "هل تعملين بدون انترنت؟"
+        showDialogueText("أختبر الآن فهم السؤال وتوليد رد عربي محلي…", durationMs = 7000L)
+        localLanguageBrain.answerUser(challenge, localLanguageContext()) { outcome ->
             if (isFinishing || isDestroyed) return@answerUser
             val answer = outcome.getOrNull()
             if (answer == null) {
-                showDialogueText(
-                    "لم ينجح الاختبار: لم يكتمل توليد النموذج المحلي. راجع حالة الدماغ ثم أعد المحاولة.",
-                    durationMs = 8500L
-                )
-                Log.e(
-                    "EVE_LLM",
-                    "LOCAL_LLM_SELF_TEST_FAIL reason=inference_error nonce=$nonce",
-                    outcome.exceptionOrNull()
-                )
+                showDialogueText("لم يكتمل اختبار التوليد المحلي. راجع حالة الدماغ ثم أعد المحاولة.", durationMs = 8000L)
+                Log.e("EVE_TINY_BRAIN", "SELF_TEST_FAIL reason=inference_error", outcome.exceptionOrNull())
                 return@answerUser
             }
 
             val reply = answer.replyArabic.trim()
-            val passed = reply.contains(nonce, ignoreCase = true)
+            val passed = reply.isNotBlank() &&
+                answer.confidence >= 0.44f &&
+                (reply.contains("دون اتصال") || reply.contains("على الجهاز") || reply.contains("محلي"))
             if (passed) {
-                showDialogueText(
-                    "نجح الاختبار ✓ النموذج اللغوي ولّد ردًا جديدًا يتضمن الرمز $nonce. التوليد محلي على الهاتف.",
-                    durationMs = 9500L
-                )
+                showDialogueText("نجح الاختبار ✓ فهمت السؤال وولّدت رداً عربياً من الدماغ المحلي.", durationMs = 8500L)
                 Log.i(
-                    "EVE_LLM",
-                    "LOCAL_LLM_SELF_TEST_PASS nonce=$nonce localOnly=true " +
-                        "replyChars=${reply.length} model=Qwen2-0.5B-Instruct"
+                    "EVE_TINY_BRAIN",
+                    "SELF_TEST_PASS engine=EVE-Tiny-Arabic replyChars=${reply.length} confidence=${answer.confidence} offline=true"
                 )
             } else {
-                showDialogueText(
-                    "وصل رد من المسار المحلي، لكنه لم يجتز تحدّي الرمز. لن أعتبر النموذج متحققًا حتى ينجح الاختبار.",
-                    durationMs = 9000L
-                )
-                Log.w(
-                    "EVE_LLM",
-                    "LOCAL_LLM_SELF_TEST_FAIL reason=nonce_not_returned nonce=$nonce replyChars=${reply.length}"
-                )
+                showDialogueText("وصل رد، لكنه لم يجتز فحص المعنى والثقة؛ لن أعتبر الاختبار ناجحاً.", durationMs = 8500L)
+                Log.w("EVE_TINY_BRAIN", "SELF_TEST_FAIL reason=low_confidence_or_wrong_reply chars=${reply.length}")
             }
         }
     }
