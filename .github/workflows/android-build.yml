@@ -3,7 +3,7 @@ name: EVE Android Build
 
 concurrency:
   group: eve-android-build-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 on:
   workflow_dispatch:
