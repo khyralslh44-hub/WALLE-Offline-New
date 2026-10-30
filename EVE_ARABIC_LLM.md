@@ -1,36 +1,48 @@
-# EVE Arabic generative model
+# EVE local language brain — Qwen3 0.6B
 
-This project now has a reproducible path for a real autoregressive Arabic model rather than only the previous hashed-intent/template engine.
+EVE now uses a multilingual local language model for natural Arabic conversation. It is deliberately separated from the perception, memory, mood, and behaviour systems.
 
-## Selected checkpoint
+## Selected model
 
-- Model: `Abdelkareem/supra-50m-arabic-sft-mix`
-- Pinned revision: `279038a25593f6dfce3146585b4d1380b22effe3`
-- Model card: https://huggingface.co/Abdelkareem/supra-50m-arabic-sft-mix
-- License stated by the model card: Apache-2.0
-- 51.8M parameters, Llama-style decoder, 32k Arabic BPE tokenizer, ChatML instruction tuning
-- Quantized output: GGUF Q4_K_M; CI rejects it if it is 50,000,000 bytes or larger
-- Android inference: `dev.ffmpegkit-maintained:llama-android:0.1.1`, llama.cpp, CPU-only ARM64
+- Base model: Qwen3-0.6B
+- GGUF distribution: \`unsloth/Qwen3-0.6B-GGUF\`
+- File: \`Qwen3-0.6B-Q4_K_M.gguf\`
+- Pinned distribution revision: \`f2d6f9c\`
+- SHA-256: \`ac2d97712095a558e31573f62f466a3f9d93990898b0ec79d7c974c1780d524a\`
+- Quantization: Q4_K_M
+- Approximate download size: 397 MB
+- Model license: Apache-2.0
+- Runtime: \`dev.ffmpegkit-maintained:llama-android:0.1.1\`, llama.cpp CPU/NEON
 
-The checkpoint is downloaded at a pinned revision, checked by SHA-256, converted to GGUF, quantized, smoke-tested with unseen Arabic prompts, and copied into the APK assets by GitHub Actions. Model weights are not committed to this repository.
+The official Qwen3 model family supports more than 100 languages and dialects, instruction following, role-play, and a non-thinking dialogue mode. The 0.6B model is still compact and can make mistakes; it is not equivalent to a large cloud assistant.
 
-## Android integration
+## Build flow
 
-`EveArabicLlmRuntime` lazily copies the bundled GGUF into app-private files and loads it locally. `LocalLanguageBrain.answerUser` attempts real text generation first and uses `EveTinyArabicBrain` only as an offline fallback if the model asset or native runtime is unavailable. The prompt receives bounded dialogue, local reflections, mood and fresh vision evidence. It explicitly forbids inferring a person's identity from a generic visual label or from a spoken-introduction list.
+The Android workflow:
+1. Restores a cached copy of the pinned GGUF when available.
+2. Downloads the ready-made GGUF only when it is absent.
+3. Verifies the GGUF header, expected size, and SHA-256.
+4. Runs a bounded Arabic generation smoke test. This diagnostic is non-blocking so a slow host inference test does not cancel APK packaging.
+5. Bundles the exact verified GGUF asset into both APK variants.
+6. Checks that both APKs contain the model and that their extracted SHA-256 equals the pinned source hash.
 
-## Build and evidence
+The workflow no longer converts the small Arabic checkpoint or builds a custom tokenizer mapping during the Android build.
 
-The Android build workflow runs `.github/scripts/build-eve-arabic-gguf.sh` before Gradle. It:
-1. downloads the pinned model checkpoint and validates its source-weight hash;
-2. checks out a pinned llama.cpp revision;
-3. converts the checkpoint to GGUF F16 and quantizes to Q4_K_M;
-4. rejects weights above the 50 MB cap;
-5. runs three held-out Arabic generation smoke tests using llama.cpp on the build host;
-6. packages the quantized model and its Apache-2.0 license into debug and release APKs;
-7. verifies model checksums inside the APKs and uploads a model/evaluation report.
+## EVE architecture boundaries
 
-## Important limitations
+- **Language:** Qwen3 generates the natural-language reply in Arabic.
+- **Perception:** Camera, face detection, face embeddings, object classification, pose, and gestures remain separate on-device modules.
+- **Memory:** Observations, conversation details, and known-person records remain local. A spoken name is not by itself proof of a face identity.
+- **Emotion:** The deterministic EVE state controller remains in charge of mood, intensity, and decay. The language model cannot arbitrarily change the emotional state.
+- **Curiosity and planning:** The behaviour planner chooses grounded, non-repetitive actions. The language model expresses the selected result; it does not invent sensor evidence or independently drive hardware.
+- **Future movement base:** Bluetooth motion control must use a separate safety adapter with obstacle and edge-stop interlocks.
 
-This is a genuinely generative model, but it is only around 50M parameters and Arabic-only. Its model card warns that it can hallucinate and has weak multi-step reasoning; it is not suitable for medical, legal, financial, emergency, or other high-stakes decisions. The host smoke tests prove that the quantized checkpoint can generate Arabic text; they do not prove useful reasoning or target-phone speed. Redmi 12 latency, RAM use, temperature and response quality still require a real-device test.
+## Offline behaviour
 
-The app's core inference path does not need internet after installation because the model is bundled into the APK. CI itself downloads model files only while building.
+The GGUF is packaged inside the installed APK and is copied into app-private storage on first use. Language generation does not need a network connection after installation. The build server needs internet only to obtain the pinned model and build dependencies.
+
+## Device limitations and validation
+
+A 397 MB model produces a substantially larger APK than the previous 34.62 MB model. The actual APK size must be measured after a successful build. Q4_K_M inference also needs additional working memory beyond the file size; latency, RAM pressure, heating, and response quality must still be checked on the physical Redmi 12. The current build-host smoke test verifies that llama.cpp can load the model and generate Arabic, but it does not prove target-phone speed or perfect reasoning.
+
+The deterministic EVE brain remains available as a local fallback whenever the model asset or native inference runtime cannot be loaded.
