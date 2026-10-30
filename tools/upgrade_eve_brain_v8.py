@@ -107,10 +107,10 @@ replace_once(
     "  const now=Date.now(),visualFresh=typeof lastVisT!=='undefined'&&now-lastVisT<3000,objs=visualFresh&&Array.isArray(OBJ)?OBJ:[];\n"
     "  const labels=objs.map(o=>String(o.l||'').toLowerCase()),food=!!(typeof CLS!=='undefined'&&CLS&&now-CLS.t<7000&&CLS.food)||/banana|apple|sandwich|orange|broccoli|carrot|hot dog|pizza|donut|cake|bowl of food|food/.test(labels.join('|'));\n"
     "  const sport=!!(typeof CLS!=='undefined'&&CLS&&now-CLS.t<7000&&CLS.sport)||/sports ball|tennis racket|skateboard|bicycle|dumbbell|barbell/.test(labels.join('|'));\n"
-    "  let person=FACE?1:0;for(const o of objs)if(o.l==='person')person=Math.max(person,Number(o.s)||0);\n"
+    "  let person=visualFresh&&FACE?1:0;for(const o of objs)if(o.l==='person')person=Math.max(person,Number(o.s)||0);\n"
     "  const unknown=typeof UNK!=='undefined'&&UNK?Object.values(UNK).filter(u=>now-u.t<15000).length:0;\n"
     "  const activity=typeof ACT!=='undefined'&&ACT&&now-ACT.t<10000?clamp(Number(ACT.c)||0):0;\n"
-    "  const familiar=FACE&&typeof IDS!=='undefined'&&IDS&&IDS.who?clamp(Number(IDS.conf)||0):0;\n"
+    "  const familiar=visualFresh&&FACE&&typeof IDS!=='undefined'&&IDS&&IDS.who?clamp(Number(IDS.conf)||0):0;\n"
     "  const gestures=typeof GEST!=='undefined'&&Array.isArray(GEST)?GEST.filter(g=>now-g.t<2500):[];\n"
     "  const gesture=gestures.reduce((m,g)=>Math.max(m,Number(g.s)||0),0);\n"
     "  x[40]=clamp(person);x[41]=clamp(objs.length/4);x[42]=food?1:0;x[43]=sport?1:0;x[44]=clamp(unknown/3);x[45]=activity;x[46]=familiar;x[47]=gesture;\n"
@@ -132,7 +132,7 @@ replace_once(
     " const urgent=(typeof lowPower!=='undefined'&&lowPower)||S.en<.16,current=GN.indexOf(goal.n);\n"
     " if(urgent)a=0;else if(a===1&&!camOn)a=5;else if((a===2||a===3)&&x[40]<.25)a=camOn&&S.cu>.58?1:5;\n"
     " if(current>=0&&now-goal.since<8000&&!urgent&&a!==current)a=current;\n"
-    " if(a!==proposed){BR.lastA=a;BR.zq=Float32Array.from(BR.z)}curAct=a;\n"
+    " if(a!==proposed){BR.lastA=a;BR.zq=Float32Array.from(BR.z);if(M.agent.pending)M.agent.pending.a=a}curAct=a;\n"
     " const before=goal.n;setGoal(GN[a],ST[a],'قرار الشبكة العصبية بعد تقييم الحالة والنتيجة السابقة (احتمال '+Math.round((BR.p?BR.p[a]:0)*100)+'٪، مكافأتي '+R.toFixed(2)+')');\n"
     " if(goal.n!==before){M.agent.recent.push(a);if(M.agent.recent.length>12)M.agent.recent.shift()}}",
     "context-aware stable decision planner",
@@ -147,7 +147,7 @@ replace_once(
     " else if(g==='اللعب'){gaze.tx=Math.sin(Date.now()/500);bump('play',.2)}\n"
     " else if(g==='الراحة'){gaze.tx=0;gaze.ty=.4;bump('sleepy',.1)}\n"
     " else{if(Math.random()<.3){gaze.tx=rnd(-.8,.8);gaze.ty=rnd(-.4,.4)}}}",
-    "function focusScene(){let b=FACE&&FACE.b?FACE.b:null;if(!b&&Array.isArray(OBJ)){const o=OBJ.filter(v=>v&&v.b&&v.s>.35&&v.l!=='person').sort((a,c)=>c.s-a.s)[0];if(o)b=o.b}\n"
+    "function focusScene(){const fresh=typeof lastVisT!=='undefined'&&Date.now()-lastVisT<3000;let b=fresh&&FACE&&FACE.b?FACE.b:null;if(!b&&fresh&&Array.isArray(OBJ)){const o=OBJ.filter(v=>v&&v.b&&v.s>.35&&v.l!=='person').sort((a,c)=>c.s-a.s)[0];if(o)b=o.b}\n"
     " if(b&&b.length>=4){gaze.tx=clamp((b[0]+b[2]/2-.5)*2.2,-1,1);gaze.ty=clamp((b[1]+b[3]/2-.5)*2,-1,1);return}\n"
     " const i=Math.floor(Date.now()/6500)%4;gaze.tx=[-.65,.65,0,0][i];gaze.ty=[0,0,-.45,.45][i]}\n"
     "function act(){\n"
