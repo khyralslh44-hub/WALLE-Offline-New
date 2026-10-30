@@ -46,8 +46,8 @@ internal class EveArabicLlmRuntime(context: Context) : AutoCloseable {
 
             Log.i(
                 TAG,
-                "ARABIC_LLM_GENERATED tokens=\${result.tokensGenerated} " +
-                    "tokensPerSecond=\${result.tokensPerSecond} chars=\${answer.length} offline=true"
+                "ARABIC_LLM_GENERATED tokens=${result.tokensGenerated} " +
+                    "tokensPerSecond=${result.tokensPerSecond} chars=${answer.length} offline=true"
             )
             LocalLlmResult(
                 replyArabic = answer,
@@ -96,7 +96,7 @@ internal class EveArabicLlmRuntime(context: Context) : AutoCloseable {
             loadedModel = it
             Log.i(
                 TAG,
-                "ARABIC_LLM_LOADED bytes=\${modelFile.length()} context=1024 threads=\${config.threads} " +
+                "ARABIC_LLM_LOADED bytes=${modelFile.length()} context=1024 threads=${config.threads} " +
                     "backend=llama.cpp cpu_only=true"
             )
         }
