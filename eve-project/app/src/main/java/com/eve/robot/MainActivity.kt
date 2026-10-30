@@ -89,6 +89,7 @@ class MainActivity : ComponentActivity() {
         }
     }
     private val main = Handler(Looper.getMainLooper())
+    private val runtimeBudget by lazy(LazyThreadSafetyMode.SYNCHRONIZED) { EveRuntimeBudget(applicationContext) }
     private val cameraExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private val emotionExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     // Recognizer creation, inference and release all occur on this one worker.
@@ -121,6 +122,7 @@ class MainActivity : ComponentActivity() {
     @Volatile private var handGestureRecognizer: GestureRecognizer? = null
     @Volatile private var handGestureReady = false
     private val handGestureInferenceRunning = AtomicBoolean(false)
+    private val lastHandGestureInferenceAt = AtomicLong(0L)
     private val lastGestureDiagnosticAt = AtomicLong(0L)
     private val handGestureInterpreter = HandGestureInterpreter()
     private val lastHandReactionAt = mutableMapOf<String, Long>()
@@ -138,6 +140,7 @@ class MainActivity : ComponentActivity() {
     private val lastAnalysis = AtomicLong(0L)
     // Allow at most one FER inference in flight; never build a queue of stale camera frames.
     private val ferInferenceRunning = AtomicBoolean(false)
+    private val lastFerInferenceAt = AtomicLong(0L)
     private val faceCueSmoother = EveFaceCueSmoother(windowSize = 3, requiredVotes = 2)
     private val activityUnderstanding = EveActivityUnderstanding()
     private val environmentUnderstanding = EveEnvironmentUnderstanding()
@@ -1174,6 +1177,14 @@ class MainActivity : ComponentActivity() {
         super.onPause()
     }
 
+    private fun claimInferenceSlot(lastAt: AtomicLong, nowMs: Long, intervalMs: Long): Boolean {
+        while (true) {
+            val previous = lastAt.get()
+            if (nowMs - previous < intervalMs) return false
+            if (lastAt.compareAndSet(previous, nowMs)) return true
+        }
+    }
+
     private fun faceOrNull(): RobotFaceView? = if (::face.isInitialized) face else null
 
     private fun dp(value: Int): Int =
@@ -1384,9 +1395,10 @@ class MainActivity : ComponentActivity() {
 
     private fun analyzeFrame(proxy: ImageProxy) {
         val now = SystemClock.elapsedRealtime()
+        val cadence = runtimeBudget.cadence(now)
         val previous = lastAnalysis.get()
-        // Keep CameraX's latest-frame backpressure and avoid the previous 1.5-second reaction lag.
-        if (now - previous < 400L || !lastAnalysis.compareAndSet(previous, now)) {
+        // Keep CameraX's latest-frame backpressure and avoid stale queued frames.
+        if (now - previous < cadence.cameraFrameIntervalMs || !lastAnalysis.compareAndSet(previous, now)) {
             proxy.close()
             return
         }
@@ -1399,26 +1411,35 @@ class MainActivity : ComponentActivity() {
         // Run the detector on a throttled cadence: named object boxes are more useful than
         // generic whole-image guesses, and a single in-flight guard prevents CPU queues.
         val requestObjectDetection = objectDetectorReady &&
-            now - lastObjectInferenceAt.get() >= objectDetectionIntervalMs &&
+            now - lastObjectInferenceAt.get() >= cadence.objectDetectionIntervalMs &&
             objectInferenceRunning.compareAndSet(false, true)
         if (requestObjectDetection) lastObjectInferenceAt.set(now)
 
         // A slower whole-image pass broadens category coverage beyond the COCO detector's
         // object classes; single-flight scheduling prevents a backlog on mid-range phones.
         val requestImageClassification = imageClassifierReady &&
-            now - lastImageClassifierAt.get() >= imageClassificationIntervalMs &&
+            now - lastImageClassifierAt.get() >= cadence.imageClassificationIntervalMs &&
             imageClassifierRunning.compareAndSet(false, true)
         if (requestImageClassification) lastImageClassifierAt.set(now)
         val requestPoseInference = poseLandmarkerReady &&
-            now - lastPoseInferenceAt.get() >= poseInferenceIntervalMs &&
+            now - lastPoseInferenceAt.get() >= cadence.poseInferenceIntervalMs &&
             poseInferenceRunning.compareAndSet(false, true)
         if (requestPoseInference) lastPoseInferenceAt.set(now)
+        val requestFaceEmotion = emotionClassifier.isReady &&
+            now - lastFerInferenceAt.get() >= cadence.faceEmotionIntervalMs &&
+            !ferInferenceRunning.get()
+        val requestFaceIdentity =
+            (faceIdentityMemory.hasProfiles() || (pendingFaceEnrollment != null && pendingFaceEnrollmentConfirmed)) &&
+                now - lastFaceIdentityCheckAt.get() >= cadence.faceIdentityIntervalMs &&
+                !faceIdentityWorkRunning.get()
+        val requestHandGesture = handGestureReady &&
+            now - lastHandGestureInferenceAt.get() >= cadence.handGestureIntervalMs &&
+            !handGestureInferenceRunning.get()
 
         // This RGB bitmap is independent of ImageProxy memory and is shared read-only with
         // local object classification, facial analysis, gestures, and human-pose estimation.
         val bitmapNeeded = requestObjectDetection || requestImageClassification || requestPoseInference ||
-            (emotionClassifier.isReady && !ferInferenceRunning.get()) ||
-            (handGestureReady && !handGestureInferenceRunning.get())
+            requestFaceEmotion || requestFaceIdentity || requestHandGesture
         val frameBitmap = if (bitmapNeeded) {
             try {
                 imageProxyToUprightBitmap(proxy).also { bitmap ->
@@ -1516,8 +1537,9 @@ class MainActivity : ComponentActivity() {
 
         // Crop faces on the camera executor, then run TensorFlow Lite on its own single thread.
         // A 2-of-3 temporal vote prevents a single blink/blurred frame from changing the character.
-        val runHandGesture = frameBitmap != null && handGestureReady &&
+        val runHandGesture = frameBitmap != null && requestHandGesture &&
             handGestureInferenceRunning.compareAndSet(false, true)
+        if (runHandGesture) lastHandGestureInferenceAt.set(now)
         val pendingFrameConsumers = AtomicLong(
             2L +
                 (if (runHandGesture) 1L else 0L) +
@@ -1750,8 +1772,15 @@ class MainActivity : ComponentActivity() {
                     }
 
                     val crop = frameBitmap?.let { cropFaceBitmap(it, bestFace.boundingBox) }
-                    if (crop != null) processFaceIdentityCrop(crop, elapsed)
-                    if (crop != null && emotionClassifier.isReady) {
+                    if (crop != null && requestFaceIdentity) processFaceIdentityCrop(crop, elapsed)
+                    val shouldRunFaceEmotion = crop != null && emotionClassifier.isReady &&
+                        requestFaceEmotion && claimInferenceSlot(
+                            lastFerInferenceAt, elapsed, cadence.faceEmotionIntervalMs
+                        )
+                    // The identity matcher copies the crop synchronously; release it when FER
+                    // does not take ownership so skipped samples cannot accumulate bitmaps.
+                    if (crop != null && !shouldRunFaceEmotion) crop.recycle()
+                    if (shouldRunFaceEmotion) {
                         if (!ferInferenceRunning.compareAndSet(false, true)) {
                             // Drop this frame rather than queueing stale work behind a slow inference.
                             crop.recycle()
