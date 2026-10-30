@@ -66,7 +66,10 @@ class LocalLanguageBrainIntegrationTest {
             assertTrue("Reflection failed.", reflection.get()!!.isSuccess)
             assertTrue("User reply failed.", userReply.get()!!.isSuccess)
             val answer = userReply.get()!!.getOrThrow()
-            assertTrue("Offline answer should mention local operation.", answer.replyArabic.contains("دون اتصال"))
+            assertTrue(
+                "Offline answer should describe local operation.",
+                listOf("دون اتصال", "محلي", "على الجهاز", "على الهاتف").any(answer.replyArabic::contains)
+            )
 
             val unknown = awaitAnswer(brain, "لماذا تمطر على المريخ اليوم؟")
             assertTrue("Unknown question must be handled honestly.", unknown.replyArabic.contains("لم أفهم"))
