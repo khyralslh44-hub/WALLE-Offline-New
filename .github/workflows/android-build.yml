@@ -15,7 +15,7 @@ on:
       - '.github/workflows/eve-deep-verification.yml'
       - '.github/scripts/emulator-smoke-test.sh'
       - '.github/scripts/run-deep-face-test.sh'
-      - '.github/scripts/fetch-arabic-vosk-model.sh'
+      - '.github/scripts/fetch-arabic-moonshine-model.py'
       - '.github/scripts/run-local-llm-test.sh'
       - '.github/scripts/build-eve-arabic-gguf.sh'
       - 'EVE_ARABIC_LLM.md'
@@ -183,9 +183,18 @@ jobs:
           grep -Fq "MIT License" "$LICENSE"
           ls -lh "$MODEL" "$LICENSE"
           echo "PASS: pinned offline face-identity model and its license are ready."
-      - name: Bundle fully offline Arabic speech recognition model
+      - name: Set up Python 3.12 for compact model preparation
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Bundle fully offline Arabic Moonshine Tiny Streaming model
         shell: bash
-        run: bash .github/scripts/fetch-arabic-vosk-model.sh
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install moonshine-voice==0.1.5
+          python .github/scripts/fetch-arabic-moonshine-model.py
 
       - name: Download and verify offline MediaPipe pose model
         shell: bash
@@ -200,11 +209,6 @@ jobs:
           # The task bundle must be present before Gradle packages app assets.
           file "$MODEL"
           echo "Pose model downloaded: $(wc -c < "$MODEL") bytes"
-
-      - name: Set up Python 3.12 for reproducible model conversion
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
 
       - name: Build, quantize, and inference-test the Arabic generative model
         shell: bash
@@ -253,6 +257,36 @@ jobs:
             echo "PASS: $APK contains $POSE_NAME SHA-256=$POSE_PACKAGED_SHA256"
           done
 
+      - name: Verify compact Moonshine Arabic model is bundled in both APKs
+        shell: bash
+        run: |
+          set -euo pipefail
+          MODEL_DIR="eve-project/app/src/main/assets/moonshine/ar"
+          test -d "$MODEL_DIR"
+          test -n "$(find "$MODEL_DIR" -type f -name '*.ort' -print -quit)"
+          test -s "$MODEL_DIR/tokenizer.bin"
+          MODEL_BYTES="$(du -sb "$MODEL_DIR" | awk '{print $1}')"
+          if [ "$MODEL_BYTES" -le 0 ] || [ "$MODEL_BYTES" -gt 100000000 ]; then
+            echo "FAIL: compact Arabic Moonshine bundle has an unexpected size: $MODEL_BYTES bytes."
+            exit 1
+          fi
+          while IFS= read -r -d '' SOURCE; do
+            RELATIVE="${SOURCE#"$MODEL_DIR/"}"
+            ENTRY="assets/moonshine/ar/$RELATIVE"
+            SOURCE_SHA="$(sha256sum "$SOURCE" | awk '{print $1}')"
+            for APK in \
+              "eve-project/app/build/outputs/apk/debug/app-debug.apk" \
+              "eve-project/app/build/outputs/apk/release/app-release.apk"; do
+              unzip -Z1 "$APK" | grep -Fxq "$ENTRY"
+              PACKAGED_SHA="$(unzip -p "$APK" "$ENTRY" | sha256sum | awk '{print $1}')"
+              if [ "$PACKAGED_SHA" != "$SOURCE_SHA" ]; then
+                echo "FAIL: Moonshine asset differs inside $APK: $ENTRY"
+                exit 1
+              fi
+            done
+          done < <(find "$MODEL_DIR" -type f -print0)
+          echo "PASS: Arabic Moonshine Tiny Streaming model ($MODEL_BYTES bytes) is bundled and checksum-verified in both APKs."
+
       - name: Verify pinned MobileFaceNet model and license are packaged in both APKs
         shell: bash
         run: |
@@ -278,19 +312,19 @@ jobs:
             echo "PASS: $APK contains the pinned offline identity model and license."
           done
 
-      - name: Verify the real Arabic GGUF model is bundled in both APKs
+      - name: Verify Qwen3-0.6B GGUF is bundled in both APKs
         shell: bash
         run: |
           set -euo pipefail
-          MODEL="eve-project/app/src/main/assets/models/eve-arabic-50m-q4.gguf"
+          MODEL="eve-project/app/src/main/assets/models/eve-qwen3-0.6b-q4_k_m.gguf"
           LICENSE="eve-project/app/src/main/assets/models/Apache-2.0-LICENSE.txt"
           NOTICE="eve-project/app/src/main/assets/models/MODEL-NOTICE.txt"
           test -s "$MODEL"
           test -s "$LICENSE"
           test -s "$NOTICE"
           MODEL_BYTES="$(stat -c '%s' "$MODEL")"
-          if [ "$MODEL_BYTES" -ge 50000000 ]; then
-            echo "FAIL: quantized Arabic model exceeds the 50 MB limit."
+          if [ "$MODEL_BYTES" -ge 500000000 ]; then
+            echo "FAIL: Qwen3-0.6B Q4 model exceeds the 500 MB safety limit."
             exit 1
           fi
           SOURCE_SHA="$(sha256sum "$MODEL" | awk '{print $1}')"
@@ -298,7 +332,7 @@ jobs:
             "eve-project/app/build/outputs/apk/debug/app-debug.apk" \
             "eve-project/app/build/outputs/apk/release/app-release.apk"; do
             test -s "$APK"
-            unzip -Z1 "$APK" | grep -Fxq "assets/models/eve-arabic-50m-q4.gguf"
+            unzip -Z1 "$APK" | grep -Fxq "assets/models/eve-qwen3-0.6b-q4_k_m.gguf"
             unzip -Z1 "$APK" | grep -Fxq "assets/models/Apache-2.0-LICENSE.txt"
             PACKAGED_SHA="$(unzip -p "$APK" assets/models/eve-arabic-50m-q4.gguf | sha256sum | awk '{print $1}')"
             if [ "$PACKAGED_SHA" != "$SOURCE_SHA" ]; then
@@ -312,7 +346,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: EVE-Arabic-50M-Q4-Model-Report
+          name: EVE-Qwen3-0.6B-Q4-Model-Report
           path: eve-model-build/**
           if-no-files-found: warn
           retention-days: 14
@@ -321,7 +355,7 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: EVE-Arabic-50M-Q4-Model
+          name: EVE-Qwen3-0.6B-Q4-Model
           path: |
             eve-project/app/src/main/assets/models/eve-arabic-50m-q4.gguf
             eve-project/app/src/main/assets/models/Apache-2.0-LICENSE.txt
@@ -385,7 +419,7 @@ jobs:
           body: |
             Direct-install APK built by GitHub Actions.
             Source commit: ${{ github.sha }}
-            EVE Tiny Arabic Brain, camera labeling, facial-expression inference, gesture recognition, and behavior logic run locally on-device.
+            EVE Qwen3-0.6B Q4 dialogue, Moonshine Arabic Tiny Streaming speech recognition, camera labeling, facial-expression inference, gestures, memory and behavior logic run locally on-device.
           files: eve-project/app/build/outputs/apk/release/app-release.apk
           generate_release_notes: false
           make_latest: true
