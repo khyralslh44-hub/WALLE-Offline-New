@@ -181,45 +181,6 @@ jobs:
           grep -Fq "MIT License" "$LICENSE"
           ls -lh "$MODEL" "$LICENSE"
           echo "PASS: pinned offline face-identity model and its license are ready."
-      - name: Bundle the pinned Qwen language model for offline first launch
-        shell: bash
-        run: |
-          set -euo pipefail
-          ASSETS="eve-project/app/src/main/assets"
-          MODEL="$ASSETS/Qwen3-0.6B_dynamic_wi4b32_afp32.litertlm"
-          mkdir -p "$ASSETS"
-          curl --fail --location --retry 4 --retry-delay 3 --connect-timeout 30 --max-time 1200 \
-            "https://huggingface.co/litert-community/Qwen3-0.6B/resolve/a3c5d805ae362dff7f580bc25f2dfb9a5a7eaa76/Qwen3-0.6B_dynamic_wi4b32_afp32.litertlm" \
-            --output "$MODEL"
-          EXPECTED="03e7da1eb1108b50dffaa9bb52cc7bcbad2eb0c66ca990267f480c1e545d2856"
-          ACTUAL="$(sha256sum "$MODEL" | awk '{print $1}')"
-          BYTES="$(stat -c '%s' "$MODEL")"
-          echo "Bundled Qwen SHA-256: $ACTUAL"
-          echo "Bundled Qwen bytes: $BYTES"
-          if [ "$ACTUAL" != "$EXPECTED" ] || [ "$BYTES" -lt 300000000 ]; then
-            echo "FAIL: Qwen weights failed pinned digest/size verification."
-            exit 1
-          fi
-          sha256sum "$MODEL" | tee "$RUNNER_TEMP/qwen-model-sha256.txt"
-
-          # Include the upstream Apache-2.0 license with the redistributed weights.
-          curl --fail --location --retry 3 --connect-timeout 20 --max-time 120 \
-            "https://huggingface.co/Qwen/Qwen3-0.6B/resolve/main/LICENSE" \
-            --output "$ASSETS/qwen3_model_license.txt"
-          grep -Fq "Apache License" "$ASSETS/qwen3_model_license.txt"
-          cp eve-project/THIRD_PARTY_NOTICES.md "$ASSETS/THIRD_PARTY_NOTICES.txt"
-          cat >> "$ASSETS/THIRD_PARTY_NOTICES.txt" <<'NOTICE'
-
-          ## Qwen3-0.6B language model
-
-          The bundled Qwen3-0.6B_dynamic_wi4b32_afp32.litertlm weights are the LiteRT-LM conversion
-          of Qwen/Qwen3-0.6B from litert-community/Qwen3-0.6B.
-          The upstream model is licensed under Apache License 2.0; the full license is
-          included in qwen3_model_license.txt in this APK's assets.
-          NOTICE
-          ls -lh "$MODEL" "$ASSETS/qwen3_model_license.txt"
-          echo "PASS: pinned Qwen weights and license are embedded for offline first launch."
-
       - name: Bundle fully offline Arabic speech recognition model
         shell: bash
         run: bash .github/scripts/fetch-arabic-vosk-model.sh
@@ -242,29 +203,6 @@ jobs:
         run: |
           "$RUNNER_TEMP/gradle-8.9/bin/gradle"             --no-daemon --stacktrace -p eve-project             testDebugUnitTest assembleDebug assembleRelease
 
-
-      - name: Verify the full language model is inside both installable APKs
-        shell: bash
-        run: |
-          set -euo pipefail
-          EXPECTED="03e7da1eb1108b50dffaa9bb52cc7bcbad2eb0c66ca990267f480c1e545d2856"
-          for APK in \
-            "eve-project/app/build/outputs/apk/debug/app-debug.apk" \
-            "eve-project/app/build/outputs/apk/release/app-release.apk"; do
-            test -s "$APK"
-            if ! unzip -Z1 "$APK" | grep -Fxq "assets/Qwen3-0.6B_dynamic_wi4b32_afp32.litertlm"; then
-              echo "FAIL: Qwen model asset is missing from $APK"
-              exit 1
-            fi
-            ACTUAL="$(unzip -p "$APK" assets/Qwen3-0.6B_dynamic_wi4b32_afp32.litertlm | sha256sum | awk '{print $1}')"
-            if [ "$ACTUAL" != "$EXPECTED" ]; then
-              echo "FAIL: packaged Qwen weights failed SHA-256 verification in $APK"
-              exit 1
-            fi
-            unzip -Z1 "$APK" | grep -Fxq "assets/qwen3_model_license.txt"
-            ls -lh "$APK"
-            echo "PASS: verified packaged Qwen weights and license in $APK"
-          done
 
       - name: Verify offline vision models are packaged in both APKs
         shell: bash
@@ -384,7 +322,7 @@ jobs:
           body: |
             Direct-install APK built by GitHub Actions.
             Source commit: ${{ github.sha }}
-            Core camera labeling, facial-expression inference, gesture recognition, and behavior logic are designed to run on-device.
+            EVE Tiny Arabic Brain, camera labeling, facial-expression inference, gesture recognition, and behavior logic run locally on-device.
           files: eve-project/app/build/outputs/apk/release/app-release.apk
           generate_release_notes: false
           make_latest: true
