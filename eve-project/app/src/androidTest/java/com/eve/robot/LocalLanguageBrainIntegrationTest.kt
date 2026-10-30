@@ -36,6 +36,23 @@ class LocalLanguageBrainIntegrationTest {
             assertTrue("Greeting intent was not recognized.", greeting.confidence >= 0.44f)
             assertEquals("greeting", EveTinyArabicBrain.classify("أهلاً يا إيف").intent)
 
+            // Warm up the tiny classifier once, then measure repeated local answer generation.
+            // This is a smoke performance ceiling, not a claim about every phone's exact latency.
+            val speedStart = System.nanoTime()
+            repeat(100) {
+                val generated = EveTinyArabicBrain.answerUser(
+                    "كيف حالك اليوم؟",
+                    LocalLlmContext(currentMood = "CURIOUS")
+                )
+                assertTrue("Repeated generation returned an empty reply.", generated.replyArabic.isNotBlank())
+            }
+            val generationMs = (System.nanoTime() - speedStart) / 1_000_000L
+            assertTrue(
+                "One hundred tiny-model responses exceeded the 15-second smoke ceiling: ${generationMs}ms",
+                generationMs < 15_000L
+            )
+            Log.i(TAG, "TINY_ARABIC_BRAIN_SPEED_PASS iterations=100 elapsedMs=$generationMs")
+
             // Queue a silent reflection followed immediately by a direct user question.
             val latch = CountDownLatch(2)
             val reflection = AtomicReference<Result<LocalLlmResult>?>(null)
