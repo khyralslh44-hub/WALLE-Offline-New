@@ -9,9 +9,9 @@ android {
     namespace = "com.eve.robot"
     compileSdk = 35
 
-    // The bundled Vosk ZIP and TFLite vision models are already compact binary assets.
+    // Keep ONNX Runtime, tokenizer and GGUF files directly readable from app assets.
     androidResources {
-        noCompress += listOf("zip", "tflite", "gguf")
+        noCompress += listOf("ort", "bin", "tflite", "gguf")
     }
 
     // Include legacy JAR (v1) signing as well as modern APK signing so OEM installers
@@ -76,9 +76,8 @@ dependencies {
     implementation("com.google.mlkit:image-labeling:17.0.7")
     implementation("com.google.mlkit:face-detection:16.1.7")
     implementation("org.tensorflow:tensorflow-lite:2.16.1")
-    // All Arabic speech recognition runs locally against the bundled Vosk model; no cloud STT.
-    implementation("net.java.dev.jna:jna:5.18.1@aar")
-    implementation("com.alphacephei:vosk-android:0.3.75@aar")
+    // Compact Arabic Tiny Streaming ASR; model files are bundled and loaded with modelsFrom().
+    implementation("ai.moonshine:moonshine-voice:0.1.5")
     // Offline hand-sign recognition: model is pinned/downloaded during the build and packaged locally.
     implementation("com.google.mediapipe:tasks-vision:1.0.0")
     testImplementation("junit:junit:4.13.2")
