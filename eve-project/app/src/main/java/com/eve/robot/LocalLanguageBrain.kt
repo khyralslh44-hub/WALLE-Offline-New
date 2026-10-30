@@ -37,11 +37,11 @@ data class LocalLlmResult(
 )
 
 /**
- * Compatibility facade for the former large local LLM.
+ * Local language facade for EVE.
  *
- * The implementation is now EVE Tiny Arabic Brain: a small, purpose-built Kotlin intent model
- * plus a grounded response planner. The public API remains stable for camera, curiosity, speech,
- * and game callers. It performs no model download and does not require a network connection.
+ * User dialogue first uses the bundled Arabic autoregressive GGUF model through llama.cpp.
+ * If its asset or ARM64 native runtime is unavailable, the existing tiny intent/template engine
+ * remains an offline fallback. Camera curiosity and game callers keep their stable APIs.
  */
 class LocalLanguageBrain(
     context: Context,
