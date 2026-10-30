@@ -97,6 +97,58 @@ class LocalLanguageBrainIntegrationTest {
                 maxOutputTokens = 12
             )
             assertTrue("Offline generated reply was empty: $second", second.replyArabic.isNotBlank())
+
+            // A background reflection must not cause a user's next question to be rejected.
+            // Both operations share one LiteRT-LM conversation and therefore must execute serially.
+            val queuedLatch = CountDownLatch(2)
+            val reflectionResult = AtomicReference<Result<LocalLlmResult>?>(null)
+            val queuedUserResult = AtomicReference<Result<LocalLlmResult>?>(null)
+            offlineBrain.reflectOnObservation(
+                LocalLlmContext(
+                    latestVisionLabel = "cat",
+                    visionConfidence = 0.91f,
+                    visionObservationAgeMs = 0L,
+                    latestSceneSummary = "جسم واضح واحد في المشهد",
+                    sceneObservationAgeMs = 0L
+                )
+            ) {
+                reflectionResult.set(it)
+                queuedLatch.countDown()
+            }
+            offlineBrain.answerUser(
+                "أجب بجملة عربية قصيرة: كيف تتصرف إذا لم تعرف الإجابة؟",
+                LocalLlmContext(),
+                maxOutputTokens = 18
+            ) {
+                queuedUserResult.set(it)
+                queuedLatch.countDown()
+            }
+            assertTrue(
+                "A user question queued behind background reflection did not complete.",
+                queuedLatch.await(INFERENCE_TIMEOUT_MS * 2L, TimeUnit.MILLISECONDS)
+            )
+            val reflectionOutcome = reflectionResult.get()
+            val queuedUserOutcome = queuedUserResult.get()
+            assertNotNull("Background reflection callback was not delivered.", reflectionOutcome)
+            assertNotNull("Queued user-answer callback was not delivered.", queuedUserOutcome)
+            assertTrue(
+                "Background reflection failed unexpectedly: ${reflectionOutcome?.exceptionOrNull()}",
+                reflectionOutcome!!.isSuccess
+            )
+            assertTrue(
+                "User question was lost while reflection was running: ${queuedUserOutcome?.exceptionOrNull()}",
+                queuedUserOutcome!!.isSuccess
+            )
+            assertTrue(
+                "Queued user question produced no Arabic reply.",
+                !queuedUserOutcome.getOrNull()?.replyArabic.isNullOrBlank()
+            )
+            Log.i(
+                TAG,
+                "LOCAL_LLM_SERIAL_QUEUE_PASS backgroundReflection=true userQuestion=true " +
+                    "userReplyChars=${queuedUserOutcome.getOrNull()?.replyArabic?.length ?: 0} internetValidated=false"
+            )
+
             assertNotNull("The first generated answer should be retained for diagnostics.", firstReply)
             Log.i(
                 TAG,
