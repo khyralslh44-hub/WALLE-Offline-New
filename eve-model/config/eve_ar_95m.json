@@ -2,7 +2,7 @@
   "model_name": "EVE-AR-95M",
   "model_type": "llama",
   "architecture": "decoder_only_transformer",
-  "parameter_count_estimate": 94400000,
+  "parameter_count_estimate": 94391040,
   "vocab_size": 24576,
   "hidden_size": 768,
   "intermediate_size": 2048,
