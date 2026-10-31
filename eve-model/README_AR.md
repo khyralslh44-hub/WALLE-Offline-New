@@ -2,6 +2,10 @@
 
 هذه البنية تنشئ EVE-AR-95M بأوزان عشوائية؛ لا تستورد أوزان Supra أو Qwen أو أي نموذج آخر. تستخدم بنية Llama-compatible لتسهيل التصدير لاحقاً إلى GGUF وتشغيلها محلياً عبر llama.cpp.
 
+## متطلبات GPU في Kaggle
+
+قبل إرسال التدريب من GitHub، يجب أن يكون حساب Kaggle مؤهلاً لاستخدام GPU. تحقق من **Phone Verification** في [إعدادات Kaggle](https://www.kaggle.com/settings)، ومن توفر حصة GPU الأسبوعية. ثم افتح دفتر التدريب، واختر **Settings → Accelerator → GPU T4 x2**. نجاح `kaggle kernels push` يعني أن الدفتر قُبل فقط؛ لا يثبت أن Kaggle خصص GPU. يجب أن يظهر `torch.cuda.is_available() == True` واسم بطاقة GPU قبل بدء تنزيل البيانات والتدريب. إذا أظهر `False` فلا تبدأ التدريب على CPU.
+
 ## تشغيل التدريب السحابي
 
 يوجد دفتر جاهز لـKaggle في [`notebooks/kaggle_train_eve.ipynb`](notebooks/kaggle_train_eve.ipynb). افتحه من Kaggle عبر File → Open Notebook / Load from URL، ثم اختر GPU T4 x2 وفعّل Internet. الدفتر يفحص CUDA قبل تنزيل البيانات. الجلسة السحابية يجب أن يبدأها مالك حساب Kaggle؛ لا يستطيع مستودع GitHub وحده تفعيل GPU.
