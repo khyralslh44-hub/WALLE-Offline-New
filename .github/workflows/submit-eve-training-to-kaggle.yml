@@ -6,6 +6,7 @@ on:
       kaggle_username:
         description: "Your Kaggle username (not your email address)"
         required: true
+        default: "conangg"
         type: string
 
 permissions:
