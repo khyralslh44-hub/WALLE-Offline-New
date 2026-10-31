@@ -5,6 +5,7 @@ from pathlib import Path
 import torch
 
 from incremental_brain import EVEBrain, EVEGRUCore, Observation
+from evaluate_incremental_core import evaluate_text
 
 
 class IncrementalBrainTests(unittest.TestCase):
@@ -48,6 +49,22 @@ class IncrementalBrainTests(unittest.TestCase):
         self.assertEqual(tuple(logits.shape), (2, 5, 32))
         self.assertIsNotNone(hidden)
         self.assertTrue(torch.isfinite(logits).all().item())
+
+    def test_unknown_validation_characters_break_context(self):
+        torch.manual_seed(3)
+        model = EVEGRUCore(vocab_size=16, embedding_dim=8, hidden_size=8)
+        model.eval()
+        metrics = evaluate_text(model, ["a", "b"] + [f"unused-{i}" for i in range(14)],
+                                "aaaa?bbbb", seq_len=2, batch_size=4)
+        self.assertEqual(metrics["unknown_characters"], 1)
+        self.assertEqual(metrics["evaluated_targets"], 4)
+
+    def test_evaluator_rejects_only_too_short_known_segments(self):
+        torch.manual_seed(4)
+        model = EVEGRUCore(vocab_size=16, embedding_dim=8, hidden_size=8)
+        with self.assertRaises(ValueError):
+            evaluate_text(model, ["a"] + [f"unused-{i}" for i in range(15)],
+                          "aa?aa", seq_len=2, batch_size=2)
 
 
 if __name__ == "__main__":
