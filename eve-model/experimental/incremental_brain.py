@@ -20,7 +20,7 @@ class EVEGRUCore(nn.Module):
     """Small CPU-friendly causal language core trained from random initialization."""
 
     def __init__(self, vocab_size: int, embedding_dim: int = 192,
-                 hidden_size: int = 256, num_layers: int = 2):
+                 hidden_size: int = 192, num_layers: int = 2):
         super().__init__()
         if vocab_size < 16:
             raise ValueError("vocab_size must be at least 16")
