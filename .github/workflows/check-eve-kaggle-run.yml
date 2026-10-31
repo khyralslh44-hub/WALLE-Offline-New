@@ -155,3 +155,5 @@ jobs:
           done
           echo "=== GPU PROBE EXECUTION LOGS ==="
           kaggle kernels logs conangg/eve-gpu-availability-check 2>&1 || true
+
+# Fresh GPU allocation verification after the user's session update.
