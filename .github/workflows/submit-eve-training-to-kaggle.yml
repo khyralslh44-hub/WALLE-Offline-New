@@ -79,7 +79,7 @@ jobs:
               "model_sources": []
           }
           (folder / "kernel-metadata.json").write_text(
-              json.dumps(metadata, ensure_ascii=False, indent=2) + "\\n",
+              json.dumps(metadata, ensure_ascii=False, indent=2) + "\n",
               encoding="utf-8"
           )
           print("Prepared private EVE training notebook for Kaggle user:", username)
