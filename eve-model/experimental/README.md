@@ -45,3 +45,32 @@ The report records character-level cross-entropy/perplexity, unknown-character r
 4. Add replay and regularization before any continual-learning claims; test forgetting on held-out tasks.
 5. Validate perception, memory and planning against realistic scenarios before Android integration.
 6. Only after measured wins and Android resource testing, decide whether to migrate the production training path. The existing 95M model and production app remain unchanged.
+
+## Preparing a real Arabic corpus (no automatic downloads)
+
+Place the legally reusable source text files under a local input directory, then record
+the source reference and the exact license/terms you have checked:
+
+```bash
+python eve-model/experimental/prepare_arabic_corpus.py \
+  --input-dir dataset/raw-arabic \
+  --output-dir dataset/processed-arabic \
+  --source "Source name and URL" \
+  --license "Exact license identifier and version"
+```
+
+The preparation tool:
+- reads UTF-8 text only and fails on decoding errors;
+- applies Unicode NFC and whitespace normalization;
+- removes exact duplicate lines across input files;
+- creates deterministic train/validation/test directories using a stable SHA-256 split;
+- writes `corpus-manifest.json` with source file hashes, declared license and split counts.
+
+Train only from `dataset/processed-arabic/train`. Evaluate separately against
+`dataset/processed-arabic/validation`; keep `test` untouched until final comparisons.
+The tool does not fetch data, verify ownership, or certify legal compatibility. A
+manifest records your declaration; it is not proof that the license permits model
+training. Do not include personal, private, or restricted text without authorization.
+
+CI tests the splitter on generated test strings only. That is a software test, not
+a real Arabic training run and not a language-quality result.
