@@ -28,3 +28,8 @@ jobs:
       - name: Check training CLI
         working-directory: eve-model/experimental
         run: python train_incremental_core.py --help
+      - name: Run tiny from-scratch CPU smoke training
+        run: |
+          mkdir -p /tmp/eve-corpus
+          python -c "from pathlib import Path; Path('/tmp/eve-corpus/sample.txt').write_text(('السلام عليكم يا إيف. تتعلم إيف من الملاحظة والتجربة وتراجع معرفتها. ') * 500, encoding='utf-8')"
+          python eve-model/experimental/train_incremental_core.py --corpus-dir /tmp/eve-corpus --output-dir /tmp/eve-smoke --steps 2 --seq-len 32 --batch-size 2 --hidden-size 16 --threads 2 --smoke-test
