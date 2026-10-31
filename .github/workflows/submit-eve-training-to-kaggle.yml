@@ -63,8 +63,8 @@ jobs:
               kind = "legacy Kaggle API key"
 
           with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env_file:
-              env_file.write("KAGGLE_USERNAME=conangg\\n")
-              env_file.write(f"{variable}={value}\\n")
+              env_file.write("KAGGLE_USERNAME=conangg" + os.linesep)
+              env_file.write(f"{variable}={value}" + os.linesep)
 
           print(f"Configured credentials as a {kind}; secret value was not printed.")
           PY
@@ -106,7 +106,7 @@ jobs:
               "model_sources": []
           }
           (folder / "kernel-metadata.json").write_text(
-              json.dumps(metadata, ensure_ascii=False, indent=2) + "\\n",
+              json.dumps(metadata, ensure_ascii=False, indent=2) + "\n",
               encoding="utf-8"
           )
           print("Prepared private EVE training notebook for Kaggle user:", username)
