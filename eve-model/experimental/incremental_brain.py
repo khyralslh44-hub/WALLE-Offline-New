@@ -24,6 +24,8 @@ class EVEGRUCore(nn.Module):
         super().__init__()
         if vocab_size < 16:
             raise ValueError("vocab_size must be at least 16")
+        if embedding_dim != hidden_size:
+            raise ValueError("embedding_dim must equal hidden_size because input/output embeddings are tied")
         self.embedding = nn.Embedding(vocab_size, embedding_dim)
         self.recurrent = nn.GRU(
             embedding_dim, hidden_size, num_layers=num_layers,
@@ -127,8 +129,8 @@ class EVEBrain:
 
     def perceive(self, observation: Observation) -> dict[str, Any]:
         confidence = min(1.0, max(0.0, observation.confidence))
-        self.memory.observe(observation)
         novelty = self.memory.novelty(observation.concept)
+        self.memory.observe(observation)
         self.affect.update(novelty=novelty, uncertainty=1.0 - confidence)
         return {
             "concept": observation.concept,
