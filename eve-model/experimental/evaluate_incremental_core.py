@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Evaluate a trained EVE character-GRU checkpoint on a separate held-out corpus.
+"""Evaluate a randomly initialized/trained EVE character-GRU on held-out text.
 
-This reports measurements only; it does not certify conversational quality.
-The validation text must not have been included in the training corpus.
+Unknown characters split the stream into independent segments. They are never
+silently deleted, because deleting them would create artificial character
+transitions and make validation loss misleading.
 """
 from __future__ import annotations
 
@@ -26,6 +27,53 @@ def load_text(directory: Path) -> str:
     return "\n".join(p.read_text(encoding="utf-8", errors="replace") for p in files)
 
 
+def evaluate_text(model: EVEGRUCore, vocab: list[str], text: str,
+                  seq_len: int, batch_size: int) -> dict:
+    """Evaluate only contiguous in-vocabulary spans; never bridge unknown chars."""
+    to_id = {ch: i for i, ch in enumerate(vocab)}
+    unknown = sum(ch not in to_id for ch in text)
+    segments: list[list[int]] = []
+    current: list[int] = []
+    for char in text:
+        token = to_id.get(char)
+        if token is None:
+            if current:
+                segments.append(current)
+                current = []
+        else:
+            current.append(token)
+    if current:
+        segments.append(current)
+
+    windows: list[list[int]] = []
+    for segment in segments:
+        for start in range(0, len(segment) - seq_len, seq_len):
+            windows.append(segment[start:start + seq_len + 1])
+    total_targets = sum(len(window) - 1 for window in windows)
+    if total_targets == 0:
+        raise ValueError("Validation text has no complete in-vocabulary sequence windows.")
+
+    criterion = CrossEntropyLoss(reduction="sum")
+    total_loss = 0.0
+    with torch.inference_mode():
+        for start in range(0, len(windows), batch_size):
+            batch = windows[start:start + batch_size]
+            x = torch.tensor([w[:-1] for w in batch], dtype=torch.long)
+            y = torch.tensor([w[1:] for w in batch], dtype=torch.long)
+            logits, _ = model(x)
+            total_loss += float(criterion(logits.reshape(-1, len(vocab)), y.reshape(-1)))
+
+    mean_loss = total_loss / total_targets
+    return {
+        "validation_characters": len(text),
+        "evaluated_targets": total_targets,
+        "unknown_characters": unknown,
+        "unknown_character_rate": round(unknown / max(1, len(text)), 6),
+        "character_cross_entropy": round(mean_loss, 6),
+        "character_perplexity": round(math.exp(min(mean_loss, 50)), 6),
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--checkpoint", type=Path, required=True)
@@ -44,57 +92,25 @@ def main() -> None:
 
     checkpoint = torch.load(args.checkpoint, map_location="cpu", weights_only=False)
     vocab = checkpoint["vocabulary"]
-    to_id = {ch: i for i, ch in enumerate(vocab)}
-    text = load_text(args.validation_dir)
-    unknown = sum(ch not in to_id for ch in text)
-    known_ids = [to_id[ch] for ch in text if ch in to_id]
-    if len(known_ids) <= args.seq_len:
-        raise SystemExit("Validation corpus is too small after excluding out-of-vocabulary characters.")
-
     hidden_size = int(checkpoint["architecture"]["hidden_size"])
     model = EVEGRUCore(len(vocab), embedding_dim=hidden_size, hidden_size=hidden_size, num_layers=2)
     model.load_state_dict(checkpoint["model_state_dict"])
     model.eval()
-    ids = torch.tensor(known_ids, dtype=torch.long)
-    criterion = CrossEntropyLoss(reduction="sum")
-    total_loss = 0.0
-    total_targets = 0
-    start = time.perf_counter()
-    with torch.inference_mode():
-        for offset in range(0, len(ids) - 1, args.seq_len * args.batch_size):
-            xs, ys = [], []
-            for b in range(args.batch_size):
-                pos = offset + b * args.seq_len
-                if pos + args.seq_len >= len(ids):
-                    break
-                chunk = ids[pos:pos + args.seq_len + 1]
-                if len(chunk) == args.seq_len + 1:
-                    xs.append(chunk[:-1])
-                    ys.append(chunk[1:])
-            if not xs:
-                continue
-            x, y = torch.stack(xs), torch.stack(ys)
-            logits, _ = model(x)
-            total_loss += float(criterion(logits.reshape(-1, len(vocab)), y.reshape(-1)))
-            total_targets += y.numel()
 
+    text = load_text(args.validation_dir)
+    start = time.perf_counter()
+    metrics = evaluate_text(model, vocab, text, args.seq_len, args.batch_size)
     elapsed = time.perf_counter() - start
-    mean_loss = total_loss / total_targets
-    report = {
+    metrics.update({
         "status": "HELD_OUT_EVALUATION",
         "device": "cpu",
-        "validation_characters": len(text),
-        "evaluated_targets": total_targets,
-        "unknown_character_rate": round(unknown / max(1, len(text)), 6),
-        "character_cross_entropy": round(mean_loss, 6),
-        "character_perplexity": round(math.exp(min(mean_loss, 50)), 6),
-        "characters_per_second": round(total_targets / max(elapsed, 1e-9), 2),
+        "characters_per_second": round(metrics["evaluated_targets"] / max(elapsed, 1e-9), 2),
         "elapsed_seconds": round(elapsed, 3),
         "peak_rss_platform_units": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
         "pretrained_weights_used": False,
         "quality_warning": "Character metrics alone do not establish Arabic comprehension or useful conversation."
-    }
-    rendered = json.dumps(report, ensure_ascii=False, indent=2)
+    })
+    rendered = json.dumps(metrics, ensure_ascii=False, indent=2)
     print(rendered)
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
