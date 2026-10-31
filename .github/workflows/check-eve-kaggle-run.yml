@@ -1,4 +1,4 @@
-name: Check EVE Kaggle training status
+name: Check EVE Kaggle training status (after session start)
 
 on:
   workflow_dispatch:
