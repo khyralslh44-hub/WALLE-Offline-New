@@ -1,0 +1,29 @@
+name: Test EVE incremental brain prototype
+
+on:
+  push:
+    branches:
+      - eve-incremental-brain-prototype
+    paths:
+      - "eve-model/experimental/**"
+      - ".github/workflows/test-eve-incremental-brain.yml"
+  workflow_dispatch:
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install CPU PyTorch
+        run: python -m pip install --index-url https://download.pytorch.org/whl/cpu torch
+      - name: Run prototype tests
+        working-directory: eve-model/experimental
+        run: python -m unittest -v test_incremental_brain.py
+      - name: Check training CLI
+        working-directory: eve-model/experimental
+        run: python train_incremental_core.py --help
