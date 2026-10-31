@@ -30,22 +30,28 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install "kaggle==2.2.5"
 
-      - name: Configure Kaggle credentials securely
+      - name: Write Kaggle credentials securely
         env:
           KAGGLE_CREDENTIAL: ${{ secrets.KAGGLE_API_TOKEN }}
         run: |
           python - <<'PY'
           import json
           import os
+          from pathlib import Path
 
           raw = os.environ.get("KAGGLE_CREDENTIAL", "").strip()
           if not raw:
               raise SystemExit("Missing repository secret KAGGLE_API_TOKEN.")
 
+          config_dir = Path.home() / ".kaggle"
+          config_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+          os.chmod(config_dir, 0o700)
+
           if raw.startswith("KGAT_"):
-              variable = "KAGGLE_API_TOKEN"
-              value = raw
-              kind = "new Kaggle access token"
+              token_file = config_dir / "access_token"
+              token_file.write_text(raw, encoding="ascii")
+              os.chmod(token_file, 0o600)
+              print("Saved Kaggle personal access token to the CLI access_token file; value hidden.")
           else:
               try:
                   parsed = json.loads(raw)
@@ -53,27 +59,29 @@ jobs:
                   parsed = None
 
               if isinstance(parsed, dict):
-                  value = str(parsed.get("key", "")).strip()
-                  if not value:
-                      raise SystemExit("The stored JSON has no 'key' field. Save the Kaggle API key value or the complete kaggle.json content.")
+                  username = str(parsed.get("username", "conangg")).strip()
+                  key = str(parsed.get("key", "")).strip()
               else:
-                  value = raw
+                  username = "conangg"
+                  key = raw
 
-              variable = "KAGGLE_KEY"
-              kind = "legacy Kaggle API key"
+              if not username or not key:
+                  raise SystemExit("Credential is neither a KGAT_ token nor valid kaggle.json/API key content.")
 
-          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env_file:
-              env_file.write("KAGGLE_USERNAME=conangg" + os.linesep)
-              env_file.write(f"{variable}={value}" + os.linesep)
-
-          print(f"Configured credentials as a {kind}; secret value was not printed.")
+              legacy_file = config_dir / "kaggle.json"
+              legacy_file.write_text(
+                  json.dumps({"username": username, "key": key}),
+                  encoding="utf-8"
+              )
+              os.chmod(legacy_file, 0o600)
+              print("Saved legacy Kaggle API credentials to kaggle.json; values hidden.")
           PY
 
       - name: Verify Kaggle authentication
         run: |
           if ! kaggle kernels list --mine --page-size 1 > /tmp/kaggle-auth-check.log 2>&1; then
             cat /tmp/kaggle-auth-check.log
-            echo "::error::Kaggle rejected the saved credential. Replace repository secret KAGGLE_API_TOKEN with either the complete active KGAT_ token or the key field from your Kaggle kaggle.json file."
+            echo "::error::Kaggle rejected the credential saved in the repository secret. Generate a fresh API token in Kaggle Settings > API and replace KAGGLE_API_TOKEN with the complete value."
             exit 1
           fi
           echo "Kaggle authentication succeeded."
@@ -119,4 +127,4 @@ jobs:
       - name: Print Kaggle notebook link
         run: |
           echo "Kaggle notebook: https://www.kaggle.com/code/conangg/eve-ar-95m-training"
-          echo "Submission accepted by Kaggle CLI. Check Kaggle notebook logs to verify actual GPU startup and model training."
+          echo "Submission accepted by Kaggle CLI. Confirm GPU startup and training in the Kaggle notebook logs."
