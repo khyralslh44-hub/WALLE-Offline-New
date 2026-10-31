@@ -1,4 +1,5 @@
 name: Submit EVE from-scratch training to Kaggle
+# Retry after user confirmed Kaggle credential update
 
 on:
   workflow_dispatch:
