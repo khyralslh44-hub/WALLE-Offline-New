@@ -63,12 +63,95 @@ jobs:
               print("Configured legacy Kaggle API credential; value hidden.")
           PY
 
-      - name: Read latest EVE notebook status
+      - name: Inspect existing EVE kernel and accelerator metadata
         run: |
           echo "=== KAGGLE RUN STATUS ==="
           kaggle kernels status conangg/eve-ar-95m-training 2>&1 | tee /tmp/eve-status.txt || true
-          echo "=== KAGGLE EXECUTION LOGS (tail) ==="
+          echo "=== KAGGLE EXECUTION LOGS ==="
           kaggle kernels logs conangg/eve-ar-95m-training 2>&1 | tee /tmp/eve-logs.txt || true
           echo "=== KAGGLE OUTPUT FILE LIST ==="
           kaggle kernels files conangg/eve-ar-95m-training --page-size 100 2>&1 | tee /tmp/eve-files.txt || true
-          echo "=== END OF INSPECTION ==="
+          echo "=== PULL KAGGLE-SAVED METADATA ==="
+          mkdir -p /tmp/eve-current
+          kaggle kernels pull conangg/eve-ar-95m-training -p /tmp/eve-current -m 2>&1 || true
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path("/tmp/eve-current/kernel-metadata.json")
+          if p.is_file():
+              d = json.loads(p.read_text())
+              print(json.dumps({k:d.get(k) for k in ("id","enable_gpu","machine_shape","enable_internet","kernel_type")}, indent=2))
+          else:
+              print("Kaggle metadata pull did not produce kernel-metadata.json")
+          PY
+
+      - name: Create and submit a minimal GPU allocation probe
+        run: |
+          mkdir -p /tmp/eve-gpu-probe
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          folder = Path("/tmp/eve-gpu-probe")
+          notebook = {
+              "cells": [
+                  {
+                      "cell_type": "code",
+                      "execution_count": None,
+                      "id": "gpu-check",
+                      "metadata": {},
+                      "outputs": [],
+                      "source": [
+                          "import torch, json\n",
+                          "report = {\n",
+                          "  'torch': torch.__version__,\n",
+                          "  'cuda_build': torch.version.cuda,\n",
+                          "  'cuda_available': torch.cuda.is_available(),\n",
+                          "  'device_count': torch.cuda.device_count(),\n",
+                          "}\n",
+                          "if torch.cuda.is_available():\n",
+                          "    report['device_0'] = torch.cuda.get_device_name(0)\n",
+                          "print(json.dumps(report, indent=2))\n",
+                          "assert torch.cuda.is_available(), 'Kaggle did not allocate the requested GPU accelerator.'\n"
+                      ]
+                  }
+              ],
+              "metadata": {
+                  "kernelspec": {"display_name":"Python 3","language":"python","name":"python3"},
+                  "kaggle": {"accelerator":"NvidiaTeslaT4","dataSources":[],"isInternetEnabled":False,"language":"python","sourceType":"notebook"}
+              },
+              "nbformat": 4,
+              "nbformat_minor": 5
+          }
+          (folder / "eve_gpu_probe.ipynb").write_text(json.dumps(notebook, indent=2), encoding="utf-8")
+          metadata = {
+              "id":"conangg/eve-gpu-availability-check",
+              "title":"EVE GPU Availability Check",
+              "code_file":"eve_gpu_probe.ipynb",
+              "language":"python",
+              "kernel_type":"notebook",
+              "is_private":"true",
+              "enable_gpu":"true",
+              "enable_internet":"false",
+              "machine_shape":"NvidiaTeslaT4",
+              "dataset_sources":[],
+              "competition_sources":[],
+              "kernel_sources":[],
+              "model_sources":[]
+          }
+          (folder / "kernel-metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+          print("Prepared a minimal GPU-only diagnostic notebook.")
+          PY
+          kaggle kernels push -p /tmp/eve-gpu-probe --accelerator NvidiaTeslaT4 --timeout 600
+
+      - name: Report GPU probe status and logs
+        run: |
+          for i in $(seq 1 18); do
+            STATUS="$(kaggle kernels status conangg/eve-gpu-availability-check 2>&1 || true)"
+            echo "GPU probe attempt $i: $STATUS"
+            case "$STATUS" in
+              *KernelWorkerStatus.COMPLETE*|*KernelWorkerStatus.ERROR*) break ;;
+            esac
+            sleep 10
+          done
+          echo "=== GPU PROBE EXECUTION LOGS ==="
+          kaggle kernels logs conangg/eve-gpu-availability-check 2>&1 || true
