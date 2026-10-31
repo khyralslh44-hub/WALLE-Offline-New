@@ -2,15 +2,12 @@ name: Submit EVE from-scratch training to Kaggle
 
 on:
   workflow_dispatch:
-    inputs:
-      kaggle_username:
-        description: "Your Kaggle username (not your email address)"
-        required: true
-        default: "conangg"
-        type: string
 
 permissions:
   contents: read
+
+env:
+  KAGGLE_USERNAME: conangg
 
 jobs:
   submit-kaggle-kernel:
@@ -29,30 +26,43 @@ jobs:
       - name: Install Kaggle CLI
         run: |
           python -m pip install --upgrade pip
-          python -m pip install --upgrade kaggle
+          python -m pip install "kaggle==2.2.5"
 
       - name: Validate Kaggle token is configured
         env:
           KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
         run: |
           if [ -z "$KAGGLE_API_TOKEN" ]; then
-            echo "::error::Missing repository secret KAGGLE_API_TOKEN. Add your Kaggle API token in GitHub Settings > Secrets and variables > Actions."
+            echo "::error::Missing repository secret KAGGLE_API_TOKEN."
             exit 1
           fi
+          if [ "${KAGGLE_API_TOKEN#KGAT_}" = "$KAGGLE_API_TOKEN" ]; then
+            echo "::warning::The secret does not appear to start with KGAT_. Confirm that you copied the new Kaggle API token, not a username or the legacy kaggle.json contents."
+          fi
+
+      - name: Verify Kaggle authentication
+        env:
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+        run: |
+          if ! kaggle kernels list --mine --page-size 1 > /tmp/kaggle-auth-check.log 2>&1; then
+            cat /tmp/kaggle-auth-check.log
+            echo "::error::Kaggle rejected KAGGLE_API_TOKEN. Replace the repository secret with the complete, active token copied from Kaggle Settings > API > Generate New Token. Do not paste it into workflow fields or logs."
+            exit 1
+          fi
+          echo "Kaggle authentication succeeded."
 
       - name: Create Kaggle kernel metadata
-        env:
-          KAGGLE_USERNAME: ${{ inputs.kaggle_username }}
         run: |
           python - <<'PY'
-          import json, os
+          import json
           from pathlib import Path
 
-          username = os.environ["KAGGLE_USERNAME"].strip()
-          if not username or "/" in username or " " in username:
-              raise SystemExit("Enter the Kaggle username only, without @, email, or URL.")
-
+          username = "conangg"
           folder = Path("eve-model/notebooks")
+          notebook = folder / "kaggle_train_eve.ipynb"
+          if not notebook.is_file():
+              raise SystemExit(f"Notebook file not found: {notebook}")
+
           metadata = {
               "id": f"{username}/eve-ar-95m-training",
               "title": "EVE AR 95M Training",
@@ -72,7 +82,7 @@ jobs:
               json.dumps(metadata, ensure_ascii=False, indent=2) + "\\n",
               encoding="utf-8"
           )
-          print("Prepared a private Kaggle notebook for:", username)
+          print("Prepared private EVE training notebook for Kaggle user:", username)
           PY
 
       - name: Submit notebook and request Kaggle GPU run
@@ -82,8 +92,6 @@ jobs:
           kaggle kernels push -p eve-model/notebooks --accelerator NvidiaTeslaT4 --timeout 43200
 
       - name: Print Kaggle notebook link
-        env:
-          KAGGLE_USERNAME: ${{ inputs.kaggle_username }}
         run: |
-          echo "Kaggle notebook: https://www.kaggle.com/code/$KAGGLE_USERNAME/eve-ar-95m-training"
-          echo "Submission accepted by the Kaggle CLI; inspect the Kaggle notebook page for actual GPU startup and training logs."
+          echo "Kaggle notebook: https://www.kaggle.com/code/conangg/eve-ar-95m-training"
+          echo "Submission accepted by Kaggle CLI. Check Kaggle notebook logs to verify actual GPU startup and model training."
