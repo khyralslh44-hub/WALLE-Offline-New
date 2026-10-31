@@ -22,12 +22,16 @@ jobs:
           cache-dependency-path: eve-model/requirements-training.txt
       - name: Install CPU PyTorch
         run: python -m pip install --index-url https://download.pytorch.org/whl/cpu torch
-      - name: Run prototype tests
+      - name: Run brain and corpus-preparation tests
         working-directory: eve-model/experimental
-        run: python -m unittest -v test_incremental_brain.py
-      - name: Check training CLI
+        run: |
+          python -m unittest -v test_incremental_brain.py
+          python -m unittest -v test_corpus_preparation.py
+      - name: Check training and corpus preparation CLIs
         working-directory: eve-model/experimental
-        run: python train_incremental_core.py --help
+        run: |
+          python train_incremental_core.py --help
+          python prepare_arabic_corpus.py --help
       - name: Run tiny from-scratch CPU smoke training
         run: |
           mkdir -p /tmp/eve-corpus /tmp/eve-validation
