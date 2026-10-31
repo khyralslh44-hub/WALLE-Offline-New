@@ -1,0 +1,74 @@
+name: Check EVE Kaggle training status
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/check-eve-kaggle-run.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  inspect-kaggle-run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Kaggle CLI
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "kaggle==2.2.5"
+
+      - name: Configure Kaggle credentials securely
+        env:
+          KAGGLE_CREDENTIAL: ${{ secrets.KAGGLE_API_TOKEN }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          raw = os.environ.get("KAGGLE_CREDENTIAL", "").strip()
+          if not raw:
+              raise SystemExit("Missing repository secret KAGGLE_API_TOKEN.")
+          config_dir = Path.home() / ".kaggle"
+          config_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+          os.chmod(config_dir, 0o700)
+          if raw.startswith("KGAT_"):
+              target = config_dir / "access_token"
+              target.write_text(raw, encoding="ascii")
+              os.chmod(target, 0o600)
+              print("Configured Kaggle access token; value hidden.")
+          else:
+              try:
+                  parsed = json.loads(raw)
+              except json.JSONDecodeError:
+                  parsed = None
+              if isinstance(parsed, dict):
+                  username = str(parsed.get("username", "conangg")).strip()
+                  key = str(parsed.get("key", "")).strip()
+              else:
+                  username, key = "conangg", raw
+              if not username or not key:
+                  raise SystemExit("Invalid Kaggle credential format.")
+              target = config_dir / "kaggle.json"
+              target.write_text(json.dumps({"username": username, "key": key}), encoding="utf-8")
+              os.chmod(target, 0o600)
+              print("Configured legacy Kaggle API credential; value hidden.")
+          PY
+
+      - name: Read latest EVE notebook status
+        run: |
+          echo "=== KAGGLE RUN STATUS ==="
+          kaggle kernels status conangg/eve-ar-95m-training 2>&1 | tee /tmp/eve-status.txt || true
+          echo "=== KAGGLE EXECUTION LOGS (tail) ==="
+          kaggle kernels logs conangg/eve-ar-95m-training 2>&1 | tee /tmp/eve-logs.txt || true
+          echo "=== KAGGLE OUTPUT FILE LIST ==="
+          kaggle kernels files conangg/eve-ar-95m-training --page-size 100 2>&1 | tee /tmp/eve-files.txt || true
+          echo "=== END OF INSPECTION ==="
