@@ -39,7 +39,7 @@ setGoal=function(n,steps,why){
 """
     tick_anchor="function tick(){"
     if s.count(tick_anchor)!=1: raise SystemExit(f"tick insertion anchor: expected one, found {s.count(tick_anchor)}")
-    s=s.replace(tick_anchor,wrapper+"\\n"+tick_anchor,1)
+    s=s.replace(tick_anchor,wrapper+"\n"+tick_anchor,1)
     p.write_text(s,encoding="utf-8")
     print("Applied central goal arbitration and weighted episodic memory.")
 
