@@ -7,6 +7,7 @@ on:
       - 'eve-android (8).zip'
       - '.github/scripts/harden-eve-vision.py'
       - '.github/scripts/eve-core-memory.py'
+      - '.github/scripts/eve-core-memory.py'
 
 permissions:
   contents: read
@@ -48,6 +49,13 @@ jobs:
           set -euo pipefail
           SRC="$RUNNER_TEMP/eve-src"
           python3 "$GITHUB_WORKSPACE/.github/scripts/harden-eve-vision.py" "$SRC/app/src/main/assets/eve.html"
+
+      - name: Add verified offline object learning
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$RUNNER_TEMP/eve-src"
+          python3 "$GITHUB_WORKSPACE/.github/scripts/eve-core-memory.py" "$SRC/app/src/main/assets/eve.html"
 
       - name: Add verified offline object learning
         shell: bash
