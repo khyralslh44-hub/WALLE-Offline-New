@@ -53,7 +53,7 @@ M.cfg=Object.assign({idFloor:.65,thFloor:.78,cam:true,mic:true,ev:true,msgs:true
    verifyObjectCandidate(e.obj,now);
    TH=null;const d=osrDecide(M.things,e.obj,1,M.cfg.thFloor,.02);if(d&&d.ok){TH={n:d.name,s:d.s,t:now};M.seenObj[d.name]={t:now,p:PLACE||'',x:.5,y:.5}}
   }}"""
-    s=s[:start]+new+s[end:]
+    s=s[:start]+new+"\\n "+s[end:]
     p.write_text(s,encoding="utf-8")
     print("Applied verified offline object learning.")
 if __name__=="__main__":
