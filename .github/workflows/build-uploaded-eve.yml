@@ -166,7 +166,7 @@ jobs:
           "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose "$APK"
           BADGING="$("$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging "$APK")"
           echo "$BADGING" | grep -Fq "package: name='com.eve.companion.standalone' versionCode='4' versionName='3.1'"
-          echo "$BADGING" | grep -Eq 'application-icon-[0-9]+:'
+          echo "$BADGING" | grep -Eq "^application: .*icon='res/mipmap/"
           unzip -Z1 "$APK" > "$RUNNER_TEMP/apk-files.txt"
           grep -Eq '^res/mipmap-anydpi-v26(-v[0-9]+)?/ic_launcher.xml          for f in objects.tflite face.task gesture.task embed.tflite classify.tflite; do
             grep -Fxq "assets/models/$f" "$RUNNER_TEMP/apk-files.txt"
