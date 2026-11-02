@@ -38,10 +38,9 @@ function verifyObjectCandidate(v,now){
 }
 M.cfg=Object.assign({idFloor:.65,thFloor:.78,cam:true,mic:true,ev:true,msgs:true},M.cfg||{});""",
       "candidate verifier")
-    old=""" if(e.obj){lastObjEmb={v:r3(e.obj),l:e.ol,t:now};
-  if(PEND&&PEND.kind==='thing'&&now<PEND.until){(M.things[PEND.name]=M.things[PEND.name]||[]).push(lastObjEmb.v);remember('تعلم','حفظت شكل '+PEND.name);say('حفظت شكل '+PEND.name+'.','proud');PEND=null;save()}
-  else{TH=null;const d=osrDecide(M.things,e.obj,1,M.cfg.thFloor,.02);if(d&&d.ok){TH={n:d.name,s:d.s,t:now};M.seenObj[d.name]={t:now,p:PLACE||'',x:.5,y:.5}}}}"""
-    new="""if(e.obj){lastObjEmb={v:r3(e.obj),l:e.ol,t:now};
+    import re
+    pattern=r" if\\(e\\.obj\\)\\{lastObjEmb=\\{v:r3\\(e\\.obj\\),l:e\\.ol,t:now\\};.*?(?=\\n if\\(e\\.scene\\))"
+    new=""" if(e.obj){lastObjEmb={v:r3(e.obj),l:e.ol,t:now};
   if(PEND&&PEND.kind==='thing'&&now<PEND.until){
    const name=PEND.name,buf=PEND.samples||(PEND.samples=[]);
    if(!buf.some(x=>cos(x,lastObjEmb.v)>.985)&&buf.length<6)buf.push(lastObjEmb.v);
@@ -53,7 +52,8 @@ M.cfg=Object.assign({idFloor:.65,thFloor:.78,cam:true,mic:true,ev:true,msgs:true
    verifyObjectCandidate(e.obj,now);
    TH=null;const d=osrDecide(M.things,e.obj,1,M.cfg.thFloor,.02);if(d&&d.ok){TH={n:d.name,s:d.s,t:now};M.seenObj[d.name]={t:now,p:PLACE||'',x:.5,y:.5}}
   }}"""
-    s=once(s,old,new,"object learning flow")
+    s,n=re.subn(pattern,lambda m:new,s,count=1,flags=re.S)
+    if n!=1: raise SystemExit(f"object learning flow: expected one block, found {n}")
     p.write_text(s,encoding="utf-8")
     print("Applied verified offline object learning.")
 if __name__=="__main__":
