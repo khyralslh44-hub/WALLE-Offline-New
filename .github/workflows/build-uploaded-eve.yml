@@ -5,6 +5,7 @@ on:
   push:
     paths:
       - 'eve-android (8).zip'
+      - '.github/scripts/harden-eve-vision.py'
 
 permissions:
   contents: read
@@ -39,6 +40,13 @@ jobs:
           fi
           echo "Validated project source at $SRC"
           echo "EVE app source ZIP: $(du -h "$ARCHIVE" | cut -f1)"
+
+      - name: Apply conservative temporal vision gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$RUNNER_TEMP/eve-src"
+          python3 "$GITHUB_WORKSPACE/.github/scripts/harden-eve-vision.py" "$SRC/app/src/main/assets/eve.html"
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
