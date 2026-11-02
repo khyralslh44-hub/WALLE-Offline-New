@@ -167,12 +167,13 @@ jobs:
           AAPT="$ANDROID_HOME/build-tools/34.0.0/aapt"
           BADGING="$("$AAPT" dump badging "$APK")"
           echo "$BADGING"
-          printf '%s\n' "$BADGING" | grep -Fq "name='com.eve.companion.standalone'"
-          printf '%s\n' "$BADGING" | grep -Fq "versionCode='4'"
-          printf '%s\n' "$BADGING" | grep -Fq "versionName='3.1'"
+          [[ "$BADGING" == *"name='com.eve.companion.standalone'"* ]]
+          [[ "$BADGING" == *"versionCode='4'"* ]]
+          [[ "$BADGING" == *"versionName='3.1'"* ]]
+          [[ "$BADGING" == *"application-icon-160:'res/mipmap-anydpi-v26/ic_launcher.xml'"* ]]
           RESOURCES="$("$AAPT" dump resources "$APK")"
-          printf '%s\n' "$RESOURCES" | grep -Fq 'mipmap/ic_launcher'
-          printf '%s\n' "$RESOURCES" | grep -Fq 'drawable/ic_eve_foreground'
+          [[ "$RESOURCES" == *"mipmap/ic_launcher"* ]]
+          [[ "$RESOURCES" == *"drawable/ic_eve_foreground"* ]]
           unzip -Z1 "$APK" > "$RUNNER_TEMP/apk-files.txt"
           for f in objects.tflite face.task gesture.task embed.tflite classify.tflite; do
             grep -Fxq "assets/models/$f" "$RUNNER_TEMP/apk-files.txt"
