@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Revision: trigger build with weighted memory and stable decision gate.
+# Revision: single-pass goal arbitration after duplicate workflow-step cleanup.
 from pathlib import Path
 import sys
 
