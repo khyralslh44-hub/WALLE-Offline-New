@@ -8,6 +8,7 @@ on:
       - '.github/scripts/harden-eve-vision.py'
       - '.github/scripts/eve-core-memory.py'
       - '.github/scripts/eve-memory-core.py'
+      - '.github/scripts/prepare-eve-standalone.py'
       - '.github/scripts/eve-core-memory.py'
 
 permissions:
@@ -43,6 +44,13 @@ jobs:
           fi
           echo "Validated project source at $SRC"
           echo "EVE app source ZIP: $(du -h "$ARCHIVE" | cut -f1)"
+
+      - name: Set standalone package identity and launcher icon
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$RUNNER_TEMP/eve-src"
+          python3 "$GITHUB_WORKSPACE/.github/scripts/prepare-eve-standalone.py" "$SRC"
 
       - name: Apply conservative temporal vision gate
         shell: bash
