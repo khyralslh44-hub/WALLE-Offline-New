@@ -38,8 +38,9 @@ function verifyObjectCandidate(v,now){
 }
 M.cfg=Object.assign({idFloor:.65,thFloor:.78,cam:true,mic:true,ev:true,msgs:true},M.cfg||{});""",
       "candidate verifier")
-    import re
-    pattern=r" if\\(e\\.obj\\)\\{lastObjEmb=\\{v:r3\\(e\\.obj\\),l:e\\.ol,t:now\\};.*?(?=\\n if\\(e\\.scene\\))"
+    start=s.find(" if(e.obj){lastObjEmb=")
+    end=s.find("\\n if(e.scene)",start)
+    if start<0 or end<0: raise SystemExit("Could not locate object embedding block")
     new=""" if(e.obj){lastObjEmb={v:r3(e.obj),l:e.ol,t:now};
   if(PEND&&PEND.kind==='thing'&&now<PEND.until){
    const name=PEND.name,buf=PEND.samples||(PEND.samples=[]);
@@ -52,8 +53,7 @@ M.cfg=Object.assign({idFloor:.65,thFloor:.78,cam:true,mic:true,ev:true,msgs:true
    verifyObjectCandidate(e.obj,now);
    TH=null;const d=osrDecide(M.things,e.obj,1,M.cfg.thFloor,.02);if(d&&d.ok){TH={n:d.name,s:d.s,t:now};M.seenObj[d.name]={t:now,p:PLACE||'',x:.5,y:.5}}
   }}"""
-    s,n=re.subn(pattern,lambda m:new,s,count=1,flags=re.S)
-    if n!=1: raise SystemExit(f"object learning flow: expected one block, found {n}")
+    s=s[:start]+new+s[end:]
     p.write_text(s,encoding="utf-8")
     print("Applied verified offline object learning.")
 if __name__=="__main__":
