@@ -38,7 +38,7 @@ function verifyObjectCandidate(v,now){
 }
 M.cfg=Object.assign({idFloor:.65,thFloor:.78,cam:true,mic:true,ev:true,msgs:true},M.cfg||{});""",
       "candidate verifier")
-    old="""if(e.obj){lastObjEmb={v:r3(e.obj),l:e.ol,t:now};
+    old=""" if(e.obj){lastObjEmb={v:r3(e.obj),l:e.ol,t:now};
   if(PEND&&PEND.kind==='thing'&&now<PEND.until){(M.things[PEND.name]=M.things[PEND.name]||[]).push(lastObjEmb.v);remember('تعلم','حفظت شكل '+PEND.name);say('حفظت شكل '+PEND.name+'.','proud');PEND=null;save()}
   else{TH=null;const d=osrDecide(M.things,e.obj,1,M.cfg.thFloor,.02);if(d&&d.ok){TH={n:d.name,s:d.s,t:now};M.seenObj[d.name]={t:now,p:PLACE||'',x:.5,y:.5}}}}"""
     new="""if(e.obj){lastObjEmb={v:r3(e.obj),l:e.ol,t:now};
