@@ -669,6 +669,48 @@ class MainActivity : ComponentActivity() {
         lastDirectUserActionAt = now
         Log.i("EVE_AUDIO", "RECOGNIZED source=$source text=$text")
 
+        // A small deterministic command layer sits between Arabic ASR and EVE's mind.
+        // Unknown phrases are deliberately not converted into actions.
+        when (ArabicCommandEar.classify(text)?.intent) {
+            ArabicCommandEar.Intent.WAKE -> {
+                react(brain.observeFacialEmotion("curious", 0.82f), playSound = false)
+                showDialogueText("أنا هنا. أسمعك.", durationMs = 2600L)
+                return
+            }
+            ArabicCommandEar.Intent.GREET -> {
+                react(brain.observeFacialEmotion("happy", 0.84f), playSound = false)
+                showDialogueText("صباح النور. أنا معك.", durationMs = 3000L)
+                return
+            }
+            ArabicCommandEar.Intent.PRESENCE -> {
+                react(brain.observeFacialEmotion("curious", 0.78f), playSound = false)
+                showDialogueText("نعم، أنا هنا وأستمع محليًا.", durationMs = 3200L)
+                return
+            }
+            ArabicCommandEar.Intent.CALM -> {
+                react(brain.observeFacialEmotion("calm", 0.82f), playSound = false)
+                return
+            }
+            ArabicCommandEar.Intent.LOOK -> {
+                react(brain.observeFacialEmotion("curious", 0.86f), playSound = false)
+                runAutonomousCognition(5_000L)
+                return
+            }
+            ArabicCommandEar.Intent.QUIET -> {
+                react(brain.observeFacialEmotion("neutral", 0.90f), playSound = false)
+                Log.i("EVE_AUDIO", "SPEECH_RESPONSE_SUPPRESSED reason=quiet_command")
+                return
+            }
+            ArabicCommandEar.Intent.STOP_EXPLORING -> {
+                autonomousExplorationEnabled = false
+                getSharedPreferences("eve_relationship", MODE_PRIVATE).edit()
+                    .putBoolean("autonomousExplorationEnabled", false).apply()
+                showDialogueText("حسنًا، أوقفت الاستكشاف.", durationMs = 3000L)
+                return
+            }
+            null -> Unit
+        }
+
         // Respect a quiet request immediately: settle the eyes without answering with a tone.
         if (listOf(
                 "توقفي", "اسكتي", "لا تتكلمي", "لا تتحدثي", "اصمتي",
