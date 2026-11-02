@@ -58,30 +58,14 @@ function objectEvents(os,now){
     path.write_text(source, encoding="utf-8")
 
 
-def bump_version(project_root: Path) -> None:
-    gradle = project_root / "app" / "build.gradle.kts"
-    source = gradle.read_text(encoding="utf-8")
-    if "versionCode = 3" in source:
-        source = replace_once(source, "versionCode = 3", "versionCode = 4", "versionCode bump")
-    elif "versionCode = 4" not in source:
-        raise SystemExit("Unexpected versionCode; refusing an unsafe version edit.")
-    if 'versionName = "3.0"' in source:
-        source = replace_once(source, 'versionName = "3.0"', 'versionName = "3.1"', "versionName bump")
-    elif 'versionName = "3.1"' not in source:
-        raise SystemExit("Unexpected versionName; refusing an unsafe version edit.")
-    gradle.write_text(source, encoding="utf-8")
-
-
 def main() -> None:
     if len(sys.argv) != 2:
         raise SystemExit("usage: harden-eve-vision.py <path-to-eve.html>")
     html = Path(sys.argv[1]).resolve()
     if not html.is_file():
         raise SystemExit(f"EVE HTML not found: {html}")
-    project_root = html.parents[4]
     patch_html(html)
-    bump_version(project_root)
-    print("Applied temporal vision evidence gate; app version is now 3.1 (versionCode 4).")
+    print("Applied temporal vision evidence gate.")
 
 
 if __name__ == "__main__":
