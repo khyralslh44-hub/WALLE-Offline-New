@@ -38,8 +38,8 @@ function verifyObjectCandidate(v,now){
 }
 M.cfg=Object.assign({idFloor:.65,thFloor:.78,cam:true,mic:true,ev:true,msgs:true},M.cfg||{});""",
       "candidate verifier")
-    start=s.find(" if(e.obj){lastObjEmb=")
-    end=s.find("\\n if(e.scene)",start)
+    start=s.find("if(e.obj){lastObjEmb=")
+    end=s.find("if(e.scene)",start)
     if start<0 or end<0: raise SystemExit("Could not locate object embedding block")
     new=""" if(e.obj){lastObjEmb={v:r3(e.obj),l:e.ol,t:now};
   if(PEND&&PEND.kind==='thing'&&now<PEND.until){
