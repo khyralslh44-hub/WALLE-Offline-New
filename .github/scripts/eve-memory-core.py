@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Revision: trigger build with weighted memory and stable decision gate.
 from pathlib import Path
 import sys
 
