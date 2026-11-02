@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Build patch revision: single-pass invocation after temporal vision gate.
 from pathlib import Path
 import sys
 
