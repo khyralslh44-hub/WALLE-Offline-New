@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Revision 3: trigger robust AAPT package and icon resource verification.
+# Revision 4: trigger verification using shell string matching, without SIGPIPE.
 from pathlib import Path
 import re, sys
 
