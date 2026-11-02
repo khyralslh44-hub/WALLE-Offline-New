@@ -158,3 +158,4 @@ def patch(path):
 if __name__=="__main__":
     if len(sys.argv)!=2: raise SystemExit("usage: eve-cognitive-architecture.py <eve.html>")
     patch(Path(sys.argv[1]))
+
