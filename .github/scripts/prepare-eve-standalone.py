@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Revision 2: trigger clean standalone package/icon validation build.
+# Revision 3: trigger robust AAPT package and icon resource verification.
 from pathlib import Path
 import re, sys
 
