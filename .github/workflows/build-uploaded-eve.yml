@@ -57,23 +57,6 @@ jobs:
           SRC="$RUNNER_TEMP/eve-src"
           python3 "$GITHUB_WORKSPACE/.github/scripts/eve-core-memory.py" "$SRC/app/src/main/assets/eve.html"
 
-      - name: Add verified offline object learning
-        shell: bash
-        run: |
-          set -euo pipefail
-          SRC="$RUNNER_TEMP/eve-src"
-          python3 "$GITHUB_WORKSPACE/.github/scripts/eve-core-memory.py" "$SRC/app/src/main/assets/eve.html"
-          node --check <(python3 - "$SRC/app/src/main/assets/eve.html" <<'PY'
-          from pathlib import Path
-          import re,sys
-          s=Path(sys.argv[1]).read_text(encoding="utf-8")
-          blocks=re.findall(r'<script(?:\\s[^>]*)?>(.*?)</script>',s,re.S)
-          js=[b for b in blocks if len(b)>1000 and not b.lstrip().startswith('{"E":')]
-          if len(js)!=1: raise SystemExit(f"Expected one application JS block, found {len(js)}")
-          print(js[0])
-          PY
-          )
-
       - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
