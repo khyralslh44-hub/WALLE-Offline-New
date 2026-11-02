@@ -25,9 +25,7 @@ const remember=(k,d)=>{
  return e
 };"""
     s=once(s,old,new,"episodic memory")
-    anchor="function setGoal(n,steps,why){if(goal.n===n)return;goal={n,steps,i:0,since:Date.now()};think('قرّرت: '+n+' — '+why);jlog('',why,'goal')}"
-    wrapper=anchor+"""
-// Goal arbitration: keep a chosen intention long enough to finish a thought; urgent needs may pre-empt it.
+    wrapper="""// Goal arbitration: hold a chosen intention briefly; urgent needs may pre-empt it.
 const eveSetGoalRaw=setGoal;
 const eveGoalPriority={'الراحة':6,'الاطمئنان':5,'الاستكشاف':3,'اللعب':2,'طلب الانتباه':1,'الملاحظة':0};
 setGoal=function(n,steps,why){
@@ -37,8 +35,11 @@ setGoal=function(n,steps,why){
  if(goal&&goal.n&&goal.n!==n&&age<9000&&!urgent&&next<=current){M.decisionStats.held++;return false}
  if(goal&&goal.n===n)return false;
  eveSetGoalRaw(n,steps,why);M.decisionStats.accepted++;return true
-};"""
-    s=once(s,anchor,wrapper,"goal arbitration")
+};
+"""
+    tick_anchor="function tick(){"
+    if s.count(tick_anchor)!=1: raise SystemExit(f"tick insertion anchor: expected one, found {s.count(tick_anchor)}")
+    s=s.replace(tick_anchor,wrapper+"\\n"+tick_anchor,1)
     p.write_text(s,encoding="utf-8")
     print("Applied central goal arbitration and weighted episodic memory.")
 
