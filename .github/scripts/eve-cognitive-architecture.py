@@ -60,7 +60,7 @@ function eveRetrieve(evidence){
 }
 function eveAppraise(evidence,mem,now){
  const best=evidence.length?Math.max(...evidence.map(x=>x.c)):0;
- const confidence=evidence.length?eveClip(best*.55+Math.min(1,evidence.length/5)*.25+(typeof FACE!=='undefined'&&FACE?.45:0),0,1):0;
+ const confidence=evidence.length?eveClip(best*.55+Math.min(1,evidence.length/5)*.25+(typeof FACE!=='undefined'&&(FACE ? .45 : 0)),0,1):0;
  const novelty=evidence.length?eveClip(evidence.filter(x=>x.kind==='object'&&!M.seenL?.[x.label]).length*.22+
   (evidence.some(x=>x.kind==='place'&&!PLACE)? .15:0),0,1):0;
  const uncertainty=1-confidence;
