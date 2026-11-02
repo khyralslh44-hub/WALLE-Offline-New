@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Revision: verify side-by-side EVE package identity and adaptive launcher branding.
+# Revision 2: trigger clean standalone package/icon validation build.
 from pathlib import Path
 import re, sys
 
