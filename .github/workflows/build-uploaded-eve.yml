@@ -157,7 +157,7 @@ jobs:
           PY
           gradle --no-daemon --stacktrace -p "$SRC" testDebugUnitTest assembleDebug
 
-      - name: Verify installable APK and offline model assets
+      - name: Verify installable APK, standalone package and launcher icon
         shell: bash
         run: |
           set -euo pipefail
@@ -168,7 +168,8 @@ jobs:
           echo "$BADGING" | grep -Fq "package: name='com.eve.companion.standalone' versionCode='4' versionName='3.1'"
           echo "$BADGING" | grep -Eq "^application: .*icon='res/mipmap/"
           unzip -Z1 "$APK" > "$RUNNER_TEMP/apk-files.txt"
-          grep -Eq '^res/mipmap-anydpi-v26(-v[0-9]+)?/ic_launcher.xml          for f in objects.tflite face.task gesture.task embed.tflite classify.tflite; do
+          grep -Eq '^res/mipmap-anydpi-v26(-v[0-9]+)?/ic_launcher.xml$' "$RUNNER_TEMP/apk-files.txt"
+          for f in objects.tflite face.task gesture.task embed.tflite classify.tflite; do
             grep -Fxq "assets/models/$f" "$RUNNER_TEMP/apk-files.txt"
           done
           echo "APK_SIZE=$(du -h "$APK" | cut -f1)" >> "$GITHUB_ENV"
@@ -185,34 +186,6 @@ jobs:
             echo "- Package: com.eve.companion.standalone (side-by-side install; previous EVE is preserved)"
             echo "- Launcher label: EVE 3.1"
             echo "- Target: Android / Redmi 12 compatible configuration"
-            echo "- Internet permission in source manifest: not declared"
-            if [ -n "${APK_SIZE:-}" ]; then echo "- APK size: $APK_SIZE"; fi
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Upload installable APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: Eve-APK
-          path: ${{ runner.temp }}/eve-src/app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
-          compression-level: 0
-          retention-days: 14
- "$RUNNER_TEMP/apk-files.txt"
-          for f in objects.tflite face.task gesture.task embed.tflite classify.tflite; do
-            grep -Fxq "assets/models/$f" "$RUNNER_TEMP/apk-files.txt"
-          done
-          echo "APK_SIZE=$(du -h "$APK" | cut -f1)" >> "$GITHUB_ENV"
-          echo "PASS: APK exists, is signature-verified, and bundles all 5 offline vision models."
-
-      - name: Publish build result summary
-        if: always()
-        shell: bash
-        run: |
-          {
-            echo "## EVE APK build"
-            echo ""
-            echo "- Source: eve-android (8).zip"
-            echo "- Target: Android / Redmi 12 compatible ARM64 build configuration"
             echo "- Internet permission in source manifest: not declared"
             if [ -n "${APK_SIZE:-}" ]; then echo "- APK size: $APK_SIZE"; fi
           } >> "$GITHUB_STEP_SUMMARY"
