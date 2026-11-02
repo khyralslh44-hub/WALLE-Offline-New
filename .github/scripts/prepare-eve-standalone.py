@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Revision: verify side-by-side EVE package identity and adaptive launcher branding.
 from pathlib import Path
 import re, sys
 
