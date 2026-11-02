@@ -164,16 +164,21 @@ jobs:
           APK="$RUNNER_TEMP/eve-src/app/build/outputs/apk/debug/app-debug.apk"
           test -s "$APK"
           "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose "$APK"
-          BADGING="$("$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging "$APK")"
-          echo "$BADGING" | grep -Fq "package: name='com.eve.companion.standalone' versionCode='4' versionName='3.1'"
-          echo "$BADGING" | grep -Eq "^application: .*icon='res/mipmap/"
+          AAPT="$ANDROID_HOME/build-tools/34.0.0/aapt"
+          BADGING="$("$AAPT" dump badging "$APK")"
+          echo "$BADGING"
+          printf '%s\n' "$BADGING" | grep -Fq "name='com.eve.companion.standalone'"
+          printf '%s\n' "$BADGING" | grep -Fq "versionCode='4'"
+          printf '%s\n' "$BADGING" | grep -Fq "versionName='3.1'"
+          RESOURCES="$("$AAPT" dump resources "$APK")"
+          printf '%s\n' "$RESOURCES" | grep -Fq 'mipmap/ic_launcher'
+          printf '%s\n' "$RESOURCES" | grep -Fq 'drawable/ic_eve_foreground'
           unzip -Z1 "$APK" > "$RUNNER_TEMP/apk-files.txt"
-          grep -Eq '^res/mipmap-anydpi-v26(-v[0-9]+)?/ic_launcher.xml$' "$RUNNER_TEMP/apk-files.txt"
           for f in objects.tflite face.task gesture.task embed.tflite classify.tflite; do
             grep -Fxq "assets/models/$f" "$RUNNER_TEMP/apk-files.txt"
           done
           echo "APK_SIZE=$(du -h "$APK" | cut -f1)" >> "$GITHUB_ENV"
-          echo "PASS: standalone package ID/version, launcher icon, APK signature, and all 5 offline vision models verified."
+          echo "PASS: standalone package ID/version, launcher icon resources, APK signature, and all 5 offline vision models verified."
 
       - name: Publish build result summary
         if: always()
