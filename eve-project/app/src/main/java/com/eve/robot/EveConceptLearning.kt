@@ -194,8 +194,8 @@ class EveConceptLearning(private val store: EveConceptStore) {
                 "تكرر لديّ تصنيف «" + updated.visualLabel + "» في ملاحظات منفصلة، فحفظت ارتباطه المبدئي باسم «" +
                     updated.learnedName + "». ويمكنك تصحيحي إذا كان الربط غير صحيح."
             } else {
-                "أتحقق من «" + updated.learnedName + "»: اكتملت " + count + " من " +
-                    REQUIRED_EVIDENCE_COUNT + " ملاحظات مطلوبة."
+                "أتحقق من «" + updated.learnedName + "»: رصدت " + count +
+                    " ملاحظات منفصلة، وأنتظر اكتمال مدة التحقق."
             }
         )
     }
@@ -230,9 +230,12 @@ class EveConceptLearning(private val store: EveConceptStore) {
             "هذا هو ", "هذه هي ", "هذي هي ", "هذا ", "هذه ", "هذي ",
             "انها ", "انه ", "يسمى ", "تسمى ", "اسمها ", "اسمه ", "يعني "
         )
-        val candidate = prefixes.firstNotNullOfOrNull { prefix ->
+        val explicitCandidate = prefixes.firstNotNullOfOrNull { prefix ->
             normalized.takeIf { it.startsWith(prefix) }?.removePrefix(prefix)?.trim()
-        } ?: if (allowBareAnswer && normalized.split(' ').size <= 4) normalized else return null
+        }
+        val candidate = explicitCandidate
+            ?: if (allowBareAnswer && normalized.split(' ').size in 1..2) normalized
+            else return null
 
         val words = candidate.split(' ').filter { it.isNotBlank() }
         if (words.isEmpty() || words.size > 4 || candidate.length !in 2..48) return null
