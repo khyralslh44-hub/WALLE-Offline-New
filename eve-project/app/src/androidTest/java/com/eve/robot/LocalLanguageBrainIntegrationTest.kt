@@ -50,6 +50,48 @@ class LocalLanguageBrainIntegrationTest {
             }
             Log.i(TAG, "TINY_ARABIC_DIALECT_PASS cases=${dialectCases.size}")
 
+            val userFeeling = awaitAnswer(
+                brain,
+                "أنا زهقان من الشطرنج",
+                LocalLlmContext()
+            )
+            assertTrue(
+                "The semantic composer should interpret a first-person boredom statement.",
+                userFeeling.replyArabic.contains("مللت")
+            )
+            assertEquals("irritated", userFeeling.moodHint)
+
+            val sceneAnswer = awaitAnswer(
+                brain,
+                "ماذا ترين؟",
+                LocalLlmContext(
+                    latestVisionLabel = "car",
+                    visionConfidence = 0.92f,
+                    visionObservationAgeMs = 250L,
+                    latestSceneSummary = "سيارة قرب النافذة",
+                    sceneObservationAgeMs = 300L
+                )
+            )
+            assertTrue(
+                "The reply should be grounded in the fresh visual scene.",
+                sceneAnswer.replyArabic.contains("سيارة")
+            )
+
+            val followUp = awaitAnswer(
+                brain,
+                "ولماذا؟",
+                LocalLlmContext(
+                    recentDialogues = listOf(
+                        "المستخدم: هل تعملين بدون إنترنت؟ | إيف: محرك الحوار يعمل محلياً على الهاتف."
+                    )
+                )
+            )
+            assertTrue(
+                "A short follow-up should link to the preceding topic.",
+                followUp.replyArabic.contains("الاتصال بالإنترنت")
+            )
+            Log.i(TAG, "TINY_ARABIC_SEMANTIC_COMPOSITION_PASS feelings=true scene=true followUp=true")
+
             // Warm up the tiny classifier once, then measure repeated local answer generation.
             // This is a smoke performance ceiling, not a claim about every phone's exact latency.
             val speedStart = System.nanoTime()
@@ -118,10 +160,14 @@ class LocalLanguageBrainIntegrationTest {
         }
     }
 
-    private fun awaitAnswer(brain: LocalLanguageBrain, prompt: String): LocalLlmResult {
+    private fun awaitAnswer(
+        brain: LocalLanguageBrain,
+        prompt: String,
+        context: LocalLlmContext = LocalLlmContext()
+    ): LocalLlmResult {
         val latch = CountDownLatch(1)
         val result = AtomicReference<Result<LocalLlmResult>?>(null)
-        brain.answerUser(prompt, LocalLlmContext()) {
+        brain.answerUser(prompt, context) {
             result.set(it)
             latch.countDown()
         }
