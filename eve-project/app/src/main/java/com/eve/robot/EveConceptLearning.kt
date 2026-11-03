@@ -99,7 +99,7 @@ class EveConceptLearning(private val store: EveConceptStore) {
     init {
         store.readAll().takeLast(MAX_CONCEPTS).forEach { concept ->
             val key = normalize(concept.visualLabel)
-            if (key.isNotBlank()) concepts[key] = concept
+            if (key.isNotBlank() && !isPersonCategory(key)) concepts[key] = concept
         }
     }
 
@@ -116,6 +116,12 @@ class EveConceptLearning(private val store: EveConceptStore) {
         val learnedName = parseTeaching(utterance, allowBareAnswer) ?: return null
         val label = visualLabel?.trim().orEmpty()
         val key = normalize(label)
+        if (isPersonCategory(key)) {
+            return EveConceptLearningResult(
+                EveConceptLearningStatus.REJECTED, label, learnedName,
+                messageArabic = "هذا تصنيف عام لشخص أو وجه، ولا يكفي لتحديد هوية إنسان. أحتفظ بتعرّف الأشخاص في ذاكرة الوجوه المنفصلة ولا أربط الاسم بتصنيف عام."
+            )
+        }
         if (key.isBlank() || !visualConfidence.isFinite() ||
             visualConfidence < MIN_TEACH_CONFIDENCE ||
             observationAgeMs !in 0L..MAX_TEACH_AGE_MS
@@ -155,7 +161,9 @@ class EveConceptLearning(private val store: EveConceptStore) {
     @Synchronized
     fun observe(visualLabel: String, confidence: Float, nowMs: Long): EveConceptLearningResult? {
         val key = normalize(visualLabel)
-        if (key.isBlank() || !confidence.isFinite() || confidence < MIN_VERIFY_CONFIDENCE) return null
+        if (key.isBlank() || isPersonCategory(key) || !confidence.isFinite() ||
+            confidence < MIN_VERIFY_CONFIDENCE
+        ) return null
         val current = concepts[key] ?: return null
         if (current.confirmed) return null
 
@@ -203,17 +211,19 @@ class EveConceptLearning(private val store: EveConceptStore) {
     @Synchronized
     fun confirmedNameFor(visualLabel: String?): String? {
         val key = normalize(visualLabel.orEmpty())
-        return concepts[key]?.takeIf { it.confirmed }?.learnedName
+        return concepts[key]?.takeIf { it.confirmed && !isPersonCategory(key) }?.learnedName
     }
 
     @Synchronized
-    fun isConfirmed(visualLabel: String): Boolean =
-        concepts[normalize(visualLabel)]?.confirmed == true
+    fun isConfirmed(visualLabel: String): Boolean {
+        val key = normalize(visualLabel)
+        return !isPersonCategory(key) && concepts[key]?.confirmed == true
+    }
 
     @Synchronized
     fun recentConfirmedConcepts(limit: Int = 5): List<String> =
         concepts.values.asSequence()
-            .filter { it.confirmed }
+            .filter { it.confirmed && !isPersonCategory(normalize(it.visualLabel)) }
             .sortedByDescending { it.lastEvidenceAtMs }
             .take(limit.coerceIn(0, 20))
             .map { it.visualLabel + " = " + it.learnedName + " (تحقق بصري متكرر)" }
@@ -247,6 +257,9 @@ class EveConceptLearning(private val store: EveConceptStore) {
         return candidate
     }
 
+    private fun isPersonCategory(normalizedLabel: String): Boolean =
+        normalizedLabel in PERSON_CATEGORIES
+
     private fun normalize(value: String): String = value.trim().lowercase(Locale.ROOT)
         .replace(Regex("[\\u064B-\\u065F\\u0670]"), "")
         .replace('أ', 'ا').replace('إ', 'ا').replace('آ', 'ا')
@@ -264,5 +277,11 @@ class EveConceptLearning(private val store: EveConceptStore) {
         const val MAX_EVIDENCE_GAP_MS = 15 * 60_000L
         const val MAX_TEACH_AGE_MS = 90_000L
         private const val MAX_CONCEPTS = 80
+        private val PERSON_CATEGORIES = setOf(
+            "person", "people", "human", "face", "man", "woman", "child", "boy", "girl",
+            "adult", "male", "female", "baby", "crowd", "portrait", "headshot",
+            "شخص", "اشخاص", "انسان", "بشر", "وجه", "رجل", "امراة", "طفل", "طفلة",
+            "ولد", "بنت", "ناس", "حشد", "صورة شخصية"
+        )
     }
 }
