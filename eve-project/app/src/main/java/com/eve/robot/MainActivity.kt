@@ -3152,7 +3152,9 @@ class MainActivity : ComponentActivity() {
             Long.MAX_VALUE
         }
         return LocalLlmContext(
-            latestVisionLabel = conceptLearning.confirmedNameFor(label) ?: label,
+            latestVisionLabel = label,
+            latestLearnedConcept = conceptLearning.confirmedNameFor(label),
+            knownConcepts = conceptLearning.recentConfirmedConcepts(10),
             visionConfidence = lastMeaningfulConfidence,
             visionObservationAgeMs = observationAge,
             sightingCount = label?.let(memory::sightings) ?: 0,
@@ -3160,7 +3162,7 @@ class MainActivity : ComponentActivity() {
             currentMood = relationship.getString("lastMood", EveMood.NEUTRAL.name) ?: EveMood.NEUTRAL.name,
             moodReason = relationship.getString("lastMoodReason", "").orEmpty(),
             personality = memory.learnedPersonality(),
-            recentObservations = memory.recentVisualMemories(5) + conceptLearning.recentConfirmedConcepts(5),
+            recentObservations = memory.recentVisualMemories(5),
             recentDialogues = memory.recentDialogues(3),
             recentReflections = memory.recentReflections(3),
             knownPeople = peopleMemory.summary(),
