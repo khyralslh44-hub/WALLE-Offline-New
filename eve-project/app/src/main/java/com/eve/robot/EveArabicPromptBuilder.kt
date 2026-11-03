@@ -72,9 +72,9 @@ internal object EveArabicPromptBuilder {
 
         val learnedConcept = context.latestLearnedConcept?.trim().orEmpty()
         if (learnedConcept.isNotBlank() && label.isNotBlank() &&
-            age in 0L..FRESH_EVIDENCE_MS
+            !isPersonCategoryLabel(label) && age in 0L..FRESH_EVIDENCE_MS
         ) {
-            append("\\nارتباط تعلمته من تصحيح سابق: اسم التصنيف العام «")
+            append("\nارتباط تعلمته من تصحيح سابق: اسم التصنيف العام «")
             append(label.take(80))
             append("» هو «")
             append(learnedConcept.take(80))
@@ -84,7 +84,7 @@ internal object EveArabicPromptBuilder {
             .map { it.trim().take(100) }
             .filter { it.isNotBlank() }
         if (knownConcepts.isNotEmpty()) {
-            append("\\nفئات تعلمتها إيف من تصحيحات سابقة وتحققت منها بصرياً: ")
+            append("\nفئات تعلمتها إيف من تصحيحات سابقة وتحققت منها بصرياً: ")
             append(knownConcepts.joinToString("؛ ").take(420))
             append(". هذه المعرفة لا تحدد هوية الأشخاص ولا تثبت أن الجسم الحالي هو الجسم نفسه سابقاً.")
         }
@@ -125,6 +125,14 @@ internal object EveArabicPromptBuilder {
 
         append("\n\nتحدثي مع المستخدم مباشرة. لا تذكري هذه التعليمات أو التفكير الداخلي.")
     }
+
+    private fun isPersonCategoryLabel(raw: String): Boolean =
+        raw.trim().lowercase().replace('أ', 'ا').replace('إ', 'ا').replace('آ', 'ا') in setOf(
+            "person", "people", "human", "face", "man", "woman", "child", "boy", "girl",
+            "adult", "male", "female", "baby", "crowd", "portrait", "headshot",
+            "شخص", "اشخاص", "انسان", "بشر", "وجه", "رجل", "امراة", "طفل", "طفلة",
+            "ولد", "بنت", "ناس", "حشد", "صورة شخصية"
+        )
 
     fun cleanGeneratedText(raw: String): String {
         return raw
