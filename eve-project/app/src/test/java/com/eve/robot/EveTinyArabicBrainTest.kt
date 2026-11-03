@@ -142,4 +142,37 @@ class EveTinyArabicBrainTest {
         assertTrue(reply.replyArabic.contains("أنت 1"))
         assertTrue(reply.replyArabic.contains("أنا 0"))
     }
+    @Test fun dialectNormalizerPreservesGreetingsAndMapsCommonSpokenArabic() {
+        assertEquals("هلا ايف", EveArabicTextUnderstanding.normalize("هَلا يا إيف").replace("يا ", ""))
+        assertEquals("كيفك", EveArabicTextUnderstanding.normalize("شلونك"))
+        assertEquals("ما هذا", EveArabicTextUnderstanding.normalize("شنو هذا؟"))
+        assertEquals("ما ترين", EveArabicTextUnderstanding.normalize("وش تشوفين؟"))
+        assertEquals("كيف اغير الكاميرا", EveArabicTextUnderstanding.normalize("ازاي أغيّر الكاميرا"))
+        assertTrue(EveArabicTextUnderstanding.featureTokens("بالكاميرا").contains("كاميرا"))
+    }
+
+    @Test fun classifiesSpokenDialectFormsThroughTheSharedArabicFrontEnd() {
+        val cases = listOf(
+            "شلونك يا إيف" to "greeting",
+            "شنو هذا؟" to "vision",
+            "وش تشوفين؟" to "vision",
+            "وين الكاميرا؟" to "camera",
+            "ازاي اغير الكاميرا؟" to "camera"
+        )
+        cases.forEach { (phrase, expected) ->
+            val prediction = EveTinyArabicBrain.classify(phrase)
+            assertEquals(
+                "Dialect phrase should reach the same intent: $phrase " +
+                    "(similarity=${prediction.bestSimilarity}, margin=${prediction.margin})",
+                expected,
+                prediction.intent
+            )
+        }
+    }
+
+    @Test fun normalizationDoesNotForceUnrelatedDialectQuestionsIntoKnownIntents() {
+        val unknown = EveTinyArabicBrain.classify("شنو سبب تشكل المجرات؟")
+        assertNull("Dialect normalization must not turn an unsupported question into a known intent.", unknown.intent)
+    }
+
 }
