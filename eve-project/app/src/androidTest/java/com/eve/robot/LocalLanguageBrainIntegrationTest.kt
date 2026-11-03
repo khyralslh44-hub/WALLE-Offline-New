@@ -21,10 +21,15 @@ class LocalLanguageBrainIntegrationTest {
     fun tinyArabicBrainAnswersLocallyAndDoesNotDropUserQuestions() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val states = AtomicReference<LocalLlmState?>(null)
-        val brain = LocalLanguageBrain(context) { state, percent, message ->
-            states.set(state)
-            Log.i(TAG, "TINY_BRAIN_STATE state=$state percent=$percent message=$message")
-        }
+        val brain = LocalLanguageBrain(
+            context,
+            statusListener = { state, percent, message ->
+                states.set(state)
+                Log.i(TAG, "TINY_BRAIN_STATE state=$state percent=$percent message=$message")
+            },
+            // Do not block Android's main looper while this instrumentation test waits on a latch.
+            callbackDispatcher = { callback -> callback() }
+        )
 
         try {
             brain.start()
