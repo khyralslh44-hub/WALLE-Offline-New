@@ -6,6 +6,7 @@ on:
     paths:
       - 'eve-project/app/src/main/java/com/eve/robot/LocalLanguageBrain.kt'
       - 'eve-project/app/src/main/java/com/eve/robot/EveTinyArabicBrain.kt'
+      - 'eve-project/app/src/main/java/com/eve/robot/EveArabicSemanticComposer.kt'
       - 'eve-project/app/src/main/java/com/eve/robot/EveArabicTextUnderstanding.kt'
       - 'eve-project/app/src/test/java/com/eve/robot/EveTinyArabicBrainTest.kt'
       - 'eve-project/app/src/androidTest/java/com/eve/robot/LocalLanguageBrainIntegrationTest.kt'
