@@ -200,8 +200,12 @@ class EveTinyArabicBrainTest {
 
     @Test fun semanticComposerBuildsQuestionSpecificExplanation() {
         val context = LocalLlmContext()
-        val why = EveTinyArabicBrain.answerUser("لماذا تعملين بدون إنترنت؟", context).replyArabic
-        val how = EveTinyArabicBrain.answerUser("كيف تفهمين الكلام دون إنترنت؟", context).replyArabic
+        val why = EveArabicSemanticComposer.compose(
+            "offline", "لماذا تعملين بدون إنترنت؟", context, null
+        )!!.text
+        val how = EveArabicSemanticComposer.compose(
+            "offline", "كيف تفهمين الكلام دون إنترنت؟", context, null
+        )!!.text
         assertTrue(why.contains("السبب") || why.contains("لأن"))
         assertTrue(how.contains("التطبيع") || how.contains("تحليل") || how.contains("تمر"))
         assertFalse("Why and how should not receive the same generic sentence.", why == how)
