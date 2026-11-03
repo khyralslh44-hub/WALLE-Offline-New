@@ -17,7 +17,7 @@ TEST_APK="$GITHUB_WORKSPACE/eve-project/app/build/outputs/apk/androidTest/debug/
 GRADLE_EXIT=0
 mkdir -p "$RESULT_DIR"
 echo "EVE deep face test on Android API $API_LEVEL" | tee "$RESULT_DIR/environment.txt"
-echo "Offline vision invariant: network is disabled before camera/FER instrumentation. INTERNET permission is reserved for the one-time local Qwen model download; inference is tested separately after the model is cached." | tee -a "$RESULT_DIR/environment.txt"
+echo "Offline vision invariant: all inference assets are bundled at build time; the emulator radios are disabled before camera/FER instrumentation." | tee -a "$RESULT_DIR/environment.txt"
 
 # Preserve diagnostics even if emulator setup, ADB, Gradle or instrumentation fails.
 capture_diagnostics() {
@@ -39,11 +39,11 @@ capture_diagnostics() {
 trap capture_diagnostics EXIT
 
 MANIFEST="$GITHUB_WORKSPACE/eve-project/app/src/main/AndroidManifest.xml"
-if ! grep -Eq 'android.permission.INTERNET' "$MANIFEST"; then
-  echo "FAIL: INTERNET permission is missing; first-run local Qwen setup cannot download model weights." | tee -a "$RESULT_DIR/environment.txt"
+if grep -Eq 'android.permission.INTERNET' "$MANIFEST"; then
+  echo "FAIL: INTERNET permission must remain absent in EVE's fully offline build." | tee -a "$RESULT_DIR/environment.txt"
   exit 1
 fi
-echo "PASS: INTERNET permission exists for initial model bootstrap; offline tests disconnect the emulator before local inference." | tee -a "$RESULT_DIR/environment.txt"
+echo "PASS: source manifest has no INTERNET permission; all runtime models must be bundled before offline tests." | tee -a "$RESULT_DIR/environment.txt"
 if [ ! -s "$GITHUB_WORKSPACE/eve-project/app/src/androidTest/assets/face_fixture.jpg" ]; then
   echo "FAIL: pinned face fixture is missing." | tee -a "$RESULT_DIR/environment.txt"
   exit 2
