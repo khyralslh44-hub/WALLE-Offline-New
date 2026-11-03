@@ -21,6 +21,48 @@ git clone --filter=blob:none https://github.com/ggml-org/llama.cpp.git "$LLAMA_D
 git -C "$LLAMA_DIR" checkout --detach "$LLAMA_CPP_REVISION"
 test "$(git -C "$LLAMA_DIR" rev-parse HEAD)" = "$LLAMA_CPP_REVISION"
 
+# Register this checkpoint's observed tokenizer fingerprint only after verifying
+# tokenizer.json declares the canonical ByteLevel+BPE pre-tokenizer. The vocab is
+# custom; "gpt-2" here identifies the ByteLevel regex behavior, not its vocabulary.
+python - "$MODEL_DIR/tokenizer.json" "$LLAMA_DIR/conversion/base.py" <<'PY'
+import json
+import pathlib
+import sys
+
+tokenizer_path = pathlib.Path(sys.argv[1])
+converter_path = pathlib.Path(sys.argv[2])
+tok = json.loads(tokenizer_path.read_text(encoding="utf-8"))
+expected_pre = {
+    "type": "ByteLevel",
+    "add_prefix_space": False,
+    "trim_offsets": True,
+    "use_regex": True,
+}
+if tok.get("model", {}).get("type") != "BPE":
+    raise SystemExit("FAIL: expected the checkpoint's BPE tokenizer.")
+if tok.get("pre_tokenizer") != expected_pre:
+    raise SystemExit(
+        "FAIL: tokenizer pre-tokenizer changed; refusing to label it GPT-2 ByteLevel."
+    )
+
+source = converter_path.read_text(encoding="utf-8")
+known = '''        if chkhsh == "3ce83efda5659b07b1ad37ca97ca5797ea4285d9b9ab0dc679e4a720c9da7454":
+            # ref: https://huggingface.co/openai-community/gpt2
+            res = "gpt-2"
+'''
+custom_hash = "45782d312d8b8388a4a5d4b89e2984f81ed9e9336dd5f97c6b805edafe1be9a8"
+custom = f'''        if chkhsh == "{custom_hash}":
+            # Supra Arabic uses the same verified ByteLevel+regex pre-tokenizer.
+            res = "gpt-2"
+'''
+if custom_hash in source:
+    raise SystemExit("FAIL: custom tokenizer fingerprint is already present; inspect duplicate.")
+if known not in source:
+    raise SystemExit("FAIL: pinned llama.cpp converter anchor changed; refusing a blind patch.")
+converter_path.write_text(source.replace(known, known + custom, 1), encoding="utf-8")
+print("PASS: registered verified Supra Arabic ByteLevel BPE fingerprint.")
+PY
+
 python - <<'PY'
 import os
 from huggingface_hub import snapshot_download
