@@ -142,7 +142,7 @@ internal object EveTinyArabicBrain {
 
     private val vocabularyByIntent: Map<String, Set<String>> by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         examples.groupBy { it.intent }.mapValues { (_, rows) ->
-            rows.flatMap { normalize(it.text).split(' ') }.toSet()
+            rows.flatMap { EveArabicTextUnderstanding.featureTokens(it.text) }.toSet()
         }
     }
 
@@ -173,9 +173,8 @@ internal object EveTinyArabicBrain {
 
         val input = featureVector(normalized)
         if (input.isEmpty()) return Prediction(null, 0f, 0f, 0f)
-        val queryWords = normalized.split(' ')
+        val queryWords = EveArabicTextUnderstanding.featureTokens(rawText)
             .filter { it.length > 1 && it !in STOP_WORDS }
-            .distinct()
         if (queryWords.isEmpty()) return Prediction(null, 0f, 0f, 0f)
 
         // Character n-grams tolerate spelling and inflection changes. A word-evidence gate
@@ -559,7 +558,11 @@ internal object EveTinyArabicBrain {
         val words = normalized.split(' ').filter { it.isNotBlank() }
         val features = HashSet<Int>()
         words.forEach { word ->
-            features += hashFeature("w:" + word)
+            // Keep character evidence from the observed form, while adding compact lexical
+            // variants for attached articles, clitics, and common inflection endings.
+            EveArabicTextUnderstanding.variants(word).forEach { variant ->
+                features += hashFeature("w:" + variant)
+            }
             val padded = "^" + word + "$"
             for (n in 2..4) {
                 if (padded.length < n) continue
@@ -585,13 +588,6 @@ internal object EveTinyArabicBrain {
         return (hash and Int.MAX_VALUE) % FEATURE_COUNT
     }
 
-    private fun normalize(text: String): String {
-        return text.lowercase(Locale.ROOT)
-            .replace(Regex("[\\u064B-\\u065F\\u0670]"), "")
-            .replace('أ', 'ا').replace('إ', 'ا').replace('آ', 'ا')
-            .replace('ى', 'ي').replace('ؤ', 'و').replace('ئ', 'ي')
-            .replace(Regex("[^\\p{L}\\p{N}\\s]"), " ")
-            .replace(Regex("\\s+"), " ")
-            .trim()
-    }
+    private fun normalize(text: String): String =
+        EveArabicTextUnderstanding.normalize(text)
 }
