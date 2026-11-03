@@ -1,17 +1,15 @@
-name: EVE Local Dialogue Fallback Offline Verification
+name: EVE Bespoke Compact Arabic Brain Offline Verification
 
 on:
   workflow_dispatch:
   push:
     paths:
       - 'eve-project/app/src/main/java/com/eve/robot/LocalLanguageBrain.kt'
-      - 'eve-project/app/src/main/java/com/eve/robot/EveArabicPromptBuilder.kt'
-      - 'eve-project/app/src/main/java/com/eve/robot/EveArabicLlmRuntime.kt'
-      - 'eve-project/app/src/test/java/com/eve/robot/EveArabicPromptBuilderTest.kt'
       - 'eve-project/app/src/main/java/com/eve/robot/EveTinyArabicBrain.kt'
       - 'eve-project/app/src/test/java/com/eve/robot/EveTinyArabicBrainTest.kt'
       - 'eve-project/app/src/androidTest/java/com/eve/robot/LocalLanguageBrainIntegrationTest.kt'
       - 'eve-project/app/build.gradle.kts'
+      - 'EVE_COMPACT_ARABIC_BRAIN.md'
       - 'eve-project/app/src/main/AndroidManifest.xml'
       - '.github/scripts/run-local-llm-test.sh'
       - '.github/workflows/eve-local-llm-verification.yml'
@@ -21,12 +19,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: eve-tiny-arabic-verification-${{ github.ref }}-${{ github.sha }}
+  group: eve-compact-arabic-verification-${{ github.ref }}-${{ github.sha }}
   cancel-in-progress: false
 
 jobs:
   tiny-arabic-offline:
-    name: EVE Offline dialogue fallback on Android
+    name: EVE bespoke Arabic dialogue engine on Android
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
