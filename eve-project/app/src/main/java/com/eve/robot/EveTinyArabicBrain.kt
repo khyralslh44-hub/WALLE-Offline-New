@@ -481,8 +481,12 @@ internal object EveTinyArabicBrain {
         return if (isPersonLabel(label)) {
             "أرصد شخصاً في المشهد، لكن هذا لا يكشف اسمه أو هويته. قد يخطئ التصنيف البصري، لذلك لا أريد التخمين."
         } else {
-            "أرجّح أنني أرى " + arabicLabel(label) + " في آخر إطار واضح. هذا تصنيف بصري بدرجة ثقة " +
+            val base = "أرجّح أنني أرى " + arabicLabel(label) +
+                " في آخر إطار واضح. هذا تصنيف بصري بدرجة ثقة " +
                 (context.visionConfidence.coerceIn(0f, 1f) * 100).toInt() + "%، وقد يخطئ."
+            val learned = context.latestLearnedConcept?.trim().orEmpty()
+            if (learned.isBlank()) base
+            else base + " وسبق أن تعلمت من تصحيحك أن اسم هذه الفئة هو «" + learned.take(48) + "»."
         }
     }
 
