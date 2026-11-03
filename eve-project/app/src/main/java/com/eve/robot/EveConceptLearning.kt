@@ -220,7 +220,7 @@ class EveConceptLearning(private val store: EveConceptStore) {
             .toList()
 
     private fun persist() {
-        store.writeAll(concepts.values.takeLast(MAX_CONCEPTS))
+        store.writeAll(concepts.values.toList().takeLast(MAX_CONCEPTS))
     }
 
     private fun parseTeaching(raw: String, allowBareAnswer: Boolean): String? {
