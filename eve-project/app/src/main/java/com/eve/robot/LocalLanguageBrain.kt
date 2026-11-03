@@ -48,7 +48,9 @@ data class LocalLlmResult(
  */
 class LocalLanguageBrain(
     context: Context,
-    private val statusListener: (LocalLlmState, Int, String) -> Unit
+    private val statusListener: (LocalLlmState, Int, String) -> Unit,
+    // Tests can inject an inline dispatcher; the app keeps main-thread UI callbacks by default.
+    private val callbackDispatcher: ((() -> Unit) -> Unit)? = null
 ) : AutoCloseable {
     private val main = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor { task ->
@@ -220,7 +222,7 @@ class LocalLanguageBrain(
         state = nextState
         statusMessage = message
         if (closed.get()) return
-        main.post {
+        dispatch {
             if (!closed.get()) statusListener(nextState, percent.coerceIn(0, 100), message)
         }
     }
@@ -229,8 +231,17 @@ class LocalLanguageBrain(
         callback: (Result<LocalLlmResult>) -> Unit,
         result: Result<LocalLlmResult>
     ) {
-        main.post {
+        dispatch {
             if (!closed.get()) callback(result)
+        }
+    }
+
+    private fun dispatch(action: () -> Unit) {
+        val injectedDispatcher = callbackDispatcher
+        if (injectedDispatcher != null) {
+            injectedDispatcher(action)
+        } else {
+            main.post { action() }
         }
     }
 
