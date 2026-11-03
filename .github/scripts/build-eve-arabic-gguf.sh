@@ -21,6 +21,32 @@ git clone --filter=blob:none https://github.com/ggml-org/llama.cpp.git "$LLAMA_D
 git -C "$LLAMA_DIR" checkout --detach "$LLAMA_CPP_REVISION"
 test "$(git -C "$LLAMA_DIR" rev-parse HEAD)" = "$LLAMA_CPP_REVISION"
 
+
+python - <<'PY'
+import os
+from huggingface_hub import snapshot_download
+snapshot_download(
+    repo_id="Abdelkareem/supra-50m-arabic-sft-mix",
+    revision="279038a25593f6dfce3146585b4d1380b22effe3",
+    local_dir=os.path.join(os.environ["RUNNER_TEMP"], "eve-arabic-llm", "checkpoint"),
+    allow_patterns=[
+        "config.json", "generation_config.json", "tokenizer.json",
+        "tokenizer_config.json", "chat_template.jinja",
+        "model.safetensors", "README.md"
+    ],
+)
+PY
+
+test -s "$MODEL_DIR/config.json"
+test -s "$MODEL_DIR/tokenizer.json"
+test -s "$MODEL_DIR/model.safetensors"
+MODEL_SHA="$(sha256sum "$MODEL_DIR/model.safetensors" | awk '{print $1}')"
+EXPECTED_MODEL_SHA="9c3bf4b309c65fbdd875af44e6b5fbe034129779ca7be3ab419ec6bddb39e295"
+if [ "$MODEL_SHA" != "$EXPECTED_MODEL_SHA" ]; then
+  echo "FAIL: Hugging Face checkpoint hash does not match the pinned revision."
+  exit 10
+fi
+
 # Register this checkpoint's observed tokenizer fingerprint only after verifying
 # tokenizer.json declares the canonical ByteLevel+BPE pre-tokenizer. The vocab is
 # custom; "gpt-2" here identifies the ByteLevel regex behavior, not its vocabulary.
@@ -62,31 +88,6 @@ if known not in source:
 converter_path.write_text(source.replace(known, known + custom, 1), encoding="utf-8")
 print("PASS: registered verified Supra Arabic ByteLevel BPE fingerprint.")
 PY
-
-python - <<'PY'
-import os
-from huggingface_hub import snapshot_download
-snapshot_download(
-    repo_id="Abdelkareem/supra-50m-arabic-sft-mix",
-    revision="279038a25593f6dfce3146585b4d1380b22effe3",
-    local_dir=os.path.join(os.environ["RUNNER_TEMP"], "eve-arabic-llm", "checkpoint"),
-    allow_patterns=[
-        "config.json", "generation_config.json", "tokenizer.json",
-        "tokenizer_config.json", "chat_template.jinja",
-        "model.safetensors", "README.md"
-    ],
-)
-PY
-
-test -s "$MODEL_DIR/config.json"
-test -s "$MODEL_DIR/tokenizer.json"
-test -s "$MODEL_DIR/model.safetensors"
-MODEL_SHA="$(sha256sum "$MODEL_DIR/model.safetensors" | awk '{print $1}')"
-EXPECTED_MODEL_SHA="9c3bf4b309c65fbdd875af44e6b5fbe034129779ca7be3ab419ec6bddb39e295"
-if [ "$MODEL_SHA" != "$EXPECTED_MODEL_SHA" ]; then
-  echo "FAIL: Hugging Face checkpoint hash does not match the pinned revision."
-  exit 10
-fi
 
 cmake -S "$LLAMA_DIR" -B "$LLAMA_DIR/build" \
   -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DGGML_OPENMP=OFF
