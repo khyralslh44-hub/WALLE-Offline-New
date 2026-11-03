@@ -118,5 +118,9 @@ if ! grep -Fq 'TINY_ARABIC_DIALECT_PASS' "$RESULT_DIR/logcat.txt"; then
   echo "FAIL: Arabic dialect classification marker missing from Android runtime." | tee -a "$RESULT_DIR/environment.txt"
   exit 11
 fi
+if ! grep -Fq 'TINY_ARABIC_SEMANTIC_COMPOSITION_PASS' "$RESULT_DIR/logcat.txt"; then
+  echo "FAIL: context-grounded Arabic semantic composition marker missing from Android runtime." | tee -a "$RESULT_DIR/environment.txt"
+  exit 12
+fi
 
 echo "PASS: EVE's bespoke Arabic Brain ran on Android with Wi-Fi/mobile data disabled, no pretrained language weights, and no llama.cpp runtime." | tee -a "$RESULT_DIR/environment.txt"
