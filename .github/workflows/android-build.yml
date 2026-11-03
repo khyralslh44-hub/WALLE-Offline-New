@@ -205,6 +205,24 @@ jobs:
           "$RUNNER_TEMP/gradle-8.9/bin/gradle"             --no-daemon --stacktrace -p eve-project             testDebugUnitTest assembleDebug assembleRelease
 
 
+      - name: Verify no pretrained language model or llama runtime is packaged
+        shell: bash
+        run: |
+          set -euo pipefail
+          for APK in \
+            "eve-project/app/build/outputs/apk/debug/app-debug.apk" \
+            "eve-project/app/build/outputs/apk/release/app-release.apk"; do
+            test -s "$APK"
+            ENTRIES="$RUNNER_TEMP/language-apk-entries.txt"
+            unzip -Z1 "$APK" > "$ENTRIES"
+            if grep -Eiq '(^|/)models/[^/]*\\.(gguf|safetensors|pt|pth)$|Qwen|libllama(_jni)?\\.so' "$ENTRIES"; then
+              echo "FAIL: pretrained language weights or llama.cpp native libraries found in $APK."
+              grep -Ein '(^|/)models/[^/]*\\.(gguf|safetensors|pt|pth)$|Qwen|libllama(_jni)?\\.so' "$ENTRIES" || true
+              exit 1
+            fi
+            echo "PASS: $APK contains the custom Kotlin Arabic engine without pretrained LLM weights or llama.cpp runtime."
+          done
+
       - name: Verify offline vision models are packaged in both APKs
         shell: bash
         run: |
