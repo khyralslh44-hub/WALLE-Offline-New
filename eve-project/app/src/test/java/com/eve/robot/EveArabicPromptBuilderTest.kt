@@ -62,4 +62,33 @@ class EveArabicPromptBuilderTest {
         assertFalse(cleaned.contains("assistant:"))
         assertTrue(cleaned.length <= 1_200)
     }
+    @Test fun learnedConceptNameDoesNotOverwriteTheRawVisualLabel() {
+        val prompt = EveArabicPromptBuilder.systemPrompt(
+            LocalLlmContext(
+                latestVisionLabel = "car",
+                latestLearnedConcept = "سيارة",
+                knownConcepts = listOf("car = سيارة (تحقق بصري متكرر)"),
+                visionConfidence = 0.93f,
+                visionObservationAgeMs = 700L
+            )
+        )
+        assertTrue(prompt.contains("التصنيف=car"))
+        assertTrue(prompt.contains("ارتباط تعلمته من تصحيح سابق"))
+        assertTrue(prompt.contains("«سيارة»"))
+        assertTrue(prompt.contains("ليس دليلاً على تطابق الجسم الفردي"))
+    }
+
+    @Test fun aLearnedNameIsNeverAttachedToAGenericPersonLabel() {
+        val prompt = EveArabicPromptBuilder.systemPrompt(
+            LocalLlmContext(
+                latestVisionLabel = "person",
+                latestLearnedConcept = "صديقي",
+                visionConfidence = 0.94f,
+                visionObservationAgeMs = 800L
+            )
+        )
+        assertTrue(prompt.contains("التصنيف=person"))
+        assertFalse(prompt.contains("اسم التصنيف العام «person»"))
+    }
+
 }
