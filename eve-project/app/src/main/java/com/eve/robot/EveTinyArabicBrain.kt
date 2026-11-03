@@ -221,16 +221,10 @@ internal object EveTinyArabicBrain {
     fun answerUser(text: String, context: LocalLlmContext): LocalLlmResult {
         val prediction = classify(text)
         val intent = prediction.intent
-        if (intent == null) {
-            return LocalLlmResult(
-                "لم أفهم قصدك بدقة بعد. اشرحها لي بطريقة أخرى، وسأحاول ربطها بما أعرفه من تجاربنا.",
-                "curious", "connect",
-                "سؤال غير مألوف: " + safe(text, 90) + ". لا أملك فهماً موثوقاً له بعد.",
-                prediction.confidence
-            )
-        }
-
         val freshLabel = freshVisionLabel(context)
+
+        // The composer also handles statements of user feeling and short follow-ups even
+        // when the intent classifier deliberately declines to assign a known intent.
         val draft = EveArabicSemanticComposer.compose(intent, text, context, freshLabel)
         if (draft != null) {
             return LocalLlmResult(
@@ -241,10 +235,12 @@ internal object EveTinyArabicBrain {
                 prediction.confidence
             )
         }
+
         return LocalLlmResult(
-            "لم أستطع بناء رد موثوق من السياق المتاح. وضّح لي الشيء الذي تقصده، وسأحاول ربطه بما أعرفه.",
+            "لم أفهم قصدك بدقة بعد. اشرحها لي بطريقة أخرى، وسأحاول ربطها بما أعرفه من تجاربنا.",
             "curious", "connect",
-            "لم تتوفر معلومات كافية لصياغة رد ذي معنى.", prediction.confidence
+            "سؤال غير مألوف: " + safe(text, 90) + ". لا أملك فهماً موثوقاً له بعد.",
+            prediction.confidence
         )
     }
 
