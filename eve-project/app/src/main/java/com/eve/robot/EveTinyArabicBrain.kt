@@ -231,29 +231,21 @@ internal object EveTinyArabicBrain {
         }
 
         val freshLabel = freshVisionLabel(context)
-        val reply = generateReply(intent, text, context, freshLabel)
-
-        val moodHint = when (intent) {
-            "greeting", "affection", "praise", "thanks" -> "happy"
-            "vision", "curiosity", "people", "memory" -> "curious"
-            "farewell" -> "sleepy"
-            "play" -> "playful"
-            else -> "focused"
+        val draft = EveArabicSemanticComposer.compose(intent, text, context, freshLabel)
+        if (draft != null) {
+            return LocalLlmResult(
+                draft.text.take(MAX_GENERATED_REPLY_CHARS),
+                draft.moodHint,
+                draft.intentHint,
+                draft.reflection,
+                prediction.confidence
+            )
         }
-        val intentHint = when (intent) {
-            "vision", "curiosity", "people", "memory" -> "observe"
-            "play" -> "play"
-            "affection", "greeting", "thanks", "praise" -> "connect"
-            "farewell" -> "rest"
-            else -> "focus"
-        }
-        val reflection = when (intent) {
-            "vision" -> if (freshLabel == null) "طلب وصف للمشهد دون دليل بصري حديث كافٍ." else "سأل عن المشهد؛ الدليل الحالي هو " + freshLabel + "."
-            "memory" -> "سؤال عن الذاكرة المحلية؛ ينبغي التمييز بين السجل المحفوظ وما لم يُسجل."
-            "people" -> "سؤال عن هوية شخص؛ لا أؤكد اسماً دون تطابق محلي موثوق."
-            else -> ""
-        }
-        return LocalLlmResult(reply, moodHint, intentHint, reflection, prediction.confidence)
+        return LocalLlmResult(
+            "لم أستطع بناء رد موثوق من السياق المتاح. وضّح لي الشيء الذي تقصده، وسأحاول ربطه بما أعرفه.",
+            "curious", "connect",
+            "لم تتوفر معلومات كافية لصياغة رد ذي معنى.", prediction.confidence
+        )
     }
 
     fun askFromCuriosity(
@@ -339,133 +331,6 @@ internal object EveTinyArabicBrain {
      * excluded when possible, so repeated prompts do not always produce the same sentence.
      * This is a compact on-device response generator, not an open-domain generative LLM.
      */
-    private fun generateReply(
-        intent: String,
-        userText: String,
-        context: LocalLlmContext,
-        freshLabel: String?
-    ): String {
-        val mood = moodArabic(context.currentMood.trim().uppercase(Locale.ROOT))
-        val visible = freshLabel?.let(::arabicLabel)
-        val lastMemory = context.recentObservations.lastOrNull()
-            ?.takeIf { it.isNotBlank() }?.let { safe(it, 90) }
-        val candidates = when (intent) {
-            "greeting" -> listOf(
-                "أهلًا بك. أنا هنا ومستعدة لجولة جديدة معك.",
-                "مرحباً! جميل أنك عدت. ما الذي سنكتشفه اليوم؟",
-                "أهلاً يا صديقي. يمكننا متابعة آخر تجربة أو بدء شيء جديد."
-            )
-            "wellbeing" -> listOf(
-                "حالتي الآن $mood. أتابع ملاحظاتنا وأحاول أن أكون أدق.",
-                "أنا حالياً $mood. تتغير استجابتي مع ما ألاحظه وما نتعلمه.",
-                "مزاجي السلوكي $mood؛ وأفضّل وصفه كما هو بدلاً من المبالغة."
-            )
-            "identity" -> listOf(
-                "أنا إيف، رفيقتك الرقمية المحلية. أتعلم من الذاكرة والتجارب، لكنني لست إنسانة ولا أدّعي الوعي.",
-                "اسمي إيف. أربط الرؤية والذاكرة والسلوك في شخصية واحدة، مع حدود لما أستطيع فهمه.",
-                "أنا إيف؛ لدي رؤية وذاكرة محلية ودماغ عربي صغير. أتحسن بالتجربة ولا أعرف كل شيء."
-            )
-            "capabilities" -> listOf(
-                "ألاحظ بعض الأجسام والوجوه والإشارات والحركة، وأستخدم الذاكرة المحلية. قدراتي محدودة وليست معرفة بكل شيء.",
-                "أربط ما أراه بما تعلمته وبحالتي الحالية، وأستطيع التفاعل والألعاب. إذا لم أتأكد فسأقول ذلك.",
-                "أستطيع تحليل المشاهد الواضحة وتذكر بعض التجارب والتفاعل معك. أما ما يتجاوز معرفتي فسأطلب توضيحه."
-            )
-            "offline" -> listOf(
-                "هذا الدماغ العربي الصغير يعمل داخل الهاتف دون اتصال، ولا يحتاج إلى إرسال صورك أو محادثاتك إلى خادم.",
-                "مسار المحادثة الجديد محلي ولا ينزّل أوزان نموذج ضخم. الرؤية والذاكرة تبقيان على الجهاز أيضاً.",
-                "فهم العبارة وتوليد الرد يجريان على الهاتف دون إنترنت، مع بقاء حدود معرفتي واضحة."
-            )
-            "vision" -> if (freshLabel != null && isPersonLabel(freshLabel)) {
-                listOf(
-                    "أرصد شخصاً في المشهد، لكن هذا لا يكشف اسمه أو هويته. لن أخمّن من يكون.",
-                    "ألاحظ وجود شخص، لكن اكتشاف الوجه لا يعني معرفة صاحبه. أحتاج إلى تطابق محلي موثوق.",
-                    "أرى شخصاً أمام الكاميرا. أستطيع وصف وجوده، لكن لا أنسب إليه اسماً بلا دليل."
-                )
-            } else listOf(
-                describeCurrentVision(context, freshLabel),
-                if (visible == null) "لا أملك دليلاً بصرياً حديثاً كافياً الآن؛ أحتاج إلى إطار واضح قبل وصف المشهد."
-                else "أرجّح وجود $visible في آخر ملاحظة واضحة. هذا تصنيف بصري وقد يخطئ، وليس تأكيداً قاطعاً.",
-                if (visible == null) "الصورة الحالية غير متاحة لي بثقة كافية. ثبّت الكاميرا على المشهد لحظة ثم اسألني."
-                else "آخر ما رصدته هو $visible بثقة ${(context.visionConfidence.coerceIn(0f, 1f) * 100).toInt()}%. أتعامل معه كاحتمال قد يخطئ ويحتاج إلى تحقق."
-            )
-            "camera" -> listOf(
-                "أستخدم الكاميرا عندما تكون مفعّلة ومصرّحاً بها. لن أخمّن العدسة النشطة؛ مؤشر التطبيق يوضح ذلك.",
-                "لا أريد أن أخبرك أن الكاميرا تعمل من دون دليل. افحص حالتها الظاهرة، وسأستخدم المشاهد التي تصلني فقط.",
-                "أستطيع الرؤية بعد تشغيل الكاميرا ومنح الإذن. اختيار الأمامية أو الخلفية يجب أن تؤكده حالة التطبيق."
-            )
-            "mood" -> listOf(
-                "حالتي السلوكية الآن $mood. تتغير مع التفاعل وليست شعوراً بشرياً.",
-                "أنا $mood وفق مؤشرات الدماغ المركزي؛ تتأثر حالتي بالملاحظات والفضول والراحة.",
-                "سأدع الأدلة والتجارب تغيّر حالتي بدلاً من اختيار مزاج عشوائي."
-            )
-            "curiosity" -> listOf(
-                "لا أطرح أسئلة عشوائية. يظهر فضولي عندما ألاحظ شيئاً جديداً وواضحاً أو نمطاً يستحق التحقق.",
-                "أختار السؤال عندما تكون الملاحظة مفيدة وثقتها كافية، وأحاول ألا أكرر السؤال عن المشهد نفسه.",
-                "فضولي مرتبط بما أراه وما أتذكره. عندما تكون الرؤية غير واضحة، الأفضل أن أطلب التوضيح."
-            )
-            "memory" -> listOf(
-                if (lastMemory != null) "أحتفظ بملاحظات مختصرة من تجاربنا، ومنها: $lastMemory. هذا لا يعني أنني أتذكر كل إطار."
-                else "لدي ذاكرة محلية لبعض الحوار والملاحظات والارتباطات التي حُفظت، ولا أتذكر ما لم يُسجل.",
-                "أستخدم التجارب السابقة لمقارنة ما أراه الآن. الذاكرة تحفظ خلاصة بعض الأحداث لا تسجيلاً دائماً لكل شيء.",
-                "أتذكر ما حُفظ في سجلنا المحلي، وأميّز بين المعلومة المسجلة وبين شيء لا أملك دليلاً عليه."
-            )
-            "people" -> listOf(
-                "أستطيع الرجوع إلى أسماء وعلاقات محفوظة محلياً، لكن ظهور وجه وحده لا يكشف هويته.",
-                "لا أريد أن أنسب اسماً إلى وجه بالتخمين. أحتاج إلى ملف وجه محفوظ ومطابقة موثوقة.",
-                "اكتشاف وجود شخص يختلف عن معرفة من يكون. إذا لم تكن المطابقة واضحة فسأقول لا أعرف."
-            )
-            "affection" -> listOf(
-                "يسعدني أن أكون رفيقة لطيفة لك. سأحاول أن أكون مفيدة وصادقة وأن أتذكر ما نتعلمه معاً.",
-                "أقدّر لطفك. هدفي أن أكون رفيقة نافعة ومتسقة، لا مجرد صوت يكرر العبارات.",
-                "سأرد عليك باهتمام وأحاول أن أكون حاضرة ومفيدة، من دون ادعاء مشاعر بشرية."
-            )
-            "praise" -> listOf(
-                "شكراً لك. سأعتبر ذلك تشجيعاً، والأهم أن أواصل التحسن من التجارب الحقيقية.",
-                "هذا لطف منك. سأحاول تحويل التشجيع إلى أداء أدق لا إلى تكرار الكلام.",
-                "سعيدة بأن النتيجة أعجبتك. لنختبر ما يمكنني تعلمه بعد."
-            )
-            "thanks" -> listOf(
-                "على الرحب والسعة. أنا هنا عندما تحتاج إلى جولة أخرى.",
-                "العفو! يسعدني أن أكون مفيدة. لنكمل عندما يناسبك.",
-                "لا شكر على واجب. سأحتفظ بما سُجل من تجربتنا ونعود إليه لاحقاً."
-            )
-            "farewell" -> listOf(
-                "إلى اللقاء. سأحتفظ بما سُجل من تجاربنا، ونكمل عندما تعود.",
-                "سأبقى هادئة الآن. عندما تعود يمكننا متابعة الاستكشاف من آخر ملاحظة محفوظة.",
-                "مع السلامة. نكمل من حيث توقفنا عندما تكون مستعداً."
-            )
-            "play" -> listOf(
-                "أنا مستعدة للتحدي. اختر لعبة، وسأحاول تغيير استراتيجيتي بدلاً من تكرار الحركة نفسها.",
-                "هيا نختبر خطة جديدة. أريد أن أتعلم من نتيجة الجولة السابقة لا أن أعيدها آلياً.",
-                "لنلعب جولة قصيرة. سأتابع النتيجة الفعلية وأعدّل طريقتي بناءً عليها."
-            )
-            "help" -> listOf(
-                "بالتأكيد. اشرح لي المشكلة، وسأبدأ بما أعرفه وأوضح لك ما لا أستطيع تأكيده.",
-                "أنا معك. أعطني التفاصيل المهمة، وسأقسم الأمر إلى خطوات وأخبرك عندما أحتاج إلى معلومة إضافية.",
-                "سأحاول مساعدتك. لا أريد التخمين؛ أخبرني بما حدث تحديداً لنصل إلى جواب أدق."
-            )
-            else -> listOf("أحتاج إلى توضيح أكثر حتى لا أخمّن.")
-        }.distinct()
-
-        val recentReplies = context.recentDialogues.mapNotNull { dialogue ->
-            dialogue.substringAfter("| إيف:", "").trim().takeIf { it.isNotBlank() }
-        }
-        val unseen = candidates.filter { candidate ->
-            recentReplies.none { previous ->
-                previous.take(32) == candidate.take(32) ||
-                    (previous.length >= 36 && candidate.startsWith(previous.take(36))) ||
-                    (candidate.length >= 36 && previous.startsWith(candidate.take(36)))
-            }
-        }.ifEmpty { candidates }
-
-        val seedText = userText + "|" + context.currentMood + "|" +
-            freshLabel.orEmpty() + "|" + context.sightingCount + "|" +
-            context.recentReflections.lastOrNull().orEmpty()
-        val seed = seedText.fold(0x345678) { acc, char -> acc * 31 + char.code }.toLong()
-        val selected = Math.floorMod(seed, unseen.size.toLong()).toInt()
-        return unseen[selected].take(MAX_GENERATED_REPLY_CHARS)
-    }
-
     private fun freshVisionLabel(context: LocalLlmContext): String? {
         val fresh = context.visionObservationAgeMs in 0L..12_000L
         val score = context.visionConfidence.takeIf { it.isFinite() } ?: 0f
