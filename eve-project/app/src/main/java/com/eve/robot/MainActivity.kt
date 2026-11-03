@@ -220,6 +220,10 @@ class MainActivity : ComponentActivity() {
     private var lastMeaningfulLabel: String? = null
     private var lastMeaningfulLabelAt = 0L
     private var lastMeaningfulConfidence = 0f
+    // Concept teaching is grounded only in a fresh, box-based object detection result.
+    @Volatile private var lastTeachEligibleObjectLabel: String? = null
+    @Volatile private var lastTeachEligibleObjectConfidence = 0f
+    @Volatile private var lastTeachEligibleObjectAt = 0L
     @Volatile private var latestSceneSummary = ""
     @Volatile private var latestObjectSummary = ""
     @Volatile private var latestImageClassifierSummary = ""
@@ -939,19 +943,21 @@ class MainActivity : ComponentActivity() {
         val visualQuestionAge = System.currentTimeMillis() - lastVisualQuestionAt
         val answersRecentVisualQuestion = lastVisualQuestionAt > 0L &&
             visualQuestionAge in 0L..90_000L &&
-            lastVisualQuestionLabel.equals(lastMeaningfulLabel.orEmpty(), ignoreCase = true)
-        val currentVisualAgeForLearning = if (lastMeaningfulLabelAt > 0L) {
-            (now - lastMeaningfulLabelAt).coerceAtLeast(0L)
+            lastTeachEligibleObjectAt > 0L &&
+            lastVisualQuestionLabel.equals(lastTeachEligibleObjectLabel.orEmpty(), ignoreCase = true)
+        val conceptEvidenceAge = if (lastTeachEligibleObjectAt > 0L) {
+            (SystemClock.elapsedRealtime() - lastTeachEligibleObjectAt).coerceAtLeast(0L)
         } else {
             Long.MAX_VALUE
         }
         val conceptTeaching = conceptLearning.teachCurrentObservation(
-            visualLabel = lastMeaningfulLabel,
-            visualConfidence = lastMeaningfulConfidence,
-            observationAgeMs = currentVisualAgeForLearning,
+            visualLabel = lastTeachEligibleObjectLabel,
+            visualConfidence = lastTeachEligibleObjectConfidence,
+            observationAgeMs = conceptEvidenceAge,
             utterance = text,
             allowBareAnswer = answersRecentVisualQuestion,
-            nowMs = System.currentTimeMillis()
+            nowMs = System.currentTimeMillis(),
+            evidenceSource = EveConceptEvidenceSource.OBJECT_DETECTOR_BOX
         )
         if (conceptTeaching != null) {
             val decision = brain.observeFacialEmotion(
@@ -1579,24 +1585,6 @@ class MainActivity : ComponentActivity() {
                         .putInt("lastObservationCount", sightings)
                         .putLong("lastObservationAt", System.currentTimeMillis())
                         .apply()
-                }
-                conceptLearning.observe(label, best.confidence, System.currentTimeMillis())?.let { progress ->
-                    if (progress.status == EveConceptLearningStatus.CONFIRMED) {
-                        memory.rememberReflection(progress.messageArabic)
-                        showDialogueText(progress.messageArabic, durationMs = 7_500L)
-                        Log.i(
-                            "EVE_LEARNING",
-                            "CONCEPT_CONFIRMED label=" + progress.visualLabel + " name=" + progress.learnedName +
-                                " evidence=" + progress.evidenceCount + " confidence=" + best.confidence +
-                                " offline=true"
-                        )
-                    } else {
-                        Log.i(
-                            "EVE_LEARNING",
-                            "CONCEPT_VERIFYING label=" + progress.visualLabel + " name=" + progress.learnedName +
-                                " evidence=" + progress.evidenceCount
-                        )
-                    }
                 }
                 if (sightings == 1 && isMeaningfulLabel(label)) {
                     val learnedPersonality = memory.adaptPersonality("curiosity_reward", strength = best.confidence)
@@ -2289,6 +2277,9 @@ class MainActivity : ComponentActivity() {
             it.confidence * (0.85f + 0.15f * it.areaFraction.coerceIn(0f, 1f))
         }
         if (best == null) {
+            lastTeachEligibleObjectLabel = null
+            lastTeachEligibleObjectConfidence = 0f
+            lastTeachEligibleObjectAt = 0L
             val previous = lastObjectDiagnosticAt.get()
             if (now - previous >= 6000L && lastObjectDiagnosticAt.compareAndSet(previous, now)) {
                 Log.i("EVE_OBJECTS", "OBJECT_DETECTION_NO_CLEAR_OBJECT; no mood guess made")
@@ -2315,6 +2306,32 @@ class MainActivity : ComponentActivity() {
         lastMeaningfulLabel = label
         lastMeaningfulLabelAt = now
         lastMeaningfulConfidence = best.confidence
+        lastTeachEligibleObjectLabel = label
+        lastTeachEligibleObjectConfidence = best.confidence
+        lastTeachEligibleObjectAt = now
+        conceptLearning.observe(
+            visualLabel = label,
+            confidence = best.confidence,
+            nowMs = System.currentTimeMillis(),
+            evidenceSource = EveConceptEvidenceSource.OBJECT_DETECTOR_BOX
+        )?.let { progress ->
+            if (progress.status == EveConceptLearningStatus.CONFIRMED) {
+                memory.rememberReflection(progress.messageArabic)
+                showDialogueText(progress.messageArabic, durationMs = 7_500L)
+                Log.i(
+                    "EVE_LEARNING",
+                    "CONCEPT_CONFIRMED label=${progress.visualLabel} name=${progress.learnedName} " +
+                        "evidence=${progress.evidenceCount} confidence=${best.confidence} " +
+                        "source=efficientdet_lite0 offline=true"
+                )
+            } else {
+                Log.i(
+                    "EVE_LEARNING",
+                    "CONCEPT_VERIFYING label=${progress.visualLabel} name=${progress.learnedName} " +
+                        "evidence=${progress.evidenceCount} source=efficientdet_lite0"
+                )
+            }
+        }
         getSharedPreferences("eve_relationship", MODE_PRIVATE).edit()
             .putString("lastObservationLabel", label)
             .putFloat("lastObservationConfidence", best.confidence)
