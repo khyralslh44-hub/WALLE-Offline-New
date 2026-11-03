@@ -105,4 +105,25 @@ class EveConceptLearningTest {
             )
         )
     }
+    @Test
+    fun genericPersonAndFaceLabelsCannotBeStoredAsObjectConcepts() {
+        val labels = listOf("person", "face", "human", "man", "شخص", "وجه", "انسان")
+        labels.forEach { label ->
+            val memory = EveConceptLearning(InMemoryStore())
+            val result = memory.teachCurrentObservation(
+                visualLabel = label,
+                visualConfidence = 0.96f,
+                observationAgeMs = 400L,
+                utterance = "هذا صديقي",
+                allowBareAnswer = false,
+                nowMs = 7_000_000L
+            )
+            assertEquals("Human label must not become an object concept: $label",
+                EveConceptLearningStatus.REJECTED, result?.status)
+            assertNull(memory.confirmedNameFor(label))
+            assertFalse(memory.isConfirmed(label))
+            assertNull(memory.observe(label, 0.99f, 7_010_000L))
+        }
+    }
+
 }
