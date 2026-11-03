@@ -4,7 +4,6 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
-import kotlinx.coroutines.runBlocking
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -40,18 +39,17 @@ data class LocalLlmResult(
 )
 
 /**
- * Local language facade for EVE.
+ * EVE's bespoke compact Arabic dialogue engine.
  *
- * User dialogue first uses the bundled Arabic autoregressive GGUF model through llama.cpp.
- * If its asset or ARM64 native runtime is unavailable, the existing tiny intent/template engine
- * remains an offline fallback. Camera curiosity and game callers keep their stable APIs.
+ * Understanding and reply composition run in Kotlin on-device. There is no bundled
+ * generative checkpoint, tokenizer download, llama.cpp runtime, or network fallback.
+ * The small feature-based Arabic intent model and grounded response composer are the
+ * primary path for user dialogue, curiosity, and game interaction.
  */
 class LocalLanguageBrain(
     context: Context,
     private val statusListener: (LocalLlmState, Int, String) -> Unit
 ) : AutoCloseable {
-    private val appContext = context.applicationContext
-    private val generativeArabic = EveArabicLlmRuntime(appContext)
     private val main = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor { task ->
         Thread(task, "eve-tiny-arabic-brain").apply { isDaemon = true }
@@ -75,20 +73,13 @@ class LocalLanguageBrain(
 
     fun start() {
         if (closed.get()) return
-        val generativeModelBundled = runCatching {
-            appContext.assets.open("models/eve-arabic-50m-q4.gguf").use { }
-            true
-        }.getOrDefault(false)
-        val readyMessage = if (generativeModelBundled) {
-            "النموذج اللغوي العربي التوليدي موجود • يعمل محلياً دون إنترنت ويُحمّل عند أول محادثة"
-        } else {
-            "الدماغ المحلي الاحتياطي جاهز • نموذج التوليد غير مضمّن في هذا البناء"
-        }
+        val readyMessage =
+            "محرك إيف العربي المصمم خصيصاً جاهز • فهم وصياغة محليان دون نموذج لغوي جاهز أو إنترنت"
         publish(LocalLlmState.READY, 100, readyMessage)
         Log.i(
             TAG,
-            "LOCAL_LANGUAGE_BRAIN_READY generativeModelBundled=$generativeModelBundled " +
-                "fallback=hashed_char_ngram_prototypes offline=true"
+            "LOCAL_LANGUAGE_BRAIN_READY engine=bespoke_arabic_char_ngram_and_composer " +
+                "pretrained_llm=false network=false offline=true"
         )
     }
 
@@ -108,11 +99,9 @@ class LocalLanguageBrain(
         callback: (Result<LocalLlmResult>) -> Unit
     ) {
         enqueue(background = false, operation = {
-            // The autoregressive Arabic model is the primary generator. The tiny intent/template
-            // engine remains only as a local fallback if the GGUF/native runtime cannot load.
-            runBlocking {
-                generativeArabic.answerUser(userText, context, maxOutputTokens)
-            } ?: EveTinyArabicBrain.answerUser(userText, context)
+            // This is the primary and only dialogue path: a bespoke compact Arabic
+            // understanding model plus EVE-specific grounded response composition.
+            EveTinyArabicBrain.answerUser(userText, context)
         }, callback = callback)
     }
 
@@ -248,14 +237,8 @@ class LocalLanguageBrain(
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
         if (activeInstance === this) activeInstance = null
-        try {
-            // Release the native model on the same serialized worker after any active inference.
-            worker.execute { generativeArabic.close() }
-            worker.shutdown()
-        } catch (_: Exception) {
-            try { generativeArabic.close() } catch (_: Exception) { }
-            try { worker.shutdownNow() } catch (_: Exception) { }
-        }
+        // The engine owns no native model or large weights; only stop its small worker.
+        worker.shutdown()
     }
 
     companion object {
