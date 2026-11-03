@@ -175,4 +175,68 @@ class EveTinyArabicBrainTest {
         assertNull("Dialect normalization must not turn an unsupported question into a known intent.", unknown.intent)
     }
 
+    @Test fun semanticComposerUsesMeaningAndCurrentVisualContext() {
+        val carContext = LocalLlmContext(
+            latestVisionLabel = "car",
+            visionConfidence = 0.91f,
+            visionObservationAgeMs = 300L,
+            latestSceneSummary = "جسم يشبه سيارة في منتصف الإطار",
+            sceneObservationAgeMs = 500L,
+            latestLearnedConcept = "سيارة"
+        )
+        val carReply = EveTinyArabicBrain.answerUser("ماذا ترين أمامك؟", carContext).replyArabic
+        assertTrue(carReply.contains("سيارة"))
+        assertTrue(carReply.contains("مشهد") || carReply.contains("الإطار"))
+
+        val catContext = carContext.copy(
+            latestVisionLabel = "cat",
+            latestSceneSummary = "قطة تتحرك قرب الكرسي",
+            latestLearnedConcept = null
+        )
+        val catReply = EveTinyArabicBrain.answerUser("ماذا ترين أمامك؟", catContext).replyArabic
+        assertTrue(catReply.contains("قطة"))
+        assertFalse("A reply should reflect the current scene, not a fixed answer.", carReply == catReply)
+    }
+
+    @Test fun semanticComposerBuildsQuestionSpecificExplanation() {
+        val context = LocalLlmContext()
+        val why = EveTinyArabicBrain.answerUser("لماذا تعملين بدون إنترنت؟", context).replyArabic
+        val how = EveTinyArabicBrain.answerUser("كيف تفهمين الكلام دون إنترنت؟", context).replyArabic
+        assertTrue(why.contains("السبب") || why.contains("لأن"))
+        assertTrue(how.contains("التطبيع") || how.contains("تحليل") || how.contains("تمر"))
+        assertFalse("Why and how should not receive the same generic sentence.", why == how)
+    }
+
+    @Test fun semanticComposerResolvesShortFollowUpFromRecentDialogue() {
+        val context = LocalLlmContext(
+            recentDialogues = listOf(
+                "المستخدم: هل تعملين بدون إنترنت؟ | إيف: يعمل محرك الحوار محلياً على الهاتف."
+            )
+        )
+        val reply = EveTinyArabicBrain.answerUser("ولماذا؟", context).replyArabic
+        assertTrue(reply.contains("الاتصال بالإنترنت"))
+        assertTrue(reply.contains("سؤالك المختصر") || reply.contains("حديثنا السابق"))
+    }
+
+    @Test fun semanticComposerRespondsToUserStateInsteadOfTreatingItAsUnknown() {
+        val bored = EveTinyArabicBrain.answerUser("أنا زهقان من الشطرنج", LocalLlmContext())
+        assertTrue(bored.replyArabic.contains("مللت"))
+        assertTrue(bored.replyArabic.contains("اللعبة"))
+        assertTrue(bored.moodHint == "irritated")
+
+        val tired = EveTinyArabicBrain.answerUser("أنا تعبان", LocalLlmContext())
+        assertTrue(tired.replyArabic.contains("التعب"))
+        assertTrue(tired.moodHint == "sleepy")
+    }
+
+    @Test fun semanticComposerUsesSavedObservationsWhenAnsweringMemoryQuestion() {
+        val context = LocalLlmContext(
+            recentObservations = listOf("سيارة قرب النافذة", "شخص دخل الغرفة"),
+            knownConcepts = listOf("سيارة", "كوب")
+        )
+        val reply = EveTinyArabicBrain.answerUser("ماذا تتذكرين؟", context).replyArabic
+        assertTrue(reply.contains("سيارة") || reply.contains("شخص"))
+        assertTrue(reply.contains("خلاصات") || reply.contains("المحفوظة"))
+    }
+
 }
