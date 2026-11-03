@@ -70,6 +70,25 @@ internal object EveArabicPromptBuilder {
             append("\nلا يوجد حالياً دليل بصري حديث بدرجة كافية؛ لا تخمني ما تراه الكاميرا.")
         }
 
+        val learnedConcept = context.latestLearnedConcept?.trim().orEmpty()
+        if (learnedConcept.isNotBlank() && label.isNotBlank() &&
+            age in 0L..FRESH_EVIDENCE_MS
+        ) {
+            append("\\nارتباط تعلمته من تصحيح سابق: اسم التصنيف العام «")
+            append(label.take(80))
+            append("» هو «")
+            append(learnedConcept.take(80))
+            append("». هذا اسم للفئة التي تعلمتها، وليس دليلاً على تطابق الجسم الفردي مع جسم سابق.")
+        }
+        val knownConcepts = context.knownConcepts.takeLast(6)
+            .map { it.trim().take(100) }
+            .filter { it.isNotBlank() }
+        if (knownConcepts.isNotEmpty()) {
+            append("\\nفئات تعلمتها إيف من تصحيحات سابقة وتحققت منها بصرياً: ")
+            append(knownConcepts.joinToString("؛ ").take(420))
+            append(". هذه المعرفة لا تحدد هوية الأشخاص ولا تثبت أن الجسم الحالي هو الجسم نفسه سابقاً.")
+        }
+
         if (context.latestSceneSummary.isNotBlank() &&
             context.sceneObservationAgeMs in 0L..FRESH_EVIDENCE_MS
         ) {
