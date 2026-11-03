@@ -215,9 +215,9 @@ jobs:
             test -s "$APK"
             ENTRIES="$RUNNER_TEMP/language-apk-entries.txt"
             unzip -Z1 "$APK" > "$ENTRIES"
-            if grep -Eiq '(^|/)models/[^/]*\\.(gguf|safetensors|pt|pth)$|Qwen|libllama(_jni)?\\.so' "$ENTRIES"; then
+            if grep -Eiq '(^|/)models/[^/]*\.(gguf|safetensors|pt|pth)$|Qwen|libllama(_jni)?\.so' "$ENTRIES"; then
               echo "FAIL: pretrained language weights or llama.cpp native libraries found in $APK."
-              grep -Ein '(^|/)models/[^/]*\\.(gguf|safetensors|pt|pth)$|Qwen|libllama(_jni)?\\.so' "$ENTRIES" || true
+              grep -Ein '(^|/)models/[^/]*\.(gguf|safetensors|pt|pth)$|Qwen|libllama(_jni)?\.so' "$ENTRIES" || true
               exit 1
             fi
             echo "PASS: $APK contains the custom Kotlin Arabic engine without pretrained LLM weights or llama.cpp runtime."
