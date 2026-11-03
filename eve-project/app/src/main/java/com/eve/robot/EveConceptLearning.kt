@@ -83,6 +83,11 @@ enum class EveConceptLearningStatus {
     WAITING_FOR_VERIFICATION, VERIFICATION_PROGRESS, CONFIRMED, ALREADY_CONFIRMED, REJECTED
 }
 
+/** Only a spatial object box is strong enough to ground a persistent concept association. */
+enum class EveConceptEvidenceSource {
+    OBJECT_DETECTOR_BOX, WHOLE_IMAGE_CLASSIFIER, UNKNOWN
+}
+
 data class EveConceptLearningResult(
     val status: EveConceptLearningStatus,
     val visualLabel: String,
@@ -111,11 +116,18 @@ class EveConceptLearning(private val store: EveConceptStore) {
         observationAgeMs: Long,
         utterance: String,
         allowBareAnswer: Boolean,
-        nowMs: Long
+        nowMs: Long,
+        evidenceSource: EveConceptEvidenceSource = EveConceptEvidenceSource.UNKNOWN
     ): EveConceptLearningResult? {
         val learnedName = parseTeaching(utterance, allowBareAnswer) ?: return null
         val label = visualLabel?.trim().orEmpty()
         val key = normalize(label)
+        if (evidenceSource != EveConceptEvidenceSource.OBJECT_DETECTOR_BOX) {
+            return EveConceptLearningResult(
+                EveConceptLearningStatus.REJECTED, label, learnedName,
+                messageArabic = "لا أريد تخمين اسم شيء من تصنيف عام للصورة؛ أحتاج إلى صندوق جسم واضح من كاشف الأجسام قبل أن أربط الاسم بما أراه."
+            )
+        }
         if (isPersonCategory(key)) {
             return EveConceptLearningResult(
                 EveConceptLearningStatus.REJECTED, label, learnedName,
@@ -159,9 +171,15 @@ class EveConceptLearning(private val store: EveConceptStore) {
 
     /** Count time-separated confirmations. Repeated callbacks for the same frame do not count. */
     @Synchronized
-    fun observe(visualLabel: String, confidence: Float, nowMs: Long): EveConceptLearningResult? {
+    fun observe(
+        visualLabel: String,
+        confidence: Float,
+        nowMs: Long,
+        evidenceSource: EveConceptEvidenceSource = EveConceptEvidenceSource.UNKNOWN
+    ): EveConceptLearningResult? {
         val key = normalize(visualLabel)
-        if (key.isBlank() || isPersonCategory(key) || !confidence.isFinite() ||
+        if (evidenceSource != EveConceptEvidenceSource.OBJECT_DETECTOR_BOX ||
+            key.isBlank() || isPersonCategory(key) || !confidence.isFinite() ||
             confidence < MIN_VERIFY_CONFIDENCE
         ) return null
         val current = concepts[key] ?: return null
