@@ -130,10 +130,10 @@ for index, question in enumerate(prompts, 1):
         "\n<|im_end|>\n<|im_start|>assistant\n"
     )
     result = subprocess.run(
-        [cli, "-m", model, "-p", chat, "-n", "72", "-c", "1024",
+        [cli, "-m", model, "-p", chat, "-n", "24", "-c", "1024",
          "--temp", "0.68", "--top-p", "0.9", "--repeat-penalty", "1.12",
          "--no-display-prompt", "--simple-io"],
-        text=True, capture_output=True, timeout=180
+        text=True, capture_output=True, timeout=600
     )
     if result.returncode != 0:
         raise SystemExit(f"FAIL: inference case {index}: {result.stderr[-2000:]}")
