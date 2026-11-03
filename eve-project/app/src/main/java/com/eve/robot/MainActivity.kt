@@ -57,6 +57,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var face: RobotFaceView
     private lateinit var brain: RobotBrain
     private lateinit var memory: EveMemory
+    private lateinit var conceptLearning: EveConceptLearning
     private lateinit var peopleMemory: EvePeopleMemory
     private lateinit var faceIdentityMemory: EveFaceIdentityMemory
     private lateinit var voice: RobotVoice
@@ -459,6 +460,7 @@ class MainActivity : ComponentActivity() {
         }
         setContentView(root)
         memory = EveMemory(applicationContext)
+        conceptLearning = EveConceptLearning(applicationContext)
         peopleMemory = EvePeopleMemory(applicationContext)
         faceIdentityMemory = EveFaceIdentityMemory(applicationContext)
         val relationshipPreferences = getSharedPreferences("eve_relationship", MODE_PRIVATE)
@@ -928,6 +930,50 @@ class MainActivity : ComponentActivity() {
             voice.respondToSpeech(decision.mood, text)
             lastConversationalExchangeAt = now
             Log.i("EVE_PEOPLE", "MEMORY_ANSWER chars=${peopleAnswer.length}")
+            return
+        }
+
+        val curiosityPreferences = getSharedPreferences("eve_curiosity", MODE_PRIVATE)
+        val lastVisualQuestionAt = curiosityPreferences.getLong("last_question_at", 0L)
+        val lastVisualQuestionLabel = curiosityPreferences.getString("last_question_label", "").orEmpty()
+        val visualQuestionAge = System.currentTimeMillis() - lastVisualQuestionAt
+        val answersRecentVisualQuestion = lastVisualQuestionAt > 0L &&
+            visualQuestionAge in 0L..90_000L &&
+            lastVisualQuestionLabel.equals(lastMeaningfulLabel.orEmpty(), ignoreCase = true)
+        val currentVisualAgeForLearning = if (lastMeaningfulLabelAt > 0L) {
+            (now - lastMeaningfulLabelAt).coerceAtLeast(0L)
+        } else {
+            Long.MAX_VALUE
+        }
+        val conceptTeaching = conceptLearning.teachCurrentObservation(
+            visualLabel = lastMeaningfulLabel,
+            visualConfidence = lastMeaningfulConfidence,
+            observationAgeMs = currentVisualAgeForLearning,
+            utterance = text,
+            allowBareAnswer = answersRecentVisualQuestion,
+            nowMs = System.currentTimeMillis()
+        )
+        if (conceptTeaching != null) {
+            val decision = brain.observeFacialEmotion(
+                if (conceptTeaching.status == EveConceptLearningStatus.REJECTED) "focused" else "curious",
+                0.82f
+            )
+            react(decision, playSound = false)
+            showDialogueText(conceptTeaching.messageArabic, durationMs = 8_000L)
+            if (conceptTeaching.status == EveConceptLearningStatus.WAITING_FOR_VERIFICATION) {
+                memory.rememberReflection(
+                    "تصحيح المستخدم: " + conceptTeaching.visualLabel + " = " + conceptTeaching.learnedName +
+                        "؛ الحالة: فرضية تنتظر تحققًا بصريًا متكررًا."
+                )
+                curiosityPreferences.edit().remove("last_question_label").apply()
+            }
+            Log.i(
+                "EVE_LEARNING",
+                "CONCEPT_TEACH status=" + conceptTeaching.status + " label=" + conceptTeaching.visualLabel +
+                    " name=" + conceptTeaching.learnedName + " confidence=" + lastMeaningfulConfidence +
+                    " offline=true"
+            )
+            lastConversationalExchangeAt = now
             return
         }
 
@@ -1533,6 +1579,24 @@ class MainActivity : ComponentActivity() {
                         .putInt("lastObservationCount", sightings)
                         .putLong("lastObservationAt", System.currentTimeMillis())
                         .apply()
+                }
+                conceptLearning.observe(label, best.confidence, System.currentTimeMillis())?.let { progress ->
+                    if (progress.status == EveConceptLearningStatus.CONFIRMED) {
+                        memory.rememberReflection(progress.messageArabic)
+                        showDialogueText(progress.messageArabic, durationMs = 7_500L)
+                        Log.i(
+                            "EVE_LEARNING",
+                            "CONCEPT_CONFIRMED label=" + progress.visualLabel + " name=" + progress.learnedName +
+                                " evidence=" + progress.evidenceCount + " confidence=" + best.confidence +
+                                " offline=true"
+                        )
+                    } else {
+                        Log.i(
+                            "EVE_LEARNING",
+                            "CONCEPT_VERIFYING label=" + progress.visualLabel + " name=" + progress.learnedName +
+                                " evidence=" + progress.evidenceCount
+                        )
+                    }
                 }
                 if (sightings == 1 && isMeaningfulLabel(label)) {
                     val learnedPersonality = memory.adaptPersonality("curiosity_reward", strength = best.confidence)
@@ -2737,6 +2801,7 @@ class MainActivity : ComponentActivity() {
 
     private fun maybeAskFromCuriosity(label: String, confidence: Float, sightings: Int): Boolean {
         if (isFinishing || isDestroyed || !::dialogueBubble.isInitialized) return false
+        if (conceptLearning.isConfirmed(label)) return false
         val preferences = getSharedPreferences("eve_curiosity", MODE_PRIVATE)
         val safeKey = label.trim().lowercase(Locale.ROOT).filter { it.isLetterOrDigit() }.take(48)
         if (safeKey.isBlank()) return false
@@ -3087,7 +3152,7 @@ class MainActivity : ComponentActivity() {
             Long.MAX_VALUE
         }
         return LocalLlmContext(
-            latestVisionLabel = label,
+            latestVisionLabel = conceptLearning.confirmedNameFor(label) ?: label,
             visionConfidence = lastMeaningfulConfidence,
             visionObservationAgeMs = observationAge,
             sightingCount = label?.let(memory::sightings) ?: 0,
@@ -3095,7 +3160,7 @@ class MainActivity : ComponentActivity() {
             currentMood = relationship.getString("lastMood", EveMood.NEUTRAL.name) ?: EveMood.NEUTRAL.name,
             moodReason = relationship.getString("lastMoodReason", "").orEmpty(),
             personality = memory.learnedPersonality(),
-            recentObservations = memory.recentVisualMemories(5),
+            recentObservations = memory.recentVisualMemories(5) + conceptLearning.recentConfirmedConcepts(5),
             recentDialogues = memory.recentDialogues(3),
             recentReflections = memory.recentReflections(3),
             knownPeople = peopleMemory.summary(),
