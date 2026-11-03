@@ -9,8 +9,8 @@ APP_APK="$GITHUB_WORKSPACE/eve-project/app/build/outputs/apk/debug/app-debug.apk
 TEST_APK="$GITHUB_WORKSPACE/eve-project/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk"
 mkdir -p "$RESULT_DIR"
 
-echo "EVE Tiny Arabic Brain Android verification" | tee "$RESULT_DIR/environment.txt"
-echo "Expected: local Arabic fallback replies without network access or bundled model weights; llama.cpp runtime libraries are allowed." | tee -a "$RESULT_DIR/environment.txt"
+echo "EVE Bespoke Compact Arabic Brain Android verification" | tee "$RESULT_DIR/environment.txt"
+echo "Expected: bespoke Arabic dialogue works without network, pretrained LLM weights, or llama.cpp native libraries." | tee -a "$RESULT_DIR/environment.txt"
 
 for APK in "$APP_APK" "$TEST_APK"; do
   if [ ! -s "$APK" ]; then
@@ -28,13 +28,13 @@ fi
 
 APK_ENTRIES="$RESULT_DIR/apk-entries.txt"
 unzip -Z1 "$APP_APK" > "$APK_ENTRIES"
-MODEL_WEIGHTS_PATTERN='(^|/)models/[^/]*\.(gguf|safetensors|pt|pth)$|Qwen|litertlm'
+MODEL_WEIGHTS_PATTERN='(^|/)models/[^/]*\.(gguf|safetensors|pt|pth)$|Qwen|litertlm|libllama(_jni)?\.so'
 if grep -Eiq "$MODEL_WEIGHTS_PATTERN" "$APK_ENTRIES"; then
   echo "FAIL: generative-model weights are present in this fallback-only APK." | tee -a "$RESULT_DIR/environment.txt"
   grep -Ein "$MODEL_WEIGHTS_PATTERN" "$APK_ENTRIES" | tee -a "$RESULT_DIR/environment.txt" || true
   exit 4
 fi
-echo "PASS: no generative-model weights are packaged; native runtime libraries are allowed." | tee -a "$RESULT_DIR/environment.txt"
+echo "PASS: no pretrained language weights or llama.cpp native libraries are packaged." | tee -a "$RESULT_DIR/environment.txt"
 
 wait_for_device() {
   adb start-server >/dev/null 2>&1 || true
@@ -92,7 +92,7 @@ adb logcat -d -v threadtime > "$RESULT_DIR/logcat.txt" 2>&1 || true
 
 if [ "$INSTRUMENTATION_EXIT" -ne 0 ] ||
    grep -Eq 'FAILURES!!!|INSTRUMENTATION_FAILED|INSTRUMENTATION_STATUS_CODE: -2' "$RESULT_DIR/instrumentation-output.txt"; then
-  echo "FAIL: Tiny Arabic Brain instrumentation failed (exit=$INSTRUMENTATION_EXIT)." | tee -a "$RESULT_DIR/environment.txt"
+  echo "FAIL: bespoke Arabic Brain instrumentation failed (exit=$INSTRUMENTATION_EXIT)." | tee -a "$RESULT_DIR/environment.txt"
   exit 7
 fi
 if ! grep -Eq 'OK \([0-9]+ tests?\)' "$RESULT_DIR/instrumentation-output.txt"; then
@@ -108,4 +108,4 @@ if ! grep -Fq 'TINY_ARABIC_BRAIN_SPEED_PASS' "$RESULT_DIR/logcat.txt"; then
   exit 10
 fi
 
-echo "PASS: EVE Tiny Arabic Brain ran on Android with Wi-Fi/mobile data disabled and no bundled generative model weights." | tee -a "$RESULT_DIR/environment.txt"
+echo "PASS: EVE's bespoke Arabic Brain ran on Android with Wi-Fi/mobile data disabled, no pretrained language weights, and no llama.cpp runtime." | tee -a "$RESULT_DIR/environment.txt"
