@@ -36,6 +36,20 @@ class LocalLanguageBrainIntegrationTest {
             assertTrue("Greeting intent was not recognized.", greeting.confidence >= 0.44f)
             assertEquals("greeting", EveTinyArabicBrain.classify("أهلاً يا إيف").intent)
 
+            val dialectCases = listOf(
+                "شلونك يا إيف" to "greeting",
+                "وش تشوفين؟" to "vision",
+                "وين الكاميرا؟" to "camera"
+            )
+            dialectCases.forEach { (phrase, expected) ->
+                assertEquals(
+                    "Dialect classification failed on Android for: $phrase",
+                    expected,
+                    EveTinyArabicBrain.classify(phrase).intent
+                )
+            }
+            Log.i(TAG, "TINY_ARABIC_DIALECT_PASS cases=${dialectCases.size}")
+
             // Warm up the tiny classifier once, then measure repeated local answer generation.
             // This is a smoke performance ceiling, not a claim about every phone's exact latency.
             val speedStart = System.nanoTime()
