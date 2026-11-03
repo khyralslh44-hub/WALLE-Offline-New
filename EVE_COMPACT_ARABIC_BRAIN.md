@@ -9,7 +9,7 @@ EVE's everyday Arabic understanding and reply composition are implemented specif
 1. **Arabic normalization:** removes optional diacritics and normalizes common alef/hamza and spelling variants before comparison.
 2. **Compact understanding:** represents an utterance with hashed word, character n-gram, and adjacent-word features. Small intent prototypes classify supported conversational meanings without a neural checkpoint or external tokenizer.
 3. **Context grounding:** the response engine receives bounded dialogue history, EVE's current behavior state, saved local notes, and only fresh visual evidence. A generic visual label is never treated as a person's identity.
-4. **Arabic reply composition:** EVE selects and combines EVE-specific Arabic response patterns, filling only slots supported by the current context. Recent replies are considered to reduce repetition.
+4. **Semantic response composition:** EVE extracts a speech act (why/how/what/yes-no/request), a topic, user-state cues, and short follow-up references. A compact Arabic grammar realizer builds clauses from those semantic slots and grounded local evidence such as recent observations, scene summaries, mood reason, and saved concepts. It does not select a complete answer from a bank of finished sentences.
 5. **Honest uncertainty:** unsupported general-knowledge questions are not forced into a nearby intent. EVE asks the user to clarify or states that it does not know.
 
 ## Package and runtime
@@ -20,7 +20,7 @@ EVE's everyday Arabic understanding and reply composition are implemented specif
 - No language-model network call exists in the dialogue path.
 - Runtime state and conversational processing remain on the Android device.
 
-The engine is designed to be small and deterministic. Its size is mainly Kotlin code and compact feature structures, not hundreds of megabytes of language weights.
+The engine is designed to be small and deterministic. Its size is mainly Kotlin code and compact feature structures, not hundreds of megabytes of language weights. Its response realizer is a bounded rule-based composer: it can combine meaning and context for the supported companion domain, but it is not unrestricted open-domain text generation.
 
 ## What “custom” and “learning” mean here
 
