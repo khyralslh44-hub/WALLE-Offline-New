@@ -37,7 +37,7 @@ internal object EveArabicSemanticComposer {
         val scene = context.latestSceneSummary
             .takeIf { context.sceneObservationAgeMs in 0L..20_000L && it.isNotBlank() }
             ?.let { clean(it, 250) }
-        val remembered = context.recentObservations.lastOrNull()
+        val remembered = context.recentObservations.firstOrNull()
             ?.takeIf { it.isNotBlank() }?.let { clean(it, 100) }
 
         val body = when (intent) {
@@ -298,7 +298,7 @@ internal object EveArabicSemanticComposer {
     }
 
     private fun memory(context: LocalLlmContext, remembered: String?): String {
-        val observations = context.recentObservations.takeLast(2)
+        val observations = context.recentObservations.take(2)
             .filter { it.isNotBlank() }.map { clean(it, 85) }
         val dialogue = lastUser(context)?.let { clean(it, 85) }
         val learned = context.knownConcepts.take(3).filter { it.isNotBlank() }
@@ -343,12 +343,12 @@ internal object EveArabicSemanticComposer {
     }
 
     private fun lastUser(context: LocalLlmContext): String? {
-        val entry = context.recentDialogues.lastOrNull { it.contains("المستخدم:") } ?: return null
+        val entry = context.recentDialogues.firstOrNull { it.contains("المستخدم:") } ?: return null
         return entry.substringAfter("المستخدم:", "").substringBefore("| إيف:").trim().takeIf { it.isNotBlank() }
     }
 
     private fun lastAssistant(context: LocalLlmContext): String? {
-        val entry = context.recentDialogues.lastOrNull { it.contains("| إيف:") } ?: return null
+        val entry = context.recentDialogues.firstOrNull { it.contains("| إيف:") } ?: return null
         return entry.substringAfter("| إيف:", "").trim().takeIf { it.isNotBlank() }
     }
 
