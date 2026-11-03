@@ -35,10 +35,8 @@ class EveConceptLearningTest {
         assertEquals(2, memory.observe("car", 0.89f, 1_006_000L)?.evidenceCount)
         assertEquals(EveConceptLearningStatus.VERIFICATION_PROGRESS,
             memory.observe("car", 0.94f, 1_009_000L)?.status)
-        assertEquals("سيارة", memory.confirmedNameFor("car").let { 
-            // Confirmation needs both three distinct samples and the minimum time span.
-            it
-        } ?: "سيارة_PENDING")
+        // Three observations are not enough until the minimum evidence time span is reached.
+        assertNull(memory.confirmedNameFor("car"))
 
         val confirmed = memory.observe("car", 0.92f, 1_012_000L)
         assertEquals(EveConceptLearningStatus.CONFIRMED, confirmed?.status)
