@@ -34,3 +34,7 @@ The Android build workflow runs `.github/scripts/build-eve-arabic-gguf.sh` befor
 This is a genuinely generative model, but it is only around 50M parameters and Arabic-only. Its model card warns that it can hallucinate and has weak multi-step reasoning; it is not suitable for medical, legal, financial, emergency, or other high-stakes decisions. The host smoke tests prove that the quantized checkpoint can generate Arabic text; they do not prove useful reasoning or target-phone speed. Redmi 12 latency, RAM use, temperature and response quality still require a real-device test.
 
 The app's core inference path does not need internet after installation because the model is bundled into the APK. CI itself downloads model files only while building.
+
+## Reproducible tokenizer conversion note
+
+The pinned Supra Arabic checkpoint ships a custom BPE vocabulary with a verified ByteLevel pre-tokenizer (`tokenizer.json`: ByteLevel, regex enabled). The CI conversion step validates that exact tokenizer configuration after the pinned checkpoint download and maps its observed tokenizer fingerprint to llama.cpp's `gpt-2` ByteLevel pre-tokenization implementation. It does not replace the checkpoint vocabulary or tokenizer files. The conversion and held-out generation steps must still pass before the APK can be treated as built and verified.
