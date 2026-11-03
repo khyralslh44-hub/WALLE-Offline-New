@@ -463,10 +463,40 @@ adb logcat -c
 echo "Opening the game room using the in-app hidden status-chip gesture." | tee -a "$RESULTS_DIR/result.txt"
 adb shell "input tap $X $Y; sleep 0.35; input tap $X $Y"
 sleep 0.4
-TOP_X=$((WIDTH / 2))
-TOP_Y=$((HEIGHT / 20))
+# Locate the actual status chip instead of assuming a fixed y-coordinate. The chip
+# is a real accessible view but its vertical center changes with density/insets.
+timeout 15s adb shell uiautomator dump /sdcard/eve-status-chip.xml > "$RESULTS_DIR/status-chip-dump.txt" 2>&1 || true
+timeout 15s adb pull /sdcard/eve-status-chip.xml "$RESULTS_DIR/status-chip.xml" >/dev/null 2>&1 || true
+STATUS_CHIP="$(python3 - "$RESULTS_DIR/status-chip.xml" "$HEIGHT" "$WIDTH" <<'PY'
+import re, sys
+from pathlib import Path
+import xml.etree.ElementTree as ET
+p = Path(sys.argv[1])
+height, width = int(sys.argv[2]), int(sys.argv[3])
+if p.exists():
+    try:
+        root = ET.parse(p).getroot()
+        for node in root.iter("node"):
+            text = node.attrib.get("text", "") or ""
+            desc = node.attrib.get("content-desc", "") or ""
+            bounds = node.attrib.get("bounds", "")
+            if "حالة الميكروفون" in desc or "انقر مرتين للتبديل" in text:
+                m = re.fullmatch(r"\\[(\\d+),(\\d+)\\]\\[(\\d+),(\\d+)\\]", bounds)
+                if m:
+                    x1, y1, x2, y2 = map(int, m.groups())
+                    print((x1+x2)//2, (y1+y2)//2)
+                    raise SystemExit(0)
+    except ET.ParseError:
+        pass
+# Accessibility hierarchy can be transient during a camera transition. The fallback is
+# centered on the app's top status chip (16dp top margin), not the old height/20 point.
+print(width//2, max(1, height//30))
+PY
+)"
+read -r TOP_X TOP_Y <<< "$STATUS_CHIP"
+echo "Long-pressing the status chip at ($TOP_X,$TOP_Y)." | tee -a "$RESULTS_DIR/result.txt"
 adb shell input swipe "$TOP_X" "$TOP_Y" "$TOP_X" "$TOP_Y" 900
-sleep 2
+sleep 1
 timeout 15s adb shell uiautomator dump /sdcard/eve-game-menu.xml > "$RESULTS_DIR/game-menu-dump.txt" 2>&1 || true
 timeout 15s adb pull /sdcard/eve-game-menu.xml "$RESULTS_DIR/game-menu.xml" >/dev/null 2>&1 || true
 CHESS_MENU="$(python3 - "$RESULTS_DIR/game-menu.xml" <<'PY'
