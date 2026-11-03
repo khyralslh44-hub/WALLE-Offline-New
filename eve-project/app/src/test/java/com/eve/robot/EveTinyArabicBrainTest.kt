@@ -214,7 +214,8 @@ class EveTinyArabicBrainTest {
     @Test fun semanticComposerResolvesShortFollowUpFromRecentDialogue() {
         val context = LocalLlmContext(
             recentDialogues = listOf(
-                "المستخدم: هل تعملين بدون إنترنت؟ | إيف: يعمل محرك الحوار محلياً على الهاتف."
+                "المستخدم: هل تعملين بدون إنترنت؟ | إيف: يعمل محرك الحوار محلياً على الهاتف.",
+                "المستخدم: كيف أغيّر الكاميرا؟ | إيف: انقر مرتين على الوجه للتبديل."
             )
         )
         val reply = EveTinyArabicBrain.answerUser("ولماذا؟", context).replyArabic
