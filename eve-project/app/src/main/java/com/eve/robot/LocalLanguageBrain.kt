@@ -12,7 +12,10 @@ import java.util.concurrent.atomic.AtomicInteger
 enum class LocalLlmState { WAITING_FOR_WIFI, DOWNLOADING, LOADING, READY, ERROR }
 
 data class LocalLlmContext(
+    // Raw candidate emitted by the visual classifier; never replaced by a user-taught name.
     val latestVisionLabel: String? = null,
+    val latestLearnedConcept: String? = null,
+    val knownConcepts: List<String> = emptyList(),
     val visionConfidence: Float = 0f,
     val visionObservationAgeMs: Long = Long.MAX_VALUE,
     val sightingCount: Int = 0,
