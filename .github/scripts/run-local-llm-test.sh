@@ -9,6 +9,13 @@ APP_APK="$GITHUB_WORKSPACE/eve-project/app/build/outputs/apk/debug/app-debug.apk
 TEST_APK="$GITHUB_WORKSPACE/eve-project/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk"
 mkdir -p "$RESULT_DIR"
 
+SOURCE_ROOT="$GITHUB_WORKSPACE/eve-project/app/src/main"
+GRADLE_FILE="$GITHUB_WORKSPACE/eve-project/app/build.gradle.kts"
+if grep -R -nE 'EveArabicLlmRuntime|eve-arabic-50m-q4|Qwen3-0\.6B|dev\.ffmpegkit\.maintained:llama-android' "$SOURCE_ROOT" "$GRADLE_FILE"; then
+  echo "FAIL: obsolete pretrained LLM path or llama.cpp dependency is still referenced." | tee "$RESULT_DIR/environment.txt"
+  exit 1
+fi
+
 echo "EVE Bespoke Compact Arabic Brain Android verification" | tee "$RESULT_DIR/environment.txt"
 echo "Expected: bespoke Arabic dialogue works without network, pretrained LLM weights, or llama.cpp native libraries." | tee -a "$RESULT_DIR/environment.txt"
 
