@@ -322,10 +322,8 @@ internal object EveTinyArabicBrain {
     }
 
     /**
-     * Generates Arabic replies from small intent-conditioned phrase banks.
-     * Slots are filled from fresh perception and local memory. Recent assistant replies are
-     * excluded when possible, so repeated prompts do not always produce the same sentence.
-     * This is a compact on-device response generator, not an open-domain generative LLM.
+     * Returns visual evidence only while it is recent and sufficiently confident.
+     * The semantic composer must not turn stale camera labels into current observations.
      */
     private fun freshVisionLabel(context: LocalLlmContext): String? {
         val fresh = context.visionObservationAgeMs in 0L..12_000L
