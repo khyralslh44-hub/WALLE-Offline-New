@@ -485,9 +485,12 @@ class MainActivity : ComponentActivity() {
         }
         brain = RobotBrain(memory.learnedPersonality())
         voice = RobotVoice()
-        localLanguageBrain = LocalLanguageBrain(applicationContext) { state, percent, message ->
-            handleLocalLanguageStatus(state, percent, message)
-        }
+        localLanguageBrain = LocalLanguageBrain(
+            applicationContext,
+            statusListener = { state, percent, message ->
+                handleLocalLanguageStatus(state, percent, message)
+            }
+        )
         localLanguageBrain.start()
         initializeHandGestureRecognizer()
         initializeOfflineObjectDetector()
