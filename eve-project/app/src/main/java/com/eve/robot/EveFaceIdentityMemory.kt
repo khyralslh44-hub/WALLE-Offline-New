@@ -1,6 +1,9 @@
 package com.eve.robot
 
 import android.content.Context
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
+import android.util.Base64
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
@@ -12,6 +15,11 @@ import java.io.Closeable
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.security.KeyStore
+import javax.crypto.Cipher
+import javax.crypto.KeyGenerator
+import javax.crypto.SecretKey
+import javax.crypto.spec.GCMParameterSpec
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.channels.FileChannel
@@ -165,15 +173,20 @@ class EveFaceIdentityMemory(context: Context) {
         val all = readProfiles().toMutableList()
         val identityKey = "${person.key}:${EvePersonUtteranceParser.normalize(person.name)}"
         val existing = all.firstOrNull { it.personKey == identityKey }
-        val fileName = existing?.imageFile ?: "face_${UUID.randomUUID()}.jpg"
+        val fileName = existing?.imageFile ?: "face_${UUID.randomUUID()}.enc"
         val destination = File(folder, fileName)
         val temporary = File(folder, "$fileName.tmp")
         val scaled = Bitmap.createScaledBitmap(faceCrop, INPUT_SIZE, INPUT_SIZE, true)
         try {
-            FileOutputStream(temporary).use { stream ->
-                check(scaled.compress(Bitmap.CompressFormat.JPEG, 94, stream)) {
+            val jpeg = java.io.ByteArrayOutputStream().use { output ->
+                check(scaled.compress(Bitmap.CompressFormat.JPEG, 94, output)) {
                     "Could not encode the private face reference."
                 }
+                output.toByteArray()
+            }
+            val sealed = encryptLocal(jpeg)
+            FileOutputStream(temporary).use { stream ->
+                stream.write(sealed)
                 stream.fd.sync()
             }
             if (!temporary.renameTo(destination)) {
@@ -209,7 +222,12 @@ class EveFaceIdentityMemory(context: Context) {
         val scored = readProfiles().mapNotNull { profile ->
             val file = File(folder, profile.imageFile)
             if (!file.isFile || file.length() <= 0) return@mapNotNull null
-            val reference = BitmapFactory.decodeFile(file.absolutePath) ?: return@mapNotNull null
+            val reference = try {
+                val plain = decryptLocal(file.readBytes())
+                BitmapFactory.decodeByteArray(plain, 0, plain.size)
+            } catch (_: Exception) {
+                null
+            } ?: return@mapNotNull null
             val score = try {
                 matcher.similarity(reference, faceCrop)
             } catch (_: Exception) {
@@ -232,8 +250,13 @@ class EveFaceIdentityMemory(context: Context) {
     }
 
     private fun readProfiles(): List<EveFaceIdentityProfile> {
-        val json = prefs.getString(KEY_PROFILES, null) ?: return emptyList()
+        val stored = prefs.getString(KEY_PROFILES, null) ?: return emptyList()
         return try {
+            // Legacy plaintext metadata is read once for migration; all subsequent writes are sealed.
+            val json = if (stored.startsWith(ENCRYPTED_PREFIX)) {
+                val sealed = Base64.decode(stored.removePrefix(ENCRYPTED_PREFIX), Base64.NO_WRAP)
+                String(decryptLocal(sealed), Charsets.UTF_8)
+            } else stored
             val array = JSONArray(json)
             buildList {
                 for (i in 0 until array.length()) {
@@ -269,14 +292,52 @@ class EveFaceIdentityMemory(context: Context) {
                     .put("createdAtMs", profile.createdAtMs)
             )
         }
-        check(prefs.edit().putString(KEY_PROFILES, array.toString()).commit()) {
-            "Could not persist private face profile metadata."
+        val sealed = encryptLocal(array.toString().toByteArray(Charsets.UTF_8))
+        val encoded = ENCRYPTED_PREFIX + Base64.encodeToString(sealed, Base64.NO_WRAP)
+        check(prefs.edit().putString(KEY_PROFILES, encoded).commit()) {
+            "Could not persist encrypted private face profile metadata."
         }
+    }
+
+    private fun encryptLocal(plain: ByteArray): ByteArray {
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, localEncryptionKey())
+        return cipher.iv + cipher.doFinal(plain)
+    }
+
+    private fun decryptLocal(sealed: ByteArray): ByteArray {
+        require(sealed.size > GCM_IV_BYTES) { "Encrypted face memory is truncated." }
+        val iv = sealed.copyOfRange(0, GCM_IV_BYTES)
+        val ciphertext = sealed.copyOfRange(GCM_IV_BYTES, sealed.size)
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.DECRYPT_MODE, localEncryptionKey(), GCMParameterSpec(128, iv))
+        return cipher.doFinal(ciphertext)
+    }
+
+    private fun localEncryptionKey(): SecretKey {
+        val store = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+        (store.getKey(KEY_ALIAS, null) as? SecretKey)?.let { return it }
+        val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEYSTORE)
+        generator.init(
+            KeyGenParameterSpec.Builder(
+                KEY_ALIAS,
+                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
+            )
+                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                .setRandomizedEncryptionRequired(true)
+                .build()
+        )
+        return generator.generateKey()
     }
 
     companion object {
         private const val KEY_PROFILES = "profiles_json"
         private const val MAX_PROFILES = 24
         private const val INPUT_SIZE = 112
+        private const val GCM_IV_BYTES = 12
+        private const val ENCRYPTED_PREFIX = "EVE_FACE_V1:"
+        private const val ANDROID_KEYSTORE = "AndroidKeyStore"
+        private const val KEY_ALIAS = "eve.face.identity.aes.v1"
     }
 }
