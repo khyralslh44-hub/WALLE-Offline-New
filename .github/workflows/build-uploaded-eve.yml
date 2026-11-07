@@ -11,6 +11,7 @@ on:
       - '.github/scripts/eve-closed-loop.py'
       - '.github/scripts/eve-cognitive-architecture.py'
       - '.github/scripts/prepare-eve-standalone.py'
+      - '.github/workflows/build-uploaded-eve.yml'
       - '.github/scripts/eve-core-memory.py'
 
 permissions:
@@ -90,7 +91,7 @@ jobs:
           from pathlib import Path
           import re,sys
           s=Path(sys.argv[1]).read_text(encoding="utf-8")
-          blocks=re.findall(r'<script(?:\\s[^>]*)?>(.*?)</script>',s,re.S)
+          blocks=re.findall(r'<script(?:\s[^>]*)?>(.*?)</script>',s,re.S)
           js=[b for b in blocks if len(b)>1000 and not b.lstrip().startswith('{"E":')]
           if len(js)!=1: raise SystemExit(f"Expected one app JS block, found {len(js)}")
           Path("/tmp/eve-app-check.js").write_text(js[0],encoding="utf-8")
