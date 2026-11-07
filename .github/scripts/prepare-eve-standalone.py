@@ -4,7 +4,7 @@ from pathlib import Path
 import re, sys
 
 PACKAGE = "com.eve.companion.standalone"
-LABEL = "إيف 4.0"
+LABEL = "إيف 5.0"
 
 def replace_once(text, pattern, repl, flags=0, label=""):
     out, n = re.subn(pattern, repl, text, count=1, flags=flags)
@@ -22,9 +22,9 @@ def main(root: Path):
     g = replace_once(g, r'applicationId\s*=\s*"[^"]+"',
                      f'applicationId = "{PACKAGE}"', label="applicationId")
     g = replace_once(g, r'versionCode\s*=\s*\d+',
-                     'versionCode = 5', label="versionCode")
+                     'versionCode = 6', label="versionCode")
     g = replace_once(g, r'versionName\s*=\s*"[^"]+"',
-                     'versionName = "4.0"', label="versionName")
+                     'versionName = "5.0"', label="versionName")
     gradle.write_text(g, encoding="utf-8")
 
     m = manifest.read_text(encoding="utf-8")
@@ -92,7 +92,7 @@ def main(root: Path):
         raise SystemExit("Standalone applicationId not found after patch")
     if 'android:icon="@mipmap/ic_launcher"' not in m:
         raise SystemExit("Launcher icon was not attached to the manifest")
-    print(f"Prepared side-by-side EVE app: {PACKAGE}, version 5 (4.0), adaptive launcher icon")
+    print(f"Prepared side-by-side EVE app: {PACKAGE}, version 6 (5.0), adaptive launcher icon")
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
