@@ -12,6 +12,7 @@ import com.google.mlkit.vision.face.FaceDetection
 import com.google.mlkit.vision.face.FaceDetector
 import com.google.mlkit.vision.face.FaceDetectorOptions
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -67,6 +68,19 @@ class FaceIdentityIntegrationTest {
             assertNotNull("The newly enrolled local face should match the same face crop.", match)
             assertEquals(profile.id, match?.profile?.id)
             assertTrue("Stored JPEG reference fell below threshold.", match!!.similarity >= 0.80f)
+            // Reopen the local store to verify identity survives later app sessions.
+            val reopenedMemory = EveFaceIdentityMemory(appContext)
+            val reopenedProfile = reopenedMemory.profiles().single()
+            assertEquals(profile.id, reopenedProfile.id)
+            val afterRestart = reopenedMemory.recognize(enrolledFace, matcher)
+            assertNotNull("The enrolled face must still match after reopening memory.", afterRestart)
+            assertEquals(profile.id, afterRestart?.profile?.id)
+            val encryptedFaceFile = appContext.filesDir.resolve("eve_face_profiles/" + profile.imageFile)
+            val encryptedBytes = encryptedFaceFile.readBytes()
+            assertFalse("Face reference must not be a raw JPEG.", encryptedBytes.size >= 2 && encryptedBytes[0] == 0xFF.toByte() && encryptedBytes[1] == 0xD8.toByte())
+            val storedMetadata = appContext.getSharedPreferences("eve_face_identity_memory", Context.MODE_PRIVATE).getString("profiles_json", "") ?: ""
+            assertTrue("Identity metadata must use encrypted format.", storedMetadata.startsWith("EVE_FACE_V1:"))
+            assertFalse("Person name must not be readable in preferences.", storedMetadata.contains(person.name))
             assertNull(
                 "A different person's face must not be assigned the enrolled name.",
                 memory.recognize(differentFace, matcher)
