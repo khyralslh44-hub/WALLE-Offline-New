@@ -29,7 +29,7 @@ def main(root: Path):
 
     m = manifest.read_text(encoding="utf-8")
     old = '<application android:label="إيف" android:allowBackup="false"'
-    new = ('<application android:label="إيف 4.0" '
+    new = ('<application android:label="إيف 5.0" '
            'android:icon="@mipmap/ic_launcher" '
            'android:roundIcon="@mipmap/ic_launcher" '
            'android:allowBackup="false"')
