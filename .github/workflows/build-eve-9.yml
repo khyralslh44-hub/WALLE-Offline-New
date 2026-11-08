@@ -212,8 +212,8 @@ jobs:
           BADGING="$("$AAPT" dump badging "$APK")"
           echo "$BADGING"
           [[ "$BADGING" == *"name='com.eve.companion.standalone'"* ]]
-          [[ "$BADGING" == *"versionCode='6'"* ]]
-          [[ "$BADGING" == *"versionName='4.1'"* ]]
+          [[ "$BADGING" == *"versionCode='7'"* ]]
+          [[ "$BADGING" == *"versionName='5.0'"* ]]
           RESOURCES="$("$AAPT" dump resources "$APK")"
           [[ "$RESOURCES" == *"mipmap/ic_launcher"* ]]
           [[ "$RESOURCES" == *"drawable/ic_eve_foreground"* ]]
@@ -231,9 +231,9 @@ jobs:
           {
             echo "## EVE APK build"
             echo ""
-            echo "- Source: eve-android (9).zip"
+            echo "- Source: eve-android (9).zip"\n            echo "- Cognitive core: bounded memory, confidence-aware planning, prediction error, working memory, and outcome learning"
             echo "- Package: com.eve.companion.standalone (side-by-side install; previous EVE is preserved)"
-            echo "- Launcher label: EVE 4.1"
+            echo "- Launcher label: EVE 5.0"
             echo "- Target: Android / Redmi 12 compatible configuration"
             echo "- Internet permission in source manifest: not declared"
             if [ -n "${APK_SIZE:-}" ]; then echo "- APK size: $APK_SIZE"; fi
