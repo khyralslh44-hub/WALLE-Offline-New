@@ -4,7 +4,7 @@ from pathlib import Path
 import re, sys
 
 PACKAGE = "com.eve.companion.standalone"
-LABEL = "إيف 4.1"
+LABEL = "إيف 5.0"
 
 def replace_once(text, pattern, repl, flags=0, label=""):
     out, n = re.subn(pattern, repl, text, count=1, flags=flags)
@@ -22,14 +22,14 @@ def main(root: Path):
     g = replace_once(g, r'applicationId\s*=\s*"[^"]+"',
                      f'applicationId = "{PACKAGE}"', label="applicationId")
     g = replace_once(g, r'versionCode\s*=\s*\d+',
-                     'versionCode = 6', label="versionCode")
+                     'versionCode = 7', label="versionCode")
     g = replace_once(g, r'versionName\s*=\s*"[^"]+"',
-                     'versionName = "4.1"', label="versionName")
+                     'versionName = "5.0"', label="versionName")
     gradle.write_text(g, encoding="utf-8")
 
     m = manifest.read_text(encoding="utf-8")
     old = '<application android:label="إيف" android:allowBackup="false"'
-    new = ('<application android:label="إيف 4.1" '
+    new = ('<application android:label="إيف 5.0" '
            'android:icon="@mipmap/ic_launcher" '
            'android:roundIcon="@mipmap/ic_launcher" '
            'android:allowBackup="false"')
