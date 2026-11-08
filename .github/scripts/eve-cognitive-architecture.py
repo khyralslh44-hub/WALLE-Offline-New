@@ -35,7 +35,7 @@ function eveEvidence(now){
   confidence=eveClip(Number(confidence)||0,0,1);
   if(confidence>=.12)out.push({kind,label:String(label||'').slice(0,80),c:confidence,source,detail:String(detail||'').slice(0,100),t:now});
  };
- if(typeof FACE!=='undefined'&&FACE)add('social',IDS&&IDS.who?'شخص معروف: '+IDS.who:'وجه بشري ظاهر',IDS&&IDS.conf?Math.max(.55,IDS.conf):.72,'face');
+ if(typeof FACE!=='undefined'&&FACE){const known=typeof IDS!=='undefined'&&IDS;add('social',known&&known.who?'شخص معروف: '+known.who:'وجه بشري ظاهر',known&&known.conf?Math.max(.55,known.conf):.72,'face');}
  if(Array.isArray(OBJ))for(const o of OBJ.slice(0,8))if(o&&o.l)add('object',o.l,o.s||.25,'detector');
  if(typeof ACT!=='undefined'&&ACT&&ACT.n)add('activity',ACT.n,ACT.c||.3,'temporal-activity');
  if(typeof PLACE!=='undefined'&&PLACE)add('place',PLACE,.78,'place-memory');
@@ -111,7 +111,7 @@ function eveCognitivePlan(){
  const q=Array.from({length:6},(_,a)=>{let v=0,o=a*NZ;for(let i=0;i<NZ;i++)v+=BR.Wg[o+i]*BR.z[i];return v});
  const traits=c.traits,night=(new Date().getHours()>=23||new Date().getHours()<6)?1:0;
  const util=[
-  (1-app.energy)*1.45+night*.22+(lowPower?.35:0),
+  (1-app.energy)*1.45+night*.22+((typeof lowPower!=='undefined'&&lowPower)? .35:0),
   app.novelty*1.05+traits.curiosity*.38*app.uncertainty+(camOn?.18:0)-app.risk*.8,
   app.boredom*.75+(app.social?.12:0)-.35*(app.energy<.22?1:0),
   app.valence*.28+app.energy*.35+traits.playfulness*.35+(app.social?.25:0)-.5*(app.energy<.3?1:0),
