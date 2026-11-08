@@ -601,7 +601,7 @@ class MainActivity : ComponentActivity() {
             context = applicationContext,
             onTranscript = { recognizedText ->
                 if (!isFinishing && !isDestroyed) {
-                    handleRecognizedSpeech(recognizedText, "offline_vosk")
+                    handleRecognizedSpeech(recognizedText, "offline_moonshine")
                 }
             },
             onStatus = { status ->
