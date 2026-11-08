@@ -13,7 +13,7 @@ def patch(p):
     if "EVE_VERIFIED_OBJECT_LEARNING_V1" in s:
         print("verified learning already applied"); return
     s=once(s,
-      'M.cfg=Object.assign({idFloor:.65,thFloor:.78,cam:true,mic:true,ev:true,msgs:true,stt:'auto'},M.cfg||{});',
+      "M.cfg=Object.assign({idFloor:.65,thFloor:.78,cam:true,mic:true,ev:true,msgs:true,stt:'auto'},M.cfg||{});",
       """/*EVE_VERIFIED_OBJECT_LEARNING_V1*/
 M.objectCandidates=M.objectCandidates||{};
 for(const k of Object.keys(M.objectCandidates).slice(12))delete M.objectCandidates[k];
