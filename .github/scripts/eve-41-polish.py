@@ -19,7 +19,7 @@ vision.write_text(v, encoding="utf-8")
 
 s = html.read_text(encoding="utf-8")
 anchor = "let lastSay=0;\nfunction tick(){"
-addition = """let lastSay=0;
+addition = """
 /* EVE 4.1: small, context-led autonomous gestures; no random speech or cloud calls. */
 let lastMagicSpark=0, magicTurn=0;
 function magicSpark(now){
