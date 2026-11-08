@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # Build patch revision: single-pass invocation after temporal vision gate.
 from pathlib import Path
+# Build workflow fix: ensure ZIP 9 uses this validated compatibility patch.
 import sys
 
 def once(s, old, new, label):
