@@ -90,20 +90,32 @@ fi
 echo "Instrumentation package: $TEST_PACKAGE" | tee -a "$RESULT_DIR/environment.txt"
 
 INSTRUMENTATION_EXIT=0
-timeout 180s adb shell am instrument -w -r \
-  -e class com.eve.robot.LocalLanguageBrainIntegrationTest,com.eve.robot.LibyanDialectNormalizationIntegrationTest \
-  "$TEST_PACKAGE/androidx.test.runner.AndroidJUnitRunner" \
-  > "$RESULT_DIR/instrumentation-output.txt" 2>&1 || INSTRUMENTATION_EXIT=$?
-cat "$RESULT_DIR/instrumentation-output.txt"
+: > "$RESULT_DIR/instrumentation-output.txt"
+for TEST_CLASS in \
+  com.eve.robot.LocalLanguageBrainIntegrationTest \
+  com.eve.robot.LibyanDialectNormalizationIntegrationTest; do
+  CLASS_OUTPUT="$RESULT_DIR/instrumentation-${TEST_CLASS##*.}.txt"
+  CLASS_EXIT=0
+  timeout 180s adb shell am instrument -w -r \
+    -e class "$TEST_CLASS" \
+    "$TEST_PACKAGE/androidx.test.runner.AndroidJUnitRunner" \
+    > "$CLASS_OUTPUT" 2>&1 || CLASS_EXIT=$?
+  cat "$CLASS_OUTPUT" | tee -a "$RESULT_DIR/instrumentation-output.txt"
+  if [ "$CLASS_EXIT" -ne 0 ] ||
+     grep -Eq 'FAILURES!!!|INSTRUMENTATION_FAILED|INSTRUMENTATION_STATUS_CODE: -2' "$CLASS_OUTPUT" ||
+     ! grep -Eq 'OK \([0-9]+ tests?\)' "$CLASS_OUTPUT"; then
+    echo "FAIL: Android instrumentation failed for $TEST_CLASS (exit=$CLASS_EXIT)." | tee -a "$RESULT_DIR/environment.txt"
+    INSTRUMENTATION_EXIT=1
+  fi
+done
 adb logcat -d -v threadtime > "$RESULT_DIR/logcat.txt" 2>&1 || true
 
-if [ "$INSTRUMENTATION_EXIT" -ne 0 ] ||
-   grep -Eq 'FAILURES!!!|INSTRUMENTATION_FAILED|INSTRUMENTATION_STATUS_CODE: -2' "$RESULT_DIR/instrumentation-output.txt"; then
-  echo "FAIL: bespoke Arabic Brain instrumentation failed (exit=$INSTRUMENTATION_EXIT)." | tee -a "$RESULT_DIR/environment.txt"
+if [ "$INSTRUMENTATION_EXIT" -ne 0 ]; then
+  echo "FAIL: bespoke Arabic Brain or Libyan dialect instrumentation failed." | tee -a "$RESULT_DIR/environment.txt"
   exit 7
 fi
-if ! grep -Eq 'OK \([0-9]+ tests?\)' "$RESULT_DIR/instrumentation-output.txt"; then
-  echo "FAIL: AndroidJUnitRunner did not report completed passing tests." | tee -a "$RESULT_DIR/environment.txt"
+if ! grep -Fq 'com.eve.robot.LibyanDialectNormalizationIntegrationTest' "$RESULT_DIR/instrumentation-output.txt"; then
+  echo "FAIL: Libyan dialect regression class did not appear in AndroidJUnitRunner output." | tee -a "$RESULT_DIR/environment.txt"
   exit 8
 fi
 if ! grep -Fq 'TINY_ARABIC_BRAIN_ANDROID_PASS' "$RESULT_DIR/logcat.txt"; then
