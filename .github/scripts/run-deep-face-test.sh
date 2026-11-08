@@ -226,11 +226,13 @@ if [ -z "$AAPT" ]; then
   echo "FAIL: Android aapt was not found; cannot identify instrumentation package." | tee -a "$RESULT_DIR/environment.txt"
   exit 7
 fi
+APP_PACKAGE=$("$AAPT" dump badging "$APK" | sed -n "s/^package: name='\\([^']*\\)'.*/\\1/p" | head -n 1)
 TEST_PACKAGE=$("$AAPT" dump badging "$TEST_APK" | sed -n "s/^package: name='\\([^']*\\)'.*/\\1/p" | head -n 1)
-if [ -z "$TEST_PACKAGE" ]; then
-  echo "FAIL: could not read instrumentation APK package name." | tee -a "$RESULT_DIR/environment.txt"
+if [ -z "$APP_PACKAGE" ] || [ -z "$TEST_PACKAGE" ]; then
+  echo "FAIL: could not read app or instrumentation APK package name." | tee -a "$RESULT_DIR/environment.txt"
   exit 8
 fi
+echo "App APK package: $APP_PACKAGE" | tee -a "$RESULT_DIR/environment.txt"
 echo "Test APK package: $TEST_PACKAGE" | tee -a "$RESULT_DIR/environment.txt"
 sha256sum "$APK" | tee "$RESULT_DIR/apk-sha256.txt"
 sha256sum "$TEST_APK" | tee "$RESULT_DIR/android-test-apk-sha256.txt"
@@ -319,13 +321,13 @@ done
 GALLERY_DEVICE_PATH="files/eye-expression-contact-sheet.png"
 GALLERY_HOST_PATH="$RESULT_DIR/eye-expression-contact-sheet.png"
 GALLERY_PULLED=false
-if timeout 30s adb exec-out run-as com.eve.robot cat "$GALLERY_DEVICE_PATH" > "$GALLERY_HOST_PATH" 2> "$RESULT_DIR/eye-gallery-pull.txt" &&
+if timeout 30s adb exec-out run-as "$APP_PACKAGE" cat "$GALLERY_DEVICE_PATH" > "$GALLERY_HOST_PATH" 2> "$RESULT_DIR/eye-gallery-pull.txt" &&
    [ -s "$GALLERY_HOST_PATH" ]; then
   GALLERY_PULLED=true
 else
   echo "WARN: private-file gallery transfer failed; trying app-specific external storage." | tee -a "$RESULT_DIR/environment.txt"
   rm -f "$GALLERY_HOST_PATH"
-  if timeout 30s adb pull "/sdcard/Android/data/com.eve.robot/files/eye-expression-contact-sheet.png" \
+  if timeout 30s adb pull "/sdcard/Android/data/$APP_PACKAGE/files/eye-expression-contact-sheet.png" \
       "$GALLERY_HOST_PATH" > "$RESULT_DIR/eye-gallery-external-pull.txt" 2>&1 &&
       [ -s "$GALLERY_HOST_PATH" ]; then
     GALLERY_PULLED=true
