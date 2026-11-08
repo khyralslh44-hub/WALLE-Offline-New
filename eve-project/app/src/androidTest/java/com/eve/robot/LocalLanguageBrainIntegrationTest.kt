@@ -44,7 +44,12 @@ class LocalLanguageBrainIntegrationTest {
             val dialectCases = listOf(
                 "شلونك يا إيف" to "greeting",
                 "وش تشوفين؟" to "vision",
-                "وين الكاميرا؟" to "camera"
+                "وين الكاميرا؟" to "camera",
+                "شن حالك يا إيف؟" to "wellbeing",
+                "شن تشوفي قدامك؟" to "vision",
+                "علاش الكاميرا مش شغالة؟" to "camera",
+                "نبي نلعب شطرنج" to "play",
+                "يعطيك الصحة يا إيف" to "thanks"
             )
             dialectCases.forEach { (phrase, expected) ->
                 assertEquals(
