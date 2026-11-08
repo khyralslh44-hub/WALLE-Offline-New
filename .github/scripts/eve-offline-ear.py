@@ -48,3 +48,4 @@ if "createSpeechRecognizer(ctx)" in s:
 
 p.write_text(s, encoding="utf-8")
 print("Applied strict on-device speech recognition patch")
+# Trigger the ZIP 9 build workflow after correcting its speech patch anchor.
