@@ -161,6 +161,7 @@ jobs:
               )
               source = source.replace(bridge, helper + bridge, 1).replace(target, "voiceFactor(style)")
               p.write_text(source, encoding="utf-8")
+          PY
           gradle --no-daemon --stacktrace -p "$SRC" testDebugUnitTest assembleDebug
 
       - name: Verify installable APK, standalone package and launcher icon
