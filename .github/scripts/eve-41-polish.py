@@ -18,7 +18,7 @@ v = v.replace('(if (active) 1000 else 3500)', '(if (active) 1300 else 4500)')
 vision.write_text(v, encoding="utf-8")
 
 s = html.read_text(encoding="utf-8")
-anchor = "let lastSay=0;\nfunction tick(){"
+anchor = "function tick(){"
 addition = """
 /* EVE 4.1: small, context-led autonomous gestures; no random speech or cloud calls. */
 let lastMagicSpark=0, magicTurn=0;
