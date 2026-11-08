@@ -222,7 +222,12 @@ jobs:
           test -s "$MODEL_DIR/tokenizer.bin"
           MODEL_BYTES="$(du -sb "$MODEL_DIR" | awk '{print $1}')"
           test "$MODEL_BYTES" -gt 0
-          test "$MODEL_BYTES" -le 100000000
+          # Arabic Tiny Streaming payload is about 32 MB; a larger payload indicates duplicate cache files.
+          test "$MODEL_BYTES" -le 40000000
+          if [ -e "eve-project/app/src/main/assets/moonshine/download.moonshine.ai" ]; then
+            echo "FAIL: Moonshine CDN cache was accidentally included alongside the canonical model assets."
+            exit 1
+          fi
           AAPT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}/build-tools/35.0.0/aapt"
           for APK in \
             "eve-project/app/build/outputs/apk/debug/app-debug.apk" \
@@ -230,6 +235,10 @@ jobs:
             test -s "$APK"
             ENTRIES="$RUNNER_TEMP/moonshine-apk-entries.txt"
             unzip -Z1 "$APK" > "$ENTRIES"
+            if grep -Fq "assets/moonshine/download.moonshine.ai/" "$ENTRIES"; then
+              echo "FAIL: duplicate Moonshine model cache found in $APK."
+              exit 1
+            fi
             grep -Fq "assets/moonshine/ar/tokenizer.bin" "$ENTRIES"
             grep -Fq "assets/moonshine/ar/" "$ENTRIES"
             while IFS= read -r -d '' FILE; do
