@@ -49,8 +49,21 @@ class LocalLanguageBrainIntegrationTest {
                 "شن تشوفي قدامك؟" to "vision",
                 "علاش الكاميرا مش شغالة؟" to "camera",
                 "نبي نلعب شطرنج" to "play",
-                "يعطيك الصحة يا إيف" to "thanks"
-            )
+                "يعطيك الصحة يا إيف" to "thanks",
+                "مرحبتين يا إيف" to "greeting",
+                "شن حوالك؟" to "wellbeing",
+                "شن اللي قدامك؟" to "vision",
+                "علاش ما تشتغلش الكاميرا؟" to "camera",
+                "تخدمي بلا نت؟" to "offline",
+                "بارك الله فيك يا إيف" to "thanks",
+                "ما قصرتيش يا إيف" to "thanks",
+                "في حفظ الله يا إيف" to "farewell",
+                "نشوفك غدوة يا إيف" to "farewell",
+                "يلا بينا نلعبوا" to "play",
+                "تعالي نلعبوا شوية" to "play",
+                "فزعتك يا إيف" to "help",
+                "نبيك في موضوع" to "help",
+                "قداش عمرك؟" to "identity"
             dialectCases.forEach { (phrase, expected) ->
                 assertEquals(
                     "Dialect classification failed on Android for: $phrase",
