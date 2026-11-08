@@ -46,6 +46,9 @@ class OfflineArabicSpeech(
                     candidate = MicTranscriber(permissionContext)
                         .language("ar")
                         .modelArch(JNI.MOONSHINE_MODEL_ARCH_TINY_STREAMING)
+                        // Arabic uses a higher token rate than Latin languages; prevent valid
+                        // Arabic phrases from being prematurely truncated by the default guard.
+                        .options(mapOf("max_tokens_per_second" to "13.0"))
                         .modelsFrom(modelDirectory)
                         .onText { /* Partial phrases are not executed as commands. */ }
                         .onLine { line ->
