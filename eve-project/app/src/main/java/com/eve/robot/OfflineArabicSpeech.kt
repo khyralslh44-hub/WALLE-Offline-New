@@ -2,6 +2,8 @@ package com.eve.robot
 
 import ai.moonshine.voice.JNI
 import ai.moonshine.voice.MicTranscriber
+import ai.moonshine.voice.ModelCache
+import ai.moonshine.voice.ModelSpec
 import ai.moonshine.voice.TranscriberOption
 import android.content.Context
 import android.os.Handler
@@ -15,9 +17,9 @@ import java.util.concurrent.Executors
 /**
  * Compact offline Arabic speech recognition using Moonshine Tiny Streaming (34M parameters).
  *
- * The model is bundled under assets/moonshine/ar, copied once to app-private storage, and loaded
- * through Moonshine's local modelsFrom(File) API. No first-run network download is required and
- * no transcript is sent away.
+ * The model is bundled under assets/moonshine/ar. Moonshine expects modelsFrom(root) to contain
+ * a model-cache subdirectory named from the model spec (stt-ar-<architecture>), so this class
+ * copies the assets into that exact directory before loading. No first-run network download.
  */
 class OfflineArabicSpeech(
     context: Context,
@@ -44,20 +46,18 @@ class OfflineArabicSpeech(
             worker.execute {
                 var candidate: MicTranscriber? = null
                 try {
-                    val modelDirectory = ensureBundledModelCopied()
+                    val modelRoot = ensureBundledModelCopied()
                     val mic = MicTranscriber(permissionContext)
                         .language("ar")
                         .modelArch(JNI.MOONSHINE_MODEL_ARCH_TINY_STREAMING)
-                        // Arabic uses a higher token rate than Latin languages; prevent valid
-                        // Arabic phrases from being prematurely truncated by the default guard.
                         .options(TranscriberOption("max_tokens_per_second", "13.0"))
-                        .modelsFrom(modelDirectory)
+                        .modelsFrom(modelRoot)
                         .onText { /* Partial phrases are not executed as commands. */ }
                         .onLine { line ->
-                            val text = line.text?.trim().orEmpty()
-                            if (text.isNotBlank() && !closed) {
-                                Log.i(TAG, "RECOGNIZED_OFFLINE_ARABIC text=$text")
-                                mainHandler.post { if (!closed) onTranscript(text) }
+                            val recognized = line.text?.trim().orEmpty()
+                            if (recognized.isNotBlank() && !closed) {
+                                Log.i(TAG, "RECOGNIZED_OFFLINE_ARABIC text=$recognized")
+                                mainHandler.post { if (!closed) onTranscript(recognized) }
                             }
                         }
                         .onError { error ->
@@ -67,6 +67,8 @@ class OfflineArabicSpeech(
                     candidate = mic
 
                     // Both methods block; this worker is deliberately not the UI thread.
+                    // load() resolves to the bundled cache directory and does not download
+                    // anything because every required model file is already present there.
                     mic.load()
                     if (closed) {
                         mic.close()
@@ -92,28 +94,35 @@ class OfflineArabicSpeech(
         }
     }
 
-    /** Copy all .ort and tokenizer assets once. All extraction is inside app-private storage. */
+    /**
+     * Copies all model assets under the exact cache key Moonshine derives from
+     * ModelSpec.stt("ar", TINY_STREAMING, false), then returns the cache root expected by modelsFrom.
+     */
     @Synchronized
     private fun ensureBundledModelCopied(): File {
-        val target = File(appContext.filesDir, MODEL_DIRECTORY)
-        if (isCompleteModel(target)) return target
+        val root = File(appContext.filesDir, MODEL_DIRECTORY)
+        val target = File(root, MODEL_CACHE_KEY)
+        if (isCompleteModel(target)) return root
 
         val staging = File(appContext.filesDir, "${MODEL_DIRECTORY}.extracting")
         if (staging.exists() && !staging.deleteRecursively()) {
             throw IOException("Could not remove incomplete Moonshine model copy.")
         }
-        if (!staging.mkdirs()) throw IOException("Could not create Moonshine model staging folder.")
+        val stagingModel = File(staging, MODEL_CACHE_KEY)
+        if (!stagingModel.mkdirs()) {
+            throw IOException("Could not create Moonshine model staging folder.")
+        }
 
         try {
-            copyAssetTree(MODEL_ASSET_DIRECTORY, staging)
-            if (!isCompleteModel(staging)) {
+            copyAssetTree(MODEL_ASSET_DIRECTORY, stagingModel)
+            if (!isCompleteModel(stagingModel)) {
                 throw IOException("Bundled Moonshine model is missing ORT weights or tokenizer.bin.")
             }
-            if (target.exists() && !target.deleteRecursively()) {
+            if (root.exists() && !root.deleteRecursively()) {
                 throw IOException("Could not replace stale Moonshine model files.")
             }
-            if (!staging.renameTo(target)) {
-                staging.copyRecursively(target, overwrite = true)
+            if (!staging.renameTo(root)) {
+                staging.copyRecursively(root, overwrite = true)
                 staging.deleteRecursively()
             }
         } catch (error: Exception) {
@@ -122,8 +131,12 @@ class OfflineArabicSpeech(
         }
 
         if (!isCompleteModel(target)) throw IOException("Moonshine model copy failed integrity checks.")
-        Log.i(TAG, "MOONSHINE_ARABIC_MODEL_COPIED bytes=${directoryBytes(target)} files=${target.walkTopDown().count { it.isFile }}")
-        return target
+        Log.i(
+            TAG,
+            "MOONSHINE_ARABIC_MODEL_COPIED bytes=${directoryBytes(target)} " +
+                "files=${target.walkTopDown().count { it.isFile }} cacheKey=$MODEL_CACHE_KEY"
+        )
+        return root
     }
 
     private fun copyAssetTree(assetPath: String, destination: File) {
@@ -189,5 +202,8 @@ class OfflineArabicSpeech(
         private const val TAG = "EVE_AUDIO"
         private const val MODEL_ASSET_DIRECTORY = "moonshine/ar"
         private const val MODEL_DIRECTORY = "eve-moonshine-arabic"
+        private val MODEL_CACHE_KEY = ModelCache.key(
+            ModelSpec.stt("ar", JNI.MOONSHINE_MODEL_ARCH_TINY_STREAMING, false)
+        )
     }
 }
