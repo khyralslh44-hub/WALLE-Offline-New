@@ -17,9 +17,9 @@ import java.util.concurrent.Executors
 /**
  * Compact offline Arabic speech recognition using Moonshine Tiny Streaming (34M parameters).
  *
- * The model is bundled under assets/moonshine/ar. Moonshine expects modelsFrom(root) to contain
- * a model-cache subdirectory named from the model spec (stt-ar-<architecture>), so this class
- * copies the assets into that exact directory before loading. No first-run network download.
+ * The model is bundled under assets/moonshine/ar and copied into an app-private directory.
+ * The Android binding then loads the model directly with loadFromFiles; no catalog lookup
+ * or first-run network download is used.
  */
 class OfflineArabicSpeech(
     context: Context,
@@ -46,8 +46,8 @@ class OfflineArabicSpeech(
             worker.execute {
                 var candidate: MicTranscriber? = null
                 try {
-                    ensureBundledModelCopied()
-                    val modelDirectory = File(appContext.filesDir, MODEL_DIRECTORY + File.separator + MODEL_CACHE_KEY)
+                    val modelRoot = ensureBundledModelCopied()
+                    val modelDirectory = File(modelRoot, MODEL_CACHE_KEY)
                     val mic = MicTranscriber(permissionContext)
                         .options(TranscriberOption("max_tokens_per_second", "13.0"))
                         .onText { /* Partial phrases are not executed as commands. */ }
@@ -94,7 +94,7 @@ class OfflineArabicSpeech(
 
     /**
      * Copies all model assets under the exact cache key Moonshine derives from
-     * ModelSpec.stt("ar", TINY_STREAMING, false), then returns the cache root expected by modelsFrom.
+     * ModelSpec.stt("ar", TINY_STREAMING, false), then returns the root containing that model directory.
      */
     @Synchronized
     private fun ensureBundledModelCopied(): File {
