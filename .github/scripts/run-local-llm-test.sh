@@ -91,7 +91,7 @@ echo "Instrumentation package: $TEST_PACKAGE" | tee -a "$RESULT_DIR/environment.
 
 INSTRUMENTATION_EXIT=0
 timeout 180s adb shell am instrument -w -r \
-  -e class com.eve.robot.LocalLanguageBrainIntegrationTest \
+  -e class com.eve.robot.LocalLanguageBrainIntegrationTest,com.eve.robot.LibyanDialectNormalizationIntegrationTest \
   "$TEST_PACKAGE/androidx.test.runner.AndroidJUnitRunner" \
   > "$RESULT_DIR/instrumentation-output.txt" 2>&1 || INSTRUMENTATION_EXIT=$?
 cat "$RESULT_DIR/instrumentation-output.txt"
