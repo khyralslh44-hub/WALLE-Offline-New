@@ -2,6 +2,7 @@ package com.eve.robot
 
 import ai.moonshine.voice.JNI
 import ai.moonshine.voice.MicTranscriber
+import ai.moonshine.voice.TranscriberOption
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
@@ -15,7 +16,8 @@ import java.util.concurrent.Executors
  * Compact offline Arabic speech recognition using Moonshine Tiny Streaming (34M parameters).
  *
  * The model is bundled under assets/moonshine/ar, copied once to app-private storage, and loaded
- * through modelsFrom(). No first-run network download is required and no transcript is sent away.
+ * through Moonshine's local modelsFrom(File) API. No first-run network download is required and
+ * no transcript is sent away.
  */
 class OfflineArabicSpeech(
     context: Context,
@@ -43,12 +45,12 @@ class OfflineArabicSpeech(
                 var candidate: MicTranscriber? = null
                 try {
                     val modelDirectory = ensureBundledModelCopied()
-                    candidate = MicTranscriber(permissionContext)
+                    val mic = MicTranscriber(permissionContext)
                         .language("ar")
                         .modelArch(JNI.MOONSHINE_MODEL_ARCH_TINY_STREAMING)
                         // Arabic uses a higher token rate than Latin languages; prevent valid
                         // Arabic phrases from being prematurely truncated by the default guard.
-                        .options(mapOf("max_tokens_per_second" to "13.0"))
+                        .options(TranscriberOption("max_tokens_per_second", "13.0"))
                         .modelsFrom(modelDirectory)
                         .onText { /* Partial phrases are not executed as commands. */ }
                         .onLine { line ->
@@ -62,16 +64,17 @@ class OfflineArabicSpeech(
                             Log.e(TAG, "Moonshine Arabic streaming transcription error.", error)
                             report("OFFLINE_SPEECH_AUDIO_ERROR retrying=true")
                         }
+                    candidate = mic
 
                     // Both methods block; this worker is deliberately not the UI thread.
-                    candidate.load()
+                    mic.load()
                     if (closed) {
-                        candidate.close()
+                        mic.close()
                         candidate = null
                         return@execute
                     }
-                    transcriber = candidate
-                    candidate.start()
+                    mic.start()
+                    transcriber = mic
                     candidate = null
                     report("OFFLINE_SPEECH_LISTENING language=ar engine=moonshine-tiny-streaming")
                 } catch (error: Exception) {
