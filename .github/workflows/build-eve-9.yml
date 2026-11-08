@@ -12,6 +12,8 @@ on:
       - '.github/scripts/eve-closed-loop.py'
       - '.github/scripts/eve-cognitive-architecture.py'
       - '.github/scripts/prepare-eve-standalone.py'
+      - '.github/scripts/eve-41-polish.py'
+      - '.github/workflows/build-eve-9.yml'
 
 permissions:
   contents: read
@@ -97,6 +99,23 @@ jobs:
           PY
           node --check /tmp/eve-app-check.js
 
+      - name: Add EVE 4.1 expressive polish and Redmi performance tuning
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$RUNNER_TEMP/eve-src"
+          python3 "$GITHUB_WORKSPACE/.github/scripts/eve-41-polish.py" "$SRC"
+          python3 - "$SRC/app/src/main/assets/eve.html" <<'PY'
+          from pathlib import Path
+          import re,sys
+          s=Path(sys.argv[1]).read_text(encoding="utf-8")
+          blocks=re.findall(r'<script(?:\\s[^>]*)?>(.*?)</script>',s,re.S)
+          js=[b for b in blocks if len(b)>1000 and not b.lstrip().startswith('{"E":')]
+          if len(js)!=1: raise SystemExit(f"Expected one app JS block, found {len(js)}")
+          Path("/tmp/eve-app-check-41.js").write_text(js[0],encoding="utf-8")
+          PY
+          node --check /tmp/eve-app-check-41.js
+
       - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
@@ -175,8 +194,8 @@ jobs:
           BADGING="$("$AAPT" dump badging "$APK")"
           echo "$BADGING"
           [[ "$BADGING" == *"name='com.eve.companion.standalone'"* ]]
-          [[ "$BADGING" == *"versionCode='5'"* ]]
-          [[ "$BADGING" == *"versionName='4.0'"* ]]
+          [[ "$BADGING" == *"versionCode='6'"* ]]
+          [[ "$BADGING" == *"versionName='4.1'"* ]]
           RESOURCES="$("$AAPT" dump resources "$APK")"
           [[ "$RESOURCES" == *"mipmap/ic_launcher"* ]]
           [[ "$RESOURCES" == *"drawable/ic_eve_foreground"* ]]
@@ -196,7 +215,7 @@ jobs:
             echo ""
             echo "- Source: eve-android (9).zip"
             echo "- Package: com.eve.companion.standalone (side-by-side install; previous EVE is preserved)"
-            echo "- Launcher label: EVE 4.0"
+            echo "- Launcher label: EVE 4.1"
             echo "- Target: Android / Redmi 12 compatible configuration"
             echo "- Internet permission in source manifest: not declared"
             if [ -n "${APK_SIZE:-}" ]; then echo "- APK size: $APK_SIZE"; fi
