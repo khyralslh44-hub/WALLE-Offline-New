@@ -9,7 +9,7 @@ android {
     namespace = "com.eve.robot"
     compileSdk = 35
 
-    // The bundled Vosk ZIP and TFLite vision models are already compact binary assets.
+    // The bundled offline models are copied into app-private storage before inference.
     androidResources {
         noCompress += listOf("ort", "bin", "tflite")
     }
@@ -26,11 +26,12 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.eve.robot"
+        // Distinct application ID so this EVE build installs alongside the previous package.
+        applicationId = "com.eve.robot.eve51"
         minSdk = 26
         targetSdk = 35
-        versionCode = 5
-        versionName = "0.5.0"
+        versionCode = 51
+        versionName = "5.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -51,7 +52,6 @@ android {
             // Do not shrink code or resources: this package-size optimization is ABI-only.
             isMinifyEnabled = false
             isShrinkResources = false
-            // Sign consistently with the project's verified CI APK for easy direct install.
             signingConfig = signingConfigs.getByName("debug")
         }
     }
