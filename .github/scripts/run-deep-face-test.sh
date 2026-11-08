@@ -114,15 +114,19 @@ if [ ! -s "$GITHUB_WORKSPACE/eve-project/app/src/androidTest/assets/gesture_thum
   echo "FAIL: pinned thumb-up image fixture is missing." | tee -a "$RESULT_DIR/environment.txt"
   exit 16
 fi
-VOSK_ARCHIVE="$GITHUB_WORKSPACE/eve-project/app/src/main/assets/vosk-model-ar-mgb2-0.4.zip"
-if [ ! -s "$VOSK_ARCHIVE" ] ||
-   ! unzip -Z1 "$VOSK_ARCHIVE" | grep -Eq '(^|/)conf/model\.conf$' ||
-   ! unzip -Z1 "$VOSK_ARCHIVE" | grep -Eq '(^|/)am/final\.mdl$' ||
-   ! unzip -Z1 "$VOSK_ARCHIVE" | grep -Eq '(^|/)graph/HCLG\.fst$'; then
-  echo "FAIL: bundled Arabic Vosk model archive is missing required local model files." | tee -a "$RESULT_DIR/environment.txt"
+ARABIC_MODEL_DIR="$GITHUB_WORKSPACE/eve-project/app/src/main/assets/moonshine/ar"
+if [ ! -d "$ARABIC_MODEL_DIR" ] ||
+   ! find "$ARABIC_MODEL_DIR" -type f -name '*.ort' -print -quit | grep -q . ||
+   [ ! -s "$ARABIC_MODEL_DIR/tokenizer.bin" ]; then
+  echo "FAIL: bundled Arabic Moonshine model is missing required local files." | tee -a "$RESULT_DIR/environment.txt"
   exit 17
 fi
-echo "PASS: compressed Arabic Vosk model archive is bundled for local extraction and offline speech." | tee -a "$RESULT_DIR/environment.txt"
+ARABIC_MODEL_BYTES="$(du -sb "$ARABIC_MODEL_DIR" | awk '{print $1}')"
+if [ "$ARABIC_MODEL_BYTES" -le 0 ] || [ "$ARABIC_MODEL_BYTES" -gt 100000000 ]; then
+  echo "FAIL: Arabic Moonshine model size is outside the expected compact range: $ARABIC_MODEL_BYTES bytes." | tee -a "$RESULT_DIR/environment.txt"
+  exit 17
+fi
+echo "PASS: compact Arabic Moonshine model is bundled locally ($ARABIC_MODEL_BYTES bytes)." | tee -a "$RESULT_DIR/environment.txt"
 if [ ! -x "$GRADLE" ]; then
   echo "FAIL: Gradle executable not found at $GRADLE" | tee -a "$RESULT_DIR/environment.txt"
   exit 4
@@ -178,8 +182,8 @@ if [ "$BOOTED" != true ]; then
 fi
 echo "PASS: Android boot and Package Manager are ready." | tee -a "$RESULT_DIR/environment.txt"
 
-# Disable all available network paths during vision/perception instrumentation. INTERNET permission
-# is retained only because the language model is fetched once into app-private storage.
+# Disable all available network paths before every instrumentation test. Arabic speech and all
+# perception assets are bundled in the APK; no network permission or runtime download is needed.
 timeout 10s adb shell svc wifi disable >> "$RESULT_DIR/environment.txt" 2>&1 || true
 timeout 10s adb shell svc data disable >> "$RESULT_DIR/environment.txt" 2>&1 || true
 timeout 10s adb logcat -c >/dev/null 2>&1 || echo "WARN: logcat buffer could not be cleared." | tee -a "$RESULT_DIR/environment.txt"
@@ -285,6 +289,7 @@ timeout 10s adb logcat -c >/dev/null 2>&1 || true
 INSTRUMENTATION_EXIT=0
 : > "$RESULT_DIR/instrumentation-output.txt"
 FACE_TEST_CLASSES=(
+  "com.eve.robot.MoonshineArabicModelIntegrationTest"
   "com.eve.robot.FaceVisionIntegrationTest"
   "com.eve.robot.ObjectVisionIntegrationTest"
   "com.eve.robot.FaceIdentityIntegrationTest"
@@ -359,7 +364,7 @@ if grep -E "INSTRUMENTATION_FAILED|FAILURES!!!|INSTRUMENTATION_STATUS_CODE: -2" 
   exit 11
 fi
 
-for marker in FACE_ROBUSTNESS_PASS FACE_FIXTURE_PASS FER_MODEL_PASS OBJECT_MODEL_PASS FACE_IDENTITY_MODEL_PASS IMAGENET_CLASSIFIER_PASS POSE_MODEL_PASS HAND_GESTURE_FIXTURE_PASS OFFLINE_AFFECT_LEARNING_PASS EYE_RENDER_GALLERY_PASS GENERATED_NOTIFICATION_PASS; do
+for marker in MOONSHINE_ARABIC_ASR_PASS FACE_ROBUSTNESS_PASS FACE_FIXTURE_PASS FER_MODEL_PASS OBJECT_MODEL_PASS FACE_IDENTITY_MODEL_PASS IMAGENET_CLASSIFIER_PASS POSE_MODEL_PASS HAND_GESTURE_FIXTURE_PASS OFFLINE_AFFECT_LEARNING_PASS EYE_RENDER_GALLERY_PASS GENERATED_NOTIFICATION_PASS; do
   # AndroidJUnitRunner may capture test stdout while logcat can be lost if the emulator's
   # background services restart. Accept the marker from either independent diagnostic stream.
   if ! grep -F "$marker" "$RESULT_DIR/logcat.txt" "$RESULT_DIR/instrumentation-output.txt" >/dev/null 2>&1; then
