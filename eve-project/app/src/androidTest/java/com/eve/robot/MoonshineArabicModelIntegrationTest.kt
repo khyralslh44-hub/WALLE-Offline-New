@@ -16,9 +16,9 @@ import java.io.File
 import java.io.FileOutputStream
 
 /**
- * Verifies the exact MicTranscriber.modelsFrom(root).load() path used by EVE,
- * then exercises the streaming decoder with synthetic PCM. This is a model/API
- * integration test, not a natural Arabic speech-accuracy benchmark.
+ * Verifies MicTranscriber loading directly from the app-private bundled model
+ * directory, then exercises streaming inference with synthetic PCM. This is
+ * a model/API integration test, not a natural Arabic speech-accuracy benchmark.
  */
 @RunWith(AndroidJUnit4::class)
 class MoonshineArabicModelIntegrationTest {
@@ -41,16 +41,15 @@ class MoonshineArabicModelIntegrationTest {
         assertTrue("Moonshine model contains an empty file.", files.none { it.length() <= 0L })
 
         val mic = MicTranscriber(context)
-            .language("ar")
-            .modelArch(JNI.MOONSHINE_MODEL_ARCH_TINY_STREAMING)
             .options(TranscriberOption("max_tokens_per_second", "13.0"))
-            .modelsFrom(modelRoot)
 
         try {
-            // MicTranscriber.load() resolves ModelCache.key(spec) beneath modelRoot.
-            // Since every required file is already there, AssetDownloader must not make
-            // a network request. CI has network access disabled for the instrumentation run.
-            mic.load()
+            // Use the inherited file loader directly, matching the application path.
+            // No catalog lookup or model download is used.
+            mic.loadFromFiles(
+                modelDir.absolutePath,
+                JNI.MOONSHINE_MODEL_ARCH_TINY_STREAMING
+            )
             assertTrue("MicTranscriber did not load the bundled Arabic model.", mic.isLoaded)
         } finally {
             mic.close()
