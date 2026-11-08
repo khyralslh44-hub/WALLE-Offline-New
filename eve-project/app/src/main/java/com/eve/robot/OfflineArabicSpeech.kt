@@ -46,12 +46,10 @@ class OfflineArabicSpeech(
             worker.execute {
                 var candidate: MicTranscriber? = null
                 try {
-                    val modelRoot = ensureBundledModelCopied()
+                    ensureBundledModelCopied()
+                    val modelDirectory = File(appContext.filesDir, MODEL_DIRECTORY + File.separator + MODEL_CACHE_KEY)
                     val mic = MicTranscriber(permissionContext)
-                        .language("ar")
-                        .modelArch(JNI.MOONSHINE_MODEL_ARCH_TINY_STREAMING)
                         .options(TranscriberOption("max_tokens_per_second", "13.0"))
-                        .modelsFrom(modelRoot)
                         .onText { /* Partial phrases are not executed as commands. */ }
                         .onLine { line ->
                             val recognized = line.text?.trim().orEmpty()
@@ -66,10 +64,10 @@ class OfflineArabicSpeech(
                         }
                     candidate = mic
 
-                    // Both methods block; this worker is deliberately not the UI thread.
-                    // load() resolves to the bundled cache directory and does not download
-                    // anything because every required model file is already present there.
-                    mic.load()
+                    // Use the Android 0.1.5 file-loading API directly. This bypasses the
+                    // catalog downloader entirely: the complete Arabic model is already
+                    // bundled in the APK and copied into this app-private directory.
+                    mic.loadFromFiles(modelDirectory.absolutePath, JNI.MOONSHINE_MODEL_ARCH_TINY_STREAMING)
                     if (closed) {
                         mic.close()
                         candidate = null
