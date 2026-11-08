@@ -60,7 +60,7 @@ wait_for_device() {
 wait_for_device
 adb install -r "$APP_APK" | tee "$RESULT_DIR/install-app.txt"
 adb install -r "$TEST_APK" | tee "$RESULT_DIR/install-test.txt"
-adb shell pm clear com.eve.robot | tee "$RESULT_DIR/clear-app-data.txt"
+adb shell pm clear com.eve.robot.eve51 | tee "$RESULT_DIR/clear-app-data.txt"
 
 # Disable Wi-Fi and mobile data, then enable airplane mode before exercising EVE.
 adb shell svc wifi disable >/dev/null 2>&1 || true
