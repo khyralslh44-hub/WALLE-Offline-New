@@ -106,14 +106,15 @@ function eveLearnOutcome(app){
 function eveCognitivePlan(){
  if(!BR.ready||inGame)return;
  const now=Date.now(),evidence=eveEvidence(now),memory=eveRetrieve(evidence),app=eveAppraise(evidence,memory,now),reward=eveLearnOutcome(app),c=M.cog;
+ const world=eveWorldStep(app,evidence,now);app.predictionError=world.error;app.novelty=eveClip(Math.max(app.novelty,world.error*.48),0,1);
  c.stats.observations++;c.stats.plans++;c.lastConfidence=app.confidence;
  if(app.confidence<.35)c.stats.lowConfidence++;
  const q=Array.from({length:6},(_,a)=>{let v=0,o=a*NZ;for(let i=0;i<NZ;i++)v+=BR.Wg[o+i]*BR.z[i];return v});
  const traits=c.traits,night=(new Date().getHours()>=23||new Date().getHours()<6)?1:0;
  const util=[
-  (1-app.energy)*1.45+night*.22+(lowPower?.35:0),
-  app.novelty*1.05+traits.curiosity*.38*app.uncertainty+(camOn?.18:0)-app.risk*.8,
-  app.boredom*.75+(app.social?.12:0)-.35*(app.energy<.22?1:0),
+  (1-app.energy)*1.45+world.drives.rest*.32+night*.22+(lowPower?.35:0),
+  app.novelty*1.05+traits.curiosity*.38*app.uncertainty+app.predictionError*.42+(camOn?.18:0)-app.risk*.8,
+  app.boredom*.75+(app.social?.12:0)+(world.drives.social*.12)-.35*(app.energy<.22?1:0),
   app.valence*.28+app.energy*.35+traits.playfulness*.35+(app.social?.25:0)-.5*(app.energy<.3?1:0),
   (1-app.valence)*.95+traits.warmth*.2+(app.activity==='يبكي'?.3:0),
   .22+app.uncertainty*.4+app.confidence*.12
@@ -142,6 +143,44 @@ function eveCognitivePlan(){
  setGoal(EVE_GOAL_NAMES[a],EVE_GOAL_STEPS[a],explain);
  if(now-(c.lastSave||0)>30000){c.lastSave=now;save()}
 }
+/* EVE_PREDICTIVE_WORLD_MODEL_V1
+   Tiny predictive layer: working memory, scene-transition model, prediction error,
+   and bounded drives. It learns temporal regularities without claiming identity or intent. */
+M.cog.world=Object.assign({v:1,previous:null,working:[],transitions:{},surprise:0,observations:0,drive:{rest:0,curiosity:.3,social:.2,play:.2,safety:.1}},M.cog.world||{});
+M.cog.world.working=Array.isArray(M.cog.world.working)?M.cog.world.working.slice(-8):[];
+M.cog.world.transitions=M.cog.world.transitions&&typeof M.cog.world.transitions==='object'?M.cog.world.transitions:{};
+function eveWorldStep(app,evidence,now){
+ const w=M.cog.world,features=[app.confidence,app.novelty,app.social,app.energy,app.valence,app.boredom,app.risk];
+ let error=0,used=0;
+ if(Array.isArray(w.previous)&&w.previous.length===features.length){
+  for(let i=0;i<features.length;i++){error+=Math.abs(features[i]-w.previous[i]);used++}
+  error=used?eveClip(error/used,0,1):0;
+ }
+ w.surprise=.72*(w.surprise||0)+.28*error;
+ w.previous=features;
+ w.observations++;
+ // Compact working memory: merge repeats, decay stale evidence, retain strongest recent items.
+ for(const ev of evidence){
+  const key=ev.kind+':'+ev.label.toLowerCase();
+  const prior=w.working.find(x=>x.key===key);
+  if(prior){prior.c=Math.max(prior.c*.88,ev.c);prior.n=(prior.n||1)+1;prior.t=now}
+  else w.working.push({key,k:ev.kind,l:ev.label,c:ev.c,n:1,t:now});
+ }
+ w.working=w.working.filter(x=>now-x.t<6*3600000).sort((a,b)=>(b.c*Math.min(4,b.n))/(1+Math.max(0,now-b.t)/3600000)-(a.c*Math.min(4,a.n))/(1+Math.max(0,now-a.t)/3600000)).slice(0,8);
+ const sceneKey=evidence.filter(x=>x.c>.35).slice(0,3).map(x=>x.kind+':'+x.label.toLowerCase()).sort().join('|')||'uncertain';
+ if(w.previousScene&&w.previousScene!==sceneKey){
+  const edge=w.previousScene+'>'+sceneKey;w.transitions[edge]=Math.min(20,(w.transitions[edge]||0)+1);
+ }
+ w.previousScene=sceneKey;
+ const d=w.drive;
+ d.rest=eveClip((1-app.energy)*.72+(app.boredom<.1?.08:0),0,1);
+ d.curiosity=eveClip(app.novelty*.55+w.surprise*.55,0,1);
+ d.social=eveClip(app.social*.65+(app.person? .2:0),0,1);
+ d.play=eveClip(app.valence*.35+app.energy*.35+app.boredom*.3,0,1);
+ d.safety=eveClip(app.risk*.8+app.uncertainty*.25,0,1);
+ return {error:w.surprise,working:w.working.length,drives:d};
+}
+
 const evePlanBeforeCognition=plan;
 plan=function(){return eveCognitivePlan()};
 """
