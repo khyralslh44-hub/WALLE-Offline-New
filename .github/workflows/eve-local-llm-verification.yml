@@ -10,6 +10,7 @@ on:
       - 'eve-project/app/src/main/java/com/eve/robot/EveArabicTextUnderstanding.kt'
       - 'eve-project/app/src/test/java/com/eve/robot/EveTinyArabicBrainTest.kt'
       - 'eve-project/app/src/androidTest/java/com/eve/robot/LocalLanguageBrainIntegrationTest.kt'
+      - 'eve-project/app/src/androidTest/java/com/eve/robot/LibyanDialectNormalizationIntegrationTest.kt'
       - 'eve-project/app/build.gradle.kts'
       - 'EVE_COMPACT_ARABIC_BRAIN.md'
       - 'eve-project/app/src/main/AndroidManifest.xml'
