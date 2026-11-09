@@ -39,11 +39,16 @@ capture_diagnostics() {
 trap capture_diagnostics EXIT
 
 MANIFEST="$GITHUB_WORKSPACE/eve-project/app/src/main/AndroidManifest.xml"
-if grep -Eq 'android.permission.INTERNET' "$MANIFEST"; then
-  echo "FAIL: INTERNET permission must remain absent in EVE's fully offline build." | tee -a "$RESULT_DIR/environment.txt"
+# The manifest contains an explicit tools:node="remove" rule for INTERNET because
+# some Android dependencies declare it transitively. Treat only an active permission
+# declaration as a violation; comments and the merge-removal directive are not grants.
+ACTIVE_INTERNET_PERMISSION="$(grep -E '<uses-permission[^>]*android:name="android.permission.INTERNET"' "$MANIFEST" | grep -v 'tools:node="remove"' || true)"
+if [ -n "$ACTIVE_INTERNET_PERMISSION" ]; then
+  echo "FAIL: active INTERNET permission declaration found in EVE manifest:" | tee -a "$RESULT_DIR/environment.txt"
+  printf '%s\n' "$ACTIVE_INTERNET_PERMISSION" | tee -a "$RESULT_DIR/environment.txt"
   exit 1
 fi
-echo "PASS: source manifest has no INTERNET permission; all runtime models must be bundled before offline tests." | tee -a "$RESULT_DIR/environment.txt"
+echo "PASS: INTERNET permission is explicitly removed from the merged manifest; all runtime models must be bundled before offline tests." | tee -a "$RESULT_DIR/environment.txt"
 if [ ! -s "$GITHUB_WORKSPACE/eve-project/app/src/androidTest/assets/face_fixture.jpg" ]; then
   echo "FAIL: pinned face fixture is missing." | tee -a "$RESULT_DIR/environment.txt"
   exit 2
