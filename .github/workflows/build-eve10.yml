@@ -98,9 +98,6 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           retention-days: 30
-          if-no-files-found: error
-          compression-level: 0
-          retention-days: 14
 
       - name: Summary
         if: always()
