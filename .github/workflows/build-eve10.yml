@@ -1,18 +1,22 @@
-name: Build original EVE Android ZIP
+name: Build EVE Android with original vision models
+
 on:
   workflow_dispatch:
   push:
     paths:
-      - "eve-android (10).zip"
       - ".github/workflows/build-eve10.yml"
+
 permissions:
   contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Extract the original project without adding assets
+
+      - name: Extract the original project
+        shell: bash
         run: |
           set -euo pipefail
           test -s "eve-android (10).zip"
@@ -20,24 +24,87 @@ jobs:
           unzip -q "eve-android (10).zip" -d project
           test -f project/settings.gradle.kts
           test -f project/app/build.gradle.kts
-          # Build-only Kotlin receiver fix; the uploaded ZIP remains untouched.
+
+      - name: Locate and package only vision models already in the original ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$GITHUB_WORKSPACE/project"
+          DEST="$SRC/app/src/main/assets/models"
+          mkdir -p "$DEST"
+          mapfile -d '' MODELS < <(find "$SRC" -type f \\( -iname '*.tflite' -o -iname '*.task' -o -iname '*.onnx' -o -iname '*.pt' -o -iname '*.pth' \\) ! -path "$DEST/*" -print0)
+          if [ "${#MODELS[@]}" -eq 0 ]; then
+            echo "ERROR: No vision model files (.tflite/.task/.onnx/.pt/.pth) were present in the uploaded original ZIP."
+            echo "Archive inventory:"
+            find "$SRC" -type f | sort
+            exit 1
+          fi
+          : > "$RUNNER_TEMP/model-manifest.txt"
+          for model in "${MODELS[@]}"; do
+            base="$(basename "$model")"
+            if [ -e "$DEST/$base" ]; then
+              echo "ERROR: duplicate model filename: $base"
+              exit 1
+            fi
+            cp "$model" "$DEST/$base"
+            sha256sum "$DEST/$base" | tee -a "$RUNNER_TEMP/model-manifest.txt"
+          done
+          echo "Original model files packaged:"
+          cat "$RUNNER_TEMP/model-manifest.txt"
+          echo "Model total:"
+          du -ch "${MODELS[@]}" | tail -1
+
+      - name: Apply build-only Kotlin receiver fix
+        shell: bash
+        run: |
+          set -euo pipefail
           sed -i 's/voice\.factor(style)/this@MainActivity.voice.factor(style)/' project/app/src/main/java/com/eve/companion/MainActivity.kt
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
+
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.9"
+
       - name: Build APK
         working-directory: project
         run: |
           set -euo pipefail
           gradle assembleDebug --no-daemon
           test -s app/build/outputs/apk/debug/app-debug.apk
-      - uses: actions/upload-artifact@v4
+
+      - name: Verify original model files are inside the APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="project/app/build/outputs/apk/debug/app-debug.apk"
+          unzip -Z1 "$APK" > "$RUNNER_TEMP/apk-files.txt"
+          while read -r hash file; do
+            base="$(basename "$file")"
+            grep -Fxq "assets/models/$base" "$RUNNER_TEMP/apk-files.txt"
+            unzip -p "$APK" "assets/models/$base" | sha256sum | grep -q "^$hash "
+            echo "Verified in APK: $base ($hash)"
+          done < "$RUNNER_TEMP/model-manifest.txt"
+          echo "APK_SIZE=$(du -h "$APK" | cut -f1)" >> "$GITHUB_ENV"
+
+      - name: Upload APK containing the original vision model files
+        uses: actions/upload-artifact@v4
         with:
-          name: EVE-Android-10-Original-APK
+          name: EVE-Android-10-Original-Models-APK
           path: project/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+          compression-level: 0
           retention-days: 14
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## EVE model packaging result"
+            echo "- Only model files found inside the uploaded ZIP were copied."
+            echo "- No model was downloaded or substituted."
+            echo "- APK size: ${APK_SIZE:-not built}"
+          } >> "$GITHUB_STEP_SUMMARY"
