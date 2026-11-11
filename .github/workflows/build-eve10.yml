@@ -20,6 +20,8 @@ jobs:
           unzip -q "eve-android (10).zip" -d project
           test -f project/settings.gradle.kts
           test -f project/app/build.gradle.kts
+          # Keep the uploaded ZIP unchanged; patch only the extracted build copy.
+          sed -i 's/voice\.factor(style)/this@MainActivity.voice.factor(style)/' project/app/src/main/java/com/eve/companion/MainActivity.kt
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
