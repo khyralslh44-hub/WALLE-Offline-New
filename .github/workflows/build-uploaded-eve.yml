@@ -56,7 +56,15 @@ jobs:
           DEST="$SRC/app/src/main/assets/models"
           mkdir -p "$DEST"
           echo "Vision model files found in the original ZIP:"
-          find "$SRC" -type f \\( -iname '*.tflite' -o -iname '*.task' -o -iname '*.onnx' -o -iname '*.pt' -o -iname '*.pth' \\) -printf '%p (%s bytes)\\n' | tee "$RUNNER_TEMP/source-model-inventory.txt" || true
+          python3 - "$SRC" "$RUNNER_TEMP/source-model-inventory.txt" <<'PY'
+          from pathlib import Path
+          import sys
+          root, out = Path(sys.argv[1]), Path(sys.argv[2])
+          suffixes = {".tflite", ".task", ".onnx", ".pt", ".pth"}
+          rows = [f"{p} ({p.stat().st_size} bytes)" for p in root.rglob("*") if p.is_file() and p.suffix.lower() in suffixes]
+          out.write_text("\\n".join(rows) + ("\\n" if rows else ""), encoding="utf-8")
+          print("\\n".join(rows) if rows else "No model binaries found in source ZIP.")
+          PY
           for f in objects.tflite classify.tflite face.task gesture.task embed.tflite; do
             found="$(find "$SRC" -type f -name "$f" -print -quit || true)"
             if [ -n "$found" ] && [ "$found" != "$DEST/$f" ]; then
