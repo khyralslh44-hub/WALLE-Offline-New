@@ -1,0 +1,63 @@
+name: Build original EVE Android ZIP
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "eve-android (10).zip"
+      - ".github/workflows/build-eve10.yml"
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract the untouched original project
+        run: |
+          set -euo pipefail
+          test -s "eve-android (10).zip"
+          mkdir project
+          unzip -q "eve-android (10).zip" -d project
+          test -f project/settings.gradle.kts
+          test -f project/app/build.gradle.kts
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Download offline vision models for packaging
+        working-directory: project
+        run: |
+          set -euo pipefail
+          B=https://storage.googleapis.com/mediapipe-models
+          D=app/src/main/assets/models
+          mkdir -p "$D"
+          curl -fL "$B/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite" -o "$D/objects.tflite"
+          curl -fL "$B/face_landmarker/face_landmarker/float16/1/face_landmarker.task" -o "$D/face.task"
+          curl -fL "$B/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task" -o "$D/gesture.task"
+          curl -fL "$B/image_embedder/mobilenet_v3_small/float32/1/mobilenet_v3_small.tflite" -o "$D/embed.tflite"
+          curl -fL "$B/image_classifier/efficientnet_lite0/float32/1/efficientnet_lite0.tflite" -o "$D/classify.tflite"
+          for f in objects.tflite face.task gesture.task embed.tflite classify.tflite; do test -s "$D/$f"; done
+      - name: Add optional Arabic offline speech model
+        continue-on-error: true
+        working-directory: project
+        run: |
+          set -euo pipefail
+          curl -fL "https://alphacephei.com/vosk/models/vosk-model-ar-mgb2-0.4.zip" -o /tmp/vosk-ar.zip
+          mkdir -p /tmp/vosk-ar app/src/main/assets/vosk
+          unzip -q /tmp/vosk-ar.zip -d /tmp/vosk-ar
+          cp -a /tmp/vosk-ar/. app/src/main/assets/vosk/model/
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+      - name: Build APK
+        working-directory: project
+        run: |
+          set -euo pipefail
+          gradle assembleDebug --no-daemon
+          test -s app/build/outputs/apk/debug/app-debug.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: EVE-Android-10-APK
+          path: project/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
