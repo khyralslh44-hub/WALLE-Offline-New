@@ -22,14 +22,30 @@ jobs:
         with:
           ref: build/eve-android-10-original
 
-      - name: Verify and extract original archive
+      - name: Verify, preserve, and extract original archive
+        shell: bash
         run: |
-          test -s "eve-android (10).zip"
+          set -euo pipefail
+          ARCHIVE="eve-android (10).zip"
+          test -s "$ARCHIVE"
           mkdir -p source
-          unzip -q "eve-android (10).zip" -d source
+          unzip -t "$ARCHIVE"
+          unzip -q "$ARCHIVE" -d source
           test -f source/settings.gradle.kts
           test -f source/app/build.gradle.kts
-          echo "Original archive extracted; source tree:"
+
+          # Keep the complete original ZIP byte-for-byte inside the APK assets.
+          mkdir -p source/app/src/main/assets/original
+          cp "$ARCHIVE" source/app/src/main/assets/original/eve-android-10-original.zip
+
+          # Keep a readable inventory of every entry in the supplied archive.
+          unzip -Z1 "$ARCHIVE" > source/app/src/main/assets/original/archive-file-list.txt
+          sha256sum "$ARCHIVE" | awk '{print $1}' > source/app/src/main/assets/original/archive-sha256.txt
+
+          echo "Original archive SHA-256:"
+          sha256sum "$ARCHIVE"
+          echo "Original archive entries: $(wc -l < source/app/src/main/assets/original/archive-file-list.txt)"
+          echo "Extracted source tree (first 100 files):"
           find source -maxdepth 3 -type f | sort | head -100
 
       - name: Set up JDK 17
@@ -43,16 +59,28 @@ jobs:
         with:
           gradle-version: "8.9"
 
-      - name: Build debug APK from original source
+      - name: Build debug APK from preserved original source
         working-directory: source
         run: gradle --no-daemon --stacktrace assembleDebug
 
-      - name: Verify APK output
+      - name: Verify APK and byte-for-byte archive preservation
+        shell: bash
         run: |
+          set -euo pipefail
           APK="$(find source/app/build/outputs/apk -type f -name '*.apk' | head -1)"
           test -n "$APK"
           mkdir -p dist
           cp "$APK" dist/EVE-Android-10.apk
+
+          unzip -t dist/EVE-Android-10.apk
+          unzip -p dist/EVE-Android-10.apk assets/original/eve-android-10-original.zip > dist/extracted-original.zip
+          cmp "eve-android (10).zip" dist/extracted-original.zip
+          unzip -p dist/EVE-Android-10.apk assets/original/archive-file-list.txt | cmp - source/app/src/main/assets/original/archive-file-list.txt
+          unzip -p dist/EVE-Android-10.apk assets/original/archive-sha256.txt | cmp - source/app/src/main/assets/original/archive-sha256.txt
+
+          echo "PASS: complete original ZIP is embedded byte-for-byte in the APK."
+          echo "PASS: archive inventory and SHA-256 metadata are embedded."
+          rm dist/extracted-original.zip
           ls -lh dist/EVE-Android-10.apk
 
       - name: Upload APK
