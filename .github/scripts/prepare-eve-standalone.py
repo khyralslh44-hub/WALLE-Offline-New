@@ -98,3 +98,5 @@ if __name__ == "__main__":
     if len(sys.argv) != 2:
         raise SystemExit("usage: prepare-eve-standalone.py <project-root>")
     main(Path(sys.argv[1]))
+
+# Keep the standalone build transformation reproducible.
