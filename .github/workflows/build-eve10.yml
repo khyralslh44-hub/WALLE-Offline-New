@@ -93,8 +93,11 @@ jobs:
       - name: Upload APK containing the original vision model files
         uses: actions/upload-artifact@v4
         with:
-          name: EVE-Android-10-Original-Models-APK
+          name: EVE-Android-10-APK
           path: project/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
