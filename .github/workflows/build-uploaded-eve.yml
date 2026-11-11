@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - 'eve-android (8).zip'
+      - 'eve-android (10).zip'
       - '.github/scripts/harden-eve-vision.py'
       - '.github/scripts/eve-core-memory.py'
       - '.github/scripts/eve-memory-core.py'
@@ -12,6 +12,7 @@ on:
       - '.github/scripts/eve-cognitive-architecture.py'
       - '.github/scripts/prepare-eve-standalone.py'
       - '.github/scripts/eve-core-memory.py'
+      - '.github/workflows/build-uploaded-eve.yml'
 
 permissions:
   contents: read
@@ -29,7 +30,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ARCHIVE="$GITHUB_WORKSPACE/eve-android (8).zip"
+          ARCHIVE="$GITHUB_WORKSPACE/eve-android (10).zip"
           SRC="$RUNNER_TEMP/eve-src"
           test -s "$ARCHIVE"
           mkdir -p "$SRC"
@@ -46,6 +47,27 @@ jobs:
           fi
           echo "Validated project source at $SRC"
           echo "EVE app source ZIP: $(du -h "$ARCHIVE" | cut -f1)"
+
+      - name: Preserve original vision models from the uploaded ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$RUNNER_TEMP/eve-src"
+          DEST="$SRC/app/src/main/assets/models"
+          mkdir -p "$DEST"
+          echo "Vision model files found in the original ZIP:"
+          find "$SRC" -type f \\( -iname '*.tflite' -o -iname '*.task' -o -iname '*.onnx' -o -iname '*.pt' -o -iname '*.pth' \\) -printf '%p (%s bytes)\\n' | tee "$RUNNER_TEMP/source-model-inventory.txt" || true
+          for f in objects.tflite classify.tflite face.task gesture.task embed.tflite; do
+            found="$(find "$SRC" -type f -name "$f" -print -quit || true)"
+            if [ -n "$found" ] && [ "$found" != "$DEST/$f" ]; then
+              cp "$found" "$DEST/$f"
+              echo "Preserved original $f from $found"
+            elif [ -n "$found" ]; then
+              echo "Original $f already in app assets"
+            else
+              echo "Original ZIP does not contain $f; verified model download will supply it"
+            fi
+          done
 
       - name: Install strict on-device Arabic speech path
         shell: bash
@@ -121,11 +143,11 @@ jobs:
           BASE="https://storage.googleapis.com/mediapipe-models"
           DEST="$SRC/app/src/main/assets/models"
           mkdir -p "$DEST"
-          curl --fail --location --retry 4 --retry-delay 2 --connect-timeout 20 --max-time 240 "$BASE/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite" --output "$DEST/objects.tflite"
-          curl --fail --location --retry 4 --retry-delay 2 --connect-timeout 20 --max-time 240 "$BASE/face_landmarker/face_landmarker/float16/1/face_landmarker.task" --output "$DEST/face.task"
-          curl --fail --location --retry 4 --retry-delay 2 --connect-timeout 20 --max-time 240 "$BASE/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task" --output "$DEST/gesture.task"
-          curl --fail --location --retry 4 --retry-delay 2 --connect-timeout 20 --max-time 240 "$BASE/image_embedder/mobilenet_v3_small/float32/1/mobilenet_v3_small.tflite" --output "$DEST/embed.tflite"
-          curl --fail --location --retry 4 --retry-delay 2 --connect-timeout 20 --max-time 240 "$BASE/image_classifier/efficientnet_lite0/float32/1/efficientnet_lite0.tflite" --output "$DEST/classify.tflite"
+          if [ ! -s "$DEST/objects.tflite" ]; then curl --fail --location --retry 4 --retry-delay 2 --connect-timeout 20 --max-time 240 "$BASE/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite" --output "$DEST/objects.tflite"; fi
+          if [ ! -s "$DEST/face.task" ]; then curl --fail --location --retry 4 --retry-delay 2 --connect-timeout 20 --max-time 240 "$BASE/face_landmarker/face_landmarker/float16/1/face_landmarker.task" --output "$DEST/face.task"; fi
+          if [ ! -s "$DEST/gesture.task" ]; then curl --fail --location --retry 4 --retry-delay 2 --connect-timeout 20 --max-time 240 "$BASE/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task" --output "$DEST/gesture.task"; fi
+          if [ ! -s "$DEST/embed.tflite" ]; then curl --fail --location --retry 4 --retry-delay 2 --connect-timeout 20 --max-time 240 "$BASE/image_embedder/mobilenet_v3_small/float32/1/mobilenet_v3_small.tflite" --output "$DEST/embed.tflite"; fi
+          if [ ! -s "$DEST/classify.tflite" ]; then curl --fail --location --retry 4 --retry-delay 2 --connect-timeout 20 --max-time 240 "$BASE/image_classifier/efficientnet_lite0/float32/1/efficientnet_lite0.tflite" --output "$DEST/classify.tflite"; fi
           for f in objects.tflite face.task gesture.task embed.tflite classify.tflite; do
             test -s "$DEST/$f"
             echo "$f: $(stat -c '%s' "$DEST/$f") bytes"
@@ -191,6 +213,10 @@ jobs:
           unzip -Z1 "$APK" > "$RUNNER_TEMP/apk-files.txt"
           for f in objects.tflite face.task gesture.task embed.tflite classify.tflite; do
             grep -Fxq "assets/models/$f" "$RUNNER_TEMP/apk-files.txt"
+            SOURCE_SHA256="$(sha256sum "$RUNNER_TEMP/eve-src/app/src/main/assets/models/$f" | awk '{print $1}')"
+            APK_SHA256="$(unzip -p "$APK" "assets/models/$f" | sha256sum | awk '{print $1}')"
+            test "$SOURCE_SHA256" = "$APK_SHA256"
+            echo "Verified $f: $(stat -c '%s' "$RUNNER_TEMP/eve-src/app/src/main/assets/models/$f") bytes SHA-256=$APK_SHA256"
           done
           echo "APK_SIZE=$(du -h "$APK" | cut -f1)" >> "$GITHUB_ENV"
           echo "PASS: standalone package ID/version, launcher icon resources, APK signature, and all 5 offline vision models verified."
@@ -202,7 +228,7 @@ jobs:
           {
             echo "## EVE APK build"
             echo ""
-            echo "- Source: eve-android (8).zip"
+            echo "- Source: eve-android (10).zip"
             echo "- Package: com.eve.companion.standalone (side-by-side install; previous EVE is preserved)"
             echo "- Launcher label: EVE 4.0"
             echo "- Target: Android / Redmi 12 compatible configuration"
