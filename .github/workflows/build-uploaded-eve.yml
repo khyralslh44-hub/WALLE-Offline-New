@@ -127,6 +127,30 @@ jobs:
           PY
           node --check /tmp/eve-app-check.js
 
+      - name: Remove network permissions from merged app manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - "$RUNNER_TEMP/eve-src/app/src/main/AndroidManifest.xml" <<'PY'
+          from pathlib import Path
+          import sys
+          import xml.etree.ElementTree as ET
+          p = Path(sys.argv[1])
+          android = "http://schemas.android.com/apk/res/android"
+          tools_ns = "http://schemas.android.com/tools"
+          ET.register_namespace("android", android)
+          ET.register_namespace("tools", tools_ns)
+          tree = ET.parse(p)
+          root = tree.getroot()
+          for perm in ("INTERNET", "ACCESS_NETWORK_STATE"):
+              node = ET.Element("uses-permission")
+              node.set(f"{{{android}}}name", f"android.permission.{perm}")
+              node.set(f"{{{tools_ns}}}node", "remove")
+              root.insert(0, node)
+          tree.write(p, encoding="utf-8", xml_declaration=True)
+          print("Added manifest-merger removal rules for INTERNET and ACCESS_NETWORK_STATE.")
+          PY
+
       - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
@@ -211,9 +235,17 @@ jobs:
           AAPT="$ANDROID_HOME/build-tools/34.0.0/aapt"
           BADGING="$("$AAPT" dump badging "$APK")"
           echo "$BADGING"
+          if grep -Fq "uses-permission: name='android.permission.INTERNET'" <<< "$BADGING"; then
+            echo "FAIL: internet permission remains in the final APK."
+            exit 1
+          fi
+          if grep -Fq "uses-permission: name='android.permission.ACCESS_NETWORK_STATE'" <<< "$BADGING"; then
+            echo "FAIL: network-state permission remains in the final APK."
+            exit 1
+          fi
           [[ "$BADGING" == *"name='com.eve.companion.standalone'"* ]]
-          [[ "$BADGING" == *"versionCode='5'"* ]]
-          [[ "$BADGING" == *"versionName='4.0'"* ]]
+          [[ "$BADGING" == *"versionCode='6'"* ]]
+          [[ "$BADGING" == *"versionName='4.1'"* ]]
           [[ "$BADGING" == *"application-icon-160:'res/mipmap-anydpi-v26/ic_launcher.xml'"* ]]
           RESOURCES="$("$AAPT" dump resources "$APK")"
           [[ "$RESOURCES" == *"mipmap/ic_launcher"* ]]
@@ -238,7 +270,7 @@ jobs:
             echo ""
             echo "- Source: eve-android (10).zip"
             echo "- Package: com.eve.companion.standalone (side-by-side install; previous EVE is preserved)"
-            echo "- Launcher label: EVE 4.0"
+            echo "- Launcher label: EVE 4.1"
             echo "- Target: Android / Redmi 12 compatible configuration"
             echo "- Internet permission in source manifest: not declared"
             if [ -n "${APK_SIZE:-}" ]; then echo "- APK size: $APK_SIZE"; fi
