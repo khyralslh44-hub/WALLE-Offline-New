@@ -11,6 +11,32 @@ import java.util.Locale
  */
 internal object EveArabicTextUnderstanding {
     private val dialectAliases = mapOf(
+        // Libyan Arabic (general urban vocabulary; conservative mappings only).
+        "شن" to "ما",
+        "علاش" to "لماذا",
+        "علاشك" to "لماذا",
+        "توا" to "الان",
+        "تو" to "الان",
+        "هلبة" to "كثير",
+        "هلبا" to "كثير",
+        "واجد" to "كثير",
+        "باهي" to "جيد",
+        "نبي" to "اريد",
+        "نبو" to "نريد",
+        "تبي" to "تريد",
+        "يبي" to "يريد",
+        "تبيش" to "لا تريد",
+        "قداش" to "كم",
+        "شني" to "ما",
+        "هكي" to "هكذا",
+        "هكيكا" to "هكذا",
+        "غادي" to "هناك",
+        "هني" to "هنا",
+        "مانيش" to "لست",
+        "معاش" to "لم يعد",
+        "تشوفي" to "ترين",
+        "تشوفوا" to "ترون",
+        "تسألي" to "تسألين",
         "شلون" to "كيف",
         "شلونك" to "كيفك",
         "شخبارك" to "كيف حالك",
@@ -83,7 +109,13 @@ internal object EveArabicTextUnderstanding {
             .replace(Regex("\\s+"), " ")
             .trim()
         if (cleaned.isBlank()) return ""
-        return cleaned.split(' ').flatMap { token ->
+        // Common Libyan multi-word questions need phrase-level normalization.
+        val phraseNormalized = cleaned
+            .replace(Regex("(^|\\s)شن\\s+حالك(?=\\s|$)"), "$1كيف حالك")
+            .replace(Regex("(^|\\s)شن\\s+جوك(?=\\s|$)"), "$1كيف مزاجك")
+            .replace(Regex("(^|\\s)شن\\s+اخبارك(?=\\s|$)"), "$1كيف حالك")
+            .replace(Regex("(^|\\s)ما\\s+عادش(?=\\s|$)"), "$1لم يعد")
+        return phraseNormalized.split(' ').flatMap { token ->
             val alias = dialectAliases[token]
             if (alias == null) listOf(token) else alias.split(' ')
         }.joinToString(" ")
