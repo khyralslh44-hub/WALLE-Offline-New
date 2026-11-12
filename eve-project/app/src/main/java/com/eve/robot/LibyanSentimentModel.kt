@@ -103,13 +103,13 @@ internal class LibyanSentimentModel private constructor(
                 for (n in 2..4) {
                     if (padded.length >= n) {
                         for (start in 0..(padded.length - n)) {
-                            features += "c:\${padded.substring(start, start + n)}"
+                            features += "c:${padded.substring(start, start + n)}"
                         }
                     }
                 }
             }
             for (index in 0 until tokens.lastIndex) {
-                features += "b:\${tokens[index]}_\${tokens[index + 1]}"
+                features += "b:${tokens[index]}_${tokens[index + 1]}"
             }
             return features
         }
