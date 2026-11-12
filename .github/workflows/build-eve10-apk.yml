@@ -71,8 +71,8 @@ jobs:
         run: |
           echo "=== EveVoice.kt ==="
           sed -n '1,180p' source/app/src/main/java/com/eve/companion/EveVoice.kt
-          echo "=== MainActivity voice declarations and calls ==="
-          grep -n -C 5 -E '(^|[[:space:]])voice|EveVoice|factor\(' source/app/src/main/java/com/eve/companion/MainActivity.kt
+          echo "=== MainActivity.kt relevant class structure ==="
+          nl -ba source/app/src/main/java/com/eve/companion/MainActivity.kt | sed -n "1,115p"
           echo "=== All voice declarations ==="
           grep -RIn --include='*.kt' -E 'val voice|var voice|voice[[:space:]]*=' source/app/src/main/java || true
 
