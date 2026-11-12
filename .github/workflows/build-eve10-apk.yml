@@ -1,3 +1,4 @@
+# Restart requested on 2026-11-12: trigger a fresh build without changing build behavior.
 name: Build EVE Android 10 APK
 
 on:
