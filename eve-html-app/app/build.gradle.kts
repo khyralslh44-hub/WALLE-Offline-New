@@ -6,7 +6,7 @@ android {
     namespace = "com.eve.htmlapp"
     compileSdk = 34
     defaultConfig {
-        applicationId = "com.eve.htmlapp"
+        applicationId = "com.eve.robot.offline"
         minSdk = 24
         targetSdk = 34
         versionCode = 1
