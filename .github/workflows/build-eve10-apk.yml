@@ -76,6 +76,17 @@ jobs:
           echo "=== All voice declarations ==="
           grep -RIn --include='*.kt' -E 'val voice|var voice|voice[[:space:]]*=' source/app/src/main/java || true
 
+      - name: Fix Android TextToSpeech receiver name resolution in extracted build copy
+        shell: bash
+        run: |
+          set -euo pipefail
+          FILE="source/app/src/main/java/com/eve/companion/MainActivity.kt"
+          grep -q 'voice.factor(style)' "$FILE"
+          sed -i 's/voice\.factor(style)/this@MainActivity.voice.factor(style)/' "$FILE"
+          grep -q 'this@MainActivity.voice.factor(style)' "$FILE"
+          echo "Applied one compile-only receiver qualification to extracted build source."
+          echo "The original ZIP and its embedded byte-for-byte copy remain unchanged."
+
       - name: Build debug APK from preserved original source
         working-directory: source
         run: gradle --no-daemon --stacktrace assembleDebug
