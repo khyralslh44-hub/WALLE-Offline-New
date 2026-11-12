@@ -69,12 +69,12 @@ jobs:
       - name: Inspect original voice implementation
         shell: bash
         run: |
-          echo "=== References to factor ==="
-          grep -RIn --include='*.kt' 'factor' source/app/src/main/java || true
           echo "=== EveVoice.kt ==="
-          find source/app/src/main/java -name 'EveVoice.kt' -print -exec nl -ba {} \\\;
-          echo "=== Speech.kt ==="
-          find source/app/src/main/java -name 'Speech.kt' -print -exec nl -ba {} \\\;
+          sed -n '1,180p' source/app/src/main/java/com/eve/companion/EveVoice.kt
+          echo "=== MainActivity voice declarations and calls ==="
+          grep -n -C 5 -E '(^|[[:space:]])voice|EveVoice|factor\(' source/app/src/main/java/com/eve/companion/MainActivity.kt
+          echo "=== All voice declarations ==="
+          grep -RIn --include='*.kt' -E 'val voice|var voice|voice[[:space:]]*=' source/app/src/main/java || true
 
       - name: Build debug APK from preserved original source
         working-directory: source
