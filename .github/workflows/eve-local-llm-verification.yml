@@ -5,6 +5,9 @@ on:
   push:
     paths:
       - 'eve-project/app/src/main/java/com/eve/robot/LocalLanguageBrain.kt'
+      - 'eve-project/app/src/main/java/com/eve/robot/LibyanSentimentModel.kt'
+      - 'eve-project/app/src/main/java/com/eve/robot/EveTinyArabicBrain.kt'
+      - '.github/scripts/train_libyan_sentiment.py'
       - 'eve-project/app/src/main/java/com/eve/robot/EveTinyArabicBrain.kt'
       - 'eve-project/app/src/main/java/com/eve/robot/EveArabicSemanticComposer.kt'
       - 'eve-project/app/src/main/java/com/eve/robot/EveArabicTextUnderstanding.kt'
@@ -61,6 +64,24 @@ jobs:
             "https://services.gradle.org/distributions/gradle-8.9-bin.zip" \
             --output "$RUNNER_TEMP/gradle-8.9-bin.zip"
           unzip -q "$RUNNER_TEMP/gradle-8.9-bin.zip" -d "$RUNNER_TEMP"
+
+      - name: Train compact Libyan Arabic review model
+        shell: bash
+        run: |
+          set -euo pipefail
+          DATASET="$RUNNER_TEMP/libyan-restaurant-reviews.xlsx"
+          ASSETS="eve-project/app/src/main/assets"
+          mkdir -p "$ASSETS"
+          curl --fail --location --retry 4 --connect-timeout 20 --max-time 180 \
+            "https://raw.githubusercontent.com/Mansour-Essgaer/Libyan-Resturant/a8b5cc1dfa2137caee565646428acc10f1d4b629/Libyan%20Resturant.xlsx" \
+            --output "$DATASET"
+          test "$(git hash-object "$DATASET")" = "3ba9c7ab2a17077aa01427eca54731eee6dda0b6"
+          python3 .github/scripts/train_libyan_sentiment.py \
+            --input "$DATASET" \
+            --output "$ASSETS/libyan_sentiment_nb.tsv" \
+            --report "$RUNNER_TEMP/libyan-sentiment-report.json"
+          test -s "$ASSETS/libyan_sentiment_nb.tsv"
+          test "$(head -n 1 "$ASSETS/libyan_sentiment_nb.tsv")" = "EVE_LIBYAN_SENTIMENT_V1"
 
       - name: Run unit tests and build compact app/instrumentation APKs
         shell: bash

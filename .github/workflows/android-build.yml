@@ -16,6 +16,7 @@ on:
       - '.github/scripts/emulator-smoke-test.sh'
       - '.github/scripts/run-deep-face-test.sh'
       - '.github/scripts/fetch-arabic-vosk-model.sh'
+      - '.github/scripts/train_libyan_sentiment.py'
       - '.github/scripts/run-local-llm-test.sh'
       - 'EVE_COMPACT_ARABIC_BRAIN.md'
       - '.github/workflows/eve-local-llm-verification.yml'
@@ -63,6 +64,37 @@ jobs:
           set -euo pipefail
           curl --fail --location --retry 3             "https://services.gradle.org/distributions/gradle-8.9-bin.zip"             --output "$RUNNER_TEMP/gradle-8.9-bin.zip"
           unzip -q "$RUNNER_TEMP/gradle-8.9-bin.zip" -d "$RUNNER_TEMP"
+
+      - name: Train compact Libyan Arabic sentiment model from CC BY 4.0 corpus
+        shell: bash
+        run: |
+          set -euo pipefail
+          DATASET="$RUNNER_TEMP/libyan-restaurant-reviews.xlsx"
+          ASSETS="eve-project/app/src/main/assets"
+          mkdir -p "$ASSETS"
+          curl --fail --location --retry 4 --connect-timeout 20 --max-time 180 \
+            "https://raw.githubusercontent.com/Mansour-Essgaer/Libyan-Resturant/a8b5cc1dfa2137caee565646428acc10f1d4b629/Libyan%20Resturant.xlsx" \
+            --output "$DATASET"
+          DATASET_GIT_BLOB="$(git hash-object "$DATASET")"
+          EXPECTED_GIT_BLOB="3ba9c7ab2a17077aa01427eca54731eee6dda0b6"
+          echo "Libyan corpus Git blob: $DATASET_GIT_BLOB"
+          if [ "$DATASET_GIT_BLOB" != "$EXPECTED_GIT_BLOB" ]; then
+            echo "FAIL: Libyan corpus changed from the reviewed CC BY 4.0 revision."
+            exit 1
+          fi
+          python3 .github/scripts/train_libyan_sentiment.py \
+            --input "$DATASET" \
+            --output "$ASSETS/libyan_sentiment_nb.tsv" \
+            --report "$RUNNER_TEMP/libyan-sentiment-report.json"
+          test -s "$ASSETS/libyan_sentiment_nb.tsv"
+          MODEL_BYTES="$(stat -c '%s' "$ASSETS/libyan_sentiment_nb.tsv")"
+          echo "Libyan sentiment model bytes: $MODEL_BYTES"
+          if [ "$MODEL_BYTES" -gt 300000 ]; then
+            echo "FAIL: compact Libyan sentiment model exceeded 300 KB."
+            exit 1
+          fi
+          cat "$RUNNER_TEMP/libyan-sentiment-report.json"
+          echo "PASS: compact, reproducible Libyan review model trained for packaging."
 
       - name: Download and pin offline facial-expression model
         shell: bash
@@ -204,6 +236,23 @@ jobs:
         run: |
           "$RUNNER_TEMP/gradle-8.9/bin/gradle"             --no-daemon --stacktrace -p eve-project             testDebugUnitTest assembleDebug assembleRelease
 
+
+      - name: Verify trained Libyan sentiment model is packaged in both APKs
+        shell: bash
+        run: |
+          set -euo pipefail
+          MODEL="eve-project/app/src/main/assets/libyan_sentiment_nb.tsv"
+          test -s "$MODEL"
+          test "$(head -n 1 "$MODEL")" = "EVE_LIBYAN_SENTIMENT_V1"
+          MODEL_SHA="$(sha256sum "$MODEL" | awk '{print $1}')"
+          for APK in \
+            "eve-project/app/build/outputs/apk/debug/app-debug.apk" \
+            "eve-project/app/build/outputs/apk/release/app-release.apk"; do
+            unzip -Z1 "$APK" | grep -Fxq "assets/libyan_sentiment_nb.tsv"
+            PACKAGED_SHA="$(unzip -p "$APK" assets/libyan_sentiment_nb.tsv | sha256sum | awk '{print $1}')"
+            test "$PACKAGED_SHA" = "$MODEL_SHA"
+            echo "PASS: $APK contains the trained Libyan review model SHA-256=$PACKAGED_SHA"
+          done
 
       - name: Verify no pretrained language model or llama runtime is packaged
         shell: bash
