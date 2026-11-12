@@ -1,0 +1,50 @@
+{
+  "model_name": "EVE-LY-CTC-Small",
+  "training_mode": "teacher_pseudo_labels_plus_human_corrections",
+  "teacher_model": "Tass02/whisper-small-libyan",
+  "teacher_usage": "training_only",
+  "student_architecture": "Wav2Vec2ForCTC",
+  "initialization": "random",
+  "sample_rate_hz": 16000,
+  "hidden_size": 256,
+  "transformer_layers": 6,
+  "attention_heads": 4,
+  "intermediate_size": 1024,
+  "conv_dim": [
+    64,
+    64,
+    128,
+    128,
+    256,
+    256,
+    256
+  ],
+  "conv_stride": [
+    5,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2
+  ],
+  "conv_kernel": [
+    10,
+    3,
+    3,
+    3,
+    3,
+    2,
+    2
+  ],
+  "target_runtime": "Android ONNX Runtime CPU first",
+  "offline_inference": true,
+  "size_target_mb": "experimental 50-100 MB goal; measure actual output",
+  "acceptance_tests": [
+    "human-verified held-out Libyan test set",
+    "WER and CER",
+    "speaker-disjoint evaluation",
+    "Redmi 12 latency and peak RAM",
+    "airplane-mode inference test"
+  ]
+}
