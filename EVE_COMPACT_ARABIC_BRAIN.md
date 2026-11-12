@@ -27,7 +27,7 @@ The engine is designed to be small and deterministic. Its size is mainly Kotlin 
 The shared Arabic front-end now includes a first conservative layer for general Libyan usage:
 common forms such as `شن`, `علاش`, `توا`, `هلبة/هلبا`, `باهي`, `نبي`, `قداش`, `هكي`, `مانيش`, and multi-word questions such as `شن حالك`. These are normalized into the compact engine's existing semantic vocabulary, with unit tests for the mappings and an unsupported-question rejection case.
 
-This is an initial dialect adapter, not a newly trained Libyan neural language model. It does not yet establish broad coverage of regional Libyan speech, free-form understanding, or speech recognition. The 20 MB target is a future measured model budget, not the current adapter's size and not a claim of a 20 MB trained checkpoint. Building a genuinely learned Libyan model requires a licensed/consented Libyan speech-and-text corpus, train/validation/test splits, training, quantization, and on-device accuracy/latency measurements. Speech-to-text and speech synthesis remain separate components.
+This is an initial dialect adapter, not a newly trained Libyan neural language model. It does not yet establish broad coverage of regional Libyan speech, free-form understanding, or speech recognition. The 5–10 MB target is an aspirational budget for a future Libyan text component only; it is not the current adapter's size and not a claim that a trained checkpoint exists. Building a genuinely learned Libyan model requires a licensed/consented Libyan speech-and-text corpus, train/validation/test splits, training, quantization, and on-device accuracy/latency measurements. Speech-to-text and speech synthesis remain separate components.
 
 ## What “custom” and “learning” mean here
 

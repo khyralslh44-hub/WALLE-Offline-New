@@ -15,7 +15,7 @@ These are reviewed rules and tests, not learned neural weights.
 | Resource | What it provides | Decision |
 |---|---|---|
 | Lisan-Libyan | About 51K annotated Libyan tokens; CC BY 4.0 | Download currently requires affiliation with a recognized company, university, or institution and an official institutional email; not accessed. |
-| Alexandria LY | Multi-turn English–Libyan translation resource; CC BY-NC 4.0 | Current public LY directory exposes a test parquet, so it must not be used for training. |
+| Alexandria LY | Multi-turn English–Libyan translation resource; CC BY-NC 4.0 | The published split statistics report **zero Libyan training and development turns**; Libya is test-only/zero-shot. Test examples are not training data. |
 | Libyan sub-regional speech benchmark | 133.7 hours represented by segment manifests and cached embeddings; CC BY 4.0 for those data, not the underlying audio | Useful for regional speech identification, not text dialogue training. |
 | Libyan restaurant-review sentiment corpus | 4,609 positive/negative Libyan reviews; CC BY 4.0 | Could support a narrow review-sentiment component, not a general conversational model. |
 
@@ -40,3 +40,10 @@ We do not claim to have trained a general Libyan conversational model or Libyan 
 - Alexandria: https://huggingface.co/datasets/UBC-NLP/alexandria
 - Libyan regional speech benchmark: https://huggingface.co/datasets/NourZohdy/libyan-subregional-did
 - Libyan restaurant reviews: https://github.com/Mansour-Essgaer/Libyan-Resturant
+## Latest build and measured audio-model cost
+
+The source revision `8ad23101130cbc1d60c4d2b52a5e586205f5f2b3` passed Android unit tests and the APK packaging/signature checks in GitHub Actions run `43191476180`. The build uploaded a Redmi 12 release artifact named `WALL-E-APK-Redmi12` with an artifact archive size of **427,827,610 bytes**. This is not an 80 MB build.
+
+The main size contributor is the bundled Arabic Vosk model archive `vosk-model-ar-mgb2-0.4.zip`, measured by the build as **318 MB**. It is a general Arabic speech-recognition model, not a Libyan dialect dialogue model. The Vosk model list reports it at 318 MB and reports 16.40 WER on the MGB-2 development set. See https://alphacephei.com/vosk/models
+
+The 5–10 MB target discussed for a future Libyan text component is separate from the speech-recognition model. It has **not** been built or merged. Removing the 318 MB Vosk asset would reduce the APK substantially but would also remove bundled open-vocabulary offline microphone transcription unless a tested replacement is integrated. Do not silently call a build without that asset a full voice-capable offline build.
