@@ -87,6 +87,25 @@ jobs:
           echo "Applied one compile-only receiver qualification to extracted build source."
           echo "The original ZIP and its embedded byte-for-byte copy remain unchanged."
 
+      - name: Download the five on-device vision model assets required by Vision.kt
+        shell: bash
+        run: |
+          set -euo pipefail
+          B="https://storage.googleapis.com/mediapipe-models"
+          D="source/app/src/main/assets/models"
+          mkdir -p "$D"
+          curl -fL "$B/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite" -o "$D/objects.tflite"
+          curl -fL "$B/face_landmarker/face_landmarker/float16/1/face_landmarker.task" -o "$D/face.task"
+          curl -fL "$B/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task" -o "$D/gesture.task"
+          curl -fL "$B/image_embedder/mobilenet_v3_small/float32/1/mobilenet_v3_small.tflite" -o "$D/embed.tflite"
+          curl -fL "$B/image_classifier/efficientnet_lite0/float32/1/efficientnet_lite0.tflite" -o "$D/classify.tflite"
+          for f in objects.tflite face.task gesture.task embed.tflite classify.tflite; do
+            test -s "$D/$f"
+            printf '%s  ' "$f"
+            sha256sum "$D/$f" | awk '{print $1}'
+          done
+          ls -lh "$D"
+
       - name: Build debug APK from preserved original source
         working-directory: source
         run: gradle --no-daemon --stacktrace assembleDebug
@@ -101,6 +120,14 @@ jobs:
           cp "$APK" dist/EVE-Android-10.apk
 
           unzip -t dist/EVE-Android-10.apk
+          echo "Checking all five packaged vision models:"
+          for model in objects.tflite face.task gesture.task embed.tflite classify.tflite; do
+            unzip -p dist/EVE-Android-10.apk "assets/models/$model" > "dist/$model"
+            test -s "dist/$model"
+            printf '%s  ' "$model"
+            sha256sum "dist/$model" | awk '{print $1}'
+            rm "dist/$model"
+          done
           unzip -p dist/EVE-Android-10.apk assets/original/eve-android-10-original.zip > dist/extracted-original.zip
           cmp "eve-android (10).zip" dist/extracted-original.zip
           unzip -p dist/EVE-Android-10.apk assets/original/archive-file-list.txt | cmp - source/app/src/main/assets/original/archive-file-list.txt
