@@ -35,7 +35,7 @@ internal object EveArabicIntentRouter {
             has("(انا سعيد|انا مبسوط|فرحان|يومي رائع|كل شيء تمام|انا بخير)") -> "feel_pos"
             has("(انا تعبان|انا متعب|مرهق|نعسان|اريد ان انام|منهك)") -> "tired"
             has("(كيف حالك|شلونك|كيفك|اخبارك|كيف الحال|كيف تشعرين)") -> "how"
-            has("(ماذا تفعلين|ماذا تفعلين الان|بماذا تفكرين|ايش تسوين)") -> "doing"
+            has("(ماذا تفعلين|ماذا تفعل|بماذا تفكرين|ايش تسوين)") -> "doing"
             has("(ماذا ترين|ماذا ترى|ماذا تشاهدين|ما الذي تريه|وصفي لي ما حولك|ماذا يوجد امامك|ما هذا)") -> "see"
             has("(ما اسمك|من انت|عرفيني بنفسك|من تكونين|ما هي ايف)") -> "who"
             has("(ماذا تعرفين عني|هل تتذكرين|ماذا تذكرين|ما الذي تتذكرينه)") -> "memory"
@@ -106,16 +106,8 @@ internal object EveArabicIntentRouter {
         return Route(intent, slots, moodHint, intentHint, confidence)
     }
 
-    fun normalize(text: String): String {
-        return text.lowercase(Locale.ROOT)
-            .replace(Regex("[\\u064B-\\u065F\\u0670ـ]"), "")
-            .replace('أ', 'ا').replace('إ', 'ا').replace('آ', 'ا')
-            .replace('ى', 'ي').replace('ة', 'ه')
-            .replace('ؤ', 'و').replace('ئ', 'ي')
-            .replace(Regex("[^\\p{L}\\p{N}\\s<>]"), " ")
-            .replace(Regex("\\s+"), " ")
-            .trim()
-    }
+    fun normalize(text: String): String =
+        EveArabicTextUnderstanding.normalize(text)
 
     private fun arabicLabel(label: String): String = when (label.trim().lowercase(Locale.ROOT)) {
         "cat", "kitten" -> "القطة"

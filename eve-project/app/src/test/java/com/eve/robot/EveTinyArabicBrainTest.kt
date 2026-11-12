@@ -173,6 +173,27 @@ class EveTinyArabicBrainTest {
         }
     }
 
+    @Test fun normalizesMoreEverydayLibyanPhrasesWithoutChangingTheirMeaning() {
+        val cases = listOf(
+            "شن تبي" to "ماذا تريد",
+            "شن تدير" to "ماذا تفعل",
+            "شن درت" to "ماذا فعلت",
+            "شن صار" to "ماذا حدث",
+            "ما نبيش" to "لا اريد",
+            "ما نحبش" to "لا احب",
+            "ما عنديش" to "ليس عندي",
+            "مفيش" to "لا يوجد",
+            "منين" to "من اين",
+            "وينك" to "اين انت",
+            "وينك توا" to "اين انت الان"
+        )
+        cases.forEach { (spoken, expected) ->
+            assertEquals("Libyan phrase: $spoken", expected, EveArabicTextUnderstanding.normalize(spoken))
+        }
+        assertEquals("ماذا تريد", EveArabicIntentRouter.normalize("شن تبي؟"))
+        assertEquals("ماذا تفعل", EveArabicIntentRouter.normalize("شن تدير؟"))
+    }
+
     @Test fun libyanSpeechStillRejectsUnsupportedGeneralKnowledge() {
         val prediction = EveTinyArabicBrain.classify("شن سبب تشكل المجرات؟")
         assertNull(prediction.intent)

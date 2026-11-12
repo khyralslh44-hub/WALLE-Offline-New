@@ -34,6 +34,15 @@ internal object EveArabicTextUnderstanding {
         "هني" to "هنا",
         "مانيش" to "لست",
         "معاش" to "لم يعد",
+        "منين" to "من اين",
+        "وينك" to "اين انت",
+        "مفيش" to "لا يوجد",
+        "مافيش" to "لا يوجد",
+        "نبيش" to "لا اريد",
+        "مانبيش" to "لا اريد",
+        "مانحبش" to "لا احب",
+        "تدير" to "تفعل",
+        "درت" to "فعلت",
         "تشوفي" to "ترين",
         "تشوفوا" to "ترون",
         "تسألي" to "تسألين",
@@ -111,6 +120,15 @@ internal object EveArabicTextUnderstanding {
         if (cleaned.isBlank()) return ""
         // Common Libyan multi-word questions need phrase-level normalization.
         val phraseNormalized = cleaned
+            .replace(Regex("(^|\\s)شن\\s+تبي(?=\\s|$)"), "$1ماذا تريد")
+            .replace(Regex("(^|\\s)شن\\s+تدير(?=\\s|$)"), "$1ماذا تفعل")
+            .replace(Regex("(^|\\s)شن\\s+درت(?=\\s|$)"), "$1ماذا فعلت")
+            .replace(Regex("(^|\\s)شن\\s+صار(?=\\s|$)"), "$1ماذا حدث")
+            .replace(Regex("(^|\\s)ما\\s+نبيش(?=\\s|$)"), "$1لا اريد")
+            .replace(Regex("(^|\\s)ما\\s+نحبش(?=\\s|$)"), "$1لا احب")
+            .replace(Regex("(^|\\s)ما\\s+عنديش(?=\\s|$)"), "$1ليس عندي")
+            .replace(Regex("(^|\\s)وينك(?=\\s|$)"), "$1اين انت")
+            .replace(Regex("(^|\\s)منين(?=\\s|$)"), "$1من اين")
             .replace(Regex("(^|\\s)شن\\s+حالك(?=\\s|$)"), "$1كيف حالك")
             .replace(Regex("(^|\\s)شن\\s+جوك(?=\\s|$)"), "$1كيف مزاجك")
             .replace(Regex("(^|\\s)شن\\s+اخبارك(?=\\s|$)"), "$1كيف حالك")
