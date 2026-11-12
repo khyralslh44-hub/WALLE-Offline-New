@@ -106,6 +106,25 @@ jobs:
           done
           ls -lh "$D"
 
+      - name: Download and embed the original Arabic Vosk speech model
+        shell: bash
+        run: |
+          set -euo pipefail
+          MODEL_URL="https://alphacephei.com/vosk/models/vosk-model-ar-mgb2-0.4.zip"
+          curl --fail --location --retry 3 "$MODEL_URL" -o /tmp/vosk-ar.zip
+          mkdir -p /tmp/vosk-ar source/app/src/main/assets/vosk
+          unzip -q /tmp/vosk-ar.zip -d /tmp/vosk-ar
+          MODEL_DIR="$(find /tmp/vosk-ar -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+          test -n "$MODEL_DIR"
+          mkdir -p source/app/src/main/assets/vosk/model
+          cp -a "$MODEL_DIR"/. source/app/src/main/assets/vosk/model/
+          test -d source/app/src/main/assets/vosk/model
+          test -n "$(find source/app/src/main/assets/vosk/model -type f -print -quit)"
+          echo "Arabic Vosk model files:"
+          find source/app/src/main/assets/vosk/model -type f | wc -l
+          du -sh source/app/src/main/assets/vosk/model
+          find source/app/src/main/assets/vosk/model -maxdepth 2 -type f | head -30
+
       - name: Build debug APK from preserved original source
         working-directory: source
         run: gradle --no-daemon --stacktrace assembleDebug
@@ -120,6 +139,11 @@ jobs:
           cp "$APK" dist/EVE-Android-10.apk
 
           unzip -t dist/EVE-Android-10.apk
+          echo "Checking embedded Arabic Vosk model:"
+          unzip -l dist/EVE-Android-10.apk | grep -E 'assets/vosk/model/(am|conf|graph|ivector|README|uuid)' | head -40
+          unzip -l dist/EVE-Android-10.apk | grep -q 'assets/vosk/model/'
+          unzip -p dist/EVE-Android-10.apk assets/vosk/model/conf/model.conf > /dev/null
+          echo "Arabic Vosk model assets are packaged."
           echo "Checking all five packaged vision models:"
           for model in objects.tflite face.task gesture.task embed.tflite classify.tflite; do
             unzip -p dist/EVE-Android-10.apk "assets/models/$model" > "dist/$model"
