@@ -60,6 +60,12 @@ jobs:
         with:
           gradle-version: "8.9"
 
+      - name: Diagnose original Kotlin compile error
+        shell: bash
+        run: |
+          echo "MainActivity.kt lines 68-88:"
+          nl -ba source/app/src/main/java/com/eve/companion/MainActivity.kt | sed -n "68,88p"
+
       - name: Build debug APK from preserved original source
         working-directory: source
         run: gradle --no-daemon --stacktrace assembleDebug
