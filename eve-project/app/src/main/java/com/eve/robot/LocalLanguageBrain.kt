@@ -52,6 +52,19 @@ class LocalLanguageBrain(
     // Tests can inject an inline dispatcher; the app keeps main-thread UI callbacks by default.
     private val callbackDispatcher: ((() -> Unit) -> Unit)? = null
 ) : AutoCloseable {
+    private val appContext = context.applicationContext
+    private val libyanSentimentModel: LibyanSentimentModel? = runCatching {
+        appContext.assets.open(LIBYAN_SENTIMENT_ASSET).use(LibyanSentimentModel::load)
+    }.onSuccess { model ->
+        Log.i(
+            TAG,
+            "LIBYAN_SENTIMENT_MODEL_READY rows=${model.trainingRows} " +
+                "featuresLoaded=true validationAccuracy=${model.validationAccuracy} " +
+                "validationMacroF1=${model.validationMacroF1}"
+        )
+    }.onFailure { error ->
+        Log.w(TAG, "LIBYAN_SENTIMENT_MODEL_UNAVAILABLE; general Arabic dialogue remains active.", error)
+    }.getOrNull()
     private val main = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor { task ->
         Thread(task, "eve-tiny-arabic-brain").apply { isDaemon = true }
@@ -103,7 +116,7 @@ class LocalLanguageBrain(
         enqueue(background = false, operation = {
             // This is the primary and only dialogue path: a bespoke compact Arabic
             // understanding model plus EVE-specific grounded response composition.
-            EveTinyArabicBrain.answerUser(userText, context)
+            EveTinyArabicBrain.answerUser(userText, context, libyanSentimentModel)
         }, callback = callback)
     }
 
@@ -258,5 +271,6 @@ class LocalLanguageBrain(
 
         private const val TAG = "EVE_TINY_BRAIN"
         private const val MAX_PENDING_INFERENCES = 4
+        private const val LIBYAN_SENTIMENT_ASSET = "libyan_sentiment_nb.tsv"
     }
 }

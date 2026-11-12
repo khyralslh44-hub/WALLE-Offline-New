@@ -218,7 +218,30 @@ internal object EveTinyArabicBrain {
         )
     }
 
-    fun answerUser(text: String, context: LocalLlmContext): LocalLlmResult {
+    fun answerUser(
+        text: String,
+        context: LocalLlmContext,
+        libyanSentimentModel: LibyanSentimentModel? = null
+    ): LocalLlmResult {
+        if (isRestaurantRelated(text)) {
+            val sentiment = libyanSentimentModel?.predict(text)
+            if (sentiment != null) {
+                val description = when (sentiment.polarity) {
+                    LibyanSentimentModel.Polarity.POSITIVE -> "إيجابي"
+                    LibyanSentimentModel.Polarity.NEGATIVE -> "سلبي"
+                }
+                return LocalLlmResult(
+                    replyArabic = "وفق نموذج الانطباع المدرّب على مراجعات ليبية، يبدو وصفك للمطعم " + description +
+                        ". هذا تقدير لغوي محدود بالمطاعم، وليس حكماً مؤكداً على المكان.",
+                    moodHint = "curious",
+                    intentHint = "restaurant_sentiment",
+                    reflectionArabic = "مصنّف الانطباع الليبي رجّح الفئة " + description +
+                        " بثقة " + (sentiment.confidence * 100f).toInt() +
+                        "% مع " + sentiment.matchedFeatures + " سمة لغوية.",
+                    confidence = sentiment.confidence
+                )
+            }
+        }
         val prediction = classify(text)
         val intent = prediction.intent
         val freshLabel = freshVisionLabel(context)
@@ -242,6 +265,20 @@ internal object EveTinyArabicBrain {
             "سؤال غير مألوف: " + safe(text, 90) + ". لا أملك فهماً موثوقاً له بعد.",
             prediction.confidence
         )
+    }
+
+    private fun isRestaurantRelated(rawText: String): Boolean {
+        val tokens = EveArabicTextUnderstanding.normalize(rawText)
+            .split(' ').filter(String::isNotBlank)
+        val domainTerms = setOf(
+            "مطعم", "مطاعم", "مطعمي", "اكل", "الاكل", "خدمه", "الخدمه",
+            "طلب", "الطلب", "وجبه", "وجبات", "طعام", "سعر", "اسعار",
+            "منيو", "طبق", "اطباق", "بيتزا", "برجر", "قهوه"
+        )
+        return tokens.any { token ->
+            val withoutArticle = token.removePrefix("ال")
+            token in domainTerms || withoutArticle in domainTerms
+        }
     }
 
     fun askFromCuriosity(
