@@ -149,6 +149,27 @@ class LocalLanguageBrainIntegrationTest {
                 listOf("دون اتصال", "محلي", "على الجهاز", "على الهاتف").any(answer.replyArabic::contains)
             )
 
+            val positiveRestaurant = awaitAnswer(
+                brain,
+                "المطعم باهي والخدمة سريعة"
+            )
+            assertEquals("restaurant_sentiment", positiveRestaurant.intentHint)
+            assertTrue(
+                "Libyan review model should recognize a positive review.",
+                positiveRestaurant.replyArabic.contains("إيجابي")
+            )
+
+            val negativeRestaurant = awaitAnswer(
+                brain,
+                "الخدمة بلهون بكل والطلب تأخر"
+            )
+            assertEquals("restaurant_sentiment", negativeRestaurant.intentHint)
+            assertTrue(
+                "Libyan review model should recognize a negative review.",
+                negativeRestaurant.replyArabic.contains("سلبي")
+            )
+            Log.i(TAG, "TINY_ARABIC_LIBYAN_SENTIMENT_PASS positive=true negative=true")
+
             val unknown = awaitAnswer(brain, "لماذا تمطر على المريخ اليوم؟")
             assertTrue("Unknown question must be handled honestly.", unknown.replyArabic.contains("لم أفهم"))
             assertEquals(null, EveTinyArabicBrain.classify("لماذا تمطر على المريخ اليوم؟").intent)
@@ -156,7 +177,7 @@ class LocalLanguageBrainIntegrationTest {
             assertFalse("Tiny model must not report the old model as downloading.", brain.currentState == LocalLlmState.DOWNLOADING)
             Log.i(
                 TAG,
-                "TINY_ARABIC_BRAIN_ANDROID_PASS engine=hashed_char_ngram queue=reflection_then_user " +
+                "TINY_ARABIC_BRAIN_ANDROID_PASS engine=hashed_char_ngram+libyan_sentiment queue=reflection_then_user " +
                     "offline=true greetingChars=${greeting.replyArabic.length} " +
                     "answerChars=${answer.replyArabic.length}"
             )

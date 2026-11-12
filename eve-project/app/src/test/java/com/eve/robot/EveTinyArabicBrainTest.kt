@@ -194,6 +194,58 @@ class EveTinyArabicBrainTest {
         assertEquals("ماذا تفعل", EveArabicIntentRouter.normalize("شن تدير؟"))
     }
 
+    @Test fun libyanSentimentModelUsesOnlyStrongLearnedEvidence() {
+        val model = LibyanSentimentModel.parse(
+            listOf(
+                "EVE_LIBYAN_SENTIMENT_V1",
+                "bias\t0.0",
+                "threshold\t0.64",
+                "rows\t4609",
+                "accuracy\t0.80",
+                "macro_f1\t0.79",
+                "f\tw:جيد\t2.5",
+                "f\tw:سريع\t0.8",
+                "f\tw:سيء\t-2.5",
+                "f\tw:متاخر\t-0.8"
+            ).joinToString("\n")
+        )
+        val positive = model.predict("المطعم باهي")
+        val negative = model.predict("المطعم سيء")
+        assertNotNull(positive)
+        assertNotNull(negative)
+        assertEquals(LibyanSentimentModel.Polarity.POSITIVE, positive!!.polarity)
+        assertEquals(LibyanSentimentModel.Polarity.NEGATIVE, negative!!.polarity)
+        assertNull(model.predict("سأذهب إلى البيت"))
+    }
+
+    @Test fun libyanSentimentIsUsedOnlyForRestaurantDomainStatements() {
+        val model = LibyanSentimentModel.parse(
+            listOf(
+                "EVE_LIBYAN_SENTIMENT_V1",
+                "bias\t0.0",
+                "threshold\t0.64",
+                "rows\t4609",
+                "accuracy\t0.80",
+                "macro_f1\t0.79",
+                "f\tw:جيد\t2.5",
+                "f\tw:سريع\t0.8"
+            ).joinToString("\n")
+        )
+        val result = EveTinyArabicBrain.answerUser(
+            "المطعم باهي والخدمة سريعة",
+            LocalLlmContext(),
+            model
+        )
+        assertEquals("restaurant_sentiment", result.intentHint)
+        assertTrue(result.replyArabic.contains("إيجابي"))
+        val unrelated = EveTinyArabicBrain.answerUser(
+            "باهي يا إيف",
+            LocalLlmContext(),
+            model
+        )
+        assertFalse(unrelated.intentHint == "restaurant_sentiment")
+    }
+
     @Test fun libyanSpeechStillRejectsUnsupportedGeneralKnowledge() {
         val prediction = EveTinyArabicBrain.classify("شن سبب تشكل المجرات؟")
         assertNull(prediction.intent)
