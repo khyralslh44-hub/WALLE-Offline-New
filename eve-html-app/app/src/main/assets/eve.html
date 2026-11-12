@@ -1356,7 +1356,10 @@ function drawSeed(t){
 const submit=()=>{const v=$('in').value.trim();if(!v)return;$('in').value='';understand(v)};
 $('send').onclick=submit;$('in').onkeydown=e=>{if(e.key==='Enter')submit()};
 $('bCam').onclick=()=>{if(NAT&&Android.senses){M.cfg.cam=!M.cfg.cam;Android.senses(M.cfg.cam,M.cfg.mic);save();syncBtns()}else camToggle()};
-$('bMic').onclick=()=>{if(NAT&&Android.senses){M.cfg.mic=!M.cfg.mic;Android.senses(M.cfg.cam,M.cfg.mic);save();syncBtns()}else micToggle()};
+let nativeSpeechOn=false;
+window.eveNativeSpeechResult=function(text){try{if(text&&typeof Eve!=='undefined')Eve.speech(text)}catch(e){}};
+window.eveSpeechStatus=function(message){$('note').textContent=message||'';if(message&&message.includes('تستمع')){$('bMic').classList.add('on');$('bMic').textContent='إيقاف الاستماع'}else if(message&&message.includes('توقف')){$('bMic').classList.remove('on');$('bMic').textContent='الأذن'}};
+$('bMic').onclick=()=>{if(NAT&&Android.startSpeech){if(nativeSpeechOn){nativeSpeechOn=false;Android.stopSpeech();$('bMic').classList.remove('on');$('bMic').textContent='الأذن'}else{nativeSpeechOn=true;M.cfg.mic=true;save();$('bMic').textContent='جارٍ تشغيل الأذن...';Android.startSpeech()}}else micToggle()};
 $('bVox').onclick=()=>{voice=!voice;$('bVox').classList.toggle('on',voice);if(!voice)try{speechSynthesis.cancel()}catch(e){}};
 $('wipe').onclick=()=>{if(confirm('مسح كل ما تعلّمته إيف؟')){try{localStorage.removeItem('eve1')}catch(e){}location.reload()}};
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)bump('joy',.5)});
