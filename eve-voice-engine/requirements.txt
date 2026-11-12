@@ -1,5 +1,4 @@
-torch>=2.2
-torchaudio>=2.2
+# Colab already provides CUDA-enabled torch/torchaudio; do not replace them here.
 transformers>=4.44,<5
 datasets>=2.20
 accelerate>=0.33
@@ -9,3 +8,4 @@ soundfile>=0.12
 librosa>=0.10
 onnx>=1.16
 onnxruntime>=1.18
+optimum[onnxruntime]>=1.21
