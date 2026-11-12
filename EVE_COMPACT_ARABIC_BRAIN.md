@@ -22,6 +22,13 @@ EVE's everyday Arabic understanding and reply composition are implemented specif
 
 The engine is designed to be small and deterministic. Its size is mainly Kotlin code and compact feature structures, not hundreds of megabytes of language weights. Its response realizer is a bounded rule-based composer: it can combine meaning and context for the supported companion domain, but it is not unrestricted open-domain text generation.
 
+## Libyan Arabic adaptation
+
+The shared Arabic front-end now includes a first conservative layer for general Libyan usage:
+common forms such as `شن`, `علاش`, `توا`, `هلبة/هلبا`, `باهي`, `نبي`, `قداش`, `هكي`, `مانيش`, and multi-word questions such as `شن حالك`. These are normalized into the compact engine's existing semantic vocabulary, with unit tests for the mappings and an unsupported-question rejection case.
+
+This is an initial dialect adapter, not a newly trained Libyan neural language model. It does not yet establish broad coverage of regional Libyan speech, free-form understanding, or speech recognition. The 20 MB target is a future measured model budget, not the current adapter's size and not a claim of a 20 MB trained checkpoint. Building a genuinely learned Libyan model requires a licensed/consented Libyan speech-and-text corpus, train/validation/test splits, training, quantization, and on-device accuracy/latency measurements. Speech-to-text and speech synthesis remain separate components.
+
 ## What “custom” and “learning” mean here
 
 The interpretation features, intent prototypes, response rules, context handling, and EVE-specific voice are authored for this project. This is not a claim that a foundation model was trained from scratch. Local memory can save user-confirmed facts and associations, but that memory does not update neural-network weights. Future training of a tiny statistical language model would require a curated Arabic dataset, a reproducible training pipeline, evaluation data, and measured on-device inference before it could replace the current engine.
