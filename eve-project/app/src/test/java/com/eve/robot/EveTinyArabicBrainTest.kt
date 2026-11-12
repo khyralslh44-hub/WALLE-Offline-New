@@ -151,6 +151,33 @@ class EveTinyArabicBrainTest {
         assertTrue(EveArabicTextUnderstanding.featureTokens("بالكاميرا").contains("كاميرا"))
     }
 
+    @Test fun normalizesGeneralLibyanArabicVocabularyAndPhrases() {
+        val cases = listOf(
+            "شن حالك" to "كيف حالك",
+            "شن اخبارك" to "كيف حالك",
+            "شن جوك" to "كيف مزاجك",
+            "علاش" to "لماذا",
+            "توا" to "الان",
+            "هلبة" to "كثير",
+            "هلبا" to "كثير",
+            "باهي" to "جيد",
+            "نبي" to "اريد",
+            "نبو" to "نريد",
+            "قداش" to "كم",
+            "هكي" to "هكذا",
+            "مانيش" to "لست",
+            "معاش" to "لم يعد"
+        )
+        cases.forEach { (spoken, expected) ->
+            assertEquals("Libyan phrase: $spoken", expected, EveArabicTextUnderstanding.normalize(spoken))
+        }
+    }
+
+    @Test fun libyanSpeechStillRejectsUnsupportedGeneralKnowledge() {
+        val prediction = EveTinyArabicBrain.classify("شن سبب تشكل المجرات؟")
+        assertNull(prediction.intent)
+    }
+
     @Test fun classifiesSpokenDialectFormsThroughTheSharedArabicFrontEnd() {
         val cases = listOf(
             "شلونك يا إيف" to "greeting",
