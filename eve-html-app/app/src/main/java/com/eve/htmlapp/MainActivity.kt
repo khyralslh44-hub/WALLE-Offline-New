@@ -7,6 +7,13 @@ import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
 import android.speech.tts.TextToSpeech
+import android.speech.SpeechRecognizer
+import android.speech.RecognitionListener
+import android.speech.RecognizerIntent
+import android.os.Handler
+import android.os.Looper
+import android.content.Intent
+import org.json.JSONObject
 import android.view.WindowManager
 import android.webkit.JavascriptInterface
 import android.webkit.PermissionRequest
@@ -26,6 +33,10 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     @Volatile private var ttsReady = false
     private var pendingWebPermission: PermissionRequest? = null
     private val mediaPermissionRequestCode = 41
+    private val speechPermissionRequestCode = 42
+    private var speechRecognizer: SpeechRecognizer? = null
+    @Volatile private var speechListening = false
+    private val speechHandler = Handler(Looper.getMainLooper())
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -117,6 +128,11 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == speechPermissionRequestCode) {
+            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) startNativeSpeech()
+            else speechStatus("لم يُمنح إذن الميكروفون")
+            return
+        }
         if (requestCode != mediaPermissionRequestCode) return
 
         val request = pendingWebPermission ?: return
@@ -137,7 +153,98 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
         }
     }
 
+
+    private fun speechStatus(message: String) {
+        val quoted = JSONObject.quote(message)
+        if (::web.isInitialized) web.evaluateJavascript("window.eveSpeechStatus && window.eveSpeechStatus(" + quoted + ");", null)
+    }
+
+    private fun deliverSpeech(text: String) {
+        val quoted = JSONObject.quote(text)
+        if (::web.isInitialized) web.evaluateJavascript("window.eveNativeSpeechResult && window.eveNativeSpeechResult(" + quoted + ");", null)
+    }
+
+    private fun startNativeSpeech() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+            speechStatus("هذا الإصدار لا يوفر واجهة التعرف الصوتي المحلي المطلوبة")
+            return
+        }
+        if (!SpeechRecognizer.isOnDeviceRecognitionAvailable(this)) {
+            speechStatus("لا يوجد محرك تعرف صوتي محلي متاح. لن أستخدم الإنترنت.")
+            return
+        }
+        try {
+            speechRecognizer?.destroy()
+            speechRecognizer = SpeechRecognizer.createOnDeviceSpeechRecognizer(this)
+            speechRecognizer?.setRecognitionListener(object : RecognitionListener {
+                override fun onReadyForSpeech(params: Bundle?) { speechStatus("إيف تستمع إليك دون إنترنت") }
+                override fun onBeginningOfSpeech() {}
+                override fun onRmsChanged(rmsdB: Float) {}
+                override fun onBufferReceived(buffer: ByteArray?) {}
+                override fun onEndOfSpeech() { speechStatus("أحلل كلامك...") }
+                override fun onError(error: Int) {
+                    if (!speechListening) return
+                    if (error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
+                        speechHandler.postDelayed({ if (speechListening) startListeningAgain() }, 450)
+                    } else {
+                        speechListening = false
+                        speechStatus("تعذر التعرف المحلي، رمز الخطأ: " + error)
+                    }
+                }
+                override fun onResults(results: Bundle?) {
+                    val spoken = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
+                    if (spoken.isNotBlank()) deliverSpeech(spoken)
+                    if (speechListening) speechHandler.postDelayed({ if (speechListening) startListeningAgain() }, 350)
+                }
+                override fun onPartialResults(partialResults: Bundle?) {}
+                override fun onEvent(eventType: Int, params: Bundle?) {}
+            })
+            speechListening = true
+            startListeningAgain()
+        } catch (e: Exception) {
+            speechListening = false
+            speechStatus("تعذر تشغيل محرك الصوت المحلي: " + (e.message ?: "خطأ غير معروف"))
+        }
+    }
+
+    private fun startListeningAgain() {
+        if (!speechListening) return
+        try {
+            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ar")
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "ar")
+                putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+                putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
+            }
+            speechRecognizer?.startListening(intent)
+        } catch (e: Exception) {
+            speechListening = false
+            speechStatus("لم يبدأ الاستماع المحلي: " + (e.message ?: "خطأ"))
+        }
+    }
+
     private inner class EveBridge {
+        @JavascriptInterface
+        fun startSpeech() {
+            runOnUiThread {
+                if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                    requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), speechPermissionRequestCode)
+                } else startNativeSpeech()
+            }
+        }
+
+        @JavascriptInterface
+        fun stopSpeech() {
+            runOnUiThread {
+                speechListening = false
+                speechHandler.removeCallbacksAndMessages(null)
+                speechRecognizer?.cancel()
+                speechStatus("توقف الاستماع")
+            }
+        }
+
         @JavascriptInterface
         fun speak(text: String, pitch: Float, rate: Float) {
             runOnUiThread {
@@ -160,6 +267,9 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
     }
 
     override fun onPause() {
+        speechListening = false
+        speechHandler.removeCallbacksAndMessages(null)
+        speechRecognizer?.cancel()
         if (::web.isInitialized) {
             web.evaluateJavascript("window.stopMediaFromNative && window.stopMediaFromNative();", null)
             web.onPause()
@@ -177,6 +287,9 @@ class MainActivity : Activity(), TextToSpeech.OnInitListener {
             web.removeJavascriptInterface("Android")
             web.destroy()
         }
+        speechListening = false
+        speechRecognizer?.destroy()
+        speechRecognizer = null
         tts?.stop()
         tts?.shutdown()
         super.onDestroy()
