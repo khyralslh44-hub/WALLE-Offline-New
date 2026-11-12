@@ -1,1 +1,1 @@
-Build trigger for standalone EVE HTML Android APK. Workflow syntax was corrected; build again.
+Build uploaded eve (2).html as the EVE Android APK. Source HTML is packaged unchanged in app assets.
