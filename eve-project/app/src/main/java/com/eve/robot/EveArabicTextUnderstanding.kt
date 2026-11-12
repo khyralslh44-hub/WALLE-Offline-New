@@ -18,6 +18,7 @@ internal object EveArabicTextUnderstanding {
         "توا" to "الان",
         "تو" to "الان",
         "هلبة" to "كثير",
+        "هلبه" to "كثير",
         "هلبا" to "كثير",
         "واجد" to "كثير",
         "باهي" to "جيد",
