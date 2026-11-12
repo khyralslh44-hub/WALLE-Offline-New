@@ -29,6 +29,8 @@ common forms such as `شن`, `علاش`, `توا`, `هلبة/هلبا`, `باه�
 
 This is an initial dialect adapter, not a newly trained Libyan neural language model. It does not yet establish broad coverage of regional Libyan speech, free-form understanding, or speech recognition. The 5–10 MB target is an aspirational budget for a future Libyan text component only; it is not the current adapter's size and not a claim that a trained checkpoint exists. Building a genuinely learned Libyan model requires a licensed/consented Libyan speech-and-text corpus, train/validation/test splits, training, quantization, and on-device accuracy/latency measurements. Speech-to-text and speech synthesis remain separate components.
 
+A research-only derivative resource now lists 13,587 Libyan target sentences, but its source provenance is not retained and underlying corpus terms differ. It is not currently used in EVE and is not treated as cleared production training data.
+
 ## What “custom” and “learning” mean here
 
 The interpretation features, intent prototypes, response rules, context handling, and EVE-specific voice are authored for this project. This is not a claim that a foundation model was trained from scratch. Local memory can save user-confirmed facts and associations, but that memory does not update neural-network weights. Future training of a tiny statistical language model would require a curated Arabic dataset, a reproducible training pipeline, evaluation data, and measured on-device inference before it could replace the current engine.

@@ -18,6 +18,11 @@ These are reviewed rules and tests, not learned neural weights.
 | Alexandria LY | Multi-turn English–Libyan translation resource; CC BY-NC 4.0 | The published split statistics report **zero Libyan training and development turns**; Libya is test-only/zero-shot. Test examples are not training data. |
 | Libyan sub-regional speech benchmark | 133.7 hours represented by segment manifests and cached embeddings; CC BY 4.0 for those data, not the underlying audio | Useful for regional speech identification, not text dialogue training. |
 | Libyan restaurant-review sentiment corpus | 4,609 positive/negative Libyan reviews; CC BY 4.0 | Could support a narrow review-sentiment component, not a general conversational model. |
+| AlexandriaX back-translated pairs (Libyan subset) | 13,587 Libyan responses in a 348,787-row synthetic English→dialect dataset; CC BY-NC 4.0 | Research-only candidate, not a safe general dialogue source: each row is a first-turn pair, source provenance is not retained, and source-corpus terms differ. The dataset card explicitly says to check underlying terms. |
+
+### Additional research-only training candidate
+
+A newer dataset card for `NAMAA-Space/alexandria-backtranslated-pairs` reports 13,587 Libyan rows within 348,787 pairs. The target-side sentences are described as authentic dialectal Arabic gathered from public corpora and the English side is machine back-translated. The dataset is CC BY-NC 4.0; it has no conversation structure, each row is a first turn, no per-row source provenance is retained, and the card warns that underlying source-corpus redistribution terms differ. It is therefore useful to investigate for non-commercial research, but I have not used it to train or package an app model without resolving those source terms. See https://huggingface.co/datasets/NAMAA-Space/alexandria-backtranslated-pairs (rows 215–222, 263–287, 335–345).
 
 ## Why a general trained model is not packaged yet
 
