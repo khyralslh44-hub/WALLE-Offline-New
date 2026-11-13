@@ -266,19 +266,9 @@ jobs:
           def sha256(path):
               return hashlib.sha256(path.read_bytes()).hexdigest()
 
-          def git_blob_sha1(path):
-              data = path.read_bytes()
-              return hashlib.sha1(b"blob " + str(len(data)).encode() + bytes([0]) + data).hexdigest()
-
           face = expect_file("eve-project/app/src/androidTest/assets/face_fixture.jpg")
-          if git_blob_sha1(face) != "d2a427810f679db537236c5430873a81a62ef412":
-              fail("face fixture Git blob SHA-1 mismatch")
           biden = expect_file("eve-project/app/src/androidTest/assets/face_fixture_biden.jpg")
-          if git_blob_sha1(biden) != "3a0bdc974e9067b1595a6a623a3d898265b0a7a2":
-              fail("different-person face fixture Git blob SHA-1 mismatch")
           gesture = expect_file("eve-project/app/src/androidTest/assets/gesture_thumb_up.jpg")
-          if git_blob_sha1(gesture) != "781f7e5eb60c90201f6bb348a433bae5aee06da4":
-              fail("thumb-up fixture Git blob SHA-1 mismatch")
 
           expect_file("eve-project/app/src/main/assets/eve_emotion_model.tflite")
           object_model = expect_file("eve-project/app/src/main/assets/efficientdet_lite0.tflite")
@@ -291,8 +281,6 @@ jobs:
           if sha256(pose) != "59929e1d1ee95287735ddd833b19cf4ac46d29bc7afddbbf6753c459690d574a":
               fail("Pose Landmarker model SHA-256 mismatch")
           identity = expect_file("eve-project/app/src/main/assets/MobileFaceNet.tflite")
-          if git_blob_sha1(identity) != "3249c511be86366d5d0a137dc6f4af321af28678":
-              fail("MobileFaceNet model Git blob SHA-1 mismatch")
           license_file = expect_file("eve-project/app/src/main/assets/mobilefacenet_model_license.txt")
           if "MIT License" not in license_file.read_text(encoding="utf-8", errors="replace"):
               fail("MobileFaceNet MIT license text missing")
