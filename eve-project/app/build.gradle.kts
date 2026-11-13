@@ -11,7 +11,14 @@ android {
 
     // The bundled Vosk ZIP and TFLite vision models are already compact binary assets.
     androidResources {
-        noCompress += listOf("onnx")
+        // Allow Android to compress model assets; EVE reads them through verified buffers or AssetManager.
+    }
+
+    packaging {
+        jniLibs {
+            // Compress native libraries in the installer APK; Android extracts them at install time.
+            useLegacyPackaging = true
+        }
     }
 
     // Include legacy JAR (v1) signing as well as modern APK signing so OEM installers
@@ -48,9 +55,13 @@ android {
             ndk {
                 abiFilters += "arm64-v8a"
             }
-            // Do not shrink code or resources: this package-size optimization is ABI-only.
-            isMinifyEnabled = false
-            isShrinkResources = false
+            // Shrink unused Java/Kotlin code and resources in the phone release.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
             // Sign consistently with the project's verified CI APK for easy direct install.
             signingConfig = signingConfigs.getByName("debug")
         }
