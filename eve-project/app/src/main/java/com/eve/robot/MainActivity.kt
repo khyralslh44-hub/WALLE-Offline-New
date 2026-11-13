@@ -590,7 +590,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // This recognizer and its Arabic model are bundled in the APK and never use Android/cloud STT.
+    // This compact Arabic recognizer and its int8 model are bundled in the APK and run locally with no cloud STT.
     private fun startOfflineSpeechListening() {
         if (isFinishing || isDestroyed || offlineArabicSpeech != null) return
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) !=
@@ -601,7 +601,7 @@ class MainActivity : ComponentActivity() {
             context = applicationContext,
             onTranscript = { recognizedText ->
                 if (!isFinishing && !isDestroyed) {
-                    handleRecognizedSpeech(recognizedText, "offline_vosk")
+                    handleRecognizedSpeech(recognizedText, "offline_moonshine_tiny_ar")
                 }
             },
             onStatus = { status ->
