@@ -155,6 +155,17 @@ for rel in ["app/src/full", "app/src/lite"]:
     if p.exists():
         shutil.rmtree(p)
 
+# The shared Ear interface used to live in Speech.kt. Preserve the interface
+# independently so the local PCM ear remains typed without retaining STT code.
+ear_iface = root / "app/src/main/java/com/eve/companion/Ear.kt"
+if ear_iface.exists():
+    raise SystemExit("Ear.kt already exists in base archive; inspect before replacement")
+ear_iface.write_text(
+    "package com.eve.companion\\n\\ninterface Ear { fun start(); fun stop() }\\n",
+    encoding="utf-8"
+)
+print("PATCH OK: preserve Ear interface for local PCM input", flush=True)
+
 docs = root / "docs"
 docs.mkdir(exist_ok=True)
 (docs / "EVE-SPEECH.md").write_text(
