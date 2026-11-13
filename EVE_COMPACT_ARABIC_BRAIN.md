@@ -1,44 +1,36 @@
-# EVE Compact Arabic Brain
+# EVE Hybrid Local Arabic Brain
 
-## Goal
+## Architecture
 
-EVE's everyday Arabic understanding and reply composition are implemented specifically for this project. The Android conversation path does not package or invoke a pretrained generative language model.
+EVE now has two local language layers:
 
-## How it works
+1. **Generative layer:** Qwen3-0.6B, quantized to a LiteRT-LM `.litertlm` artifact and executed on-device through Google's LiteRT-LM Android runtime (CPU backend).
+2. **Compact fallback:** the project's Arabic intent classifier and grounded response composer remain available when the generative weights have not yet been installed or if inference fails.
 
-1. **Arabic normalization:** removes optional diacritics and normalizes common alef/hamza and spelling variants before comparison.
-2. **Compact understanding:** represents an utterance with hashed word, character n-gram, and adjacent-word features. Small intent prototypes classify supported conversational meanings without a neural checkpoint or external tokenizer.
-3. **Context grounding:** the response engine receives bounded dialogue history, EVE's current behavior state, saved local notes, and only fresh visual evidence. A generic visual label is never treated as a person's identity.
-4. **Semantic response composition:** EVE extracts a speech act (why/how/what/yes-no/request), a topic, user-state cues, and short follow-up references. A compact Arabic grammar realizer builds clauses from those semantic slots and grounded local evidence such as recent observations, scene summaries, mood reason, and saved concepts. It does not select a complete answer from a bank of finished sentences.
-5. **Honest uncertainty:** unsupported general-knowledge questions are not forced into a nearby intent. EVE asks the user to clarify or states that it does not know.
+The generative model is used for open-ended Arabic conversation and contextual game commentary. EVE supplies bounded context from her local memory, current personality and mood, recent dialogue, and only fresh visual observations. The model is instructed not to invent visual evidence, identities, or memories.
 
-## Package and runtime
+## Installation and offline behavior
 
-- Kotlin implementation: `EveTinyArabicBrain.kt` and `LocalLanguageBrain.kt`.
-- No GGUF/Safetensors/PyTorch language checkpoint is downloaded or packaged.
-- No llama.cpp dependency or llama native library is required.
-- No language-model network call exists in the dialogue path.
-- Runtime state and conversational processing remain on the Android device.
+- The Android APK includes the LiteRT-LM runtime and EVE integration code, but **does not bundle the 329 MiB language-model weights**.
+- On first launch, tap the existing status chip and explicitly approve the one-time Qwen3 model download. The model is stored in the app-private files directory.
+- Internet permission is used only for that user-approved download. After the model is stored, text generation runs locally and does not send conversation text to a cloud service.
+- If the download is skipped or fails, EVE continues using the compact offline Arabic fallback.
+- The selected model is the INT4 `Qwen3-0.6B_dynamic_wi4b32_afp32.litertlm` artifact. LiteRT-LM 0.19.x is used because this export uses external weights and newer runtime support.
+- The model file is separate from the APK, so it adds roughly 329 MiB of one-time device storage and does not inflate the install package by that amount.
 
-The engine is designed to be small and deterministic. Its size is mainly Kotlin code and compact feature structures, not hundreds of megabytes of language weights. Its response realizer is a bounded rule-based composer: it can combine meaning and context for the supported companion domain, but it is not unrestricted open-domain text generation.
+## Compact Arabic fallback
 
-## What “custom” and “learning” mean here
+The fallback remains project-specific and runs entirely in Kotlin:
+- Arabic normalization and dialect spelling normalization.
+- Hashed word, character n-gram, and adjacent-word features for supported intent classification.
+- Context-grounded response composition from bounded memory, mood, personality, and fresh visual evidence.
+- Honest uncertainty for unsupported questions.
 
-The interpretation features, intent prototypes, response rules, context handling, and EVE-specific voice are authored for this project. This is not a claim that a foundation model was trained from scratch. Local memory can save user-confirmed facts and associations, but that memory does not update neural-network weights. Future training of a tiny statistical language model would require a curated Arabic dataset, a reproducible training pipeline, evaluation data, and measured on-device inference before it could replace the current engine.
+This fallback is not a generative foundation model. The Qwen3 layer is the actual generative language model.
 
-## Scope and limitations
+## Limits and verification
 
-This engine is intended for supported everyday companion dialogue and EVE-specific interactions, not unrestricted factual question answering. A general-purpose LLM can understand and answer a much wider range of questions; removing it intentionally trades that breadth for a much smaller and more predictable on-device implementation. The supported intent and language coverage must grow through tests and reviewed examples.
-
-Arabic speech recognition (converting microphone audio into text) is separate from this language engine. The current Vosk-based speech-to-text component is a separately bundled pretrained acoustic/language model; it is not the Arabic dialogue generator. Its size and accuracy should be measured independently rather than hidden inside the language-engine size claim.
-
-## Required verification
-
-The offline Android workflow must:
-- run the unit and instrumentation tests for the bespoke Arabic engine;
-- run with Wi-Fi and mobile data disabled;
-- check the APK contains no GGUF/Safetensors/PyTorch language weights;
-- check the APK contains no llama.cpp native libraries;
-- confirm the Android brain returns Arabic replies for tested supported utterances and rejects an unsupported factual question without inventing an answer.
-
-Passing these checks proves the compact engine runs locally for the tested cases. It does not prove human-level Arabic understanding, open-domain knowledge, or successful operation on every phone without a real-device test.
+- The build and unit/instrumentation tests can verify that the LiteRT-LM runtime and integration compile and that the compact fallback works with Wi-Fi/mobile data disabled.
+- Those tests do **not** prove that Qwen3 has been downloaded or that generation has been exercised on a Redmi 12.
+- The first real-model smoke test must happen on the target phone after the one-time download. Memory use, response speed, heat, and battery impact depend on the Redmi 12 variant and available RAM.
+- The LLM is text-only. It does not replace EVE's existing vision, speech recognition, game rules, local memory, or personality systems.
