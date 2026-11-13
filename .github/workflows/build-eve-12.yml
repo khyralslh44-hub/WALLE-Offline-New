@@ -62,21 +62,25 @@ jobs:
         run: |
           set -euo pipefail
           SRC="$RUNNER_TEMP/eve12"
-          gradle --no-daemon --stacktrace -p "$SRC" testDebugUnitTest assembleDebug
+          gradle --no-daemon --stacktrace -p "$SRC" testFullDebugUnitTest testLiteDebugUnitTest assembleFullDebug assembleLiteDebug
 
       - name: Verify APK and report packaged models
         shell: bash
         run: |
           set -euo pipefail
-          APK="$RUNNER_TEMP/eve12/app/build/outputs/apk/debug/app-debug.apk"
-          test -s "$APK"
-          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose "$APK"
-          "$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging "$APK"
-          unzip -Z1 "$APK" > "$RUNNER_TEMP/apk-files.txt"
-          echo "APK_SIZE=$(du -h "$APK" | cut -f1)" >> "$GITHUB_ENV"
-          echo "APK_BYTES=$(stat -c '%s' "$APK")" >> "$GITHUB_ENV"
-          echo "Packaged model assets:"
-          grep -E '^assets/.*(tflite|task|onnx|vosk)' "$RUNNER_TEMP/apk-files.txt" || true
+          APK_DIR="$RUNNER_TEMP/eve12/app/build/outputs/apk"
+          mapfile -t APKS < <(find "$APK_DIR" -type f -name '*.apk' -print | sort)
+          test "${#APKS[@]}" -ge 2
+          for APK in "${APKS[@]}"; do
+            test -s "$APK"
+            "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose "$APK"
+            "$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging "$APK"
+            echo "Verified: $APK ($(du -h "$APK" | cut -f1))"
+            unzip -Z1 "$APK" > "$RUNNER_TEMP/$(basename "$APK").files.txt"
+            echo "Packaged model assets in $(basename "$APK"):"
+            grep -E '^assets/.*(tflite|task|onnx|vosk)' "$RUNNER_TEMP/$(basename "$APK").files.txt" || true
+          done
+          echo "APK_COUNT=${#APKS[@]}" >> "$GITHUB_ENV"
 
       - name: Publish build summary
         if: always()
@@ -86,14 +90,14 @@ jobs:
             echo "## EVE 12 APK build"
             echo "- Source: eve-android (12).zip"
             echo "- Source code modified: no"
-            if [ -n "${APK_SIZE:-}" ]; then echo "- APK size: $APK_SIZE ($APK_BYTES bytes)"; fi
+            echo "- APK variants verified: ${APK_COUNT:-0}"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload installable APK
         uses: actions/upload-artifact@v4
         with:
           name: EVE-12-APK
-          path: ${{ runner.temp }}/eve12/app/build/outputs/apk/debug/app-debug.apk
+          path: ${{ runner.temp }}/eve12/app/build/outputs/apk/**/*.apk
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
