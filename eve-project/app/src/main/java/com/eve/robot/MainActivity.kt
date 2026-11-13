@@ -633,10 +633,12 @@ class MainActivity : ComponentActivity() {
             Log.e("EVE_TINY_BRAIN", "SELF_TEST_FAIL reason=not_initialized")
             return
         }
-        if (!localLanguageBrain.isReady) {
-            localLanguageBrain.ensureReady()
-            showDialogueText("أهيئ الدماغ العربي الصغير الآن. أعيدي الاختبار بعد ظهور حالة الجاهزية.", durationMs = 7000L)
-            Log.i("EVE_TINY_BRAIN", "SELF_TEST_DEFERRED state=${localLanguageBrain.currentState}")
+        if (!localLanguageBrain.isGenerativeModelReady) {
+            showDialogueText(
+                "النموذج اللغوي التوليدي Qwen3 لم يُثبّت بعد. انقر شريط الحالة أعلى الشاشة ووافق على تنزيله أولاً.",
+                durationMs = 8000L
+            )
+            Log.i("EVE_LLM", "SELF_TEST_DEFERRED reason=generative_model_not_installed state=${localLanguageBrain.currentState}")
             return
         }
 
