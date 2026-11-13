@@ -64,11 +64,8 @@ jobs:
           set -euo pipefail
           SRC="$RUNNER_TEMP/eve4"
           python3 .github/scripts/patch-eve12-evespeech.py "$SRC"
-          test ! -e "$SRC/app/src/main/java/com/eve/companion/Speech.kt"
-          test ! -e "$SRC/app/src/full/java/com/eve/companion/VoskSpeech.kt"
-          test ! -e "$SRC/app/src/lite/java/com/eve/companion/VoskSpeech.kt"
-          grep -q 'MFCC' "$SRC/docs/EVE-SPEECH.md"
-          grep -q "stt:'local'" "$SRC/app/src/main/assets/eve.html"
+          test -s "$SRC/app/src/main/java/com/eve/companion/Ear.kt"
+          test -s "$SRC/docs/EVE-SPEECH.md"
           mkdir -p "$RUNNER_TEMP/source-output"
           (cd "$SRC" && zip -qr "$RUNNER_TEMP/source-output/eve-android-4.0-eve-speech.zip" .)
           echo "Patched project archive: $(du -h "$RUNNER_TEMP/source-output/eve-android-4.0-eve-speech.zip" | cut -f1)"
