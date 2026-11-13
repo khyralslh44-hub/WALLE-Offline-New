@@ -138,7 +138,7 @@ edit(manifest_rel, lambda t: replace_once(
 # Remove only the Android SpeechRecognizer implementation, not the interface.
 speech_interface = root / "app/src/main/java/com/eve/companion/Speech.kt"
 speech_interface.write_text(
-    "package com.eve.companion\\n\\ninterface Ear { fun start(); fun stop() }\\n",
+    "package com.eve.companion\n\ninterface Ear { fun start(); fun stop() }\n",
     encoding="utf-8"
 )
 for rel in [
