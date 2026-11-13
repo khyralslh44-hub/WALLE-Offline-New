@@ -14,7 +14,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 
-/** Exercises EVE's bespoke Arabic model and its priority queue on an Android runtime. */
+/** Exercises EVE's local Arabic fallback and priority queue on Android with radios disabled. */
 @RunWith(AndroidJUnit4::class)
 class LocalLanguageBrainIntegrationTest {
     @Test
@@ -33,8 +33,12 @@ class LocalLanguageBrainIntegrationTest {
 
         try {
             brain.start()
-            assertTrue("Tiny model should be ready without downloading weights.", brain.isReady)
-            assertEquals(LocalLlmState.READY, brain.currentState)
+            assertTrue("The compact offline fallback must remain available without a model download.", brain.isReady)
+            assertTrue(
+                "A fresh test install should wait for the user-approved Qwen3 download.",
+                brain.currentState == LocalLlmState.WAITING_FOR_WIFI || brain.currentState == LocalLlmState.READY
+            )
+            assertFalse("The test must not pretend Qwen3 weights were downloaded.", brain.isGenerativeModelReady)
 
             val greeting = awaitAnswer(brain, "أهلاً يا إيف")
             assertTrue("Arabic greeting returned no text.", greeting.replyArabic.isNotBlank())
