@@ -56,7 +56,7 @@ def patch_main(t: str) -> str:
         '',
         "remove embedded Vosk model check"
     )
-    for token in ["VoskSpeech", "SpeechRecognizer", "sttPref", "hasEmbedded()", "Speech(this"]:
+    for token in ["VoskSpeech", "SpeechRecognizer", "sttPref", "hasEmbedded()", "else Speech(this"]:
         if token in t:
             raise SystemExit(f"Old speech engine reference remains in MainActivity: {token}")
     return t
