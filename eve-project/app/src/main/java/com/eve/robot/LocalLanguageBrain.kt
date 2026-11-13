@@ -110,7 +110,9 @@ class LocalLanguageBrain(
         get() = generativeModel.isInstalled
 
     fun downloadAndLoad() {
-        if (closed.get() || isReady || !modelLoadQueued.compareAndSet(false, true)) return
+        if (closed.get() || isGenerativeModelReady || state == LocalLlmState.DOWNLOADING ||
+            state == LocalLlmState.LOADING || !modelLoadQueued.compareAndSet(false, true)
+        ) return
         try {
             worker.execute {
                 try {
