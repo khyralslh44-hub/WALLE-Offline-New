@@ -77,7 +77,8 @@ class OfflineArabicSpeech(
             tokens = MODEL_TOKENS_ASSET
             numThreads = 2
             provider = "cpu"
-            modelingUnit = "cjkchar"
+            // Moonshine v2 tokens are byte-level pieces decoded by Sherpa's BinTokenizer format.
+            // Do not force a CJK character or sentencepiece modeling unit.
         }
         val config = OfflineRecognizerConfig().apply {
             featConfig = FeatureConfig(
