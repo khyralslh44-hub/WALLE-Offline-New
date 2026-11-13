@@ -29,12 +29,16 @@ def patch_main(t: str) -> str:
         '            tts?.apply { stop(); setPitch(1.0f); setSpeechRate((rate / this@MainActivity.voice.factor(style)).coerceIn(0.4f, 2.0f)) }',
         "fix voice factor reference"
     )
-    t = re.sub(
-        r'        /\*\* محرك الاستماع: auto .*?\n        @JavascriptInterface fun sttEmbedded\(\): Boolean = hasEmbedded\(\)\n',
-        '        /** يعيد تشغيل أذن EVE المحلية فقط. */\n'
-        '        @JavascriptInterface fun sttEngine(name: String) { runOnUiThread { speech?.stop(); speech = null; refreshSenses() } }\n',
-        t, count=1, flags=re.S
+    old_bridge = (
+        '        /** محرك الاستماع: auto (المدمج إن وُجد) أو google. */\n'
+        '        @JavascriptInterface fun sttEngine(name: String) { runOnUiThread { sttPref = name; speech?.stop(); speech = null; refreshSenses() } }\n'
+        '        @JavascriptInterface fun sttEmbedded(): Boolean = hasEmbedded()\n'
     )
+    new_bridge = (
+        '        /** يعيد تشغيل أذن EVE المحلية فقط. */\n'
+        '        @JavascriptInterface fun sttEngine(name: String) { runOnUiThread { speech?.stop(); speech = null; refreshSenses() } }\n'
+    )
+    t = replace_once(t, old_bridge, new_bridge, "replace external STT bridge")
     if 'fun sttEmbedded()' in t or 'sttPref' in t:
         raise SystemExit("External STT preference bridge was not fully removed")
     pattern = r'                val onT: \(String\) -> Unit = .*?\n                speech\?\.start\(\)'
