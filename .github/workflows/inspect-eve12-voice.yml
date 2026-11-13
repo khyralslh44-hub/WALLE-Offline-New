@@ -23,8 +23,10 @@ jobs:
           unzip -q "$GITHUB_WORKSPACE/eve-android (12).zip" -d "$SRC"
           echo '=== SOURCE TREE ==='
           find "$SRC/app/src" -type f | sort
-          echo '=== EVE HTML VOICE/MODEL REFERENCES ==='
-          grep -n -i -E 'mfcc|dtw|Eve\.utt|sttEngine|speech|train|voice|recogniz|template|microphone' "$SRC/app/src/main/assets/eve.html" | head -n 260 || true
+          echo '=== EVE CUSTOM SPEECH MODEL CODE ==='
+          sed -n '965,1075p' "$SRC/app/src/main/assets/eve.html"
+          echo '=== EVE COMMAND/TRAINING REFERENCES ==='
+          grep -n -E 'CMDS(_LY)?=|earEnrollStart|earTestStart|تعليم الأذن|اختبار الأذن|bEng' "$SRC/app/src/main/assets/eve.html" | tail -n 50 || true
           for f in \
             app/src/main/java/com/eve/companion/MainActivity.kt \
             app/src/main/java/com/eve/companion/Speech.kt \
