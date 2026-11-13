@@ -12,7 +12,7 @@ mkdir -p "$RESULT_DIR"
 SOURCE_ROOT="$GITHUB_WORKSPACE/eve-project/app/src/main"
 GRADLE_FILE="$GITHUB_WORKSPACE/eve-project/app/build.gradle.kts"
 if grep -R -nE 'EveArabicLlmRuntime|eve-arabic-50m-q4|dev\.ffmpegkit\.maintained:llama-android' "$SOURCE_ROOT" "$GRADLE_FILE"; then
-  echo "FAIL: obsolete language-model path or llama.cpp dependency is still referenced." | tee "$RESULT_DIR/environment.txt"
+  echo "FAIL: obsolete pretrained LLM path or llama.cpp dependency is still referenced." | tee "$RESULT_DIR/environment.txt"
   exit 1
 fi
 
@@ -41,7 +41,7 @@ if grep -Eiq "$MODEL_WEIGHTS_PATTERN" "$APK_ENTRIES"; then
   grep -Ein "$MODEL_WEIGHTS_PATTERN" "$APK_ENTRIES" | tee -a "$RESULT_DIR/environment.txt" || true
   exit 4
 fi
-if ! (unzip -Z1 "$APP_APK" | grep -E "classes.*dex" | while read -r DEX; do unzip -p "$APP_APK" "$DEX" | strings; done | grep -F "EveLiteRtLanguageModel" > /dev/null); then
+if ! unzip -p "$APP_APK" "classes*.dex" | strings | grep -F "EveLiteRtLanguageModel" > /dev/null; then
   echo "FAIL: LiteRT-LM integration is missing from the app APK." | tee -a "$RESULT_DIR/environment.txt"
   exit 4
 fi
