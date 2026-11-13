@@ -68,19 +68,6 @@ edit(main_rel, patch_main)
 
 html_rel = "app/src/main/assets/eve.html"
 def patch_html(t: str) -> str:
-    # Libyan dialect phrase aliases feed the existing offline intent system.
-    t = replace_once(
-        t,
-        "function understand(raw){",
-        "function libyanToStandard(s){const pairs=[['شن حالك','كيف حالك'],['شن جوك','كيف حالك'],['شني حوالك','كيف حالك'],['شن تبي','ماذا تريد'],['شن تدير','ماذا تفعل'],['شن قاعد تدير','ماذا تفعل'],['وينك','اين انت'],['وين ماشي','اين تذهب'],['شن تشوف','ماذا ترى'],['شنو تشوف','ماذا ترى'],['شن صاير','ماذا يحدث'],['شن صار','ماذا حدث'],['منو اني','من انا'],['نبي نلعب','نلعب'],['يلا نلعب','نلعب'],['يعطيك الصحه','احسنت'],['يعطيك الصحة','احسنت'],['باهي','ممتاز'],['كويس','جيد'],['مش كويس','متضايق'],['مانيش كويس','متضايق'],['نحبك','احبك']];for(const [a,b] of pairs)s=s.split(a).join(b);return s;}\nfunction understand(raw){",
-        "add Libyan dialect phrase aliases"
-    )
-    t = replace_once(
-        t,
-        "const q=nz(raw),has=r=>r.test(q);",
-        "const q=nz(libyanToStandard(raw)),has=r=>r.test(q);",
-        "normalize Libyan phrases before offline intent matching"
-    )
     t = replace_once(
         t,
         "M.cfg=Object.assign({idFloor:.65,thFloor:.78,cam:true,mic:true,ev:true,msgs:true,stt:'auto'},M.cfg||{});",
