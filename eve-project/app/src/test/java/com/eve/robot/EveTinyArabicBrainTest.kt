@@ -142,6 +142,24 @@ class EveTinyArabicBrainTest {
         assertTrue(reply.replyArabic.contains("أنت 1"))
         assertTrue(reply.replyArabic.contains("أنا 0"))
     }
+    @Test fun generatedGameDialogueUsesLiveGameContextAndActualScores() {
+        val generated = EveGameDialogueGenerator.generate(
+            gameName = "chess",
+            outcome = "player",
+            detail = "فاز اللاعب بعد أخذ قطعة.",
+            playerScore = 1,
+            eveScore = 0,
+            round = 3,
+            context = LocalLlmContext(currentMood = "PLAYFUL")
+        )
+        assertTrue(generated.replyArabic.contains("الشطرنج"))
+        assertTrue(generated.replyArabic.contains("أنت 1"))
+        assertTrue(generated.replyArabic.contains("أنا 0"))
+        assertTrue(generated.replyArabic.contains("أخذ قطعة"))
+        assertEquals("play", generated.intentHint)
+        assertTrue(generated.confidence >= 0.8f)
+    }
+
     @Test fun dialectNormalizerPreservesGreetingsAndMapsCommonSpokenArabic() {
         assertEquals("هلا ايف", EveArabicTextUnderstanding.normalize("هَلا يا إيف").replace("يا ", ""))
         assertEquals("كيفك", EveArabicTextUnderstanding.normalize("شلونك"))
