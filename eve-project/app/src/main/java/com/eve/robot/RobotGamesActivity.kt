@@ -372,11 +372,11 @@ class RobotGamesActivity : ComponentActivity() {
                 .putLong("last_game_reply_at", System.currentTimeMillis())
                 .putString("last_game_reply_game", gameName)
                 .putString("last_game_reply_outcome", outcome)
-                .putString("last_game_reply_source", "local_qwen")
+                .putString("last_game_reply_source", "local_context_composer")
                 .apply()
             android.util.Log.i(
                 "EVE_GAME_LLM",
-                "COMMENT_OK source=local_qwen game=$gameName outcome=$outcome " +
+                "COMMENT_OK source=local_context_composer game=$gameName outcome=$outcome " +
                     "mood=${languageDecision.mood} intent=$modelGameIntent chars=${reply.length}"
             )
         }
