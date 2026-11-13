@@ -127,12 +127,29 @@ def patch_gradle(t: str) -> str:
 edit(gradle_rel, patch_gradle)
 
 manifest_rel = "app/src/main/AndroidManifest.xml"
-edit(manifest_rel, lambda t: replace_once(
-    t,
-    '        <intent><action android:name="android.speech.RecognitionService"/></intent>\n',
-    '',
-    "remove external recognition-service query"
-))
+def patch_manifest(t: str) -> str:
+    t = replace_once(
+        t,
+        '<manifest xmlns:android="http://schemas.android.com/apk/res/android">',
+        '<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">',
+        "enable manifest merge controls"
+    )
+    t = replace_once(
+        t,
+        '        <intent><action android:name="android.speech.RecognitionService"/></intent>\\n',
+        '',
+        "remove external recognition-service query"
+    )
+    anchor = '    <uses-permission android:name="android.permission.CAMERA"/>'
+    t = replace_once(
+        t,
+        anchor,
+        '    <uses-permission android:name="android.permission.INTERNET" tools:node="remove"/>\\n' + anchor,
+        "strip transitive INTERNET permission"
+    )
+    return t
+edit(manifest_rel, patch_manifest)
+
 
 # Keep the shared Ear interface: PcmEar and MainActivity still depend on it.
 # Remove only the Android SpeechRecognizer implementation, not the interface.
