@@ -6,7 +6,6 @@ on:
       - build/eve-android-11-upload
     paths:
       - "eve-android (11).zip"
-      - ".github/workflows/build-eve11-apk.yml"
   workflow_dispatch:
 
 permissions:
