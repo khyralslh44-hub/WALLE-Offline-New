@@ -15,7 +15,7 @@ The generative model is used for open-ended Arabic conversation and contextual g
 - On first launch, tap the existing status chip and explicitly approve the one-time Qwen3 model download. The model is stored in the app-private files directory.
 - Internet permission is used only for that user-approved download. After the model is stored, text generation runs locally and does not send conversation text to a cloud service.
 - If the download is skipped or fails, EVE continues using the compact offline Arabic fallback.
-- The selected model is the INT4 `Qwen3-0.6B_dynamic_wi4b32_afp32.litertlm` artifact. LiteRT-LM 0.19.x is used because this export uses external weights and newer runtime support.
+- The selected model is the pinned earlier INT4 `Qwen3-0.6B_dynamic_wi4b32_afp32.litertlm` export at revision `e6bb3e4a1eb3f663153f0c1c12b735d64be657a7`. It keeps weights inside the model graph and has lower reported peak memory than the newer external-weights export, which is preferable to try on a midrange phone. LiteRT-LM 0.19.1 is used.
 - The model file is separate from the APK, so it adds roughly 329 MiB of one-time device storage and does not inflate the install package by that amount.
 
 ## Compact Arabic fallback
