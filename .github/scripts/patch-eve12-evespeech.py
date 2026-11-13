@@ -11,6 +11,7 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
     n = text.count(old)
     if n != 1:
         raise SystemExit(f"{label}: expected one match, found {n}")
+    print(f"PATCH OK: {label}", flush=True)
     return text.replace(old, new, 1)
 
 def edit(rel: str, transform) -> None:
@@ -48,6 +49,7 @@ def patch_main(t: str) -> str:
     t, n = re.subn(pattern, lambda _: replacement, t, count=1, flags=re.S)
     if n != 1:
         raise SystemExit(f"replace STT selection block: expected one match, found {n}")
+    print("PATCH OK: force PCM microphone input into EVE MFCC+DTW recognizer", flush=True)
     t = replace_once(
         t,
         '    private fun hasEmbedded(): Boolean = try { (assets.list("vosk/model")?.size ?: 0) > 0 } catch (e: Exception) { false }\n\n',
