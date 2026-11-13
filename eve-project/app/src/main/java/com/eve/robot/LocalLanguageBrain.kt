@@ -70,14 +70,20 @@ class LocalLanguageBrain(
         activeInstance = this
     }
 
+    // The compact Arabic engine remains available as a fallback while the generative model is absent/downloading.
     val isReady: Boolean
+        get() = !closed.get() && state != LocalLlmState.DOWNLOADING && state != LocalLlmState.LOADING
+
+    val isGenerativeModelReady: Boolean
         get() = !closed.get() && state == LocalLlmState.READY
 
     val currentState: LocalLlmState
         get() = state
 
     fun start() {
-        if (closed.get() || isReady || !startupQueued.compareAndSet(false, true)) return
+        if (closed.get() || state == LocalLlmState.READY || state == LocalLlmState.DOWNLOADING ||
+            state == LocalLlmState.LOADING || !startupQueued.compareAndSet(false, true)
+        ) return
         worker.execute {
             try {
                 if (generativeModel.isInstalled) {
@@ -128,7 +134,9 @@ class LocalLanguageBrain(
     }
 
     fun ensureReady() {
-        if (!closed.get() && !isReady) start()
+        if (!closed.get() && state != LocalLlmState.READY &&
+            state != LocalLlmState.DOWNLOADING && state != LocalLlmState.LOADING
+        ) start()
     }
 
     fun refreshStatus() {
