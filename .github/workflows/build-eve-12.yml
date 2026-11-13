@@ -1,4 +1,4 @@
-name: Build EVE 12 APK
+name: Build EVE 4.0 — EVE Speech
 
 on:
   workflow_dispatch:
@@ -6,6 +6,7 @@ on:
     paths:
       - 'eve-android (12).zip'
       - '.github/workflows/build-eve-12.yml'
+      - '.github/scripts/patch-eve12-evespeech.py'
 
 permissions:
   contents: read
@@ -34,7 +35,7 @@ jobs:
           test -s "$SRC/app/src/main/AndroidManifest.xml"
           test -s "$SRC/app/src/main/java/com/eve/companion/MainActivity.kt"
           echo "Source archive: $(du -h "$ARCHIVE" | cut -f1)"
-          echo "Project extracted. Source files are not modified."
+          echo "Original archive extracted to an isolated build directory."
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -57,30 +58,104 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Run unit tests and build EVE 12 APK
+      - name: Replace Vosk with EVE local speech model
         shell: bash
         run: |
           set -euo pipefail
           SRC="$RUNNER_TEMP/eve12"
-          gradle --no-daemon --stacktrace -p "$SRC" testFullDebugUnitTest testLiteDebugUnitTest assembleFullDebug assembleLiteDebug
+          python3 .github/scripts/patch-eve12-evespeech.py "$SRC"
+          test ! -e "$SRC/app/src/main/java/com/eve/companion/Speech.kt"
+          test ! -e "$SRC/app/src/full/java/com/eve/companion/VoskSpeech.kt"
+          test ! -e "$SRC/app/src/lite/java/com/eve/companion/VoskSpeech.kt"
+          mkdir -p "$RUNNER_TEMP/source-output"
+          (cd "$SRC" && zip -qr "$RUNNER_TEMP/source-output/eve-android-4.0-eve-speech.zip" .)
+          echo "Patched source archive ready: $(du -h "$RUNNER_TEMP/source-output/eve-android-4.0-eve-speech.zip" | cut -f1)"
 
-      - name: Verify APK and report packaged models
+      - name: Run unit tests and build EVE 4.0 APK
         shell: bash
         run: |
           set -euo pipefail
-          APK_DIR="$RUNNER_TEMP/eve12/app/build/outputs/apk"
-          mapfile -t APKS < <(find "$APK_DIR" -type f -name '*.apk' -print | sort)
-          test "${#APKS[@]}" -ge 2
-          for APK in "${APKS[@]}"; do
-            test -s "$APK"
-            "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose "$APK"
-            "$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging "$APK"
-            echo "Verified: $APK ($(du -h "$APK" | cut -f1))"
-            unzip -Z1 "$APK" > "$RUNNER_TEMP/$(basename "$APK").files.txt"
-            echo "Packaged model assets in $(basename "$APK"):"
-            grep -E '^assets/.*(tflite|task|onnx|vosk)' "$RUNNER_TEMP/$(basename "$APK").files.txt" || true
-          done
-          echo "APK_COUNT=${#APKS[@]}" >> "$GITHUB_ENV"
+          SRC="$RUNNER_TEMP/eve12"
+          gradle --no-daemon --stacktrace -p "$SRC" testDebugUnitTest assembleDebug
+
+      - name: Verify offline APK and report model
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="$RUNNER_TEMP/eve12/app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$APK"
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose "$APK"
+          "$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging "$APK"
+          "$ANDROID_HOME/build-tools/34.0.0/aapt" dump permissions "$APK" > "$RUNNER_TEMP/permissions.txt"
+          if grep -q 'android.permission.INTERNET' "$RUNNER_TEMP/permissions.txt"; then
+            echo "Unexpected INTERNET permission in EVE APK"
+            exit 1
+          fi
+          unzip -p "$APK" classes.dex | strings > "$RUNNER_TEMP/classes.txt"
+          if grep -Eqi 'org/vosk|com/alphacephei|android/speech/SpeechRecognizer' "$RUNNER_TEMP/classes.txt"; then
+            echo "Old or external recognizer detected in APK"
+            exit 1
+          fi
+          unzip -Z1 "$APK" > "$RUNNER_TEMP/apk-files.txt"
+          grep -q '^assets/eve.html
+
+      - name: Publish build summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## EVE 4.0 — EVE Speech"
+            echo "- Base source: eve-android (12).zip"
+            echo "- Voice engine: custom local Arabic MFCC + DTW"
+            echo "- Vosk / Android SpeechRecognizer / Google STT: removed"
+            echo "- INTERNET permission: absent"
+            echo "- APK size: ${APK_SIZE:-not built}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload installable APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: EVE-4.0-EVE-Speech-APK
+          path: ${{ runner.temp }}/eve12/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+      - name: Upload patched EVE 4.0 source
+        uses: actions/upload-artifact@v4
+        with:
+          name: EVE-4.0-EVE-Speech-SOURCE
+          path: ${{ runner.temp }}/source-output/eve-android-4.0-eve-speech.zip
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+ "$RUNNER_TEMP/apk-files.txt"
+          grep -q '^classes.dex
+
+      - name: Publish build summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## EVE 12 APK build"
+            echo "- Source: eve-android (12).zip"
+            echo "- Source code modified: no"
+            echo "- APK variants verified: ${APK_COUNT:-0}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload installable APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: EVE-12-APK
+          path: ${{ runner.temp }}/eve12/app/build/outputs/apk/**/*.apk
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+ "$RUNNER_TEMP/apk-files.txt"
+          echo "APK_SIZE=$(du -h "$APK" | cut -f1)" >> "$GITHUB_ENV"
+          echo "APK_BYTES=$(stat -c '%s' "$APK")" >> "$GITHUB_ENV"
+          echo "EVE local recognizer: MFCC + DTW; templates are trained and stored on-device."
+          echo "APK verified: $APK ($(du -h "$APK" | cut -f1))"
 
       - name: Publish build summary
         if: always()
