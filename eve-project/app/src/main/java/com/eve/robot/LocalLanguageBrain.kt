@@ -126,8 +126,8 @@ class LocalLanguageBrain(
             append(" • مستوى التحدي: ").append(difficulty.coerceIn(1, 3))
         }
         enqueue(background = false, operation = {
-            EveTinyArabicBrain.commentOnGame(
-                gameName, outcome, safeDetail, playerScore, eveScore, round
+            EveGameDialogueGenerator.generate(
+                gameName, outcome, safeDetail, playerScore, eveScore, round, context
             )
         }, callback = callback)
     }
