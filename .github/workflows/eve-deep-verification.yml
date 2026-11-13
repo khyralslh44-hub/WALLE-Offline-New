@@ -246,66 +246,90 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          FIXTURE="eve-project/app/src/androidTest/assets/face_fixture.jpg"
-          GESTURE_FIXTURE="eve-project/app/src/androidTest/assets/gesture_thumb_up.jpg"
-          FACE_IDENTITY_FIXTURE="eve-project/app/src/androidTest/assets/face_fixture_biden.jpg"
-          test -s "$FACE_IDENTITY_FIXTURE"
-          test "$(git hash-object "$FACE_IDENTITY_FIXTURE")" = "3c17508bb91554c637a2eabddfae790e5bb1caba93130814fc2ac50be9760c4c"
-          grep -Fq "face_fixture_biden.jpg" "eve-project/app/src/androidTest/java/com/eve/robot/FaceIdentityIntegrationTest.kt"
-          TEST_SOURCE="eve-project/app/src/androidTest/java/com/eve/robot/FaceVisionIntegrationTest.kt"
-          GESTURE_TEST_SOURCE="eve-project/app/src/androidTest/java/com/eve/robot/HandGestureIntegrationTest.kt"
-          TEST_SCRIPT=".github/scripts/run-deep-face-test.sh"
-          test -s "$FIXTURE"
-          test -s "$GESTURE_FIXTURE"
-          test -s "eve-project/app/src/main/assets/eve_emotion_model.tflite"
-          OBJECT_MODEL="eve-project/app/src/main/assets/efficientdet_lite0.tflite"
-          test -s "$OBJECT_MODEL"
-          OBJECT_BYTES="$(stat -c '%s' "$OBJECT_MODEL")"
-          test "$OBJECT_BYTES" -ge 3500000
-          test "$OBJECT_BYTES" -le 5500000
-          IMAGENET_MODEL="eve-project/app/src/main/assets/efficientnet_lite0_int8.tflite"
-          test -s "$IMAGENET_MODEL"
-          test "$(stat -c '%s' "$IMAGENET_MODEL")" -eq 5434517
-          POSE_MODEL="eve-project/app/src/main/assets/pose_landmarker_lite.task"
-          test -s "$POSE_MODEL"
-          test "$(sha256sum "$POSE_MODEL" | awk '{print $1}')" = "59929e1d1ee95287735ddd833b19cf4ac46d29bc7afddbbf6753c459690d574a"
-          grep -Fq "PoseVisionIntegrationTest" "eve-project/app/src/androidTest/java/com/eve/robot/PoseVisionIntegrationTest.kt"
-          grep -Fq "POSE_MODEL_PASS" "eve-project/app/src/androidTest/java/com/eve/robot/PoseVisionIntegrationTest.kt"
-          grep -Fq "POSE_MODEL_PASS" "$TEST_SCRIPT"
-          test "$(sha256sum "$IMAGENET_MODEL" | awk '{print $1}')" = "bc2ffe19c1118de0c0c2a9088992da5589722656e0fba81421385300a4a34b16"
-          test -s "$RUNNER_TEMP/imagenet-classifier-sha256.txt"
-          test -s eve-project/app/src/main/assets/eve_moonshine_ar_tokens.txt
-          test -s eve-project/app/src/main/assets/moonshine_ai_community_license.txt
-          test -s eve-project/app/src/main/assets/moonshine_ai_notice.txt
-          grep -Fq "189c63a96dbedcbce32987ccb2ef52367b5392744fdc9b05f3d5442b0db4e85f" "eve-project/app/src/main/java/com/eve/robot/OfflineArabicSpeech.kt"
-          grep -Fq "c3d7481beb40f0880155195a12c619e035fd67249b8d0315d90f7f32dca4d380" "eve-project/app/src/main/java/com/eve/robot/OfflineArabicSpeech.kt"
-          if find eve-project/app/src/main/assets -maxdepth 1 -name 'eve_moonshine_ar_*int8.onnx' | grep -q .; then
-            echo "FAIL: Arabic ONNX weights should not be bundled in the APK."
-            exit 1
-          fi
-          echo "PASS: tokenizer/licence are bundled; pinned ONNX weights download once to private storage."
-          grep -Fq 'face_fixture.jpg' "$TEST_SOURCE"
-          grep -Fq 'gesture_thumb_up.jpg' "$GESTURE_TEST_SOURCE"
-          grep -Fq 'gesture_thumb_up.jpg' "$TEST_SCRIPT"
-          grep -Fq 'face_fixture.jpg' "$TEST_SCRIPT"
-          grep -Fq 'gesture_thumb_up.jpg' ".github/workflows/eve-deep-verification.yml"
-          echo "PASS: face and thumb-up fixtures are pinned and referenced by their instrumentation tests."
-          FACE_IDENTITY_MODEL="eve-project/app/src/main/assets/MobileFaceNet.tflite"
-          FACE_IDENTITY_LICENSE="eve-project/app/src/main/assets/mobilefacenet_model_license.txt"
-          test -s "$FACE_IDENTITY_MODEL"
-          test "$(git hash-object "$FACE_IDENTITY_MODEL")" = "3249c511be86366d5d0a137dc6f4af321af28678"
-          test -s "$FACE_IDENTITY_LICENSE"
-          grep -Fq "MIT License" "$FACE_IDENTITY_LICENSE"
-          grep -Fq "FaceIdentityIntegrationTest" "$TEST_SCRIPT"
-          grep -Fq "FACE_IDENTITY_MODEL_PASS" "$TEST_SCRIPT"
-          grep -Fq "FACE_IDENTITY_MODEL_PASS" "eve-project/app/src/androidTest/java/com/eve/robot/FaceIdentityIntegrationTest.kt"
-          echo "PASS: pinned MobileFaceNet identity model/license and instrumentation are wired."
-          echo "Face fixture SHA256:"
-          sha256sum "$FIXTURE"
-          echo "Thumb-up gesture fixture SHA256:"
-          sha256sum "$GESTURE_FIXTURE"
-          echo "FER model SHA256:"
-          sha256sum eve-project/app/src/main/assets/eve_emotion_model.tflite
+          python3 - <<'PY'
+          import hashlib
+          import pathlib
+          import sys
+
+          root = pathlib.Path(".")
+          def fail(message):
+              print("FAIL:", message, flush=True)
+              raise SystemExit(1)
+
+          def expect_file(path, minimum=1):
+              p = root / path
+              if not p.is_file() or p.stat().st_size < minimum:
+                  fail(f"required file missing/too small: {path}")
+              print(f"PASS: file {path} ({p.stat().st_size} bytes)", flush=True)
+              return p
+
+          def sha256(path):
+              return hashlib.sha256(path.read_bytes()).hexdigest()
+
+          def git_blob_sha1(path):
+              data = path.read_bytes()
+              return hashlib.sha1(b"blob " + str(len(data)).encode() + b"\\0" + data).hexdigest()
+
+          face = expect_file("eve-project/app/src/androidTest/assets/face_fixture.jpg")
+          if git_blob_sha1(face) != "d2a427810f679db537236c5430873a81a62ef412":
+              fail("face fixture Git blob SHA-1 mismatch")
+          biden = expect_file("eve-project/app/src/androidTest/assets/face_fixture_biden.jpg")
+          if git_blob_sha1(biden) != "3c17508bb91554c637a2eabddfae790e5bb1caba93130814fc2ac50be9760c4c":
+              fail("different-person face fixture Git blob SHA-1 mismatch")
+          gesture = expect_file("eve-project/app/src/androidTest/assets/gesture_thumb_up.jpg")
+          if git_blob_sha1(gesture) != "781f7e5eb60c90201f6bb348a433bae5aee06da4":
+              fail("thumb-up fixture Git blob SHA-1 mismatch")
+
+          expect_file("eve-project/app/src/main/assets/eve_emotion_model.tflite")
+          object_model = expect_file("eve-project/app/src/main/assets/efficientdet_lite0.tflite")
+          if not 3_500_000 <= object_model.stat().st_size <= 5_500_000:
+              fail("EfficientDet INT8 file size outside 3.5–5.5 MB")
+          imagenet = expect_file("eve-project/app/src/main/assets/efficientnet_lite0_int8.tflite")
+          if imagenet.stat().st_size != 5_434_517 or sha256(imagenet) != "bc2ffe19c1118de0c0c2a9088992da5589722656e0fba81421385300a4a34b16":
+              fail("ImageNet INT8 model does not match the pinned model")
+          pose = expect_file("eve-project/app/src/main/assets/pose_landmarker_lite.task")
+          if sha256(pose) != "59929e1d1ee95287735ddd833b19cf4ac46d29bc7afddbbf6753c459690d574a":
+              fail("Pose Landmarker model SHA-256 mismatch")
+          identity = expect_file("eve-project/app/src/main/assets/MobileFaceNet.tflite")
+          if git_blob_sha1(identity) != "3249c511be86366d5d0a137dc6f4af321af28678":
+              fail("MobileFaceNet model Git blob SHA-1 mismatch")
+          license_file = expect_file("eve-project/app/src/main/assets/mobilefacenet_model_license.txt")
+          if "MIT License" not in license_file.read_text(encoding="utf-8", errors="replace"):
+              fail("MobileFaceNet MIT license text missing")
+
+          tokens = expect_file("eve-project/app/src/main/assets/eve_moonshine_ar_tokens.txt")
+          if sha256(tokens) != "5e5890351df3fa5c6e87471fa37b888e2634cc2194f3885e8e651eb52de26678":
+              fail("Moonshine token file SHA-256 mismatch")
+          expect_file("eve-project/app/src/main/assets/moonshine_ai_community_license.txt")
+          expect_file("eve-project/app/src/main/assets/moonshine_ai_notice.txt")
+
+          asr_source = expect_file("eve-project/app/src/main/java/com/eve/robot/OfflineArabicSpeech.kt").read_text(encoding="utf-8")
+          for pinned in (
+              "189c63a96dbedcbce32987ccb2ef52367b5392744fdc9b05f3d5442b0db4e85f",
+              "c3d7481beb40f0880155195a12c619e035fd67249b8d0315d90f7f32dca4d380",
+              "downloadVerifiedModel",
+              "TOKENS_SHA256",
+          ):
+              if pinned not in asr_source:
+                  fail(f"OfflineArabicSpeech source missing required pinned feature: {pinned}")
+          assets = root / "eve-project/app/src/main/assets"
+          large_weights = list(assets.glob("eve_moonshine_ar_*int8.onnx"))
+          if large_weights:
+              fail("large Arabic ONNX weights unexpectedly present in APK assets: " + ", ".join(p.name for p in large_weights))
+          print("PASS: Arabic ONNX weights stay external and are installed once into private app storage.", flush=True)
+
+          face_test = expect_file("eve-project/app/src/androidTest/java/com/eve/robot/FaceIdentityIntegrationTest.kt").read_text(encoding="utf-8")
+          if "face_fixture_biden.jpg" not in face_test or "FACE_IDENTITY_MODEL_PASS" not in face_test:
+              fail("FaceIdentityIntegrationTest does not reference both fixtures/pass marker")
+          gesture_test = expect_file("eve-project/app/src/androidTest/java/com/eve/robot/HandGestureIntegrationTest.kt").read_text(encoding="utf-8")
+          if "gesture_thumb_up.jpg" not in gesture_test:
+              fail("HandGestureIntegrationTest does not reference thumb-up fixture")
+          pose_test = expect_file("eve-project/app/src/androidTest/java/com/eve/robot/PoseVisionIntegrationTest.kt").read_text(encoding="utf-8")
+          if "POSE_MODEL_PASS" not in pose_test:
+              fail("PoseVisionIntegrationTest pass marker missing")
+          print("PASS: face, gesture, and pose fixtures are wired to their instrumentation tests.", flush=True)
+          print("PASS: every pinned input and compact Arabic model metadata passed preflight.", flush=True)
+          PY
 
       - name: Download and verify offline MediaPipe pose model
         shell: bash
