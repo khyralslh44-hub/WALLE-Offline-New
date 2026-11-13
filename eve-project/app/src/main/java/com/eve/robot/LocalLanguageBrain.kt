@@ -223,19 +223,19 @@ class LocalLanguageBrain(
             it.isNotBlank() && context.sceneObservationAgeMs in 0L..12_000L
         } ?: "لا يوجد وصف حديث للمشهد"
         return buildString {
-            append("رسالة المستخدم: ").append(userText.take(700)).append("\\n")
-            append("مزاج إيف: ").append(context.currentMood).append("؛ السبب: ").append(context.moodReason.take(120)).append("\\n")
+            append("رسالة المستخدم: ").append(userText.take(700)).append("\n")
+            append("مزاج إيف: ").append(context.currentMood).append("؛ السبب: ").append(context.moodReason.take(120)).append("\n")
             append("سمات الشخصية: دفء ").append(context.personality.warmth)
                 .append("، فضول ").append(context.personality.curiosityBias)
-                .append("، مرح ").append(context.personality.playfulness).append("\\n")
+                .append("، مرح ").append(context.personality.playfulness).append("\n")
             append("آخر دليل بصري حديث: ").append(freshVision)
-                .append(" (الثقة ").append(context.visionConfidence).append(")\\n")
-            append("ملخص المشهد الحديث: ").append(freshScene).append("\\n")
-            append("المفاهيم التي تعلمتها: ").append(context.knownConcepts.take(12).joinToString("، ")).append("\\n")
-            append("الأشخاص الذين عرّفني بهم المستخدم: ").append(context.knownPeople.take(180)).append("\\n")
-            append("ملاحظاتي الأخيرة: ").append(context.recentObservations.takeLast(4).joinToString("؛ ").take(260)).append("\\n")
-            append("آخر حواراتنا: ").append(context.recentDialogues.takeLast(3).joinToString(" | ").take(320)).append("\\n")
-            append("تأملاتي الأخيرة: ").append(context.recentReflections.takeLast(3).joinToString(" | ").take(240)).append("\\n")
+                .append(" (الثقة ").append(context.visionConfidence).append(")\n")
+            append("ملخص المشهد الحديث: ").append(freshScene).append("\n")
+            append("المفاهيم التي تعلمتها: ").append(context.knownConcepts.take(12).joinToString("، ")).append("\n")
+            append("الأشخاص الذين عرّفني بهم المستخدم: ").append(context.knownPeople.take(180)).append("\n")
+            append("ملاحظاتي الأخيرة: ").append(context.recentObservations.takeLast(4).joinToString("؛ ").take(260)).append("\n")
+            append("آخر حواراتنا: ").append(context.recentDialogues.takeLast(3).joinToString(" | ").take(320)).append("\n")
+            append("تأملاتي الأخيرة: ").append(context.recentReflections.takeLast(3).joinToString(" | ").take(240)).append("\n")
             append("اكتبي ردك الطبيعي الآن، ولا تعرضي هذه البيانات كقائمة.")
         }
     }
