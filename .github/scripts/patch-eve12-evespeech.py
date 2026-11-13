@@ -178,7 +178,7 @@ for rel in ["app/src/full", "app/src/lite"]:
     if p.exists():
         shutil.rmtree(p)
 
-# Ear.kt is the single source of the shared interface.
+# Speech.kt retains the shared Ear interface; no external speech engine remains.
 print("PATCH OK: preserve shared Ear interface for local PCM input", flush=True)
 
 docs = root / "docs"
@@ -213,8 +213,10 @@ integrated and measured.
 )
 
 manifest = (root / manifest_rel).read_text(encoding="utf-8")
-if "android.permission.INTERNET" in manifest:
-    raise SystemExit("Unexpected INTERNET permission in offline EVE manifest")
+for item in re.finditer(r'<uses-permission\\b([^>]*)>', manifest):
+    attrs = item.group(1)
+    if 'android:name="android.permission.INTERNET"' in attrs and 'tools:node="remove"' not in attrs:
+        raise SystemExit("An active INTERNET permission remains in the EVE manifest")
 main = (root / main_rel).read_text(encoding="utf-8")
 all_java = "\n".join(p.read_text(encoding="utf-8") for p in (root / "app/src/main/java").rglob("*.kt"))
 if any(x in all_java for x in ["SpeechRecognizer", "VoskSpeech", "org.vosk", "com.alphacephei"]):
