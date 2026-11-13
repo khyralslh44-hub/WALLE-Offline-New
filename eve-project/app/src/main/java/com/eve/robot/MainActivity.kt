@@ -1301,7 +1301,7 @@ class MainActivity : ComponentActivity() {
                     val options = GestureRecognizer.GestureRecognizerOptions.builder()
                         .setBaseOptions(
                             BaseOptions.builder()
-                                .setModelAssetPath("gesture_recognizer.task")
+                                .setModelAssetBuffer(EveModelAssets.loadDirectBuffer(applicationContext, "gesture_recognizer.task"))
                                 .build()
                         )
                         .setRunningMode(RunningMode.IMAGE)
@@ -2218,7 +2218,7 @@ class MainActivity : ComponentActivity() {
                     val options = PoseLandmarker.PoseLandmarkerOptions.builder()
                         .setBaseOptions(
                             BaseOptions.builder()
-                                .setModelAssetPath("pose_landmarker_lite.task")
+                                .setModelAssetBuffer(EveModelAssets.loadDirectBuffer(applicationContext, "pose_landmarker_lite.task"))
                                 .build()
                         )
                         .setRunningMode(RunningMode.IMAGE)
