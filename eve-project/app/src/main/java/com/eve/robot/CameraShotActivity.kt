@@ -272,7 +272,7 @@ class CameraShotActivity : ComponentActivity() {
             rpsWorker.execute {
                 try {
                     val options = GestureRecognizer.GestureRecognizerOptions.builder()
-                        .setBaseOptions(BaseOptions.builder().setModelAssetPath("gesture_recognizer.task").build())
+                        .setBaseOptions(BaseOptions.builder().setModelAssetBuffer(EveModelAssets.loadDirectBuffer(applicationContext, "gesture_recognizer.task")).build())
                         .setRunningMode(RunningMode.IMAGE)
                         .setNumHands(1)
                         .build()
