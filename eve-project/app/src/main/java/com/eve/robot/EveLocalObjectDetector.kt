@@ -48,7 +48,7 @@ class EveLocalObjectDetector(context: Context) : Closeable {
 
     private val detector: ObjectDetector? = try {
         val baseOptions = BaseOptions.builder()
-            .setModelAssetPath(MODEL_ASSET)
+            .setModelAssetBuffer(EveModelAssets.loadDirectBuffer(context, MODEL_ASSET))
             .build()
         val options = ObjectDetector.ObjectDetectorOptions.builder()
             .setBaseOptions(baseOptions)
