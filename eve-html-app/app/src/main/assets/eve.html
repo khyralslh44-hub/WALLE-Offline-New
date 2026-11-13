@@ -458,7 +458,7 @@ const submit=()=>{const v=$('in').value.trim();if(!v)return;$('in').value='';und
 $('send').onclick=submit;$('in').onkeydown=e=>{if(e.key==='Enter')submit()};
 $('bCam').onclick=camToggle;$('bMic').onclick=micToggle;
 $('bVox').onclick=()=>{voice=!voice;$('bVox').classList.toggle('on',voice);if(!voice)try{speechSynthesis.cancel()}catch(e){}};
-$('wipe').onclick=()=>{if(confirm('مسح كل ما تعلّمته إيف؟')){try{localStorage.removeItem('eve1')}catch(e){}location.reload()}};
+$('wipe').onclick=()=>{if(!confirm('تنبيه: هذا الإجراء سيمسح ذاكرة إيف وتعلّمها المحفوظ على هذا الهاتف نهائياً. هل تريد المتابعة؟'))return;const phrase=prompt('للحماية من اللمس بالخطأ، اكتب العبارة التالية تماماً لتأكيد المسح:\nامسح ذاكرة إيف');if(phrase!=='امسح ذاكرة إيف'){alert('تم إلغاء العملية. لم يتم حذف أي شيء من ذاكرة إيف.');return;}try{localStorage.removeItem('eve1')}catch(e){}alert('تم مسح ذاكرة إيف.');location.reload()};
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)bump('joy',.5)});
 $('llm').textContent='العقل: شبكة عصبية خاصة مدمجة تعمل بالكامل على هاتفك، بلا نماذج جاهزة ولا إنترنت.';
 if(navigator.getBattery)navigator.getBattery().then(b=>{window._bat=b});
