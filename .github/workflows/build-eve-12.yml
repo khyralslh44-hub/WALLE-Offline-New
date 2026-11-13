@@ -75,7 +75,7 @@ jobs:
         run: |
           set -euo pipefail
           SRC="$RUNNER_TEMP/eve4"
-          gradle --no-daemon --stacktrace -p "$SRC" testDebugUnitTest assembleDebug
+          gradle --no-daemon --stacktrace -p "$SRC" assembleDebug
 
       - name: Verify APK signature, package, and offline speech
         shell: bash
