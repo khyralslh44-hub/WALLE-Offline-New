@@ -74,6 +74,8 @@ dependencies {
     implementation("com.google.mlkit:image-labeling:17.0.7")
     implementation("com.google.mlkit:face-detection:16.1.7")
     implementation("org.tensorflow:tensorflow-lite:2.16.1")
+    // Real on-device generative language model runtime (CPU, fully offline after model download).
+    implementation("com.google.ai.edge.litertlm:litertlm-android:0.19.1")
     // All Arabic speech recognition runs locally against the bundled Vosk model; no cloud STT.
     implementation("net.java.dev.jna:jna:5.18.1@aar")
     implementation("com.alphacephei:vosk-android:0.3.75@aar")
