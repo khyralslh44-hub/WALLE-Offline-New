@@ -145,7 +145,7 @@ internal class EveLiteRtLanguageModel(context: Context) : AutoCloseable {
         private const val TAG = "EVE_LITERT_LM"
         private const val MODEL_FILE_NAME = "eve-qwen3-0.6b-int4.litertlm"
         private const val MODEL_URL =
-            "https://huggingface.co/litert-community/Qwen3-0.6B/resolve/main/Qwen3-0.6B_dynamic_wi4b32_afp32.litertlm?download=true"
+            "https://huggingface.co/litert-community/Qwen3-0.6B/resolve/e6bb3e4a1eb3f663153f0c1c12b735d64be657a7/Qwen3-0.6B_dynamic_wi4b32_afp32.litertlm?download=true"
         private const val MIN_VALID_BYTES = 300L * 1024L * 1024L
         private const val EXPECTED_MODEL_BYTES = 329L * 1024L * 1024L
         private const val MAX_PROMPT_CHARS = 3_000
