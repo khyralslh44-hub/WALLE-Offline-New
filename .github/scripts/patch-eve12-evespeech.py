@@ -137,7 +137,9 @@ edit(manifest_rel, lambda t: replace_once(
 # Keep the shared Ear interface: PcmEar and MainActivity still depend on it.
 # Remove only the Android SpeechRecognizer implementation, not the interface.
 speech_interface = root / "app/src/main/java/com/eve/companion/Speech.kt"
-speech_interface.write_text(
+speech_interface.write_text("package com.eve.companion\n", encoding="utf-8")
+ear_iface = root / "app/src/main/java/com/eve/companion/Ear.kt"
+ear_iface.write_text(
     "package com.eve.companion\n\ninterface Ear { fun start(); fun stop() }\n",
     encoding="utf-8"
 )
@@ -155,7 +157,7 @@ for rel in ["app/src/full", "app/src/lite"]:
     if p.exists():
         shutil.rmtree(p)
 
-# Speech.kt retains the shared Ear interface. Do not create a duplicate Ear.kt.
+# Ear.kt is the single source of the shared interface.
 print("PATCH OK: preserve shared Ear interface for local PCM input", flush=True)
 
 docs = root / "docs"
