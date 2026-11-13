@@ -10,6 +10,8 @@ on:
   push:
     paths:
       - 'eve-project/**'
+      - '.github/scripts/fetch-moonshine-tiny-ar.sh'
+      - '.github/scripts/create-moonshine-tokens.py'
       - '.github/workflows/android-build.yml'
       - '.github/workflows/emulator-smoke-test.yml'
       - '.github/workflows/eve-deep-verification.yml'
@@ -182,9 +184,23 @@ jobs:
           grep -Fq "MIT License" "$LICENSE"
           ls -lh "$MODEL" "$LICENSE"
           echo "PASS: pinned offline face-identity model and its license are ready."
-      - name: Bundle fully offline Arabic speech recognition model
+      - name: Add the pinned ARM-compatible sherpa-onnx runtime
         shell: bash
-        run: bash .github/scripts/fetch-arabic-vosk-model.sh
+        run: |
+          set -euo pipefail
+          mkdir -p eve-project/app/libs
+          AAR="eve-project/app/libs/sherpa-onnx-2.0.1.aar"
+          curl --fail --location --retry 4 --retry-all-errors --connect-timeout 30 --max-time 600 \
+            "https://github.com/k2-fsa/sherpa-onnx/releases/download/v2.0.1/sherpa-onnx-2.0.1.aar" \
+            --output "$AAR"
+          ACTUAL="$(sha256sum "$AAR" | awk '{print $1}')"
+          EXPECTED="a8d09d1d32f3eb8520482c6d3d43fae674681c5b050385967c70a3c2c9bf0ee7"
+          test "$ACTUAL" = "$EXPECTED"
+          echo "PASS: sherpa-onnx 2.0.1 AAR sha256=$ACTUAL"
+
+      - name: Download compact fully offline Moonshine Tiny Arabic model
+        shell: bash
+        run: bash .github/scripts/fetch-moonshine-tiny-ar.sh
 
       - name: Download and verify offline MediaPipe pose model
         shell: bash
@@ -223,6 +239,40 @@ jobs:
             fi
             echo "PASS: LiteRT-LM integration present; Qwen3 weights remain external to $APK."
           done
+      - name: Verify compact offline Arabic speech model is packaged in both APKs
+        shell: bash
+        run: |
+          set -euo pipefail
+          for APK in \
+            "eve-project/app/build/outputs/apk/debug/app-debug.apk" \
+            "eve-project/app/build/outputs/apk/release/app-release.apk"; do
+            test -s "$APK"
+            ENTRIES="$RUNNER_TEMP/speech-entries.txt"
+            unzip -Z1 "$APK" > "$ENTRIES"
+            for ASSET in \
+              eve_moonshine_ar_encoder_int8.onnx \
+              eve_moonshine_ar_decoder_int8.onnx \
+              eve_moonshine_ar_tokens.txt \
+              moonshine_ai_community_license.txt \
+              moonshine_ai_notice.txt; do
+              grep -Fxq "assets/$ASSET" "$ENTRIES"
+              PACKAGED="$(unzip -p "$APK" "assets/$ASSET" | sha256sum | awk '{print $1}')"
+              SOURCE="$(sha256sum "eve-project/app/src/main/assets/$ASSET" | awk '{print $1}')"
+              test "$PACKAGED" = "$SOURCE"
+              echo "PASS: $APK contains $ASSET sha256=$PACKAGED"
+            done
+          done
+
+      - name: Report final release APK size
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="eve-project/app/build/outputs/apk/release/app-release.apk"
+          BYTES="$(stat -c '%s' "$APK")"
+          MIB="$(awk -v bytes="$BYTES" 'BEGIN { printf "%.2f", bytes / 1048576 }')"
+          echo "EVE Redmi 12 release APK size: $BYTES bytes ($MIB MiB)"
+          echo "Target: 80 MiB maximum; further distillation/asset reduction may still be required."
+
       - name: Verify offline vision models are packaged in both APKs
         shell: bash
         run: |
