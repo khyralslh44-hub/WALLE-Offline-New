@@ -274,12 +274,16 @@ jobs:
           grep -Fq "POSE_MODEL_PASS" "$TEST_SCRIPT"
           test "$(sha256sum "$IMAGENET_MODEL" | awk '{print $1}')" = "bc2ffe19c1118de0c0c2a9088992da5589722656e0fba81421385300a4a34b16"
           test -s "$RUNNER_TEMP/imagenet-classifier-sha256.txt"
-          test -s eve-project/app/src/main/assets/eve_moonshine_ar_encoder_int8.onnx
-          test -s eve-project/app/src/main/assets/eve_moonshine_ar_decoder_int8.onnx
           test -s eve-project/app/src/main/assets/eve_moonshine_ar_tokens.txt
           test -s eve-project/app/src/main/assets/moonshine_ai_community_license.txt
           test -s eve-project/app/src/main/assets/moonshine_ai_notice.txt
-          echo "PASS: compact Arabic Moonshine ASR assets and license are present."
+          grep -Fq "189c63a96dbedcbce32987ccb2ef52367b5392744fdc9b05f3d5442b0db4e85f" "eve-project/app/src/main/java/com/eve/robot/OfflineArabicSpeech.kt"
+          grep -Fq "c3d7481beb40f0880155195a12c619e035fd67249b8d0315d90f7f32dca4d380" "eve-project/app/src/main/java/com/eve/robot/OfflineArabicSpeech.kt"
+          if find eve-project/app/src/main/assets -maxdepth 1 -name 'eve_moonshine_ar_*int8.onnx' | grep -q .; then
+            echo "FAIL: Arabic ONNX weights should not be bundled in the APK."
+            exit 1
+          fi
+          echo "PASS: tokenizer/licence are bundled; pinned ONNX weights download once to private storage."
           grep -Fq 'face_fixture.jpg' "$TEST_SOURCE"
           grep -Fq 'gesture_thumb_up.jpg' "$GESTURE_TEST_SOURCE"
           grep -Fq 'gesture_thumb_up.jpg' "$TEST_SCRIPT"
