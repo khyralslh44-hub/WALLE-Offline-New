@@ -1,10 +1,11 @@
-name: EVE Bespoke Compact Arabic Brain Offline Verification
+name: EVE Hybrid Local Arabic Brain Offline Verification
 
 on:
   workflow_dispatch:
   push:
     paths:
       - 'eve-project/app/src/main/java/com/eve/robot/LocalLanguageBrain.kt'
+      - 'eve-project/app/src/main/java/com/eve/robot/EveLiteRtLanguageModel.kt'
       - 'eve-project/app/src/main/java/com/eve/robot/EveTinyArabicBrain.kt'
       - 'eve-project/app/src/main/java/com/eve/robot/EveArabicSemanticComposer.kt'
       - 'eve-project/app/src/main/java/com/eve/robot/EveArabicTextUnderstanding.kt'
@@ -71,8 +72,40 @@ jobs:
           test -s eve-project/app/build/outputs/apk/debug/app-debug.apk
           test -s eve-project/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
           APP_APK=eve-project/app/build/outputs/apk/debug/app-debug.apk
-          if unzip -Z1 "$APP_APK" | grep -Eiq 'Qwen|litertlm|[.]gguf$'; then
-            echo "FAIL: model weights are not expected in this fallback-only test APK."
+          if unzip -Z1 "$APP_APK" | grep -Eiq '[.]litertlm$|[.]gguf$|[.]safetensors$|libllama(_jni)?[.]so
+            exit 2
+          fi
+          echo "PASS: LiteRT-LM runtime is included, while Qwen3 weights remain outside the APK."
+
+      - name: Run Android emulator test with radios disabled
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: default
+          arch: x86_64
+          profile: pixel_2
+          cores: 4
+          ram-size: 4096M
+          heap-size: 1024M
+          emulator-boot-timeout: 900
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -no-audio -no-boot-anim
+          disable-animations: true
+          script: bash "$GITHUB_WORKSPACE/.github/scripts/run-local-llm-test.sh"
+
+      - name: Upload local dialogue verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EVE-Local-Dialogue-Offline-Proof
+          path: |
+            eve-tiny-results/**
+            eve-project/app/build/reports/tests/testDebugUnitTest/**
+            eve-project/app/build/test-results/testDebugUnitTest/**
+            eve-project/app/build/reports/androidTests/connected/**
+          if-no-files-found: warn
+          retention-days: 14
+; then
+            echo "FAIL: generative model weights or obsolete llama.cpp libraries must not be bundled in the APK."
             exit 2
           fi
           echo "PASS: fallback-only APK has no GGUF weights; llama.cpp runtime library is permitted."
