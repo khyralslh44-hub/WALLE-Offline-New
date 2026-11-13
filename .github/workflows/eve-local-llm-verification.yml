@@ -72,7 +72,8 @@ jobs:
           test -s eve-project/app/build/outputs/apk/debug/app-debug.apk
           test -s eve-project/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
           APP_APK=eve-project/app/build/outputs/apk/debug/app-debug.apk
-          if unzip -Z1 "$APP_APK" | grep -Eiq '[.]litertlm$|[.]gguf$|[.]safetensors$|libllama(_jni)?[.]so
+          if unzip -Z1 "$APP_APK" | grep -E "[.]litertlm|[.]gguf|[.]safetensors|libllama(_jni)?[.]so"; then
+            echo "FAIL: model weights or obsolete llama.cpp libraries must not be packaged."
             exit 2
           fi
           echo "PASS: LiteRT-LM runtime is included, while Qwen3 weights remain outside the APK."
