@@ -39,8 +39,6 @@ def patch_main(t: str) -> str:
         '        @JavascriptInterface fun sttEngine(name: String) { runOnUiThread { speech?.stop(); speech = null; refreshSenses() } }\n'
     )
     t = replace_once(t, old_bridge, new_bridge, "replace external STT bridge")
-    if 'fun sttEmbedded()' in t or 'sttPref' in t:
-        raise SystemExit("External STT preference bridge was not fully removed")
     pattern = r'                val onT: \(String\) -> Unit = .*?\n                speech\?\.start\(\)'
     replacement = (
         '                val onL: (Float) -> Unit = { l -> js("Eve.rms($l)") }\n'
@@ -54,6 +52,8 @@ def patch_main(t: str) -> str:
     if n != 1:
         raise SystemExit(f"replace STT selection block: expected one match, found {n}")
     print("PATCH OK: force PCM microphone input into EVE MFCC+DTW recognizer", flush=True)
+    if 'fun sttEmbedded()' in t or 'sttPref' in t:
+        raise SystemExit("External STT preference remains after replacing engine selection")
     t = replace_once(
         t,
         '    private fun hasEmbedded(): Boolean = try { (assets.list("vosk/model")?.size ?: 0) > 0 } catch (e: Exception) { false }\n\n',
