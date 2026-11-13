@@ -24,7 +24,13 @@ jobs:
           echo '=== SOURCE TREE ==='
           find "$SRC/app/src" -type f | sort
           echo '=== EVE CUSTOM SPEECH MODEL CODE ==='
+          sed -n '40,70p' "$SRC/app/src/main/assets/eve.html"
+          sed -n '450,480p' "$SRC/app/src/main/assets/eve.html"
+          sed -n '640,655p' "$SRC/app/src/main/assets/eve.html"
           sed -n '965,1075p' "$SRC/app/src/main/assets/eve.html"
+          sed -n '1285,1305p' "$SRC/app/src/main/assets/eve.html"
+          echo '=== SPEECH CONFIG INITIALIZERS ==='
+          grep -n -E 'stt[[:space:]]*[:=]|sttEngine|sttEmbedded' "$SRC/app/src/main/assets/eve.html" | grep -v '^56:' | tail -n 80
           echo '=== EVE COMMAND/TRAINING REFERENCES ==='
           grep -n -E 'CMDS(_LY)?=|earEnrollStart|earTestStart|تعليم الأذن|اختبار الأذن|bEng' "$SRC/app/src/main/assets/eve.html" | tail -n 50 || true
           for f in \
