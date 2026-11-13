@@ -382,44 +382,44 @@ class RobotGamesActivity : ComponentActivity() {
         }
     }
 
-    // Procedural dialogue is the immediate fallback while Qwen downloads, is busy, or errors.
-    private var lastGeneratedGameReply = ""
-    private var generatedReplyCount = 0
-
-    private fun generateGameReply(gameName: String, outcome: String, detail: String = "", score: Int? = null, round: Int? = null): String {
-        // This is a fast local fallback only. The local language model replaces it with a fresh,
-        // context-grounded reaction as soon as inference is available.
-        val decision = if (::gameBrain.isInitialized) (latestGameDecision ?: gameBrain.gameOutcome(gameName, outcome)) else null
-        val mood = decision?.mood ?: EveMood.CURIOUS
-        val seed = SystemClock.elapsedRealtime() / 97L + ++generatedReplyCount * 31L + (score ?: 0) * 13L + (round ?: 0) * 7L
-        fun pick(values: List<String>, salt: Long = 0L): String {
-            var i = ((seed + salt) % values.size).toInt(); if (i < 0) i += values.size
-            var value = values[i]; if (value == lastGeneratedGameReply && values.size > 1) value = values[(i + 1) % values.size]
-            return value
-        }
-        val label = when (gameName.lowercase()) { "xo" -> "إكس-أو"; "rps" -> "حجر ورقة مقص"; "chess" -> "الشطرنج"; "paint_shot" -> "تصويب الطلاء"; "target" -> "التصويب"; "memory" -> "اختبار الذاكرة"; "reflex" -> "اختبار ردّ الفعل"; else -> "التحدّي" }
-        val opening = when (outcome.lowercase()) {
-            "player", "success", "hit" -> pick(listOf("أوه، " + label + "! هذه الجولة لك.", "حركة موفّقة؛ سجّلت لك نقطة.", "أعجبتني دقّتك، لقد تفوّقت في هذه المحاولة.", "سأحتفظ بهذه النتيجة للجولة القادمة."))
-            "robot" -> pick(listOf("هذه المرة مالت النتيجة إليّ في " + label + ".", "وجدت فرصة مناسبة وفزت بهذه الجولة.", "نجحت خطتي الآن، لكن الجولة التالية قد تختلف.", "نقطة لي هذه المرة؛ لنرَ كيف ستغيّر أسلوبك."))
-            "draw" -> pick(listOf("تعادل مثير في " + label + ".", "لم يظهر فائز هذه المرة.", "تقاربنا في النتيجة؛ سأختبر طريقة أخرى."))
-            "miss", "wrong" -> pick(listOf("لم تصب الهدف هذه المرة؛ سأراقب نتيجتك التالية.", "قريبة! عدّل توقيتك وجرب من جديد.", "هذه المحاولة لم تُصب، لكن يمكنك تغيير استراتيجيتك."))
-            "start" -> pick(listOf("بدأت " + label + "! سأكيّف ردة فعلي مع الجولة.", "حسنًا، دخلنا " + label + ". ورّني خطتك.", "الجولة بدأت؛ سأستخدم نتيجتها لأختار تعليقي التالي."))
-            else -> pick(listOf("أراقب مجريات " + label + " وأحدّث تقييمي.", "هذه معلومة جديدة عن الجولة؛ لنرَ ما يحدث بعدها.", "سأبني ردي التالي على نتيجة هذه الحركة."))
-        }
-        val moodLine = when (mood) {
-            EveMood.HAPPY, EveMood.FAMILIAR -> pick(listOf("أنا راضية عن هذه الجولة.", "أحبّ المنافسة الممتعة هكذا.", "هذا منحني دفعة حماس إضافية."), 5L)
-            EveMood.PLAYFUL -> pick(listOf("لا تظن أنني سأكرر الحركة نفسها!", "لديّ حيلة أخرى، لكن لن أكشفها الآن.", "التحدّي صار ألطف؛ هيا نكمل."), 11L)
-            EveMood.FOCUSED -> pick(listOf("أركّز على الأنماط بدل التخمين.", "سأقارن النتيجة بالحركات السابقة.", "أحتاج إلى حركة أدق في الجولة القادمة."), 17L)
-            EveMood.IRRITATED, EveMood.ANGRY -> pick(listOf("أحتاج إلى لحظة لإعادة ضبط خطتي.", "أربكت الجولة إيقاعي قليلًا؛ سأعيد المحاولة بهدوء.", "لن أكرر الخطة نفسها بلا تفكير."), 23L)
-            else -> pick(listOf("سأحتفظ بهذه الملاحظة للجولة التالية.", "دعنا نرى إن كان نمط جديد سيظهر.", "النتيجة تساعدني على تعديل أسلوبي."), 29L)
-        }
-        val progress = (if (score != null && round != null) " النتيجة: " + score + " من " + round + "." else "") + (if (detail.isNotBlank()) " " + detail.trim().take(120) else "")
-        var reply = opening + " " + moodLine + progress
-        if (reply == lastGeneratedGameReply) reply = opening + " " + pick(listOf("سأبدّل خطتي في الجولة التالية.", "لنجرّب مسارًا مختلفًا الآن.", "سأقارن المحاولة القادمة بهذه النتيجة."), 37L) + progress
-        lastGeneratedGameReply = reply
-        prefs.edit().putString("last_game_reply", reply).putLong("last_game_reply_at", System.currentTimeMillis()).putString("last_game_reply_game", gameName).putString("last_game_reply_outcome", outcome).apply()
-        android.util.Log.i("EVE_GAME_DIALOGUE", "game=" + gameName + " outcome=" + outcome + " mood=" + mood + " reply=" + reply)
-        return reply
+    // Every immediate game reaction is composed from the current board event and EVE's local mood.
+    private fun generateGameReply(
+        gameName: String,
+        outcome: String,
+        detail: String = "",
+        score: Int? = null,
+        round: Int? = null
+    ): String {
+        val context = LocalLlmContext(
+            currentMood = latestGameDecision?.mood?.name ?: EveMood.NEUTRAL.name,
+            moodReason = latestGameDecision?.reason.orEmpty().take(90),
+            personality = gameMemory.learnedPersonality(),
+            recentDialogues = gameMemory.recentDialogues(3),
+            recentReflections = gameMemory.recentReflections(2)
+        )
+        val generated = EveGameDialogueGenerator.generate(
+            gameName = gameName,
+            outcome = outcome,
+            detail = detail,
+            playerScore = null,
+            eveScore = score,
+            round = round,
+            context = context
+        )
+        prefs.edit()
+            .putString("last_game_reply", generated.replyArabic)
+            .putLong("last_game_reply_at", System.currentTimeMillis())
+            .putString("last_game_reply_game", gameName)
+            .putString("last_game_reply_outcome", outcome)
+            .putString("last_game_reply_source", "local_context_composer")
+            .apply()
+        android.util.Log.i(
+            "EVE_GAME_DIALOGUE",
+            "source=local_context_composer game=" + gameName +
+                " outcome=" + outcome + " mood=" + context.currentMood +
+                " chars=" + generated.replyArabic.length
+        )
+        return generated.replyArabic
     }
 
     /** Game events update the affect engine; starts and final results invoke the local LLM. */
