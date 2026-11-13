@@ -72,15 +72,7 @@ class EveFaceIdentityMatcher(context: Context) : Closeable {
 
     init {
         val app = context.applicationContext
-        val modelBuffer = app.assets.openFd(MODEL_ASSET).use { descriptor ->
-            FileInputStream(descriptor.fileDescriptor).channel.use { channel ->
-                channel.map(
-                    FileChannel.MapMode.READ_ONLY,
-                    descriptor.startOffset,
-                    descriptor.declaredLength
-                )
-            }
-        }
+        val modelBuffer = EveModelAssets.loadDirectBuffer(app, MODEL_ASSET)
         interpreter = Interpreter(
             modelBuffer,
             Interpreter.Options().apply { setNumThreads(2) }
