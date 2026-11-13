@@ -34,7 +34,7 @@ class EveLocalImageClassifier(context: Context) : Closeable {
         val options = ImageClassifier.ImageClassifierOptions.builder()
             .setBaseOptions(
                 BaseOptions.builder()
-                    .setModelAssetPath(MODEL_ASSET)
+                    .setModelAssetBuffer(EveModelAssets.loadDirectBuffer(context, MODEL_ASSET))
                     .build()
             )
             .setRunningMode(RunningMode.IMAGE)
