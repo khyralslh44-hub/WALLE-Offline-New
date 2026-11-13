@@ -249,8 +249,6 @@ jobs:
             ENTRIES="$RUNNER_TEMP/speech-entries.txt"
             unzip -Z1 "$APK" > "$ENTRIES"
             for ASSET in \
-              eve_moonshine_ar_encoder_int8.onnx \
-              eve_moonshine_ar_decoder_int8.onnx \
               eve_moonshine_ar_tokens.txt \
               moonshine_ai_community_license.txt \
               moonshine_ai_notice.txt; do
@@ -260,6 +258,15 @@ jobs:
               test "$PACKAGED" = "$SOURCE"
               echo "PASS: $APK contains $ASSET sha256=$PACKAGED"
             done
+          done
+          for APK in \
+            "eve-project/app/build/outputs/apk/debug/app-debug.apk" \
+            "eve-project/app/build/outputs/apk/release/app-release.apk"; do
+            if unzip -Z1 "$APK" | grep -E 'eve_moonshine_ar_(encoder|decoder)_int8[.]onnx'; then
+              echo "FAIL: large Arabic ONNX weights must remain outside the installer package."
+              exit 1
+            fi
+            echo "PASS: Arabic ONNX weights are external to $APK and SHA-256 verified by EVE on first use."
           done
 
       - name: Report final release APK size
