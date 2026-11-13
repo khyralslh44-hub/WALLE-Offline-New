@@ -610,6 +610,10 @@ class MainActivity : ComponentActivity() {
                 when {
                     status.contains("OFFLINE_SPEECH_MODEL_LOADING") ->
                         showCameraStatus("جارٍ تجهيز الاستماع العربي المحلي", active = cameraStarted)
+                    status.contains("OFFLINE_SPEECH_MODEL_DOWNLOADING") ->
+                        showCameraStatus("جارٍ تنزيل نموذج العربية لأول مرة؛ سيعمل بعدها دون إنترنت", active = cameraStarted)
+                    status.contains("OFFLINE_SPEECH_MODEL_NEEDS_NETWORK_ONCE") ->
+                        showCameraStatus("يلزم اتصال مرة واحدة لتنزيل نموذج العربية، ثم يعمل محليًا", active = false)
                     status.contains("OFFLINE_SPEECH_LISTENING") ->
                         showCameraStatus("الميكروفون يستمع بالعربية دون إنترنت", active = cameraStarted)
                     status.contains("MICROPHONE_PERMISSION_DENIED") ->
