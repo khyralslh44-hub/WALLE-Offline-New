@@ -3,7 +3,7 @@ name: Build EVE Android 11 APK
 on:
   push:
     branches:
-      - build/eve-android-11-upload
+      - test/eve11-small-arabic-vosk
     paths:
       - "eve-android (11).zip"
       - ".github/workflows/build-eve11-apk.yml"
@@ -20,7 +20,7 @@ jobs:
       - name: Checkout version 11 branch
         uses: actions/checkout@v4
         with:
-          ref: build/eve-android-11-upload
+          ref: test/eve11-small-arabic-vosk
 
       - name: Verify and extract original version 11 archive
         shell: bash
@@ -87,12 +87,12 @@ jobs:
           done
           du -sh "$D"
 
-      - name: Download embedded Arabic Vosk model (optional, as specified by version 11)
+      - name: Download smaller Arabic Tunisian Vosk model (test candidate)
         continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
-          MODEL_URL="${{ vars.VOSK_MODEL_URL || 'https://alphacephei.com/vosk/models/vosk-model-ar-mgb2-0.4.zip' }}"
+          MODEL_URL="${{ vars.VOSK_MODEL_URL || 'https://alphacephei.com/vosk/models/vosk-model-small-ar-tn-0.1-linto.zip' }}"
           curl --fail --location --retry 3 "$MODEL_URL" -o /tmp/vosk-ar.zip
           mkdir -p /tmp/vosk-ar source/app/src/main/assets/vosk
           unzip -q /tmp/vosk-ar.zip -d /tmp/vosk-ar
@@ -124,7 +124,7 @@ jobs:
       - name: Upload EVE 11 APK
         uses: actions/upload-artifact@v4
         with:
-          name: EVE-11-APK
+          name: EVE-11-SMALL-ARABIC-TEST
           path: |
             source/app/build/outputs/apk/debug/app-debug.apk
             source/app/build/outputs/apk/debug/app-debug.apk.sha256
