@@ -1166,7 +1166,7 @@ class MainActivity : ComponentActivity() {
     private fun handleCameraStatusTap() {
         lastDirectUserActionAt = SystemClock.elapsedRealtime()
         if (::localLanguageBrain.isInitialized &&
-            currentLocalLlmState == LocalLlmState.WAITING_FOR_WIFI &&
+            (currentLocalLlmState == LocalLlmState.WAITING_FOR_WIFI || currentLocalLlmState == LocalLlmState.ERROR) &&
             !localLanguageBrain.isModelInstalled
         ) {
             android.app.AlertDialog.Builder(this)
@@ -2968,12 +2968,8 @@ class MainActivity : ComponentActivity() {
                 if (detail == "لم تكتمل تهيئة الدماغ اللغوي") {
                     showLocalBrainChip("جارٍ بدء الدماغ المحلي…", "تهيئة أولية", 0xFFB3E5FC.toInt())
                 } else {
-                    val pending = pendingLocalQuestion
-                    if (pending != null) {
-                        pendingLocalQuestion = null
-                        showDialogueText("لا أستطيع معالجة السؤال دون تجهيز النموذج المحلي. تحقق من حالة الدماغ أعلى الشاشة.", durationMs = 7000L)
-                    }
                     showLocalBrainChip("النموذج اللغوي غير مثبت • انقر للتنزيل", detail, 0xFFFFD180.toInt())
+                    drainPendingLocalQuestionIfReady()
                 }
             }
             LocalLlmState.DOWNLOADING -> {
@@ -2983,11 +2979,8 @@ class MainActivity : ComponentActivity() {
                 showLocalBrainChip("تشغيل الدماغ المحلي…", detail, 0xFFB3E5FC.toInt())
             }
             LocalLlmState.ERROR -> {
-                if (pendingLocalQuestion != null) {
-                    pendingLocalQuestion = null
-                    showDialogueText("تعذر تشغيل الدماغ المحلي. لم أتمكن من الإجابة عن السؤال؛ انقر على حالة التشغيل للتفاصيل.", durationMs = 7500L)
-                }
-                showLocalBrainChip("الدماغ المحلي غير جاهز", detail, 0xFFFFAB91.toInt())
+                showLocalBrainChip("تعذر تشغيل النموذج • اضغط للتشخيص أو إعادة التنزيل", detail, 0xFFFFAB91.toInt())
+                drainPendingLocalQuestionIfReady()
             }
         }
     }
