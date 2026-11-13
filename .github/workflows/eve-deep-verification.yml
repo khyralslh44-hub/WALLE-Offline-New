@@ -250,7 +250,7 @@ jobs:
           GESTURE_FIXTURE="eve-project/app/src/androidTest/assets/gesture_thumb_up.jpg"
           FACE_IDENTITY_FIXTURE="eve-project/app/src/androidTest/assets/face_fixture_biden.jpg"
           test -s "$FACE_IDENTITY_FIXTURE"
-          test "$(git hash-object "$FACE_IDENTITY_FIXTURE")" = "3a0bdc974e9067b1595a6a623a3d898265b0a7a2"
+          test "$(git hash-object "$FACE_IDENTITY_FIXTURE")" = "3c17508bb91554c637a2eabddfae790e5bb1caba93130814fc2ac50be9760c4c"
           grep -Fq "face_fixture_biden.jpg" "eve-project/app/src/androidTest/java/com/eve/robot/FaceIdentityIntegrationTest.kt"
           TEST_SOURCE="eve-project/app/src/androidTest/java/com/eve/robot/FaceVisionIntegrationTest.kt"
           GESTURE_TEST_SOURCE="eve-project/app/src/androidTest/java/com/eve/robot/HandGestureIntegrationTest.kt"
