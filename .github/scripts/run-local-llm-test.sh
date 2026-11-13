@@ -11,13 +11,13 @@ mkdir -p "$RESULT_DIR"
 
 SOURCE_ROOT="$GITHUB_WORKSPACE/eve-project/app/src/main"
 GRADLE_FILE="$GITHUB_WORKSPACE/eve-project/app/build.gradle.kts"
-if grep -R -nE 'EveArabicLlmRuntime|eve-arabic-50m-q4|Qwen3-0\.6B|dev\.ffmpegkit\.maintained:llama-android' "$SOURCE_ROOT" "$GRADLE_FILE"; then
-  echo "FAIL: obsolete pretrained LLM path or llama.cpp dependency is still referenced." | tee "$RESULT_DIR/environment.txt"
+if grep -R -nE 'EveArabicLlmRuntime|eve-arabic-50m-q4|dev\.ffmpegkit\.maintained:llama-android' "$SOURCE_ROOT" "$GRADLE_FILE"; then
+  echo "FAIL: obsolete language-model path or llama.cpp dependency is still referenced." | tee "$RESULT_DIR/environment.txt"
   exit 1
 fi
 
 echo "EVE Bespoke Compact Arabic Brain Android verification" | tee "$RESULT_DIR/environment.txt"
-echo "Expected: bespoke Arabic dialogue works without network, pretrained LLM weights, or llama.cpp native libraries." | tee -a "$RESULT_DIR/environment.txt"
+echo "Expected: compact Arabic fallback works offline; LiteRT-LM runtime is packaged, while Qwen3 weights remain a separate user-approved download." | tee -a "$RESULT_DIR/environment.txt"
 
 for APK in "$APP_APK" "$TEST_APK"; do
   if [ ! -s "$APK" ]; then
@@ -35,13 +35,17 @@ fi
 
 APK_ENTRIES="$RESULT_DIR/apk-entries.txt"
 unzip -Z1 "$APP_APK" > "$APK_ENTRIES"
-MODEL_WEIGHTS_PATTERN='(^|/)models/[^/]*\.(gguf|safetensors|pt|pth)$|Qwen|litertlm|libllama(_jni)?\.so'
+MODEL_WEIGHTS_PATTERN='(^|/)models/[^/]*\.(gguf|safetensors|pt|pth)$|\.(litertlm|gguf|safetensors|pt|pth)$|libllama(_jni)?\.so'
 if grep -Eiq "$MODEL_WEIGHTS_PATTERN" "$APK_ENTRIES"; then
   echo "FAIL: generative-model weights are present in this fallback-only APK." | tee -a "$RESULT_DIR/environment.txt"
   grep -Ein "$MODEL_WEIGHTS_PATTERN" "$APK_ENTRIES" | tee -a "$RESULT_DIR/environment.txt" || true
   exit 4
 fi
-echo "PASS: no pretrained language weights or llama.cpp native libraries are packaged." | tee -a "$RESULT_DIR/environment.txt"
+if ! unzip -p "$APP_APK" classes.dex 2>/dev/null | strings | grep -q "EveLiteRtLanguageModel"; then
+  echo "FAIL: LiteRT-LM integration is missing from the app APK." | tee -a "$RESULT_DIR/environment.txt"
+  exit 4
+fi
+echo "PASS: LiteRT-LM integration is packaged, Qwen3 weights remain external, and no llama.cpp library is bundled." | tee -a "$RESULT_DIR/environment.txt"
 
 wait_for_device() {
   adb start-server >/dev/null 2>&1 || true
@@ -123,4 +127,4 @@ if ! grep -Fq 'TINY_ARABIC_SEMANTIC_COMPOSITION_PASS' "$RESULT_DIR/logcat.txt"; 
   exit 12
 fi
 
-echo "PASS: EVE's bespoke Arabic Brain ran on Android with Wi-Fi/mobile data disabled, no pretrained language weights, and no llama.cpp runtime." | tee -a "$RESULT_DIR/environment.txt"
+echo "PASS: EVE's compact Arabic fallback ran on Android with Wi-Fi/mobile data disabled; generative Qwen3 weights were not downloaded or bundled." | tee -a "$RESULT_DIR/environment.txt"
