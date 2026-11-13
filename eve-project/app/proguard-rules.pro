@@ -6,3 +6,7 @@
 
 # Preserve model/runtime metadata used by Android task factories and native bindings.
 -keepattributes *Annotation*,InnerClasses,EnclosingMethod
+
+# EVE calls this implementation through its local-language interface and runtime selection.
+# Keep this adapter in the minified release so the LiteRT-LM backend remains available.
+-keep class com.eve.robot.EveLiteRtLanguageModel { *; }
