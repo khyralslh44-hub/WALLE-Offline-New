@@ -99,6 +99,24 @@ jobs:
           curl --fail --location --retry 3 "https://services.gradle.org/distributions/gradle-8.9-bin.zip" --output "$RUNNER_TEMP/gradle-8.9-bin.zip"
           unzip -q "$RUNNER_TEMP/gradle-8.9-bin.zip" -d "$RUNNER_TEMP"
 
+      - name: Add the pinned ARM-compatible sherpa-onnx runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p eve-project/app/libs
+          AAR="eve-project/app/libs/sherpa-onnx-2.0.1.aar"
+          curl --fail --location --retry 4 --retry-all-errors --connect-timeout 30 --max-time 600 \
+            "https://github.com/k2-fsa/sherpa-onnx/releases/download/v2.0.1/sherpa-onnx-2.0.1.aar" \
+            --output "$AAR"
+          ACTUAL="$(sha256sum "$AAR" | awk '{print $1}')"
+          EXPECTED="a8d09d1d32f3eb8520482c6d3d43fae674681c5b050385967c70a3c2c9bf0ee7"
+          test "$ACTUAL" = "$EXPECTED"
+          echo "PASS: sherpa-onnx 2.0.1 AAR sha256=$ACTUAL"
+
+      - name: Download compact fully offline Moonshine Tiny Arabic model
+        shell: bash
+        run: bash .github/scripts/fetch-moonshine-tiny-ar.sh
+
       - name: Download pinned portrait and FER model for offline instrumentation
         if: ${{ matrix.api-level == 35 }}
         shell: bash
@@ -212,10 +230,10 @@ jobs:
           fi
           sha256sum "$MODEL" | tee "$RUNNER_TEMP/imagenet-classifier-sha256.txt"
 
-      - name: Bundle fully offline Arabic speech recognition model for API 35
+      - name: Download compact fully offline Moonshine Tiny Arabic model for API 35
         if: ${{ matrix.api-level == 35 }}
         shell: bash
-        run: bash .github/scripts/fetch-arabic-vosk-model.sh
+        run: bash .github/scripts/fetch-moonshine-tiny-ar.sh
 
       - name: Download and verify offline MediaPipe pose model
         shell: bash
