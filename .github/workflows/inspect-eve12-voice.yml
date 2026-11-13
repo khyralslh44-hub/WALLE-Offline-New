@@ -1,0 +1,42 @@
+name: Inspect EVE 12 voice sources
+
+on:
+  push:
+    paths:
+      - '.github/workflows/inspect-eve12-voice.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract and print voice integration sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$RUNNER_TEMP/eve12"
+          mkdir -p "$SRC"
+          unzip -q "$GITHUB_WORKSPACE/eve-android (12).zip" -d "$SRC"
+          echo '=== SOURCE TREE ==='
+          find "$SRC/app/src" -type f | sort
+          for f in \
+            app/src/main/java/com/eve/companion/MainActivity.kt \
+            app/src/main/java/com/eve/companion/Speech.kt \
+            app/src/main/java/com/eve/companion/EveVoice.kt \
+            app/src/main/java/com/eve/companion/PcmEar.kt \
+            app/src/full/java/com/eve/companion/VoskSpeech.kt \
+            app/src/lite/java/com/eve/companion/VoskSpeech.kt \
+            app/build.gradle.kts \
+            build.gradle.kts \
+            settings.gradle.kts \
+            gradle/libs.versions.toml \
+            app/src/main/AndroidManifest.xml; do
+            if [ -f "$SRC/$f" ]; then
+              echo "===== FILE: $f ====="
+              sed -n '1,260p' "$SRC/$f"
+            fi
+          done
