@@ -39,12 +39,8 @@ data class LocalLlmResult(
 )
 
 /**
- * EVE's bespoke compact Arabic dialogue engine.
- *
- * Understanding and reply composition run in Kotlin on-device. There is no bundled
- * generative checkpoint, tokenizer download, llama.cpp runtime, or network fallback.
- * The small feature-based Arabic intent model and grounded response composer are the
- * primary path for user dialogue, curiosity, and game interaction.
+ * EVE's hybrid local language brain. Qwen3 runs through LiteRT-LM when installed;
+ * the compact Arabic intent model and grounded composer remain the offline fallback.
  */
 class LocalLanguageBrain(
     context: Context,
@@ -54,7 +50,7 @@ class LocalLanguageBrain(
 ) : AutoCloseable {
     private val main = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor { task ->
-        Thread(task, "eve-tiny-arabic-brain").apply { isDaemon = true }
+        Thread(task, "eve-local-language-brain").apply { isDaemon = true }
     }
     private val closed = AtomicBoolean(false)
     private val queuedInferenceCount = AtomicInteger(0)
