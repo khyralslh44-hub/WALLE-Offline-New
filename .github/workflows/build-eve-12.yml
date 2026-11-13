@@ -1,0 +1,99 @@
+name: Build EVE 12 APK
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'eve-android (12).zip'
+      - '.github/workflows/build-eve-12.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build EVE 12 without changing project source
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract and validate EVE 12
+        shell: bash
+        run: |
+          set -euo pipefail
+          ARCHIVE="$GITHUB_WORKSPACE/eve-android (12).zip"
+          SRC="$RUNNER_TEMP/eve12"
+          test -s "$ARCHIVE"
+          mkdir -p "$SRC"
+          unzip -q "$ARCHIVE" -d "$SRC"
+          test -s "$SRC/settings.gradle.kts"
+          test -s "$SRC/build.gradle.kts"
+          test -s "$SRC/app/build.gradle.kts"
+          test -s "$SRC/app/src/main/AndroidManifest.xml"
+          test -s "$SRC/app/src/main/java/com/eve/companion/MainActivity.kt"
+          echo "Source archive: $(du -h "$ARCHIVE" | cut -f1)"
+          echo "Project extracted. Source files are not modified."
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Install Android SDK packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+          sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools"
+
+      - name: Set up Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Run unit tests and build EVE 12 APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$RUNNER_TEMP/eve12"
+          gradle --no-daemon --stacktrace -p "$SRC" testDebugUnitTest assembleDebug
+
+      - name: Verify APK and report packaged models
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="$RUNNER_TEMP/eve12/app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$APK"
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose "$APK"
+          "$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging "$APK"
+          unzip -Z1 "$APK" > "$RUNNER_TEMP/apk-files.txt"
+          echo "APK_SIZE=$(du -h "$APK" | cut -f1)" >> "$GITHUB_ENV"
+          echo "APK_BYTES=$(stat -c '%s' "$APK")" >> "$GITHUB_ENV"
+          echo "Packaged model assets:"
+          grep -E '^assets/.*(tflite|task|onnx|vosk)' "$RUNNER_TEMP/apk-files.txt" || true
+
+      - name: Publish build summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## EVE 12 APK build"
+            echo "- Source: eve-android (12).zip"
+            echo "- Source code modified: no"
+            if [ -n "${APK_SIZE:-}" ]; then echo "- APK size: $APK_SIZE ($APK_BYTES bytes)"; fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload installable APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: EVE-12-APK
+          path: ${{ runner.temp }}/eve12/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
