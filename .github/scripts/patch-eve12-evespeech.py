@@ -136,7 +136,7 @@ def patch_manifest(t: str) -> str:
     )
     t = replace_once(
         t,
-        '        <intent><action android:name="android.speech.RecognitionService"/></intent>\\n',
+        '        <intent><action android:name="android.speech.RecognitionService"/></intent>\n',
         '',
         "remove external recognition-service query"
     )
@@ -144,7 +144,7 @@ def patch_manifest(t: str) -> str:
     t = replace_once(
         t,
         anchor,
-        '    <uses-permission android:name="android.permission.INTERNET" tools:node="remove"/>\\n' + anchor,
+        '    <uses-permission android:name="android.permission.INTERNET" tools:node="remove"/>\n' + anchor,
         "strip transitive INTERNET permission"
     )
     return t
