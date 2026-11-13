@@ -134,14 +134,20 @@ edit(manifest_rel, lambda t: replace_once(
     "remove external recognition-service query"
 ))
 
+# Keep the shared Ear interface: PcmEar and MainActivity still depend on it.
+# Remove only the Android SpeechRecognizer implementation, not the interface.
+speech_interface = root / "app/src/main/java/com/eve/companion/Speech.kt"
+speech_interface.write_text(
+    "package com.eve.companion\\n\\ninterface Ear { fun start(); fun stop() }\\n",
+    encoding="utf-8"
+)
 for rel in [
-    "app/src/main/java/com/eve/companion/Speech.kt",
     "app/src/full/java/com/eve/companion/VoskSpeech.kt",
     "app/src/lite/java/com/eve/companion/VoskSpeech.kt",
 ]:
     p = root / rel
     if not p.exists():
-        raise SystemExit(f"Expected obsolete speech adapter not found: {rel}")
+        raise SystemExit(f"Expected obsolete Vosk adapter not found: {rel}")
     p.unlink()
 
 for rel in ["app/src/full", "app/src/lite"]:
@@ -187,8 +193,9 @@ main = (root / main_rel).read_text(encoding="utf-8")
 all_java = "\n".join(p.read_text(encoding="utf-8") for p in (root / "app/src/main/java").rglob("*.kt"))
 if any(x in all_java for x in ["SpeechRecognizer", "VoskSpeech", "org.vosk", "com.alphacephei"]):
     raise SystemExit("Old or external recognizer reference remains in Kotlin source")
-if (root / "app/src/main/java/com/eve/companion/Speech.kt").exists():
-    raise SystemExit("Android SpeechRecognizer source file still exists")
+interface_text = (root / "app/src/main/java/com/eve/companion/Speech.kt").read_text(encoding="utf-8")
+if "interface Ear" not in interface_text or "SpeechRecognizer" in interface_text:
+    raise SystemExit("Shared Ear interface missing or Android SpeechRecognizer remains")
 html = (root / html_rel).read_text(encoding="utf-8")
 for token in ["stt:'auto'", "const C=['auto','google','local']"]:
     if token in html:
