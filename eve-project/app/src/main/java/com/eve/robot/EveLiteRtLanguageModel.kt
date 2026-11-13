@@ -9,6 +9,7 @@ import com.google.ai.edge.litertlm.Contents
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.SamplerConfig
+import com.google.ai.edge.litertlm.ThinkingConfig
 import java.io.File
 import java.io.FileOutputStream
 import java.net.HttpURLConnection
@@ -54,6 +55,10 @@ internal class EveLiteRtLanguageModel(context: Context) : AutoCloseable {
                         topK = 20,
                         topP = 0.88,
                         temperature = 0.72
+                    ),
+                    thinkingConfig = ThinkingConfig(
+                        enableThinking = false,
+                        thinkingTokenBudget = 0
                     ),
                     maxOutputToken = 112
                 )
