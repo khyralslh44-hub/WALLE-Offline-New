@@ -41,7 +41,94 @@ if grep -Eiq "$MODEL_WEIGHTS_PATTERN" "$APK_ENTRIES"; then
   grep -Ein "$MODEL_WEIGHTS_PATTERN" "$APK_ENTRIES" | tee -a "$RESULT_DIR/environment.txt" || true
   exit 4
 fi
-if ! unzip -p "$APP_APK" classes.dex 2>/dev/null | strings | grep -q "EveLiteRtLanguageModel"; then
+if ! (unzip -Z1 "$APP_APK" | grep -E '^classes([0-9]+)?[.]dex
+  echo "FAIL: LiteRT-LM integration is missing from the app APK." | tee -a "$RESULT_DIR/environment.txt"
+  exit 4
+fi
+echo "PASS: LiteRT-LM integration is packaged, Qwen3 weights remain external, and no llama.cpp library is bundled." | tee -a "$RESULT_DIR/environment.txt"
+
+wait_for_device() {
+  adb start-server >/dev/null 2>&1 || true
+  timeout 60s adb wait-for-device
+  for attempt in $(seq 1 90); do
+    BOOT="$(timeout 8s adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
+    if [ "$BOOT" = "1" ]; then
+      return 0
+    fi
+    sleep 2
+  done
+  echo "FAIL: Android emulator did not finish booting." | tee -a "$RESULT_DIR/environment.txt"
+  return 1
+}
+
+wait_for_device
+adb install -r "$APP_APK" | tee "$RESULT_DIR/install-app.txt"
+adb install -r "$TEST_APK" | tee "$RESULT_DIR/install-test.txt"
+adb shell pm clear com.eve.robot | tee "$RESULT_DIR/clear-app-data.txt"
+
+# Disable Wi-Fi and mobile data, then enable airplane mode before exercising EVE.
+adb shell svc wifi disable >/dev/null 2>&1 || true
+adb shell svc data disable >/dev/null 2>&1 || true
+adb shell settings put global airplane_mode_on 1 >/dev/null 2>&1 || true
+adb shell am broadcast -a android.intent.action.AIRPLANE_MODE --ez state true >/dev/null 2>&1 || true
+sleep 5
+adb shell dumpsys connectivity > "$RESULT_DIR/connectivity.txt" 2>&1 || true
+
+SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+AAPT="$(find "$SDK_ROOT/build-tools" -type f -name aapt -print 2>/dev/null | sort -V | tail -n 1)"
+if [ -z "$AAPT" ]; then
+  echo "FAIL: aapt not found." | tee -a "$RESULT_DIR/environment.txt"
+  exit 5
+fi
+
+BADGING="$RESULT_DIR/test-apk-badging.txt"
+if ! "$AAPT" dump badging "$TEST_APK" > "$BADGING"; then
+  echo "FAIL: could not read instrumentation APK metadata." | tee -a "$RESULT_DIR/environment.txt"
+  exit 6
+fi
+TEST_PACKAGE="$(awk -F"'" '/^package: name=/{print $2; exit}' "$BADGING")"
+if [ -z "$TEST_PACKAGE" ]; then
+  echo "FAIL: instrumentation package not found in APK metadata." | tee -a "$RESULT_DIR/environment.txt"
+  exit 6
+fi
+echo "Instrumentation package: $TEST_PACKAGE" | tee -a "$RESULT_DIR/environment.txt"
+
+INSTRUMENTATION_EXIT=0
+timeout 180s adb shell am instrument -w -r \
+  -e class com.eve.robot.LocalLanguageBrainIntegrationTest \
+  "$TEST_PACKAGE/androidx.test.runner.AndroidJUnitRunner" \
+  > "$RESULT_DIR/instrumentation-output.txt" 2>&1 || INSTRUMENTATION_EXIT=$?
+cat "$RESULT_DIR/instrumentation-output.txt"
+adb logcat -d -v threadtime > "$RESULT_DIR/logcat.txt" 2>&1 || true
+
+if [ "$INSTRUMENTATION_EXIT" -ne 0 ] ||
+   grep -Eq 'FAILURES!!!|INSTRUMENTATION_FAILED|INSTRUMENTATION_STATUS_CODE: -2' "$RESULT_DIR/instrumentation-output.txt"; then
+  echo "FAIL: bespoke Arabic Brain instrumentation failed (exit=$INSTRUMENTATION_EXIT)." | tee -a "$RESULT_DIR/environment.txt"
+  exit 7
+fi
+if ! grep -Eq 'OK \([0-9]+ tests?\)' "$RESULT_DIR/instrumentation-output.txt"; then
+  echo "FAIL: AndroidJUnitRunner did not report completed passing tests." | tee -a "$RESULT_DIR/environment.txt"
+  exit 8
+fi
+if ! grep -Fq 'TINY_ARABIC_BRAIN_ANDROID_PASS' "$RESULT_DIR/logcat.txt"; then
+  echo "FAIL: expected local brain success marker missing from logcat." | tee -a "$RESULT_DIR/environment.txt"
+  exit 9
+fi
+if ! grep -Fq 'TINY_ARABIC_BRAIN_SPEED_PASS' "$RESULT_DIR/logcat.txt"; then
+  echo "FAIL: response-generation performance marker missing from logcat." | tee -a "$RESULT_DIR/environment.txt"
+  exit 10
+fi
+if ! grep -Fq 'TINY_ARABIC_DIALECT_PASS' "$RESULT_DIR/logcat.txt"; then
+  echo "FAIL: Arabic dialect classification marker missing from Android runtime." | tee -a "$RESULT_DIR/environment.txt"
+  exit 11
+fi
+if ! grep -Fq 'TINY_ARABIC_SEMANTIC_COMPOSITION_PASS' "$RESULT_DIR/logcat.txt"; then
+  echo "FAIL: context-grounded Arabic semantic composition marker missing from Android runtime." | tee -a "$RESULT_DIR/environment.txt"
+  exit 12
+fi
+
+echo "PASS: EVE's compact Arabic fallback ran on Android with Wi-Fi/mobile data disabled; generative Qwen3 weights were not downloaded or bundled." | tee -a "$RESULT_DIR/environment.txt"
+ | while read -r DEX; do unzip -p "$APP_APK" "$DEX"; done | strings | grep -F "EveLiteRtLanguageModel" > /dev/null); then
   echo "FAIL: LiteRT-LM integration is missing from the app APK." | tee -a "$RESULT_DIR/environment.txt"
   exit 4
 fi
