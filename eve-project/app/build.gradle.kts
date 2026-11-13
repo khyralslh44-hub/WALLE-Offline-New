@@ -11,7 +11,7 @@ android {
 
     // The bundled Vosk ZIP and TFLite vision models are already compact binary assets.
     androidResources {
-        noCompress += listOf("zip", "tflite")
+        noCompress += listOf("zip", "tflite", "onnx")
     }
 
     // Include legacy JAR (v1) signing as well as modern APK signing so OEM installers
@@ -76,9 +76,8 @@ dependencies {
     implementation("org.tensorflow:tensorflow-lite:2.16.1")
     // Real on-device generative language model runtime (CPU, fully offline after model download).
     implementation("com.google.ai.edge.litertlm:litertlm-android:0.19.1")
-    // All Arabic speech recognition runs locally against the bundled Vosk model; no cloud STT.
-    implementation("net.java.dev.jna:jna:5.18.1@aar")
-    implementation("com.alphacephei:vosk-android:0.3.75@aar")
+    // Compact local Arabic ASR runtime. The model itself is an int8 Moonshine Tiny Arabic student.
+    implementation(files("libs/sherpa-onnx-2.0.1.aar"))
     // Offline hand-sign recognition: model is pinned/downloaded during the build and packaged locally.
     implementation("com.google.mediapipe:tasks-vision:1.0.0")
     testImplementation("junit:junit:4.13.2")
