@@ -1,270 +1,251 @@
 package com.eve.robot
 
 import android.content.Context
+import android.media.AudioFormat
+import android.media.AudioRecord
+import android.media.MediaRecorder
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
-import org.json.JSONObject
-import org.vosk.Model
-import org.vosk.Recognizer
-import org.vosk.android.RecognitionListener
-import org.vosk.android.SpeechService
-import java.io.BufferedInputStream
-import java.io.File
-import java.io.FileOutputStream
-import java.io.IOException
-import java.util.zip.ZipInputStream
+import com.k2fsa.sherpa.onnx.FeatureConfig
+import com.k2fsa.sherpa.onnx.OfflineModelConfig
+import com.k2fsa.sherpa.onnx.OfflineMoonshineModelConfig
+import com.k2fsa.sherpa.onnx.OfflineRecognizer
+import com.k2fsa.sherpa.onnx.OfflineRecognizerConfig
+import java.io.Closeable
+import java.util.ArrayDeque
 import java.util.concurrent.Executors
+import kotlin.math.sqrt
 
 /**
- * Fully local Arabic speech-to-text using the bundled Vosk Arabic model.
+ * Compact, fully offline Arabic speech recognition for EVE.
  *
- * This class does not synthesize words or send audio to a cloud service. It only emits
- * locally recognized text so MainActivity can map it to offline robot actions.
+ * The 27M-parameter Moonshine Tiny Arabic student model is bundled in int8 ONNX form.
+ * Sherpa-ONNX runs it locally. Short microphone segments are gated with a simple energy VAD
+ * so silence is not sent to the sequence-to-sequence decoder (which can hallucinate on silence).
  */
 class OfflineArabicSpeech(
     context: Context,
     private val onTranscript: (String) -> Unit,
     private val onStatus: (String) -> Unit
-) : RecognitionListener {
+) : Closeable {
 
     private val appContext = context.applicationContext
     private val mainHandler = Handler(Looper.getMainLooper())
-    private val recoveryExecutor = Executors.newSingleThreadExecutor()
-    @Volatile private var closed = false
-    @Volatile private var preparing = false
-    @Volatile private var speechService: SpeechService? = null
-    @Volatile private var recognizer: Recognizer? = null
-    @Volatile private var model: Model? = null
+    private val inferenceExecutor = Executors.newSingleThreadExecutor()
 
-    private val retryListening = Runnable {
-        if (!closed) {
-            recoveryExecutor.execute { recoverAudioInput() }
-        }
-    }
+    @Volatile private var closed = false
+    @Volatile private var started = false
+    @Volatile private var recorder: AudioRecord? = null
+    @Volatile private var captureThread: Thread? = null
+    private var recognizer: OfflineRecognizer? = null
+    private var lastTranscript = ""
+    private var lastTranscriptAt = 0L
 
     fun start() {
-        if (closed || preparing || model != null) return
-        preparing = true
-        report("OFFLINE_SPEECH_MODEL_LOADING language=ar model=bundled_zip")
+        if (closed || started) return
+        started = true
+        report("OFFLINE_SPEECH_MODEL_LOADING language=ar model=moonshine_tiny_ar")
         try {
-            recoveryExecutor.execute {
+            inferenceExecutor.execute {
                 try {
-                    val modelDirectory = unpackBundledModelArchive()
-                    val loadedModel = Model(modelDirectory.absolutePath)
-                    mainHandler.post {
-                        preparing = false
-                        if (closed) {
-                            try { loadedModel.close() } catch (_: Exception) { }
-                        } else {
-                            model = loadedModel
-                            startRecognition()
-                        }
+                    val localRecognizer = createRecognizer()
+                    if (closed) {
+                        localRecognizer.release()
+                        return@execute
                     }
+                    recognizer = localRecognizer
+                    startMicrophone()
                 } catch (error: Exception) {
-                    Log.e(TAG, "Bundled Arabic model archive could not be unpacked/loaded.", error)
-                    mainHandler.post {
-                        preparing = false
-                        if (!closed) report("OFFLINE_SPEECH_FAILED reason=model_unpack")
-                    }
+                    Log.e(TAG, "Could not initialize the bundled compact Arabic speech model.", error)
+                    report("OFFLINE_SPEECH_FAILED reason=model_init")
                 }
             }
         } catch (error: Exception) {
-            preparing = false
-            Log.e(TAG, "Could not schedule bundled Arabic model unpack.", error)
+            Log.e(TAG, "Could not schedule local Arabic recognizer initialization.", error)
             report("OFFLINE_SPEECH_FAILED reason=model_start")
         }
     }
 
-    /**
-     * Extract the bundled model ZIP once. Extraction happens on the speech worker thread,
-     * never the UI thread, and path validation prevents archive entries escaping private storage.
-     * Existing model directories from previous installs are reused when their core files are intact.
-     */
-    private fun unpackBundledModelArchive(): File {
-        val target = File(appContext.filesDir, MODEL_STORAGE_DIRECTORY)
-        findModelRoot(target)?.let { return it }
-
-        val staging = File(appContext.filesDir, MODEL_STORAGE_DIRECTORY + ".extracting")
-        if (staging.exists() && !staging.deleteRecursively()) {
-            throw IOException("Could not remove incomplete Arabic model extraction.")
+    private fun createRecognizer(): OfflineRecognizer {
+        val moonshine = OfflineMoonshineModelConfig().apply {
+            encoder = MODEL_ENCODER_ASSET
+            mergedDecoder = MODEL_DECODER_ASSET
         }
-        if (!staging.mkdirs()) throw IOException("Could not create Arabic model staging directory.")
+        val modelConfig = OfflineModelConfig().apply {
+            this.moonshine = moonshine
+            tokens = MODEL_TOKENS_ASSET
+            numThreads = 2
+            provider = "cpu"
+            modelingUnit = "cjkchar"
+        }
+        val config = OfflineRecognizerConfig().apply {
+            featConfig = FeatureConfig(
+                sampleRate = SAMPLE_RATE,
+                featureDim = FEATURE_DIM
+            )
+            this.modelConfig = modelConfig
+            decodingMethod = "greedy_search"
+        }
+        return OfflineRecognizer(assetManager = appContext.assets, config = config)
+    }
+
+    private fun startMicrophone() {
+        if (closed) return
+        val minBufferBytes = AudioRecord.getMinBufferSize(
+            SAMPLE_RATE,
+            AudioFormat.CHANNEL_IN_MONO,
+            AudioFormat.ENCODING_PCM_16BIT
+        )
+        check(minBufferBytes > 0) { "Android could not calculate microphone buffer size: $minBufferBytes" }
+
+        val activeRecorder = AudioRecord(
+            MediaRecorder.AudioSource.VOICE_RECOGNITION,
+            SAMPLE_RATE,
+            AudioFormat.CHANNEL_IN_MONO,
+            AudioFormat.ENCODING_PCM_16BIT,
+            maxOf(minBufferBytes, CHUNK_SAMPLES * 2 * 4)
+        )
+        check(activeRecorder.state == AudioRecord.STATE_INITIALIZED) {
+            "Android did not initialize the microphone recorder."
+        }
+        try {
+            activeRecorder.startRecording()
+        } catch (error: Exception) {
+            activeRecorder.release()
+            throw error
+        }
+        if (closed) {
+            try { activeRecorder.stop() } catch (_: Exception) { }
+            activeRecorder.release()
+            return
+        }
+        recorder = activeRecorder
+        report("OFFLINE_SPEECH_LISTENING language=ar model=moonshine_tiny_ar runtime=sherpa_onnx offline=true")
+
+        val thread = Thread({ captureLoop(activeRecorder) }, "EVE-Arabic-Microphone")
+        thread.isDaemon = true
+        captureThread = thread
+        thread.start()
+    }
+
+    private fun captureLoop(activeRecorder: AudioRecord) {
+        val input = ShortArray(CHUNK_SAMPLES)
+        val preRoll = ArrayDeque<FloatArray>()
+        val segment = ArrayList<Float>(SAMPLE_RATE * 4)
+        var speechStarted = false
+        var consecutiveVoiceChunks = 0
+        var silentSamples = 0
+        var voicedSamples = 0
 
         try {
-            appContext.assets.open(MODEL_ARCHIVE_ASSET).use { raw ->
-                ZipInputStream(BufferedInputStream(raw, ZIP_BUFFER_SIZE)).use { zip ->
-                    val buffer = ByteArray(ZIP_BUFFER_SIZE)
-                    var entry = zip.nextEntry
-                    while (entry != null) {
-                        val output = File(staging, entry.name)
-                        val canonicalRoot = staging.canonicalPath + File.separator
-                        val canonicalOutput = output.canonicalPath
-                        if (!canonicalOutput.startsWith(canonicalRoot)) {
-                            throw IOException("Rejected unsafe ZIP entry path.")
-                        }
+            while (!closed && recorder === activeRecorder) {
+                val count = activeRecorder.read(input, 0, input.size, AudioRecord.READ_BLOCKING)
+                if (count <= 0) {
+                    if (!closed) Log.w(TAG, "Microphone read returned $count; local recognition will stop.")
+                    break
+                }
 
-                        if (entry.isDirectory) {
-                            if (!output.exists() && !output.mkdirs()) {
-                                throw IOException("Could not create model directory.")
-                            }
-                        } else {
-                            val parent = output.parentFile
-                            if (parent != null && !parent.exists() && !parent.mkdirs()) {
-                                throw IOException("Could not create model parent directory.")
-                            }
-                            FileOutputStream(output).use { sink ->
-                                while (true) {
-                                    val count = zip.read(buffer)
-                                    if (count < 0) break
-                                    if (count > 0) sink.write(buffer, 0, count)
-                                }
-                            }
+                val chunk = FloatArray(count)
+                var energy = 0.0
+                for (i in 0 until count) {
+                    val sample = input[i] / 32768.0f
+                    chunk[i] = sample
+                    energy += sample * sample
+                }
+                val rms = sqrt(energy / count)
+                val hasVoice = rms >= RMS_VOICE_THRESHOLD
+
+                if (!speechStarted) {
+                    preRoll.addLast(chunk)
+                    while (preRoll.size > PRE_ROLL_CHUNKS) preRoll.removeFirst()
+                    consecutiveVoiceChunks = if (hasVoice) consecutiveVoiceChunks + 1 else 0
+                    if (consecutiveVoiceChunks >= REQUIRED_VOICE_CHUNKS) {
+                        speechStarted = true
+                        voicedSamples = 0
+                        silentSamples = 0
+                        segment.clear()
+                        for (saved in preRoll) {
+                            segment.addAll(saved.toList())
+                            if (rmsOf(saved) >= RMS_VOICE_THRESHOLD) voicedSamples += saved.size
                         }
-                        zip.closeEntry()
-                        entry = zip.nextEntry
+                        preRoll.clear()
+                    }
+                } else {
+                    segment.addAll(chunk.toList())
+                    if (hasVoice) {
+                        voicedSamples += count
+                        silentSamples = 0
+                    } else {
+                        silentSamples += count
+                    }
+
+                    val timedOut = segment.size >= MAX_SEGMENT_SAMPLES
+                    val finishedBySilence = silentSamples >= END_SILENCE_SAMPLES
+                    if (timedOut || finishedBySilence) {
+                        submitSegment(segment, voicedSamples)
+                        segment.clear()
+                        preRoll.clear()
+                        speechStarted = false
+                        consecutiveVoiceChunks = 0
+                        silentSamples = 0
+                        voicedSamples = 0
                     }
                 }
             }
         } catch (error: Exception) {
-            staging.deleteRecursively()
-            throw error
-        }
-
-        val stagedRoot = findModelRoot(staging)
-        if (stagedRoot == null) {
-            staging.deleteRecursively()
-            throw IOException("Extracted archive did not contain a complete Vosk model.")
-        }
-        val relativeRoot = stagedRoot.relativeTo(staging).path
-
-        if (target.exists() && !target.deleteRecursively()) {
-            staging.deleteRecursively()
-            throw IOException("Could not replace the old Arabic model directory.")
-        }
-        if (!staging.renameTo(target)) {
-            try {
-                staging.copyRecursively(target, overwrite = true)
-            } catch (error: Exception) {
-                staging.deleteRecursively()
-                throw IOException("Could not move the extracted Arabic model into private storage.", error)
+            if (!closed) {
+                Log.e(TAG, "Compact Arabic microphone capture failed.", error)
+                report("OFFLINE_SPEECH_AUDIO_ERROR retrying=false")
             }
-            staging.deleteRecursively()
+        } finally {
+            try { activeRecorder.stop() } catch (_: Exception) { }
+            try { activeRecorder.release() } catch (_: Exception) { }
+            if (recorder === activeRecorder) recorder = null
         }
-
-        val modelRoot = if (relativeRoot.isBlank() || relativeRoot == ".") target
-            else File(target, relativeRoot)
-        if (!isValidModelRoot(modelRoot)) {
-            throw IOException("The extracted Arabic Vosk model failed integrity checks.")
-        }
-        Log.i(TAG, "OFFLINE_SPEECH_MODEL_EXTRACTED path=" + modelRoot.absolutePath)
-        return modelRoot
     }
 
-    private fun findModelRoot(base: File): File? {
-        if (!base.isDirectory) return null
-        if (isValidModelRoot(base)) return base
-        return base.walkTopDown().maxDepth(5).firstOrNull { isValidModelRoot(it) }
+    private fun rmsOf(samples: FloatArray): Double {
+        if (samples.isEmpty()) return 0.0
+        var energy = 0.0
+        for (sample in samples) energy += sample * sample
+        return sqrt(energy / samples.size)
     }
 
-    private fun isValidModelRoot(directory: File): Boolean =
-        directory.isDirectory &&
-            File(directory, "conf/model.conf").isFile &&
-            File(directory, "am/final.mdl").isFile &&
-            File(directory, "graph/HCLG.fst").isFile
-
-    @Synchronized
-    private fun startRecognition() {
-        if (closed || speechService != null) return
-        val loadedModel = model ?: return
+    private fun submitSegment(samples: List<Float>, voicedCount: Int) {
+        if (closed || voicedCount < MIN_VOICED_SAMPLES || samples.isEmpty()) return
+        val ownedSamples = FloatArray(samples.size) { samples[it] }
         try {
-            val localRecognizer = Recognizer(loadedModel, SAMPLE_RATE_HZ)
-            val localService = SpeechService(localRecognizer, SAMPLE_RATE_HZ)
-            recognizer = localRecognizer
-            speechService = localService
-            if (!localService.startListening(this)) {
-                speechService = null
-                recognizer = null
-                try { localService.shutdown() } catch (_: Exception) { }
-                try { localRecognizer.close() } catch (_: Exception) { }
-                throw IOException("Vosk microphone listener was already running.")
+            inferenceExecutor.execute {
+                if (closed) return@execute
+                try {
+                    val active = recognizer ?: return@execute
+                    val stream = active.createStream()
+                    val transcript = try {
+                        stream.acceptWaveform(ownedSamples, SAMPLE_RATE)
+                        active.decode(stream)
+                        active.getResult(stream).text.trim()
+                    } finally {
+                        stream.release()
+                    }
+                    if (transcript.isBlank()) return@execute
+                    val now = System.currentTimeMillis()
+                    if (transcript == lastTranscript && now - lastTranscriptAt < DUPLICATE_WINDOW_MS) {
+                        return@execute
+                    }
+                    lastTranscript = transcript
+                    lastTranscriptAt = now
+                    Log.i(TAG, "RECOGNIZED_OFFLINE model=moonshine_tiny_ar text=$transcript")
+                    mainHandler.post {
+                        if (!closed) onTranscript(transcript)
+                    }
+                } catch (error: Exception) {
+                    Log.e(TAG, "Local Moonshine Arabic inference failed for one audio segment.", error)
+                    report("OFFLINE_SPEECH_FAILED reason=inference")
+                }
             }
-            report("OFFLINE_SPEECH_LISTENING language=ar source=bundled_vosk")
         } catch (error: Exception) {
-            Log.e(TAG, "Vosk could not start the local microphone recognizer.", error)
-            report("OFFLINE_SPEECH_FAILED reason=audio_start")
-            mainHandler.removeCallbacks(retryListening)
-            mainHandler.postDelayed(retryListening, RETRY_DELAY_MS)
-        }
-    }
-
-    private fun recoverAudioInput() {
-        if (closed) return
-        releaseAudioObjects(closeModel = false)
-        if (!closed && model != null) startRecognition()
-    }
-
-    private fun releaseAudioObjects(closeModel: Boolean) {
-        val service = speechService
-        val localRecognizer = recognizer
-        speechService = null
-        recognizer = null
-        if (service != null) {
-            try { service.stop() } catch (error: Exception) {
-                Log.w(TAG, "Stopping Vosk audio service failed.", error)
-            }
-            try { service.shutdown() } catch (error: Exception) {
-                Log.w(TAG, "Releasing Vosk audio recorder failed.", error)
-            }
-        }
-        try { localRecognizer?.close() } catch (error: Exception) {
-            Log.w(TAG, "Closing Vosk recognizer failed.", error)
-        }
-        if (closeModel) {
-            val loadedModel = model
-            model = null
-            try { loadedModel?.close() } catch (error: Exception) {
-                Log.w(TAG, "Closing Vosk model failed.", error)
-            }
-        }
-    }
-
-    override fun onPartialResult(hypothesis: String) {
-        // Partial transcripts are intentionally not executed as commands to avoid reacting
-        // to half-spoken phrases. Execute only a complete utterance after a pause.
-    }
-
-    override fun onResult(hypothesis: String) {
-        deliverCompleteUtterance(hypothesis)
-    }
-
-    override fun onFinalResult(hypothesis: String) {
-        deliverCompleteUtterance(hypothesis)
-    }
-
-    override fun onError(exception: Exception) {
-        if (closed) return
-        Log.e(TAG, "Offline Arabic microphone recognition failed; retrying locally.", exception)
-        report("OFFLINE_SPEECH_AUDIO_ERROR retrying=true")
-        mainHandler.removeCallbacks(retryListening)
-        mainHandler.postDelayed(retryListening, RETRY_DELAY_MS)
-    }
-
-    override fun onTimeout() {
-        // Continuous microphone mode does not use a speech timeout.
-    }
-
-    private fun deliverCompleteUtterance(hypothesis: String) {
-        if (closed) return
-        val text = try {
-            JSONObject(hypothesis).optString("text", "").trim()
-        } catch (_: Exception) {
-            ""
-        }
-        if (text.isBlank()) return
-        Log.i(TAG, "RECOGNIZED_OFFLINE text=$text")
-        mainHandler.post {
-            if (!closed) onTranscript(text)
+            if (!closed) Log.e(TAG, "Could not queue local Arabic inference.", error)
         }
     }
 
@@ -275,24 +256,43 @@ class OfflineArabicSpeech(
         }
     }
 
-    fun close() {
+    override fun close() {
         if (closed) return
         closed = true
-        mainHandler.removeCallbacks(retryListening)
+        val activeRecorder = recorder
+        recorder = null
+        if (activeRecorder != null) {
+            try { activeRecorder.stop() } catch (_: Exception) { }
+        }
+        captureThread?.interrupt()
+        captureThread = null
         try {
-            recoveryExecutor.execute { releaseAudioObjects(closeModel = true) }
-            recoveryExecutor.shutdown()
+            inferenceExecutor.execute {
+                try { recognizer?.release() } catch (error: Exception) {
+                    Log.w(TAG, "Releasing compact Arabic recognizer failed.", error)
+                }
+                recognizer = null
+            }
+            inferenceExecutor.shutdown()
         } catch (error: Exception) {
-            Log.w(TAG, "Could not schedule offline speech cleanup.", error)
+            Log.w(TAG, "Could not schedule Arabic recognizer cleanup.", error)
         }
     }
 
     companion object {
         private const val TAG = "EVE_AUDIO"
-        private const val SAMPLE_RATE_HZ = 16_000.0f
-        private const val RETRY_DELAY_MS = 1_500L
-        private const val MODEL_ARCHIVE_ASSET = "vosk-model-ar-mgb2-0.4.zip"
-        private const val MODEL_STORAGE_DIRECTORY = "eve-offline-arabic-model"
-        private const val ZIP_BUFFER_SIZE = 64 * 1024
+        private const val SAMPLE_RATE = 16_000
+        private const val FEATURE_DIM = 80
+        private const val CHUNK_SAMPLES = 320 // 20 ms at 16 kHz
+        private const val PRE_ROLL_CHUNKS = 10 // 200 ms before voice onset
+        private const val REQUIRED_VOICE_CHUNKS = 2
+        private const val RMS_VOICE_THRESHOLD = 0.012
+        private const val END_SILENCE_SAMPLES = SAMPLE_RATE * 2 / 5 // 400 ms
+        private const val MIN_VOICED_SAMPLES = SAMPLE_RATE * 35 / 100
+        private const val MAX_SEGMENT_SAMPLES = SAMPLE_RATE * 8
+        private const val DUPLICATE_WINDOW_MS = 1_800L
+        private const val MODEL_ENCODER_ASSET = "eve_moonshine_ar_encoder_int8.onnx"
+        private const val MODEL_DECODER_ASSET = "eve_moonshine_ar_decoder_int8.onnx"
+        private const val MODEL_TOKENS_ASSET = "eve_moonshine_ar_tokens.txt"
     }
 }
