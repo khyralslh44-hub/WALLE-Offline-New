@@ -274,7 +274,7 @@ jobs:
           if git_blob_sha1(face) != "d2a427810f679db537236c5430873a81a62ef412":
               fail("face fixture Git blob SHA-1 mismatch")
           biden = expect_file("eve-project/app/src/androidTest/assets/face_fixture_biden.jpg")
-          if git_blob_sha1(biden) != "3c17508bb91554c637a2eabddfae790e5bb1caba93130814fc2ac50be9760c4c":
+          if git_blob_sha1(biden) != "3a0bdc974e9067b1595a6a623a3d898265b0a7a2":
               fail("different-person face fixture Git blob SHA-1 mismatch")
           gesture = expect_file("eve-project/app/src/androidTest/assets/gesture_thumb_up.jpg")
           if git_blob_sha1(gesture) != "781f7e5eb60c90201f6bb348a433bae5aee06da4":
