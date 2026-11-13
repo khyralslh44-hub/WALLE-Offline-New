@@ -59,6 +59,9 @@ class LocalLanguageBrain(
     private val closed = AtomicBoolean(false)
     private val queuedInferenceCount = AtomicInteger(0)
     private val backgroundInferenceQueued = AtomicBoolean(false)
+    private val generativeModel = EveLiteRtLanguageModel(context.applicationContext)
+    private val startupQueued = AtomicBoolean(false)
+    private val modelLoadQueued = AtomicBoolean(false)
 
     @Volatile private var state = LocalLlmState.WAITING_FOR_WIFI
     @Volatile private var statusMessage = "تهيئة الدماغ العربي الصغير…"
@@ -74,15 +77,54 @@ class LocalLanguageBrain(
         get() = state
 
     fun start() {
-        if (closed.get()) return
-        val readyMessage =
-            "محرك إيف العربي المصمم خصيصاً جاهز • فهم وصياغة محليان دون نموذج لغوي جاهز أو إنترنت"
-        publish(LocalLlmState.READY, 100, readyMessage)
-        Log.i(
-            TAG,
-            "LOCAL_LANGUAGE_BRAIN_READY engine=bespoke_arabic_char_ngram_and_composer " +
-                "pretrained_llm=false network=false offline=true"
-        )
+        if (closed.get() || isReady || !startupQueued.compareAndSet(false, true)) return
+        worker.execute {
+            try {
+                if (generativeModel.isInstalled) {
+                    publish(LocalLlmState.LOADING, 0, "تم العثور على النموذج المحلي؛ جارٍ تحميله.")
+                    generativeModel.load()
+                    publish(LocalLlmState.READY, 100, "نموذج Qwen3 المحلي جاهز • التوليد على الهاتف دون إنترنت")
+                } else {
+                    publish(
+                        LocalLlmState.WAITING_FOR_WIFI,
+                        0,
+                        "نموذج لغوي حقيقي غير مثبت؛ انقر شريط الحالة لتنزيله مرة واحدة (نحو 329 ميغابايت)."
+                    )
+                }
+            } catch (error: Exception) {
+                Log.e(TAG, "ON_DEVICE_LLM_LOAD_FAILED", error)
+                publish(LocalLlmState.ERROR, 0, error.message ?: "تعذر تحميل النموذج المحلي.")
+            } finally {
+                startupQueued.set(false)
+            }
+        }
+    }
+
+    val isModelInstalled: Boolean
+        get() = generativeModel.isInstalled
+
+    fun downloadAndLoad() {
+        if (closed.get() || isReady || !modelLoadQueued.compareAndSet(false, true)) return
+        try {
+            worker.execute {
+                try {
+                    publish(LocalLlmState.DOWNLOADING, 0, "تنزيل نموذج Qwen3 الصغير لأول مرة؛ سيبقى محفوظاً على الهاتف.")
+                    generativeModel.downloadAndLoad { percent ->
+                        publish(LocalLlmState.DOWNLOADING, percent, "تنزيل النموذج اللغوي المحلي")
+                    }
+                    publish(LocalLlmState.LOADING, 0, "اكتمل التنزيل؛ جارٍ تشغيل النموذج على الهاتف.")
+                    publish(LocalLlmState.READY, 100, "نموذج Qwen3 المحلي جاهز • يعمل دون إنترنت")
+                } catch (error: Exception) {
+                    Log.e(TAG, "ON_DEVICE_LLM_DOWNLOAD_OR_LOAD_FAILED", error)
+                    publish(LocalLlmState.ERROR, 0, error.message ?: "تعذر تنزيل أو تشغيل النموذج.")
+                } finally {
+                    modelLoadQueued.set(false)
+                }
+            }
+        } catch (error: Exception) {
+            modelLoadQueued.set(false)
+            publish(LocalLlmState.ERROR, 0, error.message ?: "تعذر بدء تنزيل النموذج.")
+        }
     }
 
     fun ensureReady() {
@@ -101,9 +143,10 @@ class LocalLanguageBrain(
         callback: (Result<LocalLlmResult>) -> Unit
     ) {
         enqueue(background = false, operation = {
-            // This is the primary and only dialogue path: a bespoke compact Arabic
-            // understanding model plus EVE-specific grounded response composition.
-            EveTinyArabicBrain.answerUser(userText, context)
+            generateWithFallback(
+                buildConversationPrompt(userText, context),
+                fallback = { EveTinyArabicBrain.answerUser(userText, context) }
+            )
         }, callback = callback)
     }
 
@@ -126,8 +169,16 @@ class LocalLanguageBrain(
             append(" • مستوى التحدي: ").append(difficulty.coerceIn(1, 3))
         }
         enqueue(background = false, operation = {
-            EveGameDialogueGenerator.generate(
-                gameName, outcome, safeDetail, playerScore, eveScore, round, context
+            generateWithFallback(
+                "تحدثي عن هذه الجولة في لعبة $gameName. الحدث: $outcome. التفاصيل الفعلية: $safeDetail. " +
+                    "النتيجة: اللاعب ${playerScore ?: "غير متاحة"}، إيف ${eveScore ?: "غير متاحة"}، الجولة ${round ?: "غير متاحة"}. " +
+                    "مزاجك الحالي: ${context.currentMood}. علّقي على ما حدث بدقة ولا تخترعي حركة أو نتيجة.",
+                fallback = {
+                    EveGameDialogueGenerator.generate(
+                        gameName, outcome, safeDetail, playerScore, eveScore, round, context
+                    )
+                },
+                intent = "play"
             )
         }, callback = callback)
     }
@@ -154,6 +205,60 @@ class LocalLanguageBrain(
         enqueue(background = true, operation = {
             EveTinyArabicBrain.reflectOnObservation(context)
         }, callback = callback)
+    }
+
+    private fun buildConversationPrompt(userText: String, context: LocalLlmContext): String {
+        val freshVision = context.latestVisionLabel?.takeIf {
+            context.visionObservationAgeMs in 0L..12_000L
+        } ?: "لا توجد نتيجة رؤية حديثة موثوقة"
+        val freshScene = context.latestSceneSummary.takeIf {
+            it.isNotBlank() && context.sceneObservationAgeMs in 0L..12_000L
+        } ?: "لا يوجد وصف حديث للمشهد"
+        return buildString {
+            append("رسالة المستخدم: ").append(userText.take(700)).append("\\n")
+            append("مزاج إيف: ").append(context.currentMood).append("؛ السبب: ").append(context.moodReason.take(120)).append("\\n")
+            append("سمات الشخصية: دفء ").append(context.personality.warmth)
+                .append("، فضول ").append(context.personality.curiosityBias)
+                .append("، مرح ").append(context.personality.playfulness).append("\\n")
+            append("آخر دليل بصري حديث: ").append(freshVision)
+                .append(" (الثقة ").append(context.visionConfidence).append(")\\n")
+            append("ملخص المشهد الحديث: ").append(freshScene).append("\\n")
+            append("المفاهيم التي تعلمتها: ").append(context.knownConcepts.take(12).joinToString("، ")).append("\\n")
+            append("الأشخاص الذين عرّفني بهم المستخدم: ").append(context.knownPeople.take(180)).append("\\n")
+            append("ملاحظاتي الأخيرة: ").append(context.recentObservations.takeLast(4).joinToString("؛ ").take(260)).append("\\n")
+            append("آخر حواراتنا: ").append(context.recentDialogues.takeLast(3).joinToString(" | ").take(320)).append("\\n")
+            append("تأملاتي الأخيرة: ").append(context.recentReflections.takeLast(3).joinToString(" | ").take(240)).append("\\n")
+            append("اكتبي ردك الطبيعي الآن، ولا تعرضي هذه البيانات كقائمة.")
+        }
+    }
+
+    private fun generateWithFallback(
+        prompt: String,
+        fallback: () -> LocalLlmResult,
+        intent: String = "conversation"
+    ): LocalLlmResult {
+        return try {
+            val generated = generativeModel.generate(prompt).trim()
+            if (generated.isBlank()) fallback() else {
+                val lower = generated.lowercase()
+                val mood = when {
+                    listOf("سعيد", "فرح", "رائع", "أحب").any(lower::contains) -> "happy"
+                    listOf("أزعج", "غاضب", "منزعج").any(lower::contains) -> "irritated"
+                    listOf("فضول", "أتساءل", "أريد أن أعرف").any(lower::contains) -> "curious"
+                    else -> null
+                }
+                LocalLlmResult(
+                    replyArabic = generated.take(900),
+                    moodHint = mood,
+                    intentHint = intent,
+                    reflectionArabic = "استجابة مولدة محلياً بواسطة Qwen3-0.6B اعتماداً على سياق إيف الحالي.",
+                    confidence = 0.78f
+                )
+            }
+        } catch (error: Exception) {
+            Log.w(TAG, "ON_DEVICE_LLM_INFERENCE_FALLBACK", error)
+            fallback()
+        }
     }
 
     private fun enqueue(
@@ -248,7 +353,18 @@ class LocalLanguageBrain(
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
         if (activeInstance === this) activeInstance = null
-        // The engine owns no native model or large weights; only stop its small worker.
+        // Close the conversation before the engine on the same owner worker, exactly once.
+        try {
+            worker.execute {
+                try {
+                    generativeModel.close()
+                } catch (error: Exception) {
+                    Log.w(TAG, "ON_DEVICE_LLM_CLOSE_FAILED", error)
+                }
+            }
+        } catch (_: Exception) {
+            // The worker may already be shutting down; no further inference can be submitted.
+        }
         worker.shutdown()
     }
 
