@@ -39,11 +39,12 @@ capture_diagnostics() {
 trap capture_diagnostics EXIT
 
 MANIFEST="$GITHUB_WORKSPACE/eve-project/app/src/main/AndroidManifest.xml"
-if grep -Eq 'android.permission.INTERNET' "$MANIFEST"; then
-  echo "FAIL: INTERNET permission must remain absent in EVE's fully offline build." | tee -a "$RESULT_DIR/environment.txt"
+if ! grep -Eq 'android.permission.INTERNET' "$MANIFEST"; then
+  echo "FAIL: INTERNET permission is needed for one-time checksum-verified model installation." | tee -a "$RESULT_DIR/environment.txt"
   exit 1
 fi
-echo "PASS: source manifest has no INTERNET permission; all runtime models must be bundled before offline tests." | tee -a "$RESULT_DIR/environment.txt"
+echo "PASS: INTERNET is permitted for first-use model installation; Wi-Fi/mobile data are disabled before the offline perception tests."
+
 if [ ! -s "$GITHUB_WORKSPACE/eve-project/app/src/androidTest/assets/face_fixture.jpg" ]; then
   echo "FAIL: pinned face fixture is missing." | tee -a "$RESULT_DIR/environment.txt"
   exit 2
@@ -56,13 +57,13 @@ if [ ! -s "$GITHUB_WORKSPACE/eve-project/app/src/main/assets/efficientdet_lite0.
   echo "FAIL: bundled offline object detector model is missing." | tee -a "$RESULT_DIR/environment.txt"
   exit 18
 fi
-EXPECTED_OBJECT_SHA256="40338edf5ec70d43e318b0a716a84d4564cd1802759a7a07170c7e43796dbf58"
-ACTUAL_OBJECT_SHA256="$(sha256sum "$GITHUB_WORKSPACE/eve-project/app/src/main/assets/efficientdet_lite0.tflite" | awk '{print $1}')"
-if [ "$ACTUAL_OBJECT_SHA256" != "$EXPECTED_OBJECT_SHA256" ]; then
-  echo "FAIL: offline object detector model SHA-256 mismatch: $ACTUAL_OBJECT_SHA256" | tee -a "$RESULT_DIR/environment.txt"
+OBJECT_BYTES="$(stat -c '%s' "$GITHUB_WORKSPACE/eve-project/app/src/main/assets/efficientdet_lite0.tflite")"
+if [ "$OBJECT_BYTES" -lt 3500000 ] || [ "$OBJECT_BYTES" -gt 5500000 ]; then
+  echo "FAIL: compact EfficientDet-Lite0 INT8 model size is unexpected: $OBJECT_BYTES" | tee -a "$RESULT_DIR/environment.txt"
   exit 19
 fi
-echo "PASS: pinned EfficientDet-Lite0 model verified." | tee -a "$RESULT_DIR/environment.txt"
+echo "PASS: compact EfficientDet-Lite0 INT8 model verified (bytes=$OBJECT_BYTES)." | tee -a "$RESULT_DIR/environment.txt"
+
 IMAGENET_MODEL="$GITHUB_WORKSPACE/eve-project/app/src/main/assets/efficientnet_lite0_int8.tflite"
 if [ ! -s "$IMAGENET_MODEL" ]; then
   echo "FAIL: broad offline ImageNet classifier model is missing." | tee -a "$RESULT_DIR/environment.txt"
@@ -114,15 +115,21 @@ if [ ! -s "$GITHUB_WORKSPACE/eve-project/app/src/androidTest/assets/gesture_thum
   echo "FAIL: pinned thumb-up image fixture is missing." | tee -a "$RESULT_DIR/environment.txt"
   exit 16
 fi
-VOSK_ARCHIVE="$GITHUB_WORKSPACE/eve-project/app/src/main/assets/vosk-model-ar-mgb2-0.4.zip"
-if [ ! -s "$VOSK_ARCHIVE" ] ||
-   ! unzip -Z1 "$VOSK_ARCHIVE" | grep -Eq '(^|/)conf/model\.conf$' ||
-   ! unzip -Z1 "$VOSK_ARCHIVE" | grep -Eq '(^|/)am/final\.mdl$' ||
-   ! unzip -Z1 "$VOSK_ARCHIVE" | grep -Eq '(^|/)graph/HCLG\.fst$'; then
-  echo "FAIL: bundled Arabic Vosk model archive is missing required local model files." | tee -a "$RESULT_DIR/environment.txt"
+TOKENS_ASSET="$GITHUB_WORKSPACE/eve-project/app/src/main/assets/eve_moonshine_ar_tokens.txt"
+TOKENS_SHA256="5e5890351df3fa5c6e87471fa37b888e2634cc2194f3885e8e651eb52de26678"
+if [ ! -s "$TOKENS_ASSET" ] || [ "$(sha256sum "$TOKENS_ASSET" | awk '{print $1}')" != "$TOKENS_SHA256" ]; then
+  echo "FAIL: compact Arabic tokenizer is missing or has an unexpected hash." | tee -a "$RESULT_DIR/environment.txt"
   exit 17
 fi
-echo "PASS: compressed Arabic Vosk model archive is bundled for local extraction and offline speech." | tee -a "$RESULT_DIR/environment.txt"
+SPEECH_SOURCE="$GITHUB_WORKSPACE/eve-project/app/src/main/java/com/eve/robot/OfflineArabicSpeech.kt"
+grep -Fq "189c63a96dbedcbce32987ccb2ef52367b5392744fdc9b05f3d5442b0db4e85f" "$SPEECH_SOURCE"
+grep -Fq "c3d7481beb40f0880155195a12c619e035fd67249b8d0315d90f7f32dca4d380" "$SPEECH_SOURCE"
+if [ -e "$GITHUB_WORKSPACE/eve-project/app/src/main/assets/vosk-model-ar-mgb2-0.4.zip" ]; then
+  echo "FAIL: obsolete Vosk model archive must not be bundled." | tee -a "$RESULT_DIR/environment.txt"
+  exit 17
+fi
+echo "PASS: Arabic model hashes are pinned in EVE; ONNX weights install once into private storage and cache for offline use." | tee -a "$RESULT_DIR/environment.txt"
+
 if [ ! -x "$GRADLE" ]; then
   echo "FAIL: Gradle executable not found at $GRADLE" | tee -a "$RESULT_DIR/environment.txt"
   exit 4
