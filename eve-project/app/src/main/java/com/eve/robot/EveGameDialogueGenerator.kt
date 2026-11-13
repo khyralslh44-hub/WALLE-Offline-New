@@ -36,6 +36,8 @@ internal object EveGameDialogueGenerator {
         val seed = System.nanoTime() xor
             (gameKey.hashCode().toLong() shl 32) xor
             event.hashCode().toLong() xor
+            (context.recentDialogues.lastOrNull()?.hashCode()?.toLong() ?: 0L) xor
+            (context.recentReflections.lastOrNull()?.hashCode()?.toLong() ?: 0L) xor
             (playerScore ?: 0).toLong() xor
             ((eveScore ?: 0).toLong() shl 9) xor
             (round ?: 0).toLong()
@@ -100,11 +102,15 @@ internal object EveGameDialogueGenerator {
         val mood = context.currentMood.trim().uppercase(Locale.ROOT)
         val moodLine = when (mood) {
             "HAPPY", "FAMILIAR" -> pick(listOf("هذا يرفع حماسي للجولة التالية", "أحب أن تتغير المنافسة بهذه الطريقة"))
-            "PLAYFUL" -> pick(listOf("لا أريد أن أكشف خطتي التالية بسهولة", "سأحاول مفاجأتك بدل تكرار الأسلوب نفسه"))
+            "PLAYFUL" -> if (context.personality.playfulness >= 0.55f)
+                pick(listOf("لا أريد أن أكشف خطتي التالية بسهولة", "سأحاول مفاجأتك بدل تكرار الأسلوب نفسه"))
+            else pick(listOf("سأتابع بهدوء وأختار الحركة الأدق", "سأوازن بين الحذر والتجربة في الخطوة القادمة"))
             "IRRITATED", "ANGRY" -> pick(listOf("أحتاج إلى تعديل خطتي؛ تكرار الخطأ لن يفيدني", "هذه النتيجة أزعجتني قليلًا، لذلك سأعيد الحساب بهدوء"))
             "FOCUSED" -> pick(listOf("سأركّز على الخيارات المتاحة بدل الحركة السريعة", "أقارن هذه الخطوة بما سبقها قبل أن أختار"))
             "SLEEPY" -> pick(listOf("سأحافظ على إيقاع هادئ في الخطوة القادمة", "أفضل أن نتابع دون استعجال"))
-            else -> pick(listOf("أحتفظ بهذه الملاحظة للجولة القادمة", "سأستخدم ما حدث لتعديل اختياري التالي"))
+            else -> if (context.personality.warmth >= 0.65f)
+                pick(listOf("أحتفظ بهذه الملاحظة للجولة القادمة", "سأستخدم ما حدث لتعديل اختياري التالي"))
+            else pick(listOf("سأعيد تقييم الموقف قبل الرد", "سأختبر خيارًا مختلفًا في الحركة التالية"))
         }
 
         val scoreLine = if (playerScore != null || eveScore != null) {
