@@ -7,6 +7,13 @@ import android.media.MediaRecorder
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import java.io.File
+import java.io.FileOutputStream
+import java.io.IOException
+import java.net.HttpURLConnection
+import java.net.URL
+import java.security.MessageDigest
+import java.util.Locale
 import com.k2fsa.sherpa.onnx.FeatureConfig
 import com.k2fsa.sherpa.onnx.OfflineModelConfig
 import com.k2fsa.sherpa.onnx.OfflineMoonshineModelConfig
@@ -20,9 +27,9 @@ import kotlin.math.sqrt
 /**
  * Compact, fully offline Arabic speech recognition for EVE.
  *
- * The 27M-parameter Moonshine Tiny Arabic student model is bundled in int8 ONNX form.
- * Sherpa-ONNX runs it locally. Short microphone segments are gated with a simple energy VAD
- * so silence is not sent to the sequence-to-sequence decoder (which can hallucinate on silence).
+ * The 27M-parameter Moonshine Tiny Arabic student model is installed once into private app storage.
+ * Its int8 ONNX files are checksum-pinned; after first verification, Arabic inference is offline.
+ * Short microphone segments are gated with a simple energy VAD.
  */
 class OfflineArabicSpeech(
     context: Context,
@@ -42,6 +49,12 @@ class OfflineArabicSpeech(
     private var lastTranscript = ""
     private var lastTranscriptAt = 0L
 
+    private data class ModelFiles(
+        val encoder: File,
+        val mergedDecoder: File,
+        val tokens: File
+    )
+
     fun start() {
         if (closed || started) return
         started = true
@@ -49,7 +62,9 @@ class OfflineArabicSpeech(
         try {
             inferenceExecutor.execute {
                 try {
-                    val localRecognizer = createRecognizer()
+                    val modelFiles = ensureModelFiles()
+                    if (closed) return@execute
+                    val localRecognizer = createRecognizer(modelFiles)
                     if (closed) {
                         localRecognizer.release()
                         return@execute
@@ -57,8 +72,11 @@ class OfflineArabicSpeech(
                     recognizer = localRecognizer
                     startMicrophone()
                 } catch (error: Exception) {
-                    Log.e(TAG, "Could not initialize the bundled compact Arabic speech model.", error)
-                    report("OFFLINE_SPEECH_FAILED reason=model_init")
+                    Log.e(TAG, "Could not prepare the compact offline Arabic speech model.", error)
+                    report(
+                        if (error is IOException) "OFFLINE_SPEECH_MODEL_NEEDS_NETWORK_ONCE"
+                        else "OFFLINE_SPEECH_FAILED reason=model_init"
+                    )
                 }
             }
         } catch (error: Exception) {
@@ -67,18 +85,18 @@ class OfflineArabicSpeech(
         }
     }
 
-    private fun createRecognizer(): OfflineRecognizer {
+    private fun createRecognizer(files: ModelFiles): OfflineRecognizer {
         val moonshine = OfflineMoonshineModelConfig().apply {
-            encoder = MODEL_ENCODER_ASSET
-            mergedDecoder = MODEL_DECODER_ASSET
+            encoder = files.encoder.absolutePath
+            mergedDecoder = files.mergedDecoder.absolutePath
         }
         val modelConfig = OfflineModelConfig().apply {
             this.moonshine = moonshine
-            tokens = MODEL_TOKENS_ASSET
+            tokens = files.tokens.absolutePath
             numThreads = 2
             provider = "cpu"
             // Moonshine v2 tokens are byte-level pieces decoded by Sherpa's BinTokenizer format.
-            // Do not force a CJK character or sentencepiece modeling unit.
+            // Leave modelingUnit unset; CJK character segmentation is not appropriate here.
         }
         val config = OfflineRecognizerConfig().apply {
             featConfig = FeatureConfig(
@@ -88,7 +106,133 @@ class OfflineArabicSpeech(
             this.modelConfig = modelConfig
             decodingMethod = "greedy_search"
         }
-        return OfflineRecognizer(assetManager = appContext.assets, config = config)
+        return OfflineRecognizer(assetManager = null, config = config)
+    }
+
+    /**
+     * Keep large speech weights out of the installer package. Each file is downloaded
+     * only when absent or invalid, verified by SHA-256, then retained in app-private storage.
+     * Once installed, EVE never needs a network connection for Arabic transcription.
+     */
+    private fun ensureModelFiles(): ModelFiles {
+        val directory = File(appContext.filesDir, "eve_models/moonshine_tiny_ar")
+        check(directory.exists() || directory.mkdirs()) { "Cannot create private Arabic model folder." }
+
+        val encoder = File(directory, MODEL_ENCODER_ASSET)
+        val decoder = File(directory, MODEL_DECODER_ASSET)
+        val tokens = File(directory, MODEL_TOKENS_ASSET)
+
+        downloadVerifiedModel(ENCODER_URL, encoder, ENCODER_SHA256)
+        downloadVerifiedModel(DECODER_URL, decoder, DECODER_SHA256)
+        installBundledTokens(tokens)
+
+        return ModelFiles(encoder, decoder, tokens)
+    }
+
+    private fun downloadVerifiedModel(url: String, target: File, expectedSha256: String) {
+        if (target.isFile && sha256(target) == expectedSha256) {
+            Log.i(TAG, "MODEL_CACHE_HIT file=" + target.name + " bytes=" + target.length())
+            return
+        }
+
+        target.parentFile?.mkdirs()
+        val temporary = File(target.parentFile, target.name + ".download")
+        temporary.delete()
+        report("OFFLINE_SPEECH_MODEL_DOWNLOADING file=" + target.name)
+        val connection = (URL(url).openConnection() as HttpURLConnection).apply {
+            connectTimeout = DOWNLOAD_CONNECT_TIMEOUT_MS
+            readTimeout = DOWNLOAD_READ_TIMEOUT_MS
+            instanceFollowRedirects = true
+            requestMethod = "GET"
+            setRequestProperty("User-Agent", "EVE-Android/0.5")
+        }
+
+        try {
+            connection.connect()
+            val status = connection.responseCode
+            if (status != HttpURLConnection.HTTP_OK) {
+                throw IOException("Model server returned HTTP " + status + " for " + target.name)
+            }
+            val expectedLength = connection.contentLengthLong
+            val digest = MessageDigest.getInstance("SHA-256")
+            var copied = 0L
+            var lastProgressBucket = -1L
+            connection.inputStream.use { input ->
+                FileOutputStream(temporary).use { output ->
+                    val buffer = ByteArray(DOWNLOAD_BUFFER_BYTES)
+                    while (true) {
+                        if (closed) throw IOException("Speech model download cancelled.")
+                        val count = input.read(buffer)
+                        if (count < 0) break
+                        output.write(buffer, 0, count)
+                        digest.update(buffer, 0, count)
+                        copied += count
+                        if (expectedLength > 0L) {
+                            val bucket = (copied * 4L / expectedLength).coerceAtMost(4L)
+                            if (bucket > lastProgressBucket) {
+                                lastProgressBucket = bucket
+                                report(
+                                    "OFFLINE_SPEECH_MODEL_DOWNLOAD_PROGRESS file=" + target.name +
+                                        " percent=" + (bucket * 25L)
+                                )
+                            }
+                        }
+                    }
+                    output.fd.sync()
+                }
+            }
+            val actualSha = digest.digest().joinToString("") { "%02x".format(Locale.US, it) }
+            if (copied <= 0L || actualSha != expectedSha256) {
+                throw IOException("SHA-256 verification failed for " + target.name + ": " + actualSha)
+            }
+            if (expectedLength > 0L && copied != expectedLength) {
+                throw IOException(
+                    "Incomplete model download for " + target.name + ": " +
+                        copied + " of " + expectedLength + " bytes"
+                )
+            }
+            if (!temporary.renameTo(target)) {
+                temporary.copyTo(target, overwrite = true)
+                temporary.delete()
+            }
+            report("OFFLINE_SPEECH_MODEL_VERIFIED file=" + target.name + " bytes=" + copied)
+        } finally {
+            connection.disconnect()
+            temporary.delete()
+        }
+    }
+
+    private fun installBundledTokens(target: File) {
+        if (target.isFile && sha256(target) == TOKENS_SHA256) return
+        val temporary = File(target.parentFile, target.name + ".tmp")
+        temporary.delete()
+        appContext.assets.open(MODEL_TOKENS_ASSET).use { input ->
+            FileOutputStream(temporary).use { output ->
+                input.copyTo(output)
+                output.fd.sync()
+            }
+        }
+        if (sha256(temporary) != TOKENS_SHA256) {
+            temporary.delete()
+            throw IOException("Bundled Arabic tokenizer failed SHA-256 verification.")
+        }
+        if (!temporary.renameTo(target)) {
+            temporary.copyTo(target, overwrite = true)
+            temporary.delete()
+        }
+    }
+
+    private fun sha256(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { input ->
+            val buffer = ByteArray(DOWNLOAD_BUFFER_BYTES)
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                digest.update(buffer, 0, count)
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(Locale.US, it) }
     }
 
     private fun startMicrophone() {
@@ -295,5 +439,18 @@ class OfflineArabicSpeech(
         private const val MODEL_ENCODER_ASSET = "eve_moonshine_ar_encoder_int8.onnx"
         private const val MODEL_DECODER_ASSET = "eve_moonshine_ar_decoder_int8.onnx"
         private const val MODEL_TOKENS_ASSET = "eve_moonshine_ar_tokens.txt"
+        private const val ENCODER_URL =
+            "https://huggingface.co/onnx-community/moonshine-tiny-ar-ONNX/resolve/28d27f3/onnx/encoder_model_int8.onnx"
+        private const val DECODER_URL =
+            "https://huggingface.co/onnx-community/moonshine-tiny-ar-ONNX/resolve/28d27f3/onnx/decoder_model_merged_int8.onnx"
+        private const val ENCODER_SHA256 =
+            "189c63a96dbedcbce32987ccb2ef52367b5392744fdc9b05f3d5442b0db4e85f"
+        private const val DECODER_SHA256 =
+            "c3d7481beb40f0880155195a12c619e035fd67249b8d0315d90f7f32dca4d380"
+        private const val TOKENS_SHA256 =
+            "5e5890351df3fa5c6e87471fa37b888e2634cc2194f3885e8e651eb52de26678"
+        private const val DOWNLOAD_BUFFER_BYTES = 128 * 1024
+        private const val DOWNLOAD_CONNECT_TIMEOUT_MS = 20_000
+        private const val DOWNLOAD_READ_TIMEOUT_MS = 90_000
     }
 }
