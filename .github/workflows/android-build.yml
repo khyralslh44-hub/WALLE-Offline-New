@@ -220,8 +220,8 @@ jobs:
               grep -Ein '\.(litertlm|gguf|safetensors|pt|pth)$|(^|/)models/.*(qwen|gemma|llama)' "$ENTRIES" || true
               exit 1
             fi
-            if ! (unzip -Z1 "$APK" | grep -E '^classes([0-9]+)?[.]dex
-              echo "FAIL: EVE's LiteRT-LM integration class is missing from the APK."
+            if ! (unzip -Z1 "$APK" | grep -E "classes.*dex" | while read -r DEX; do unzip -p "$APK" "$DEX" | strings; done | grep -F "EveLiteRtLanguageModel" > /dev/null); then
+              echo "FAIL: EVE LiteRT-LM integration class is missing from the APK."
               exit 1
             fi
             echo "PASS: $APK contains EVE's local LLM integration, but no model weights; Qwen3 is installed separately on the phone."
@@ -351,7 +351,7 @@ jobs:
           make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
- | while read -r DEX; do unzip -p "$APK" "$DEX"; done | strings | grep -F "EveLiteRtLanguageModel" > /dev/null); then
+
               echo "FAIL: EVE's LiteRT-LM integration class is missing from the APK."
               exit 1
             fi
