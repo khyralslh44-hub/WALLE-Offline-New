@@ -268,7 +268,7 @@ jobs:
 
           def git_blob_sha1(path):
               data = path.read_bytes()
-              return hashlib.sha1(b"blob " + str(len(data)).encode() + b"\\0" + data).hexdigest()
+              return hashlib.sha1(b"blob " + str(len(data)).encode() + b"\0" + data).hexdigest()
 
           face = expect_file("eve-project/app/src/androidTest/assets/face_fixture.jpg")
           if git_blob_sha1(face) != "d2a427810f679db537236c5430873a81a62ef412":
