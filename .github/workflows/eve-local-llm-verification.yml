@@ -73,43 +73,14 @@ jobs:
           test -s eve-project/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
           APP_APK=eve-project/app/build/outputs/apk/debug/app-debug.apk
           if unzip -Z1 "$APP_APK" | grep -E "[.]litertlm|[.]gguf|[.]safetensors|libllama(_jni)?[.]so"; then
-            echo "FAIL: model weights or obsolete llama.cpp libraries must not be packaged."
+            echo "FAIL: language-model weights or obsolete llama.cpp libraries must not be bundled."
             exit 2
           fi
-          echo "PASS: LiteRT-LM runtime is included, while Qwen3 weights remain outside the APK."
-
-      - name: Run Android emulator test with radios disabled
-        uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: 35
-          target: default
-          arch: x86_64
-          profile: pixel_2
-          cores: 4
-          ram-size: 4096M
-          heap-size: 1024M
-          emulator-boot-timeout: 900
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -no-audio -no-boot-anim
-          disable-animations: true
-          script: bash "$GITHUB_WORKSPACE/.github/scripts/run-local-llm-test.sh"
-
-      - name: Upload local dialogue verification evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: EVE-Local-Dialogue-Offline-Proof
-          path: |
-            eve-tiny-results/**
-            eve-project/app/build/reports/tests/testDebugUnitTest/**
-            eve-project/app/build/test-results/testDebugUnitTest/**
-            eve-project/app/build/reports/androidTests/connected/**
-          if-no-files-found: warn
-          retention-days: 14
-; then
-            echo "FAIL: generative model weights or obsolete llama.cpp libraries must not be bundled in the APK."
+          if ! unzip -p "$APP_APK" "classes*.dex" | strings | grep -F "EveLiteRtLanguageModel" > /dev/null; then
+            echo "FAIL: EVE LiteRT-LM integration class is missing from the APK."
             exit 2
           fi
-          echo "PASS: fallback-only APK has no GGUF weights; llama.cpp runtime library is permitted."
+          echo "PASS: LiteRT-LM integration is present and Qwen3 weights remain external."
 
       - name: Run Android emulator test with radios disabled
         uses: reactivecircus/android-emulator-runner@v2
