@@ -8,34 +8,8 @@ MODEL_REPO="onnx-community/moonshine-tiny-ar-ONNX"
 ASSETS="eve-project/app/src/main/assets"
 mkdir -p "$ASSETS"
 
-fetch_pinned() {
-  local remote="$1"
-  local output="$2"
-  local expected_sha="$3"
-  local min_bytes="$4"
-  local url="https://huggingface.co/$MODEL_REPO/resolve/$REVISION/$remote"
-
-  curl --fail --location --retry 4 --retry-all-errors --retry-delay 2 \
-    --connect-timeout 30 --max-time 900 "$url" --output "$output"
-  local bytes
-  local actual_sha
-  bytes="$(stat -c '%s' "$output")"
-  actual_sha="$(sha256sum "$output" | awk '{print $1}')"
-  echo "$output bytes=$bytes sha256=$actual_sha"
-  if [ "$bytes" -lt "$min_bytes" ] || [ "$actual_sha" != "$expected_sha" ]; then
-    echo "FAIL: $remote did not match the pinned model file."
-    exit 1
-  fi
-}
-
-fetch_pinned "onnx/encoder_model_int8.onnx" \
-  "$ASSETS/eve_moonshine_ar_encoder_int8.onnx" \
-  "189c63a96dbedcbce32987ccb2ef52367b5392744fdc9b05f3d5442b0db4e85f" 7000000
-
-fetch_pinned "onnx/decoder_model_merged_int8.onnx" \
-  "$ASSETS/eve_moonshine_ar_decoder_int8.onnx" \
-  "c3d7481beb40f0880155195a12c619e035fd67249b8d0315d90f7f32dca4d380" 18000000
-
+# Only the compact tokenizer and attribution stay in the APK.
+# The two int8 model weights are downloaded by EVE on first use and cached privately.
 TOKENIZER="$RUNNER_TEMP/eve-moonshine-ar-tokenizer.json"
 curl --fail --location --retry 4 --retry-all-errors --retry-delay 2 \
   --connect-timeout 30 --max-time 300 \
@@ -49,8 +23,8 @@ fi
 python3 .github/scripts/create-moonshine-tokens.py \
   "$TOKENIZER" "$ASSETS/eve_moonshine_ar_tokens.txt"
 test -s "$ASSETS/eve_moonshine_ar_tokens.txt"
+echo "Tokenizer stays in APK: $(wc -c < "$ASSETS/eve_moonshine_ar_tokens.txt") bytes"
 
-# Keep the original model license and attribution alongside the converted weights.
 LICENSE_URL="https://raw.githubusercontent.com/moonshine-ai/moonshine/d8d8fa29d05ca67441a7719e70099f9f48917a93/LICENSE"
 curl --fail --location --retry 3 --connect-timeout 20 --max-time 120 \
   "$LICENSE_URL" --output "$ASSETS/moonshine_ai_community_license.txt"
