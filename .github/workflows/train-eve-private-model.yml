@@ -1,0 +1,48 @@
+name: Train EVE private language model
+
+on:
+  workflow_dispatch:
+    inputs:
+      examples:
+        description: Number of teacher-generated training examples
+        required: true
+        default: "5000"
+      teacher_model:
+        description: Large teacher model used only to generate training data
+        required: true
+        default: "gpt-4.1-mini"
+
+permissions:
+  contents: read
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install training dependencies
+        run: python -m pip install --upgrade pip tensorflow-cpu==2.16.1 numpy
+      - name: Generate teacher corpus and train EVE from random initialization
+        env:
+          OPENAI_API_KEY: \${{ secrets.OPENAI_API_KEY }}
+          EVE_TRAIN_EXAMPLES: \${{ inputs.examples }}
+          EVE_TEACHER_MODEL: \${{ inputs.teacher_model }}
+        run: |
+          test -n "$OPENAI_API_KEY" || { echo "Missing OPENAI_API_KEY repository secret"; exit 2; }
+          python eve-model/train_private_eve_student.py
+      - name: Upload EVE model and training report
+        uses: actions/upload-artifact@v4
+        with:
+          name: EVE-Private-Student-TFLite
+          path: |
+            eve-model/dist/eve_private_student.tflite
+            eve-model/dist/eve_private_student.json
+            eve-model/dist/training_checkpoint.keras
+            eve-model/teacher_corpus.jsonl
+          if-no-files-found: error
+          retention-days: 30
