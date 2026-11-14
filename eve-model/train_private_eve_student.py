@@ -18,7 +18,7 @@ OUT.mkdir(parents=True, exist_ok=True)
 API_URL = os.getenv("EVE_TEACHER_API_URL", "https://api.openai.com/v1/chat/completions")
 TEACHER = os.getenv("EVE_TEACHER_MODEL", "gpt-4.1-mini")
 API_KEY = os.environ["OPENAI_API_KEY"]
-MAX_LEN = 256
+MAX_LEN = 384
 HIDDEN = 192
 EMBED = 96
 BOS, EOS, VOCAB = 257, 258, 259
@@ -63,27 +63,59 @@ def build_corpus(target=5000):
     if DATA.exists():
         existing=[json.loads(x) for x in DATA.read_text(encoding="utf-8").splitlines() if x.strip()]
     seen={x["user"] for x in existing}
-    random.seed(20261114)
+    templates=[
+      "اشرح لإيف معرفة عملية عن {topic}. أعطها قاعدة تفكير ومثالاً. الحالة: {case}",
+      "اكتب حواراً قصيراً طبيعياً بين المستخدم وإيف حول {topic}. سياق الحوار: {case}",
+      "كيف تتصرف إيف إذا واجهت موقفاً غير مؤكد متعلقاً بـ {topic}؟ الحالة: {case}",
+      "قدّم مسألة تدريبية لإيف في {topic} مع حلها خطوة بخطوة. المثال: {case}",
+      "اكتب إجابة عربية لشخص يسأل إيف عن {topic}. خلفية السؤال: {case}",
+      "درّب إيف على التمييز بين الحقيقة والتخمين في {topic}. أعط مثالاً عن {case}",
+      "ضع لإيف قاعدة قرار قابلة للتطبيق في {topic} ثم اختبرها على {case}",
+      "اكتب ردّين مختلفين لإيف في موقف يخص {topic}: رد جيد ورد خاطئ. الموقف: {case}",
+      "اشرح كيف تتعلم إيف من تجربة في {topic} دون حفظ معلومة غير مؤكدة. التجربة: {case}",
+      "أنشئ تدريباً قصيراً بالعربية لإيف عن {topic}، مع سؤال المستخدم وإجابة إيف. الموقف: {case}"
+    ]
+    cases=[
+      "المستخدم مستعجل ويريد جواباً مختصراً", "المستخدم يطلب توضيح السبب لا النتيجة فقط",
+      "المعلومات المتاحة ناقصة ويجب طرح سؤال واحد", "ظهرت معلومة جديدة تناقض اعتقاداً سابقاً",
+      "إيف ارتكبت خطأ ويجب عليها تصحيحه", "المستخدم يتحدث بلهجة عامية",
+      "هناك أكثر من حل ولكل حل تكلفة مختلفة", "يجب التحقق من النتيجة قبل إعلان النجاح",
+      "المستخدم يكرر السؤال بصياغة مختلفة", "إيف تلاحظ شيئاً جديداً في محيطها",
+      "المستخدم يطلب من إيف تذكر تجربة سابقة", "الموقف حساس ويحتاج إلى الحذر والخصوصية",
+      "يجب تقسيم الهدف الكبير إلى خطوات صغيرة", "الوقت والموارد المتاحة محدودان",
+      "المستخدم لا يوافق على استنتاج إيف ويقدم دليلاً", "المشهد البصري غير واضح والثقة منخفضة",
+      "إيف تشعر بالانزعاج لكن يجب ألا تغيّر الحقائق", "إيف تشعر بالفضول وتحتاج إلى سؤال مفيد",
+      "هناك احتمالان متشابهان ويجب التمييز بينهما", "يجب أن تعترف إيف بأنها لا تعرف",
+      "المستخدم يطلب مثالاً واقعياً قابلاً للتطبيق", "المستخدم يريد مقارنة خيارين",
+      "توجد ذاكرة قديمة ربما لم تعد صحيحة", "إيف تحتاج إلى مراجعة خطتها بعد فشل محاولة",
+      "المستخدم يطلب شرحاً مناسباً للمبتدئ", "المستخدم يريد إجابة دقيقة لا مجاملة",
+      "يجب احترام قرار المستخدم وعدم الضغط عليه", "المعلومة تحتاج إلى مصدر أو تحقق خارجي",
+      "إيف تريد التعلم لكن يجب طلب تأكيد المستخدم", "المشهد يتغير ويجب الاعتماد على الملاحظة الحديثة",
+      "هناك خطر محتمل ويجب اختيار التصرف الأكثر أماناً", "المستخدم يختبر إن كانت إيف ستختلق تفاصيل"
+    ]
     while len(existing)<target:
-        topic=SEED_TOPICS[len(existing)%len(SEED_TOPICS)]
-        prompts=[
-          f"اشرح لإيف معرفة عملية عن: {topic}. أعطها قاعدة تفكير ومثالاً.",
-          f"اكتب حواراً قصيراً طبيعياً بين المستخدم وإيف حول: {topic}.",
-          f"كيف تتصرف إيف إذا واجهت موقفاً غير مؤكد متعلقاً بـ {topic}؟",
-          f"قدّم مسألة تدريبية لإيف في {topic} مع حلها خطوة بخطوة.",
-          f"اكتب إجابة عربية لشخص يسأل إيف: ما الذي ينبغي أن أفعله في موقف يخص {topic}؟"
-        ]
-        prompt=random.choice(prompts)
-        if prompt in seen: continue
+        index=len(existing)
+        topic=SEED_TOPICS[index % len(SEED_TOPICS)]
+        variant=index // len(SEED_TOPICS)
+        prompt=templates[variant % len(templates)].format(
+            topic=topic, case=cases[(variant // len(templates)) % len(cases)]
+        )
+        if prompt in seen:
+            raise RuntimeError("Training prompt collision; refusing to spin on duplicate examples.")
         try:
             answer=teacher(prompt)
-            if len(answer)<25: continue
+            if len(answer)<25:
+                raise ValueError("Teacher returned an answer that is too short.")
             row={"user":prompt,"assistant":answer}
-            with DATA.open("a",encoding="utf-8") as f: f.write(json.dumps(row,ensure_ascii=False)+"\n")
-            existing.append(row); seen.add(prompt)
-            if len(existing)%25==0: print(f"teacher examples: {len(existing)}/{target}",flush=True)
+            with DATA.open("a",encoding="utf-8") as f:
+                f.write(json.dumps(row,ensure_ascii=False)+"\\n")
+            existing.append(row)
+            seen.add(prompt)
+            if len(existing)%25==0:
+                print(f"teacher examples: {len(existing)}/{target}",flush=True)
         except Exception as e:
-            print("teacher retry:",repr(e),flush=True); time.sleep(4)
+            print("teacher retry:",repr(e),flush=True)
+            time.sleep(4)
     return existing
 
 def encode(text):
