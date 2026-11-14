@@ -81,6 +81,13 @@ jobs:
         shell: bash
         run: bash .github/scripts/fetch-moonshine-tiny-ar.sh
 
+      - name: Train EVE compact Arabic student model
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/train_eve_student.py
+          test -s eve-project/app/src/main/java/com/eve/robot/EveDistilledArabicStudent.kt
+
       - name: Run unit tests and build compact app/instrumentation APKs
         shell: bash
         run: |
