@@ -248,7 +248,7 @@ def train(rows):
     sequences = []
     answer_starts = []
     for row in rows:
-        prompt_bytes = ("المستخدم: " + row["user"] + "\\nإيف: ").encode("utf-8")
+        prompt_bytes = ("المستخدم: " + row["user"] + "\nإيف: ").encode("utf-8")
         answer_bytes = row["assistant"].encode("utf-8")
         payload_limit = MAX_LEN - 2  # BOS and EOS
         # Preserve the end of an unusually long prompt (including the EVE prefix),
