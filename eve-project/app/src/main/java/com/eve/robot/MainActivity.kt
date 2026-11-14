@@ -3205,7 +3205,7 @@ class MainActivity : ComponentActivity() {
             if (isFinishing || isDestroyed) return@answerUser
             val reply = outcome.getOrNull()?.replyArabic?.trim().orEmpty()
             // Do not fall back to a canned medical sentence when generation fails.
-            if (reply.length !in 8..220 || reply.count { it in '\\u0600'..'\\u06FF' } < 8) {
+            if (reply.length !in 8..220 || reply.count { it in '\u0600'..'\u06FF' } < 8) {
                 Log.w("EVE_CARE", "WELLBEING_DIALOGUE_SUPPRESSED unusable_local_generation=true")
                 return@answerUser
             }
