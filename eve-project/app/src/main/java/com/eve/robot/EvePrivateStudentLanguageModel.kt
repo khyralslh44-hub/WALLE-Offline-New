@@ -58,13 +58,14 @@ internal class EvePrivateStudentLanguageModel(context: Context) : AutoCloseable 
         }
 
         val generated = ByteArrayOutputStream()
+        var next = sample(logits[0])
         for (step in 0 until MAX_NEW_TOKENS) {
-            token[0][0] = 0
-            active.runForMultipleInputsOutputs(arrayOf(token, state), outputs)
-            val next = sample(logits[0])
             if (next == EOS || next == 0 || next !in 1..256) break
             generated.write(next - 1)
+            token[0][0] = next
+            active.runForMultipleInputsOutputs(arrayOf(token, state), outputs)
             state = nextState.copyOfState()
+            next = sample(logits[0])
         }
         return generated.toByteArray().toString(Charsets.UTF_8)
             .replace("\u0000", "").trim().take(MAX_REPLY_CHARS)
