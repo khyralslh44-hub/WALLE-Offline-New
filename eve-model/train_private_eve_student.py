@@ -291,11 +291,14 @@ def train(rows):
                                    return_sequences=True, name="student_gru_2")(seq1)
         logits = tf.keras.layers.Dense(VOCAB, name="student_lm_head")(seq2)
         model = tf.keras.Model(inp, logits)
-        model.compile(
-            optimizer=tf.keras.optimizers.Adam(2e-3),
-            loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
-            weighted_metrics=[tf.keras.metrics.SparseCategoricalAccuracy(name="answer_token_accuracy")]
-        )
+    # Recompile after loading too, so older checkpoints use the answer-only
+    # weighted metric definition with the new assistant-token sample weights.
+    optimizer = getattr(model, "optimizer", None) or tf.keras.optimizers.Adam(2e-3)
+    model.compile(
+        optimizer=optimizer,
+        loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
+        weighted_metrics=[tf.keras.metrics.SparseCategoricalAccuracy(name="answer_token_accuracy")]
+    )
 
     callbacks = [
         tf.keras.callbacks.ModelCheckpoint(str(checkpoint), save_best_only=False, save_freq="epoch"),
