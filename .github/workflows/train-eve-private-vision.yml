@@ -1,6 +1,10 @@
 name: Train EVE private vision student
 
 on:
+  push:
+    paths:
+      - 'eve-vision/train_eve_vision_student.py'
+      - '.github/workflows/train-eve-private-vision.yml'
   workflow_dispatch:
     inputs:
       images:
@@ -44,8 +48,8 @@ jobs:
 
       - name: Train compact EVE vision student from random initialization
         env:
-          EVE_VISION_IMAGES: ${{ inputs.images }}
-          EVE_VISION_EPOCHS: ${{ inputs.epochs }}
+          EVE_VISION_IMAGES: ${{ inputs.images || '128' }}
+          EVE_VISION_EPOCHS: ${{ inputs.epochs || '18' }}
         run: python eve-vision/train_eve_vision_student.py
 
       - name: Upload student model and training report
