@@ -115,7 +115,8 @@ def train(rows):
     token=tf.keras.Input((1,),dtype=tf.int32,name="token")
     state=tf.keras.Input((HIDDEN,),dtype=tf.float32,name="state")
     e=model.get_layer("token_embedding")(token)
-    new_out,new_state=cell(e[:,0,:],states=[state])
+    new_out,new_states=cell(e[:,0,:],states=[state])
+    new_state=new_states[0]
     step_logits=model.get_layer("student_lm_head")(new_out)
     step=tf.keras.Model([token,state],[step_logits,new_state])
     converter=tf.lite.TFLiteConverter.from_keras_model(step)
