@@ -10,6 +10,7 @@ on:
       - '.github/scripts/emulator-smoke-test.sh'
       - '.github/scripts/fetch-moonshine-tiny-ar.sh'
       - '.github/scripts/create-moonshine-tokens.py'
+      - '.github/scripts/train_eve_student.py'
 
 concurrency:
   group: eve-deep-offline-${{ github.ref }}
