@@ -60,6 +60,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var conceptLearning: EveConceptLearning
     private lateinit var peopleMemory: EvePeopleMemory
     private lateinit var faceIdentityMemory: EveFaceIdentityMemory
+    private lateinit var wellbeingConversationPolicy: EveWellbeingConversationPolicy
     private lateinit var voice: RobotVoice
     private lateinit var localLanguageBrain: LocalLanguageBrain
     private val lastLocalLlmVisionAt = AtomicLong(0L)
@@ -467,6 +468,7 @@ class MainActivity : ComponentActivity() {
         conceptLearning = EveConceptLearning(applicationContext)
         peopleMemory = EvePeopleMemory(applicationContext)
         faceIdentityMemory = EveFaceIdentityMemory(applicationContext)
+        wellbeingConversationPolicy = EveWellbeingConversationPolicy(applicationContext)
         val relationshipPreferences = getSharedPreferences("eve_relationship", MODE_PRIVATE)
         autonomousExplorationEnabled = relationshipPreferences.getBoolean("autonomousExplorationEnabled", true)
         val priorReflectionKey = relationshipPreferences.getString("lastAutonomyReflectionKey", "").orEmpty()
@@ -3177,6 +3179,39 @@ class MainActivity : ComponentActivity() {
                     )
                 }
             }
+        }
+    }
+
+    /**
+     * Joins a consented, quality-gated wellbeing observation to EVE's normal dialogue system.
+     * No medical diagnosis is made here. The caller must supply evidence from a validated
+     * local appearance model; ordinary face recognition alone is never sufficient.
+     */
+    private fun requestWellbeingDialogue(evidence: EveWellbeingEvidence) {
+        if (!::wellbeingConversationPolicy.isInitialized ||
+            !wellbeingConversationPolicy.shouldStart(evidence) ||
+            !::localLanguageBrain.isInitialized ||
+            !localLanguageBrain.isGenerativeModelReady
+        ) return
+        wellbeingConversationPolicy.markStarted(evidence)
+        val context = localLanguageContext().copy(
+            knownPeople = (peopleMemory.summary() + "؛ الشخص الحالي: " + evidence.personName).take(240),
+            wellbeingObservation = evidence.observationArabic
+        )
+        localLanguageBrain.answerUser(
+            wellbeingConversationPolicy.prompt(evidence),
+            context
+        ) { outcome ->
+            if (isFinishing || isDestroyed) return@answerUser
+            val reply = outcome.getOrNull()?.replyArabic?.trim().orEmpty()
+            // Do not fall back to a canned medical sentence when generation fails.
+            if (reply.length !in 8..220 || reply.count { it in '\\u0600'..'\\u06FF' } < 8) {
+                Log.w("EVE_CARE", "WELLBEING_DIALOGUE_SUPPRESSED unusable_local_generation=true")
+                return@answerUser
+            }
+            memory.rememberDialogue("ملاحظة للاطمئنان: ${evidence.observationArabic}", reply)
+            showDialogueText(reply, durationMs = 7_600L)
+            Log.i("EVE_CARE", "WELLBEING_DIALOGUE_CREATED localOnly=true diagnosis=false person=${evidence.personId}")
         }
     }
 
