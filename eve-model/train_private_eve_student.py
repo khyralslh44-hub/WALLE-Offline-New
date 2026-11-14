@@ -16,7 +16,7 @@ DATA = ROOT / "teacher_corpus.jsonl"
 OUT = ROOT / "dist"
 OUT.mkdir(parents=True, exist_ok=True)
 API_URL = os.getenv("EVE_TEACHER_API_URL", "https://api.openai.com/v1/chat/completions")
-TEACHER = os.getenv("EVE_TEACHER_MODEL", "gpt-4.1-mini")
+TEACHER = os.getenv("EVE_TEACHER_MODEL", "gpt-4.1")
 API_KEY = os.environ["OPENAI_API_KEY"]
 MAX_LEN = 384
 HIDDEN = 256
