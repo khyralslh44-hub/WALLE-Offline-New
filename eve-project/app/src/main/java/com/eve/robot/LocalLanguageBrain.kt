@@ -216,25 +216,21 @@ class LocalLanguageBrain(
     private fun buildConversationPrompt(userText: String, context: LocalLlmContext): String {
         val freshVision = context.latestVisionLabel?.takeIf {
             context.visionObservationAgeMs in 0L..12_000L
-        } ?: "لا توجد نتيجة رؤية حديثة موثوقة"
+        } ?: "لا توجد ملاحظة بصرية حديثة"
         val freshScene = context.latestSceneSummary.takeIf {
             it.isNotBlank() && context.sceneObservationAgeMs in 0L..12_000L
-        } ?: "لا يوجد وصف حديث للمشهد"
+        } ?: ""
+        val memory = context.recentObservations.takeLast(2).joinToString("؛ ").take(55)
+        val concepts = context.knownConcepts.take(5).joinToString("، ").take(45)
         return buildString {
-            append("رسالة المستخدم: ").append(userText.take(700)).append("\n")
-            append("مزاج إيف: ").append(context.currentMood).append("؛ السبب: ").append(context.moodReason.take(120)).append("\n")
-            append("سمات الشخصية: دفء ").append(context.personality.warmth)
-                .append("، فضول ").append(context.personality.curiosityBias)
-                .append("، مرح ").append(context.personality.playfulness).append("\n")
-            append("آخر دليل بصري حديث: ").append(freshVision)
-                .append(" (الثقة ").append(context.visionConfidence).append(")\n")
-            append("ملخص المشهد الحديث: ").append(freshScene).append("\n")
-            append("المفاهيم التي تعلمتها: ").append(context.knownConcepts.take(12).joinToString("، ")).append("\n")
-            append("الأشخاص الذين عرّفني بهم المستخدم: ").append(context.knownPeople.take(180)).append("\n")
-            append("ملاحظاتي الأخيرة: ").append(context.recentObservations.takeLast(4).joinToString("؛ ").take(260)).append("\n")
-            append("آخر حواراتنا: ").append(context.recentDialogues.takeLast(3).joinToString(" | ").take(320)).append("\n")
-            append("تأملاتي الأخيرة: ").append(context.recentReflections.takeLast(3).joinToString(" | ").take(240)).append("\n")
-            append("اكتبي ردك الطبيعي الآن، ولا تعرضي هذه البيانات كقائمة.")
+            append("المستخدم: ").append(userText.take(115)).append("\n")
+            append("سياق إيف: المزاج ").append(context.currentMood)
+                .append("؛ الفضول ").append(context.personality.curiosityBias)
+                .append("؛ الرؤية ").append(freshVision.take(35))
+            if (freshScene.isNotBlank()) append("؛ المشهد ").append(freshScene.take(45))
+            if (concepts.isNotBlank()) append("؛ معرفة ").append(concepts)
+            if (memory.isNotBlank()) append("؛ تجربة ").append(memory)
+            append("\nإيف:")
         }
     }
 
@@ -245,7 +241,7 @@ class LocalLanguageBrain(
     ): LocalLlmResult {
         return try {
             val generated = generativeModel.generate(prompt).trim()
-            if (generated.isBlank()) fallback() else {
+            if (generated.isBlank() || generated.count { it in '\u0600'..'\u06FF' } < 2) fallback() else {
                 val lower = generated.lowercase()
                 val mood = when {
                     listOf("سعيد", "فرح", "رائع", "أحب").any(lower::contains) -> "happy"
