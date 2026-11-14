@@ -1,0 +1,101 @@
+name: Inspect EVE Qwen3 distillation run
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - eve-80mb-compact-brain
+    paths:
+      - ".github/workflows/inspect-eve-distillation.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Set up Python and Kaggle CLI
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Kaggle CLI
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "kaggle==2.2.5" six
+
+      - name: Configure Kaggle credentials securely
+        env:
+          KAGGLE_CREDENTIAL: ${{ secrets.KAGGLE_API_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          raw = os.environ.get("KAGGLE_CREDENTIAL", "").strip()
+          if not raw:
+              raise SystemExit("Missing repository secret KAGGLE_API_TOKEN.")
+          folder = Path.home() / ".kaggle"
+          folder.mkdir(mode=0o700, parents=True, exist_ok=True)
+          os.chmod(folder, 0o700)
+          if raw.startswith("KGAT_"):
+              target = folder / "access_token"
+              target.write_text(raw, encoding="ascii")
+          else:
+              try:
+                  data = json.loads(raw)
+              except json.JSONDecodeError:
+                  data = None
+              if isinstance(data, dict):
+                  username = str(data.get("username", "conangg")).strip()
+                  key = str(data.get("key", "")).strip()
+              else:
+                  username, key = "conangg", raw
+              if not username or not key:
+                  raise SystemExit("Invalid Kaggle credential format.")
+              target = folder / "kaggle.json"
+              target.write_text(json.dumps({"username": username, "key": key}), encoding="utf-8")
+          os.chmod(target, 0o600)
+          print("Kaggle credential configured securely.")
+          PY
+
+      - name: Poll status and collect Kaggle logs
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/eve-kaggle-inspection" "$RUNNER_TEMP/eve-distillation-output"
+          STATUS_FILE="$RUNNER_TEMP/eve-kaggle-inspection/status.txt"
+          LOG_FILE="$RUNNER_TEMP/eve-kaggle-inspection/logs.txt"
+          for attempt in $(seq 1 10); do
+            echo "=== STATUS CHECK $attempt ===" | tee -a "$STATUS_FILE"
+            kaggle kernels status conangg/eve-qwen3-06b-distillation 2>&1 | tee -a "$STATUS_FILE" || true
+            if grep -Eqi "COMPLETE|ERROR" "$STATUS_FILE"; then
+              break
+            fi
+            sleep 15
+          done
+          echo "=== EXECUTION LOGS ===" | tee "$LOG_FILE"
+          kaggle kernels logs conangg/eve-qwen3-06b-distillation 2>&1 | tee -a "$LOG_FILE" || true
+          echo "=== OUTPUT FILE LIST ===" | tee -a "$STATUS_FILE"
+          kaggle kernels files conangg/eve-qwen3-06b-distillation --page-size 100 2>&1 | tee -a "$STATUS_FILE" || true
+          if grep -Eqi "COMPLETE" "$STATUS_FILE"; then
+            echo "Kaggle kernel reports completion; downloading all outputs."
+            kaggle kernels output conangg/eve-qwen3-06b-distillation -p "$RUNNER_TEMP/eve-distillation-output" --force
+          else
+            echo "Kaggle kernel has not reported completion in this inspection window; no model artifact is claimed."
+          fi
+
+      - name: Upload status, logs, and any available student model
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EVE-Qwen3-Distillation-Inspection
+          path: |
+            ${{ runner.temp }}/eve-kaggle-inspection/**
+            ${{ runner.temp }}/eve-distillation-output/**
+          if-no-files-found: warn
+          retention-days: 14
