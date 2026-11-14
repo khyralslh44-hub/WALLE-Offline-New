@@ -32,29 +32,33 @@ internal class EvePrivateStudentLanguageModel(context: Context) : AutoCloseable 
             setNumThreads(4)
             setUseXNNPACK(true)
         })
-        check(candidate.inputTensorCount == 2 && candidate.outputTensorCount == 2) {
+        check(candidate.inputTensorCount == 3 && candidate.outputTensorCount == 3) {
             "بنية نموذج إيف لا تطابق واجهة GRU المتوقعة."
         }
         interpreter = candidate
-        Log.i(TAG, "EVE_PRIVATE_STUDENT_READY architecture=GRU-192 tokenizer=utf8-byte offline=true")
+        Log.i(TAG, "EVE_PRIVATE_STUDENT_READY architecture=GRU-256-2L tokenizer=utf8-byte offline=true")
     }
 
     fun generate(prompt: String): String {
         val active = checkNotNull(interpreter) { "نموذج إيف الخاص لم يُحمّل بعد." }
         val promptBytes = prompt.toByteArray(Charsets.UTF_8).takeLast(MAX_CONTEXT_BYTES)
-        var state = Array(1) { FloatArray(HIDDEN_SIZE) }
+        var state1 = Array(1) { FloatArray(HIDDEN_SIZE) }
+        var state2 = Array(1) { FloatArray(HIDDEN_SIZE) }
         val token = Array(1) { IntArray(1) }
         val logits = Array(1) { FloatArray(VOCAB_SIZE) }
-        val nextState = Array(1) { FloatArray(HIDDEN_SIZE) }
-        val outputs = hashMapOf<Int, Any>(0 to logits, 1 to nextState)
+        val nextState1 = Array(1) { FloatArray(HIDDEN_SIZE) }
+        val nextState2 = Array(1) { FloatArray(HIDDEN_SIZE) }
+        val outputs = hashMapOf<Int, Any>(0 to logits, 1 to nextState1, 2 to nextState2)
 
         token[0][0] = BOS
-        active.runForMultipleInputsOutputs(arrayOf(token, state), outputs)
-        state = nextState.copyOfState()
+        active.runForMultipleInputsOutputs(arrayOf(token, state1, state2), outputs)
+        state1 = nextState1.copyOfState()
+        state2 = nextState2.copyOfState()
         for (byte in promptBytes) {
             token[0][0] = (byte.toInt() and 0xff) + 1
-            active.runForMultipleInputsOutputs(arrayOf(token, state), outputs)
-            state = nextState.copyOfState()
+            active.runForMultipleInputsOutputs(arrayOf(token, state1, state2), outputs)
+            state1 = nextState1.copyOfState()
+            state2 = nextState2.copyOfState()
         }
 
         val generated = ByteArrayOutputStream()
@@ -148,7 +152,7 @@ internal class EvePrivateStudentLanguageModel(context: Context) : AutoCloseable 
         private const val MODEL_URL =
             "https://github.com/khyralslh44-hub/WALLE-Offline-New/releases/download/eve-private-student/eve_private_student.tflite"
         private const val MIN_VALID_BYTES = 100_000L
-        private const val HIDDEN_SIZE = 192
+        private const val HIDDEN_SIZE = 256
         private const val VOCAB_SIZE = 259
         private const val BOS = 257
         private const val EOS = 258
