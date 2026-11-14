@@ -171,4 +171,40 @@ class EveAutonomousMindTest {
         assertTrue(plan.steps.size in 1..3)
         assertEquals(plan.createdAtMs + EveAutonomousMind.PLAN_TTL_MS, plan.expiresAtMs)
     }
+
+    @Test
+    fun actionExperienceAndSuccessfulReflectionSurviveEngineRestart() {
+        class MemoryStore : EveMindFeedbackStore {
+            var saved: List<EveMindFeedback> = emptyList()
+            override fun readAll(): List<EveMindFeedback> = saved.toList()
+            override fun writeAll(items: List<EveMindFeedback>) { saved = items.toList() }
+        }
+        val store = MemoryStore()
+        val firstMind = EveAutonomousMind(feedbackStore = store)
+        firstMind.recordFeedback(
+            EveMindFeedback(
+                goal = EveMindGoal.REFLECT_ON_NEW_EVIDENCE,
+                action = EveMindAction.REQUEST_LOCAL_REFLECTION,
+                succeeded = true,
+                note = "cup|أجسام محددة: كوب",
+                atMs = 31_000L
+            )
+        )
+        firstMind.recordFeedback(
+            EveMindFeedback(
+                goal = EveMindGoal.EXPLORE_CURRENT_VIEW,
+                action = EveMindAction.SWITCH_TO_WORLD_CAMERA,
+                succeeded = false,
+                note = "camera permission unavailable",
+                atMs = 32_000L
+            )
+        )
+
+        val restoredMind = EveAutonomousMind(feedbackStore = store)
+        assertEquals(2, restoredMind.recentFeedback().size)
+        assertEquals(false, restoredMind.recentFeedback().last().succeeded)
+        val next = restoredMind.plan(context(now = 40_000L, explore = true, llmReady = true))
+        assertTrue(next.goal != EveMindGoal.REFLECT_ON_NEW_EVIDENCE)
+    }
+
 }

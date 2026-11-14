@@ -1,5 +1,9 @@
 package com.eve.robot
 
+import android.content.Context
+import org.json.JSONArray
+import org.json.JSONObject
+
 /**
  * Deterministic local goal planner. It does not claim consciousness: it keeps a compact goal,
  * explicit steps, success criteria, and feedback so EVE can act on evidence rather than timers
@@ -73,6 +77,61 @@ data class EveMindFeedback(
     val atMs: Long
 )
 
+interface EveMindFeedbackStore {
+    fun readAll(): List<EveMindFeedback>
+    fun writeAll(items: List<EveMindFeedback>)
+}
+
+private object InMemoryEveMindFeedbackStore : EveMindFeedbackStore {
+    private var items: List<EveMindFeedback> = emptyList()
+    @Synchronized override fun readAll(): List<EveMindFeedback> = items.toList()
+    @Synchronized override fun writeAll(items: List<EveMindFeedback>) { this.items = items.toList() }
+}
+
+/** Persists short action outcomes only; camera frames, face crops, and audio are never stored here. */
+private class SharedPreferencesEveMindFeedbackStore(context: Context) : EveMindFeedbackStore {
+    private val preferences = context.applicationContext.getSharedPreferences("eve_experience_memory_v1", Context.MODE_PRIVATE)
+
+    override fun readAll(): List<EveMindFeedback> {
+        val raw = preferences.getString(KEY_ITEMS, "[]") ?: "[]"
+        return runCatching {
+            val array = JSONArray(raw)
+            buildList {
+                for (i in 0 until array.length()) {
+                    val item = array.optJSONObject(i) ?: continue
+                    val goal = runCatching { EveMindGoal.valueOf(item.optString("goal")) }.getOrNull() ?: continue
+                    val action = runCatching { EveMindAction.valueOf(item.optString("action")) }.getOrNull() ?: continue
+                    add(EveMindFeedback(
+                        goal = goal,
+                        action = action,
+                        succeeded = item.optBoolean("succeeded", false),
+                        note = item.optString("note").take(180),
+                        atMs = item.optLong("at", 0L).coerceAtLeast(0L)
+                    ))
+                }
+            }
+        }.getOrDefault(emptyList())
+    }
+
+    override fun writeAll(items: List<EveMindFeedback>) {
+        val array = JSONArray()
+        items.takeLast(MAX_ITEMS).forEach { item ->
+            array.put(JSONObject()
+                .put("goal", item.goal.name)
+                .put("action", item.action.name)
+                .put("succeeded", item.succeeded)
+                .put("note", item.note.trim().take(180))
+                .put("at", item.atMs.coerceAtLeast(0L)))
+        }
+        preferences.edit().putString(KEY_ITEMS, array.toString()).apply()
+    }
+
+    companion object {
+        private const val KEY_ITEMS = "feedback"
+        private const val MAX_ITEMS = 64
+    }
+}
+
 /**
  * A bounded, repeat-aware planner:
  * - stale evidence leads to observation, not invented descriptions;
@@ -82,13 +141,30 @@ data class EveMindFeedback(
  */
 class EveAutonomousMind(
     private val maxFeedback: Int = 16,
-    private val planCooldownMs: Long = 4_000L
+    private val planCooldownMs: Long = 4_000L,
+    private val feedbackStore: EveMindFeedbackStore = InMemoryEveMindFeedbackStore
 ) {
+    constructor(context: Context) : this(feedbackStore = SharedPreferencesEveMindFeedbackStore(context))
+
     private var lastPlan: EveMindPlan? = null
     private var lastPlanSignature = ""
     private var lastPlanAtMs = 0L
     private val feedback = ArrayDeque<EveMindFeedback>()
     private val reflectedEvidence = LinkedHashSet<String>()
+
+    init {
+        feedbackStore.readAll().takeLast(maxFeedback.coerceAtLeast(1)).forEach { item ->
+            val safeItem = item.copy(note = item.note.trim().take(180))
+            feedback.addLast(safeItem)
+            if (safeItem.succeeded && safeItem.goal == EveMindGoal.REFLECT_ON_NEW_EVIDENCE && safeItem.note.isNotBlank()) {
+                reflectedEvidence.add(safeItem.note)
+            }
+        }
+        while (reflectedEvidence.size > MAX_REFLECTED_KEYS) {
+            val iterator = reflectedEvidence.iterator()
+            if (iterator.hasNext()) { iterator.next(); iterator.remove() }
+        }
+    }
 
     @Synchronized
     fun plan(context: EveMindContext): EveMindPlan {
@@ -198,6 +274,7 @@ class EveAutonomousMind(
     fun recordFeedback(item: EveMindFeedback) {
         feedback.addLast(item.copy(note = item.note.trim().take(180)))
         while (feedback.size > maxFeedback.coerceAtLeast(1)) feedback.removeFirst()
+        feedbackStore.writeAll(feedback.toList())
         if (item.succeeded && item.goal == EveMindGoal.REFLECT_ON_NEW_EVIDENCE) {
             reflectedEvidence.add(item.note.trim().take(180))
             while (reflectedEvidence.size > MAX_REFLECTED_KEYS) {
