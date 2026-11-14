@@ -39,7 +39,7 @@ data class LocalLlmResult(
 )
 
 /**
- * EVE's hybrid local language brain. نموذج إيف الخاص runs through LiteRT-LM when installed;
+ * EVE's private student language brain runs through TensorFlow Lite when its trained artifact is installed;
  * the compact Arabic intent model and grounded composer remain the offline fallback.
  */
 class LocalLanguageBrain(
@@ -85,12 +85,12 @@ class LocalLanguageBrain(
                 if (generativeModel.isInstalled) {
                     publish(LocalLlmState.LOADING, 0, "تم العثور على النموذج المحلي؛ جارٍ تحميله.")
                     generativeModel.load()
-                    publish(LocalLlmState.READY, 100, "نموذج نموذج إيف الخاص المحلي جاهز • التوليد على الهاتف دون إنترنت")
+                    publish(LocalLlmState.READY, 100, "نموذج إيف الخاص جاهز • التوليد على الهاتف دون إنترنت")
                 } else {
                     publish(
                         LocalLlmState.WAITING_FOR_WIFI,
                         0,
-                        "نموذج إيف الخاص غير مثبت؛ انقر شريط الحالة لتنزيله مرة واحدة (نحو 329 ميغابايت)."
+                        "نموذج إيف الخاص غير مثبت؛ انقر شريط الحالة لتنزيله بعد اكتمال التدريب."
                     )
                 }
             } catch (error: Exception) {
@@ -112,12 +112,12 @@ class LocalLanguageBrain(
         try {
             worker.execute {
                 try {
-                    publish(LocalLlmState.DOWNLOADING, 0, "تنزيل نموذج نموذج إيف الخاص الصغير لأول مرة؛ سيبقى محفوظاً على الهاتف.")
+                    publish(LocalLlmState.DOWNLOADING, 0, "تنزيل نموذج إيف الخاص لأول مرة؛ سيبقى محفوظاً على الهاتف.")
                     generativeModel.downloadAndLoad { percent ->
                         publish(LocalLlmState.DOWNLOADING, percent, "تنزيل النموذج اللغوي المحلي")
                     }
                     publish(LocalLlmState.LOADING, 0, "اكتمل التنزيل؛ جارٍ تشغيل النموذج على الهاتف.")
-                    publish(LocalLlmState.READY, 100, "نموذج نموذج إيف الخاص المحلي جاهز • يعمل دون إنترنت")
+                    publish(LocalLlmState.READY, 100, "نموذج إيف الخاص جاهز • يعمل دون إنترنت")
                 } catch (error: Exception) {
                     Log.e(TAG, "ON_DEVICE_LLM_DOWNLOAD_OR_LOAD_FAILED", error)
                     publish(LocalLlmState.ERROR, 0, error.message ?: "تعذر تنزيل أو تشغيل النموذج.")
@@ -257,7 +257,7 @@ class LocalLanguageBrain(
                     replyArabic = generated.take(900),
                     moodHint = mood,
                     intentHint = intent,
-                    reflectionArabic = "استجابة مولدة محلياً بواسطة نموذج إيف الخاص-0.6B اعتماداً على سياق إيف الحالي.",
+                    reflectionArabic = "استجابة مولدة محلياً بواسطة EVE-GRU-192 اعتماداً على سياق إيف الحالي.",
                     confidence = 0.78f
                 )
             }
