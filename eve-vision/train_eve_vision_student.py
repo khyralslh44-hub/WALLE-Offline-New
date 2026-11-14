@@ -32,9 +32,7 @@ ROOT = Path(__file__).resolve().parent
 WORK = ROOT / "work"
 DIST = ROOT / "dist"
 IMAGE_DIR = WORK / "images"
-ANNOTATIONS_URL = "https://images.cocodataset.org/annotations/annotations_trainval2017.zip"
-COCO_ANNOTATIONS_URL = "https://images.cocodataset.org/annotations/annotations_trainval2017.zip"
-COCO_IMAGE_BASE = "https://images.cocodataset.org/val2017/"
+COCO128_URL = "https://github.com/ultralytics/assets/releases/download/v0.0.0/coco128.zip"
 CLIP_MODEL = "openai/clip-vit-base-patch32"
 YOLO_MODEL = "yolov8n.pt"
 IMAGE_SIZE = 96
@@ -66,27 +64,28 @@ def download(url: str, destination: Path) -> None:
 
 
 def get_images(limit: int) -> list[Path]:
-    annotation_file = WORK / "instances_val2017.json"
-    if not annotation_file.exists():
-        archive = WORK / "annotations_trainval2017.zip"
-        download(COCO_ANNOTATIONS_URL, archive)
+    # Use the small COCO128 archive hosted as a GitHub release asset.
+    # This avoids the broken TLS certificate currently served by images.cocodataset.org.
+    archive = WORK / "coco128.zip"
+    dataset_dir = WORK / "coco128"
+    if not dataset_dir.exists():
+        download(COCO128_URL, archive)
         with zipfile.ZipFile(archive) as bundle:
-            member = "annotations/instances_val2017.json"
-            if member not in bundle.namelist():
-                raise RuntimeError("COCO annotation archive does not contain instances_val2017.json")
-            annotation_file.write_bytes(bundle.read(member))
-    data = json.loads(annotation_file.read_text(encoding="utf-8"))
-    valid_ids = {ann["image_id"] for ann in data.get("annotations", [])}
-    images = [item for item in data["images"] if item["id"] in valid_ids][:limit]
-    paths = []
-    for index, item in enumerate(images, 1):
-        path = IMAGE_DIR / item["file_name"]
-        download(COCO_IMAGE_BASE + item["file_name"], path)
-        paths.append(path)
-        if index % 50 == 0:
-            print(f"Downloaded {index}/{len(images)} images", flush=True)
+            members = bundle.namelist()
+            if not any(name.startswith("coco128/images/train2017/") for name in members):
+                raise RuntimeError("Verified COCO128 archive has an unexpected layout")
+            for name in members:
+                target = Path(name)
+                if target.is_absolute() or ".." in target.parts:
+                    raise RuntimeError(f"Unsafe path in COCO128 archive: {name}")
+            bundle.extractall(WORK)
+    paths = sorted((dataset_dir / "images" / "train2017").glob("*.jpg"))
     if len(paths) < 40:
-        raise RuntimeError(f"Only {len(paths)} usable images were downloaded")
+        raise RuntimeError(f"COCO128 archive contains only {len(paths)} usable images")
+    if limit > len(paths):
+        print(f"Requested {limit} images; COCO128 provides {len(paths)}. Using all available images.", flush=True)
+    paths = paths[:limit]
+    print(f"Prepared {len(paths)} COCO128 training images", flush=True)
     return paths
 
 
@@ -159,8 +158,8 @@ def main() -> None:
     parser.add_argument("--images", type=int, default=int(os.getenv("EVE_VISION_IMAGES", "300")))
     parser.add_argument("--epochs", type=int, default=int(os.getenv("EVE_VISION_EPOCHS", "18")))
     args = parser.parse_args()
-    if args.images < 40 or args.images > 1500:
-        raise ValueError("--images must be between 40 and 1500")
+    if args.images < 40 or args.images > 128:
+        raise ValueError("--images must be between 40 and 128 for the COCO128 starter dataset")
     if args.epochs < 1 or args.epochs > 60:
         raise ValueError("--epochs must be between 1 and 60")
 
