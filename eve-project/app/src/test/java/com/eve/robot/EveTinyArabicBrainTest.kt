@@ -24,6 +24,20 @@ class EveTinyArabicBrainTest {
         }
     }
 
+    @Test fun trainedStudentRecognizesArabicParaphrasesAndRejectsUnsupportedTopics() {
+        val cases = listOf(
+            "هل تعملين دون شبكة؟" to "offline",
+            "ما آخر شيء تعلمته مني؟" to "memory",
+            "هل الكاميرا مفتوحة؟" to "camera",
+            "من صديقي؟" to "people",
+            "هل يمكنني شراء منزل في بيلاروس؟" to null
+        )
+        cases.forEach { (phrase, expected) ->
+            val result = EveDistilledArabicStudent.classify(phrase)
+            assertEquals("Student model mismatch for: $phrase", expected, result.intent)
+        }
+    }
+
     @Test fun generatesDifferentButGroundedArabicRepliesForRepeatedGreeting() {
         val prompt = "أهلاً يا إيف"
         val first = EveTinyArabicBrain.answerUser(prompt, LocalLlmContext())
