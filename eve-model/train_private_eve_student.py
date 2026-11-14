@@ -217,10 +217,26 @@ def build_corpus(target=5000):
               f"total={len(rows)}/{target}", flush=True)
         if errors:
             sample = "; ".join(f"item {i}: {e}" for i, e in errors[:5])
-            raise RuntimeError(f"Batch incomplete; {len(errors)} item(s) failed. "
-                               f"Successful rows saved; rerun resumes only missing prompts. {sample}")
+            # Authentication and request-configuration errors are systemic:
+            # continuing would waste the remaining teacher calls.
+            fatal_markers = ("Teacher HTTP 400", "Teacher HTTP 401",
+                             "Teacher HTTP 403", "Teacher HTTP 404")
+            if any(marker in detail for _, detail in errors for marker in fatal_markers):
+                raise RuntimeError(
+                    f"Fatal teacher API/configuration error; {len(errors)} item(s) failed. "
+                    f"Successful rows were saved; fix the API configuration and rerun. {sample}"
+                )
+            print(
+                f"Partial batch failure: {len(errors)}/{len(batch)} request(s) failed. "
+                f"Successful rows saved; continuing with the next batch. {sample}",
+                flush=True
+            )
     if len(rows) != target:
-        raise RuntimeError(f"Corpus count mismatch: {len(rows)} != {target}")
+        missing = target - len(rows)
+        raise RuntimeError(
+            f"Corpus incomplete after processing all batches: {len(rows)}/{target}; "
+            f"{missing} prompt(s) remain. Successful rows are saved; rerun resumes only missing prompts."
+        )
     print(f"CORPUS_COMPLETE {len(rows)}", flush=True)
     return rows
 
