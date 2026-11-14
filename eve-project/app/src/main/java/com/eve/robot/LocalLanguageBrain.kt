@@ -144,6 +144,21 @@ class LocalLanguageBrain(
         publish(state, if (isReady) 100 else 0, statusMessage)
     }
 
+    /** Local-model-only generation: intentionally has no scripted reply fallback. */
+    fun answerUserGenerativeOnly(
+        userText: String,
+        context: LocalLlmContext,
+        callback: (Result<LocalLlmResult>) -> Unit
+    ) {
+        enqueue(background = false, operation = {
+            check(isGenerativeModelReady) { "النموذج التوليدي المحلي غير جاهز." }
+            val generated = generativeModel.generate(buildConversationPrompt(userText, context)).trim()
+            check(generated.length in 8..650 && generated.count { it in '\u0600'..'\u06FF' } >= 8) {
+                "لم ينتج النموذج المحلي ردًا عربيًا صالحًا."
+            }
+            LocalLlmResult(generated, null, "spontaneous_social", "توليد محلي دون رد محفوظ.", 0.60f)
+        }, callback = callback)
+    }
     fun answerUser(
         userText: String,
         context: LocalLlmContext,
