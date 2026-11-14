@@ -171,6 +171,13 @@ internal object EveTinyArabicBrain {
         val exactIntent = exactIntentByPhrase[normalized]
         if (exactIntent != null) return Prediction(exactIntent, 0.96f, 1f, 1f)
 
+        // First consult EVE's trained compact student weights. If evidence is weak,
+        // retain the conservative prototype fallback rather than forcing a guess.
+        val student = EveDistilledArabicStudent.classify(rawText)
+        if (student.intent != null) {
+            return Prediction(student.intent, student.confidence, student.confidence, student.margin)
+        }
+
         val input = featureVector(normalized)
         if (input.isEmpty()) return Prediction(null, 0f, 0f, 0f)
         val queryWords = EveArabicTextUnderstanding.featureTokens(rawText)
