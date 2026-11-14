@@ -244,18 +244,43 @@ def encode(text):
     return [BOS] + [b + 1 for b in text.encode("utf-8")] + [EOS]
 
 def train(rows):
+    # Train only on EVE's answer tokens. The user prompt is context, not a target.
     sequences = []
+    answer_starts = []
     for row in rows:
-        seq = encode("المستخدم: " + row["user"] + "\nإيف: " + row["assistant"])
-        if len(seq) > MAX_LEN:
-            seq = seq[:MAX_LEN - 1] + [EOS]
+        prompt_bytes = ("المستخدم: " + row["user"] + "\nإيف: ").encode("utf-8")
+        answer_bytes = row["assistant"].encode("utf-8")
+        payload_limit = MAX_LEN - 2  # BOS and EOS
+        # Preserve the end of an unusually long prompt (including the EVE prefix),
+        # while reserving at least one byte for the answer.
+        prompt_limit = min(len(prompt_bytes), payload_limit - 1)
+        if len(prompt_bytes) > prompt_limit:
+            prompt_bytes = prompt_bytes[-prompt_limit:]
+        answer_bytes = answer_bytes[:payload_limit - len(prompt_bytes)]
+        answer_start = 1 + len(prompt_bytes)  # index of first answer byte in seq
+        seq = [BOS] + [b + 1 for b in prompt_bytes] + [b + 1 for b in answer_bytes] + [EOS]
         sequences.append(seq)
+        answer_starts.append(answer_start)
+
     x = np.zeros((len(sequences), MAX_LEN), dtype=np.int32)
     y = np.zeros((len(sequences), MAX_LEN), dtype=np.int32)
     weights = np.zeros((len(sequences), MAX_LEN), dtype=np.float32)
-    for i, seq in enumerate(sequences):
+    for i, (seq, answer_start) in enumerate(zip(sequences, answer_starts)):
         n = len(seq) - 1
-        x[i, :n], y[i, :n], weights[i, :n] = seq[:-1], seq[1:], 1.0
+        x[i, :n] = seq[:-1]
+        y[i, :n] = seq[1:]
+        # y[:, t] predicts seq[t+1]; include answer bytes and the final EOS only.
+        first_answer_target = max(0, answer_start - 1)
+        answer_target_count = n - first_answer_target
+        if answer_target_count <= 0:
+            raise ValueError("Training row has no answer target tokens.")
+        # Keras reduces over the padded sequence width. Normalize each row's
+        # weights so padding does not shrink the effective answer-token loss.
+        weights[i, first_answer_target:n] = MAX_LEN / answer_target_count
+
+    # Shuffle deterministically before Keras takes its final 4% as validation data.
+    order = np.random.default_rng(20261114).permutation(len(sequences))
+    x, y, weights = x[order], y[order], weights[order]
 
     checkpoint = OUT / "training_checkpoint.keras"
     if checkpoint.exists():
@@ -271,15 +296,36 @@ def train(rows):
                                    return_sequences=True, name="student_gru_2")(seq1)
         logits = tf.keras.layers.Dense(VOCAB, name="student_lm_head")(seq2)
         model = tf.keras.Model(inp, logits)
-        model.compile(optimizer=tf.keras.optimizers.Adam(2e-3),
-                      loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True))
+    # Recompile after loading too, so older checkpoints use the answer-only
+    # weighted metric definition with the new assistant-token sample weights.
+    optimizer = getattr(model, "optimizer", None) or tf.keras.optimizers.Adam(2e-3)
+    model.compile(
+        optimizer=optimizer,
+        loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
+        weighted_metrics=[tf.keras.metrics.SparseCategoricalAccuracy(name="answer_token_accuracy")]
+    )
+
     callbacks = [
         tf.keras.callbacks.ModelCheckpoint(str(checkpoint), save_best_only=False, save_freq="epoch"),
-        tf.keras.callbacks.EarlyStopping(patience=2, restore_best_weights=True)
+        tf.keras.callbacks.EarlyStopping(
+            monitor="val_loss", patience=2, restore_best_weights=True
+        )
     ]
-    model.fit(x, y, sample_weight=weights, batch_size=32, epochs=12,
-              validation_split=0.04, callbacks=callbacks, verbose=2)
+    history = model.fit(
+        x, y, sample_weight=weights, batch_size=32, epochs=12,
+        validation_split=0.04, callbacks=callbacks, verbose=2
+    )
+    val_losses = history.history.get("val_loss", [])
+    best_epoch = int(np.argmin(val_losses)) + 1 if val_losses else None
+    best_index = best_epoch - 1 if best_epoch is not None else -1
+    best_val_loss = float(val_losses[best_index]) if val_losses else None
+    best_train_loss = float(history.history["loss"][best_index]) if best_index >= 0 else None
+    accuracy_values = history.history.get("answer_token_accuracy", [])
+    best_answer_accuracy = (
+        float(accuracy_values[best_index]) if best_index >= 0 and accuracy_values else None
+    )
 
+    # Export a one-token recurrent step model for Android inference.
     token = tf.keras.Input((1,), dtype=tf.int32, name="token")
     state1 = tf.keras.Input((HIDDEN,), dtype=tf.float32, name="state_1")
     state2 = tf.keras.Input((HIDDEN,), dtype=tf.float32, name="state_2")
@@ -293,7 +339,35 @@ def train(rows):
     converter = tf.lite.TFLiteConverter.from_keras_model(step)
     converter.optimizations = [tf.lite.Optimize.DEFAULT]
     tflite = converter.convert()
-    (OUT / "eve_private_student.tflite").write_bytes(tflite)
+    model_file = OUT / "eve_private_student.tflite"
+    model_file.write_bytes(tflite)
+
+    # Smoke-test the actual exported artifact with the TFLite interpreter.
+    interpreter = tf.lite.Interpreter(model_content=tflite)
+    interpreter.allocate_tensors()
+    input_details = interpreter.get_input_details()
+    output_details = interpreter.get_output_details()
+    def find_tensor(details, name):
+        matches = [item for item in details if name in item["name"]]
+        if len(matches) != 1:
+            raise RuntimeError(
+                f"TFLite smoke test: expected one {name} tensor, found {len(matches)}"
+            )
+        return matches[0]
+
+    token_input = find_tensor(input_details, "token")
+    state1_input = find_tensor(input_details, "state_1")
+    state2_input = find_tensor(input_details, "state_2")
+    interpreter.set_tensor(token_input["index"], np.array([[BOS]], dtype=np.int32))
+    interpreter.set_tensor(state1_input["index"], np.zeros((1, HIDDEN), dtype=np.float32))
+    interpreter.set_tensor(state2_input["index"], np.zeros((1, HIDDEN), dtype=np.float32))
+    interpreter.invoke()
+    smoke_outputs = [interpreter.get_tensor(item["index"]) for item in output_details]
+    if not smoke_outputs or any(not np.all(np.isfinite(value)) for value in smoke_outputs):
+        raise RuntimeError("TFLite smoke test failed: empty or non-finite output.")
+    if not any(value.shape[-1] == VOCAB for value in smoke_outputs if value.ndim >= 2):
+        raise RuntimeError("TFLite smoke test failed: vocabulary logits were not exported.")
+
     vocab = {"version": 1, "tokenization": "utf8-byte-plus-one", "bos": BOS, "eos": EOS,
              "vocab_size": VOCAB, "hidden_size": HIDDEN, "max_len": MAX_LEN,
              "teacher": TEACHER, "student": "EVE-GRU-256-2L-random-init",
@@ -301,12 +375,25 @@ def train(rows):
     (OUT / "eve_private_student.json").write_text(
         json.dumps(vocab, ensure_ascii=False, indent=2), encoding="utf-8")
     model.save(checkpoint)
-    report = {"examples": len(rows), "teacher": TEACHER, "workers": WORKERS,
-              "batch_size": BATCH_SIZE, "checkpoint": checkpoint.name,
-              "student": vocab["student"], "tflite_bytes": len(tflite)}
+    report = {
+        "examples": len(rows), "teacher": TEACHER, "workers": WORKERS,
+        "batch_size": BATCH_SIZE, "checkpoint": checkpoint.name,
+        "student": vocab["student"], "tflite_bytes": len(tflite),
+        "training_objective": "assistant_answer_tokens_only",
+        "best_epoch": best_epoch, "best_train_loss": best_train_loss,
+        "best_validation_loss": best_val_loss,
+        "best_answer_token_accuracy": best_answer_accuracy,
+        "validation_split": 0.04, "tflite_smoke_test": "passed",
+        "tflite_input_tensors": [item["name"] for item in input_details],
+        "tflite_output_tensors": [item["name"] for item in output_details]
+    }
     (OUT / "training_report.json").write_text(
         json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"EXPORTED {len(tflite)} bytes", flush=True)
+    print(
+        f"EXPORTED {len(tflite)} bytes; best_val_loss={best_val_loss}; "
+        f"answer_token_accuracy={best_answer_accuracy}; TFLITE_SMOKE_TEST_PASSED",
+        flush=True
+    )
 
 if __name__ == "__main__":
     requested = int(os.getenv("EVE_TRAIN_EXAMPLES", "5000"))
