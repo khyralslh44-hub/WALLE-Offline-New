@@ -200,6 +200,13 @@ jobs:
           file "$MODEL"
           echo "Pose model downloaded: $(wc -c < "$MODEL") bytes"
 
+      - name: Validate EVE private-model training script syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile eve-model/train_private_eve_student.py
+          echo "PASS: EVE from-scratch student training script parses successfully."
+
       - name: Run logic tests and build debug APK
         run: |
           "$RUNNER_TEMP/gradle-8.9/bin/gradle"             --no-daemon --stacktrace -p eve-project             testDebugUnitTest assembleDebug assembleRelease
