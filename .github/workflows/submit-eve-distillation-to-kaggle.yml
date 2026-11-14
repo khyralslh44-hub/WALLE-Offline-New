@@ -51,7 +51,7 @@ jobs:
 
       - name: Configure Kaggle credentials securely
         env:
-          KAGGLE_CREDENTIAL: \${{ secrets.KAGGLE_API_TOKEN }}
+          KAGGLE_CREDENTIAL: ${{ secrets.KAGGLE_API_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
