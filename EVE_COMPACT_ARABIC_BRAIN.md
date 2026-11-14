@@ -2,7 +2,7 @@
 
 ## Target architecture
 
-EVE's generative language student is **EVE-GRU-192**, a compact byte-level recurrent model whose weights are initialized randomly and trained specifically for EVE. A large teacher is used only during dataset creation to provide Arabic explanations, dialogue, reasoning examples, and grounded responses. The teacher's weights, tokenizer, and inference runtime are not copied into EVE.
+EVE's generative language student is **EVE-GRU-256-2L**, a compact byte-level recurrent model whose weights are initialized randomly and trained specifically for EVE. A large teacher is used only during dataset creation to provide Arabic explanations, dialogue, reasoning examples, and grounded responses. The teacher's weights, tokenizer, and inference runtime are not copied into EVE.
 
 The Android app uses TensorFlow Lite to run the trained EVE student locally. The student model is a separate file downloaded once with the user's approval and stored in app-private storage. After installation, generation is offline.
 
@@ -10,7 +10,7 @@ The Android app uses TensorFlow Lite to run the trained EVE student locally. The
 
 - Source: `eve-model/train_private_eve_student.py`
 - Workflow: `.github/workflows/train-eve-private-model.yml`
-- Teacher: configurable OpenAI-compatible chat model (default `gpt-4.1-mini`), used only to create a supervised corpus.
+- Teacher: configurable OpenAI-compatible chat model (default `gpt-4.1`), used only to create a supervised corpus.
 - Student: TensorFlow/Keras GRUCell model, 192 hidden units, 96-dimensional byte embeddings, UTF-8 byte tokenizer, random initialization.
 - Export: `eve_private_student.tflite` and metadata JSON.
 - Artifact publishing: the workflow uploads the TFLite student to the GitHub release named `eve-private-student`, which the Android app downloads only after the user approves.
