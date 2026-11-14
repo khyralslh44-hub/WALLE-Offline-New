@@ -138,9 +138,10 @@ def build_student(num_labels: int) -> tf.keras.Model:
     inputs = tf.keras.Input(shape=(IMAGE_SIZE, IMAGE_SIZE, 3), name="image")
     x = inputs
     for filters in (16, 24, 32, 48):
-        x = tf.keras.layers.SeparableConv2D(filters, 3, strides=2, padding="same", use_bias=False)(x)
-        x = tf.keras.layers.BatchNormalization()(x)
-        x = tf.keras.layers.ReLU()(x)
+        # Avoid BatchNorm folding, which triggered the previous LLVM/TFLite crash.
+        x = tf.keras.layers.SeparableConv2D(
+            filters, 3, strides=2, padding="same", use_bias=True, activation="relu"
+        )(x)
     x = tf.keras.layers.GlobalAveragePooling2D()(x)
     x = tf.keras.layers.Dense(96, activation="relu")(x)
     outputs = tf.keras.layers.Dense(num_labels, activation="sigmoid", name="tags")(x)
@@ -185,8 +186,13 @@ def main() -> None:
 
     model_path = DIST / "eve_vision_student.keras"
     model.save(model_path)
-    converter = tf.lite.TFLiteConverter.from_keras_model(model)
-    converter.optimizations = [tf.lite.Optimize.DEFAULT]
+    # Export through SavedModel to avoid the Keras 3 -> MLIR conversion path.
+    saved_model_path = DIST / "saved_model"
+    model.export(saved_model_path)
+    converter = tf.lite.TFLiteConverter.from_saved_model(str(saved_model_path))
+    converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS]
+    # Start with float32; add quantization only after conversion is stable.
+    converter.optimizations = []
     tflite = converter.convert()
     tflite_path = DIST / "eve_vision_student.tflite"
     tflite_path.write_bytes(tflite)
