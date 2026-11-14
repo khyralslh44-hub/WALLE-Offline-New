@@ -333,6 +333,13 @@ jobs:
           file "$MODEL"
           echo "Pose model downloaded: $(wc -c < "$MODEL") bytes"
 
+      - name: Train EVE compact Arabic student model
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/train_eve_student.py
+          test -s eve-project/app/src/main/java/com/eve/robot/EveDistilledArabicStudent.kt
+
       - name: Prebuild app, instrumentation APK, and CPU stress tests before emulator boot
         shell: bash
         run: |
