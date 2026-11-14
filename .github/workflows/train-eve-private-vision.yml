@@ -35,7 +35,9 @@ jobs:
           python -m pip install tensorflow-cpu==2.16.1
           python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
           python -m pip install transformers==4.44.2 ultralytics==8.3.40
-          python -c "import numpy, tensorflow as tf; print('NumPy', numpy.__version__, '| TensorFlow', tf.__version__)"
+          # Re-pin NumPy after every dependency install; some packages may upgrade it.
+          python -m pip install --force-reinstall --no-deps numpy==1.26.4
+          python -c "import numpy, tensorflow as tf; assert numpy.__version__ == '1.26.4', numpy.__version__; print('NumPy', numpy.__version__, '| TensorFlow', tf.__version__)"
 
       - name: Validate training script syntax
         run: python -m py_compile eve-vision/train_eve_vision_student.py
