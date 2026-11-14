@@ -3214,16 +3214,16 @@ class MainActivity : ComponentActivity() {
             knownPeople = (peopleMemory.summary() + "؛ الشخص الحالي: " + evidence.personName).take(240),
             wellbeingObservation = evidence.observationArabic
         )
-        localLanguageBrain.answerUser(
+        localLanguageBrain.answerUserGenerativeOnly(
             wellbeingConversationPolicy.prompt(evidence),
             context
         ) { outcome ->
-            if (isFinishing || isDestroyed) return@answerUser
+            if (isFinishing || isDestroyed) return@answerUserGenerativeOnly
             val reply = outcome.getOrNull()?.replyArabic?.trim().orEmpty()
             // Do not fall back to a canned medical sentence when generation fails.
             if (reply.length !in 8..220 || reply.count { it in '\u0600'..'\u06FF' } < 8) {
                 Log.w("EVE_CARE", "WELLBEING_DIALOGUE_SUPPRESSED unusable_local_generation=true")
-                return@answerUser
+                return@answerUserGenerativeOnly
             }
             memory.rememberDialogue("ملاحظة للاطمئنان: ${evidence.observationArabic}", reply)
             showDialogueText(reply, durationMs = 7_600L)
