@@ -249,6 +249,14 @@ jobs:
           file "$MODEL"
           echo "Pose model downloaded: $(wc -c < "$MODEL") bytes"
 
+      - name: Train EVE compact Arabic student model
+        if: ${{ matrix.api-level == 35 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/train_eve_student.py
+          test -s eve-project/app/src/main/java/com/eve/robot/EveDistilledArabicStudent.kt
+
       - name: Build matching app and instrumentation APKs with the same signing key
         if: ${{ matrix.api-level == 35 }}
         shell: bash
