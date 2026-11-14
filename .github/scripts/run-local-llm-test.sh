@@ -17,7 +17,7 @@ if grep -R -nE 'EveArabicLlmRuntime|eve-arabic-50m-q4|dev\.ffmpegkit\.maintained
 fi
 
 echo "EVE Bespoke Compact Arabic Brain Android verification" | tee "$RESULT_DIR/environment.txt"
-echo "Expected: compact Arabic fallback works offline; LiteRT-LM runtime is packaged, while Qwen3 weights remain a separate user-approved download." | tee -a "$RESULT_DIR/environment.txt"
+echo "Expected: compact Arabic fallback works offline; EVE's private student runtime is packaged; its trained weights remain a separate user-approved download." | tee -a "$RESULT_DIR/environment.txt"
 
 for APK in "$APP_APK" "$TEST_APK"; do
   if [ ! -s "$APK" ]; then
@@ -41,11 +41,11 @@ if grep -Eiq "$MODEL_WEIGHTS_PATTERN" "$APK_ENTRIES"; then
   grep -Ein "$MODEL_WEIGHTS_PATTERN" "$APK_ENTRIES" | tee -a "$RESULT_DIR/environment.txt" || true
   exit 4
 fi
-if ! unzip -p "$APP_APK" "classes*.dex" | strings | grep -F "EveLiteRtLanguageModel" > /dev/null; then
-  echo "FAIL: LiteRT-LM integration is missing from the app APK." | tee -a "$RESULT_DIR/environment.txt"
+if ! unzip -p "$APP_APK" "classes*.dex" | strings | grep -F "EvePrivateStudentLanguageModel" > /dev/null; then
+  echo "FAIL: EVE private student integration is missing from the app APK." | tee -a "$RESULT_DIR/environment.txt"
   exit 4
 fi
-echo "PASS: LiteRT-LM integration is packaged, Qwen3 weights remain external, and no llama.cpp library is bundled." | tee -a "$RESULT_DIR/environment.txt"
+echo "PASS: EVE private student runtime is packaged, trained weights remain external, and no llama.cpp library is bundled." | tee -a "$RESULT_DIR/environment.txt"
 
 wait_for_device() {
   adb start-server >/dev/null 2>&1 || true
@@ -127,4 +127,4 @@ if ! grep -Fq 'TINY_ARABIC_SEMANTIC_COMPOSITION_PASS' "$RESULT_DIR/logcat.txt"; 
   exit 12
 fi
 
-echo "PASS: EVE's compact Arabic fallback ran on Android with Wi-Fi/mobile data disabled; generative Qwen3 weights were not downloaded or bundled." | tee -a "$RESULT_DIR/environment.txt"
+echo "PASS: EVE's compact Arabic fallback ran on Android with Wi-Fi/mobile data disabled; EVE private student weights were not downloaded or bundled." | tee -a "$RESULT_DIR/environment.txt"
