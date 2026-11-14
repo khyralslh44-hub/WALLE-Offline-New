@@ -35,6 +35,8 @@ IMAGE_DIR = WORK / "images"
 COCO128_URL = "https://github.com/ultralytics/assets/releases/download/v0.0.0/coco128.zip"
 CLIP_MODEL = "openai/clip-vit-base-patch32"
 YOLO_MODEL = "yolov8n.pt"
+POSE_MODEL = "yolov8n-pose.pt"
+POSE_TAGS = ["person visible", "person pose visible", "person arms raised"]
 IMAGE_SIZE = 96
 SEED = 42
 
@@ -91,6 +93,7 @@ def get_images(limit: int) -> list[Path]:
 
 def teacher_labels(paths: list[Path]) -> tuple[list[str], np.ndarray, np.ndarray]:
     yolo = YOLO(YOLO_MODEL)
+    pose_teacher = YOLO(POSE_MODEL)
     clip = CLIPModel.from_pretrained(CLIP_MODEL)
     processor = CLIPProcessor.from_pretrained(CLIP_MODEL)
     clip.eval()
@@ -103,7 +106,7 @@ def teacher_labels(paths: list[Path]) -> tuple[list[str], np.ndarray, np.ndarray
     class_names = [str(v).lower().replace("_", " ") for _, v in sorted(yolo.names.items())]
     if len(class_names) != 80:
         raise RuntimeError(f"Expected 80 COCO YOLO classes, got {len(class_names)}")
-    labels = class_names + SCENE_TAGS
+    labels = class_names + SCENE_TAGS + POSE_TAGS
     targets = np.zeros((len(paths), len(labels)), dtype=np.float32)
     images = []
 
@@ -116,6 +119,29 @@ def teacher_labels(paths: list[Path]) -> tuple[list[str], np.ndarray, np.ndarray
             for cls_id, conf in zip(pred.boxes.cls.cpu().numpy(), pred.boxes.conf.cpu().numpy()):
                 targets[i, int(cls_id)] = max(targets[i, int(cls_id)], float(conf))
 
+        # A separate pose teacher contributes coarse, observable body cues.
+        pose = pose_teacher.predict(source=str(path), imgsz=320, conf=0.20, verbose=False, device="cpu")[0]
+        pose_offset = 80 + len(SCENE_TAGS)
+        if pose.keypoints is not None and pose.keypoints.data is not None:
+            keypoints = pose.keypoints.data.cpu().numpy()
+            if len(keypoints):
+                targets[i, pose_offset] = 1.0
+                visible_people = 0
+                raised_arms = False
+                for person_points in keypoints:
+                    # COCO keypoints: shoulders 5/6, wrists 9/10.
+                    if len(person_points) >= 11:
+                        left_shoulder, right_shoulder = person_points[5], person_points[6]
+                        left_wrist, right_wrist = person_points[9], person_points[10]
+                        if left_shoulder[2] > 0.35 or right_shoulder[2] > 0.35:
+                            visible_people += 1
+                        if ((left_shoulder[2] > 0.35 and left_wrist[2] > 0.35 and left_wrist[1] < left_shoulder[1]) or
+                            (right_shoulder[2] > 0.35 and right_wrist[2] > 0.35 and right_wrist[1] < right_shoulder[1])):
+                            raised_arms = True
+                if visible_people:
+                    targets[i, pose_offset + 1] = 1.0
+                if raised_arms:
+                    targets[i, pose_offset + 2] = 1.0
         with Image.open(path) as source:
             clip_inputs = processor(images=source.convert("RGB"), return_tensors="pt")
         with torch.inference_mode():
@@ -201,7 +227,7 @@ def main() -> None:
         "model": "EVE Vision Student",
         "version": 1,
         "initialization": "random",
-        "teacher_models_training_only": [YOLO_MODEL, CLIP_MODEL],
+        "teacher_models_training_only": [YOLO_MODEL, CLIP_MODEL, POSE_MODEL],
         "teacher_weights_in_student": False,
         "input": {"shape": [1, IMAGE_SIZE, IMAGE_SIZE, 3], "dtype": "float32", "range": [0, 1]},
         "output": {"shape": [1, len(labels)], "meaning": "multi-label image-level tag scores"},
@@ -213,7 +239,8 @@ def main() -> None:
         "limitations": [
             "Image-level tags only; use the existing object detector for bounding boxes.",
             "A still image cannot reliably establish a person's identity or temporal activity.",
-            "Weather and scene tags are hypotheses, not verified facts."
+            "Weather and scene tags are hypotheses, not verified facts.",
+            "Pose-derived tags are coarse estimates; raised arms do not establish intent or emotion."
         ]
     }
     (DIST / "eve_vision_student.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
