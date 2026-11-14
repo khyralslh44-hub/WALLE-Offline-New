@@ -1,36 +1,38 @@
-# EVE Hybrid Local Arabic Brain
+# EVE Private Arabic Language Brain
 
-## Architecture
+## Target architecture
 
-EVE now has two local language layers:
+EVE's generative language student is **EVE-GRU-192**, a compact byte-level recurrent model whose weights are initialized randomly and trained specifically for EVE. A large teacher is used only during dataset creation to provide Arabic explanations, dialogue, reasoning examples, and grounded responses. The teacher's weights, tokenizer, and inference runtime are not copied into EVE.
 
-1. **Generative layer:** Qwen3-0.6B, quantized to a LiteRT-LM `.litertlm` artifact and executed on-device through Google's LiteRT-LM Android runtime (CPU backend).
-2. **Compact fallback:** the project's Arabic intent classifier and grounded response composer remain available when the generative weights have not yet been installed or if inference fails.
+The Android app uses TensorFlow Lite to run the trained EVE student locally. The student model is a separate file downloaded once with the user's approval and stored in app-private storage. After installation, generation is offline.
 
-The generative model is used for open-ended Arabic conversation and contextual game commentary. EVE supplies bounded context from her local memory, current personality and mood, recent dialogue, and only fresh visual observations. The model is instructed not to invent visual evidence, identities, or memories.
+## Training pipeline
 
-## Installation and offline behavior
+- Source: `eve-model/train_private_eve_student.py`
+- Workflow: `.github/workflows/train-eve-private-model.yml`
+- Teacher: configurable OpenAI-compatible chat model (default `gpt-4.1-mini`), used only to create a supervised corpus.
+- Student: TensorFlow/Keras GRUCell model, 192 hidden units, 96-dimensional byte embeddings, UTF-8 byte tokenizer, random initialization.
+- Export: `eve_private_student.tflite` and metadata JSON.
+- Artifact publishing: the workflow uploads the TFLite student to the GitHub release named `eve-private-student`, which the Android app downloads only after the user approves.
 
-- The Android APK includes the LiteRT-LM runtime and EVE integration code, but **does not bundle the 329 MiB language-model weights**.
-- On first launch, tap the existing status chip and explicitly approve the one-time Qwen3 model download. The model is stored in the app-private files directory.
-- Internet permission is used only for that user-approved download. After the model is stored, text generation runs locally and does not send conversation text to a cloud service.
-- If the download is skipped or fails, EVE continues using the compact offline Arabic fallback.
-- The selected model is the pinned earlier INT4 `Qwen3-0.6B_dynamic_wi4b32_afp32.litertlm` export at revision `e6bb3e4a1eb3f663153f0c1c12b735d64be657a7`. It keeps weights inside the model graph and has lower reported peak memory than the newer external-weights export, which is preferable to try on a midrange phone. LiteRT-LM 0.19.1 is used.
-- The model file is separate from the APK, so it adds roughly 329 MiB of one-time device storage and does not inflate the install package by that amount.
+The workflow requires an `OPENAI_API_KEY` repository secret. Training has **not** been run merely by adding the workflow. A successful run must produce the release asset before the app's generative student can be installed.
 
-## Compact Arabic fallback
+## Android integration
 
-The fallback remains project-specific and runs entirely in Kotlin:
-- Arabic normalization and dialect spelling normalization.
-- Hashed word, character n-gram, and adjacent-word features for supported intent classification.
-- Context-grounded response composition from bounded memory, mood, personality, and fresh visual evidence.
-- Honest uncertainty for unsupported questions.
+- `EvePrivateStudentLanguageModel.kt` runs the custom TFLite student using TensorFlow Lite.
+- `LocalLanguageBrain.kt` calls this runtime and falls back to EVE's existing Arabic intent/composition engine if the private student is not yet installed or inference fails.
+- The previous Qwen3/LiteRT-LM runtime and dependency have been removed from the Android app.
+- Existing camera, object/face/gesture/pose perception, offline speech, local memory, personality, and game systems remain separate from the language student.
 
-This fallback is not a generative foundation model. The Qwen3 layer is the actual generative language model.
+## Honest limitations and acceptance tests
 
-## Limits and verification
+A small GRU trained from scratch is not equivalent to a large foundation model. Its Arabic fluency and reasoning quality depend heavily on the teacher corpus, training time, and evaluation. The first training run is a prototype, not a claim of production-level intelligence.
 
-- The build and unit/instrumentation tests can verify that the LiteRT-LM runtime and integration compile and that the compact fallback works with Wi-Fi/mobile data disabled.
-- Those tests do **not** prove that Qwen3 has been downloaded or that generation has been exercised on a Redmi 12.
-- The first real-model smoke test must happen on the target phone after the one-time download. Memory use, response speed, heat, and battery impact depend on the Redmi 12 variant and available RAM.
-- The LLM is text-only. It does not replace EVE's existing vision, speech recognition, game rules, local memory, or personality systems.
+Before calling EVE ready, verify:
+1. Training completes and produces the model release asset.
+2. TFLite export opens in Android and generates valid UTF-8 Arabic.
+3. A held-out Arabic test set checks factuality, dialogue quality, unsupported questions, and repetition.
+4. Offline Android instrumentation passes with Wi-Fi/mobile data disabled after the one-time model download.
+5. Redmi 12 tests measure latency, RAM, heat, and battery use.
+
+The APK does not bundle model weights. The model file is downloaded separately; this avoids inflating the APK.
