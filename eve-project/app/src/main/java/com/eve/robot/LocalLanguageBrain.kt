@@ -27,7 +27,9 @@ data class LocalLlmContext(
     val recentReflections: List<String> = emptyList(),
     val knownPeople: String = "",
     val latestSceneSummary: String = "",
-    val sceneObservationAgeMs: Long = Long.MAX_VALUE
+    val sceneObservationAgeMs: Long = Long.MAX_VALUE,
+    // A quality-gated, consented wellbeing cue; never a diagnosis.
+    val wellbeingObservation: String = ""
 )
 
 data class LocalLlmResult(
@@ -230,6 +232,10 @@ class LocalLanguageBrain(
             if (freshScene.isNotBlank()) append("؛ المشهد ").append(freshScene.take(45))
             if (concepts.isNotBlank()) append("؛ معرفة ").append(concepts)
             if (memory.isNotBlank()) append("؛ تجربة ").append(memory)
+            if (context.knownPeople.isNotBlank()) append("؛ أشخاص أتذكرهم ").append(context.knownPeople.take(100))
+            val dialogueMemory = context.recentDialogues.takeLast(2).joinToString("؛ ").take(100)
+            if (dialogueMemory.isNotBlank()) append("؛ حوار سابق ").append(dialogueMemory)
+            if (context.wellbeingObservation.isNotBlank()) append("؛ ملاحظة للاطمئنان ").append(context.wellbeingObservation.take(180))
             append("\nإيف:")
         }
     }
