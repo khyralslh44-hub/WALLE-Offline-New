@@ -2084,6 +2084,12 @@ class MainActivity : ComponentActivity() {
                         // Loading the model first prevents claiming an enrolment when the model is absent.
                         val matcher = faceIdentityMatcher ?: EveFaceIdentityMatcher(applicationContext)
                             .also { faceIdentityMatcher = it }
+                        // Run the bundled model before persisting anything: a missing or
+                        // incompatible model must fail closed instead of creating a fake profile.
+                        val modelSelfCheck = matcher.similarity(owned, owned)
+                        check(modelSelfCheck >= 0.98f) {
+                            "Local face model self-check failed: $modelSelfCheck"
+                        }
                         val profile = faceIdentityMemory.enroll(requireNotNull(request).person, owned)
                         main.post {
                             if (isFinishing || isDestroyed) return@post
@@ -2097,7 +2103,7 @@ class MainActivity : ComponentActivity() {
                                 react(decision, playSound = false)
                                 showDialogueText(
                                     "حفظت مرجع وجه ${profile.relationArabic} باسم ${profile.name} على هذا الهاتف. " +
-                                        "سأحاول التعرّف عليه عندما تكون الصورة واضحة.",
+                                        "لتحسين التعرّف، كرر طلب الحفظ بعد تغيير زاوية الوجه أو الإضاءة؛ أحتفظ بحد أقصى خمسة مراجع محلية.",
                                     durationMs = 8_000L
                                 )
                                 Log.i(
