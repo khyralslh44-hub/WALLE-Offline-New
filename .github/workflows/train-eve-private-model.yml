@@ -11,6 +11,14 @@ on:
         description: Large teacher model used only to generate training data
         required: true
         default: "gpt-4.1"
+      workers:
+        description: Concurrent teacher requests (1-8; default 4)
+        required: true
+        default: "4"
+      batch_size:
+        description: Examples per checkpointed batch
+        required: true
+        default: "100"
 
 permissions:
   contents: write
@@ -24,17 +32,31 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - name: Restore saved corpus and training checkpoints
+        uses: actions/cache@v4
+        with:
+          path: |
+            eve-model/teacher_corpus.jsonl
+            eve-model/teacher_corpus.progress.json
+            eve-model/dist/training_checkpoint.keras
+          key: eve-language-training-v1-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            eve-language-training-v1-
       - name: Install training dependencies
         run: python -m pip install --upgrade pip tensorflow-cpu==2.16.1 numpy
-      - name: Generate teacher corpus and train EVE from random initialization
+      - name: Generate resumable parallel teacher corpus and train EVE
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           EVE_TRAIN_EXAMPLES: ${{ inputs.examples }}
           EVE_TEACHER_MODEL: ${{ inputs.teacher_model }}
+          EVE_TEACHER_WORKERS: ${{ inputs.workers }}
+          EVE_TEACHER_BATCH_SIZE: ${{ inputs.batch_size }}
+          EVE_TEACHER_MAX_RETRIES: "6"
         run: |
           test -n "$OPENAI_API_KEY" || { echo "Missing OPENAI_API_KEY repository secret"; exit 2; }
+          python -m py_compile eve-model/train_private_eve_student.py
           python eve-model/train_private_eve_student.py
-      - name: Upload EVE model and training report
+      - name: Upload EVE model, resumable corpus and training report
         uses: actions/upload-artifact@v4
         with:
           name: EVE-Private-Student-TFLite
@@ -42,7 +64,9 @@ jobs:
             eve-model/dist/eve_private_student.tflite
             eve-model/dist/eve_private_student.json
             eve-model/dist/training_checkpoint.keras
+            eve-model/dist/training_report.json
             eve-model/teacher_corpus.jsonl
+            eve-model/teacher_corpus.progress.json
           if-no-files-found: error
           retention-days: 30
       - name: Publish the trained EVE student for one-time app download
@@ -51,5 +75,5 @@ jobs:
         run: |
           set -euo pipefail
           TAG="eve-private-student"
-          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "EVE Private Student Model" --notes "EVE-GRU-192 trained from random initialization using teacher-generated Arabic examples. No teacher weights are included."
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "EVE Private Student Model" --notes "EVE-GRU-256-2L trained from random initialization using teacher-generated Arabic examples. Teacher weights are not included."
           gh release upload "$TAG" eve-model/dist/eve_private_student.tflite eve-model/dist/eve_private_student.json --clobber
