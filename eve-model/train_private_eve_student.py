@@ -108,7 +108,7 @@ def build_corpus(target=5000):
                 raise ValueError("Teacher returned an answer that is too short.")
             row={"user":prompt,"assistant":answer}
             with DATA.open("a",encoding="utf-8") as f:
-                f.write(json.dumps(row,ensure_ascii=False)+"\\n")
+                f.write(json.dumps(row,ensure_ascii=False)+"\n")
             existing.append(row)
             seen.add(prompt)
             if len(existing)%25==0:
