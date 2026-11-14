@@ -1,0 +1,53 @@
+name: Train EVE private vision student
+
+on:
+  workflow_dispatch:
+    inputs:
+      images:
+        description: Number of COCO validation images used for teacher labelling (40-1500)
+        required: true
+        default: "300"
+      epochs:
+        description: Maximum student training epochs
+        required: true
+        default: "18"
+
+permissions:
+  contents: read
+
+jobs:
+  train-vision:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - name: Checkout EVE
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install CPU training dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install tensorflow-cpu==2.16.1 numpy pillow requests
+          python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install transformers==4.44.2 ultralytics==8.3.40
+
+      - name: Train compact EVE vision student from random initialization
+        env:
+          EVE_VISION_IMAGES: ${{ inputs.images }}
+          EVE_VISION_EPOCHS: ${{ inputs.epochs }}
+        run: python eve-vision/train_eve_vision_student.py
+
+      - name: Upload student model and training report
+        uses: actions/upload-artifact@v4
+        with:
+          name: EVE-Private-Vision-Student
+          path: |
+            eve-vision/dist/eve_vision_student.tflite
+            eve-vision/dist/eve_vision_student.json
+            eve-vision/dist/eve_vision_student.keras
+          if-no-files-found: error
+          retention-days: 30
