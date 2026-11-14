@@ -271,7 +271,12 @@ def train(rows):
         y[i, :n] = seq[1:]
         # y[:, t] predicts seq[t+1]; include answer bytes and the final EOS only.
         first_answer_target = max(0, answer_start - 1)
-        weights[i, first_answer_target:n] = 1.0
+        answer_target_count = n - first_answer_target
+        if answer_target_count <= 0:
+            raise ValueError("Training row has no answer target tokens.")
+        # Keras reduces over the padded sequence width. Normalize each row's
+        # weights so padding does not shrink the effective answer-token loss.
+        weights[i, first_answer_target:n] = MAX_LEN / answer_target_count
 
     # Shuffle deterministically before Keras takes its final 4% as validation data.
     order = np.random.default_rng(20261114).permutation(len(sequences))
