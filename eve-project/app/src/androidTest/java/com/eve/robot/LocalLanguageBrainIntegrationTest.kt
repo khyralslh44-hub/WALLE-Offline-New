@@ -35,10 +35,10 @@ class LocalLanguageBrainIntegrationTest {
             brain.start()
             assertTrue("The compact offline fallback must remain available without a model download.", brain.isReady)
             assertTrue(
-                "A fresh test install should wait for the user-approved Qwen3 download.",
+                "A fresh test install should wait for the user-approved EVE private student download.",
                 brain.currentState == LocalLlmState.WAITING_FOR_WIFI || brain.currentState == LocalLlmState.READY
             )
-            assertFalse("The test must not pretend Qwen3 weights were downloaded.", brain.isGenerativeModelReady)
+            assertFalse("The test must not pretend EVE student weights were downloaded.", brain.isGenerativeModelReady)
 
             val greeting = awaitAnswer(brain, "أهلاً يا إيف")
             assertTrue("Arabic greeting returned no text.", greeting.replyArabic.isNotBlank())
