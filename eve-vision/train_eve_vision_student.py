@@ -18,6 +18,7 @@ import json
 import os
 import random
 import urllib.request
+import zipfile
 from pathlib import Path
 
 import numpy as np
@@ -32,7 +33,7 @@ WORK = ROOT / "work"
 DIST = ROOT / "dist"
 IMAGE_DIR = WORK / "images"
 ANNOTATIONS_URL = "https://images.cocodataset.org/annotations/annotations_trainval2017.zip"
-COCO_ANNOTATIONS_URL = "https://raw.githubusercontent.com/cocodataset/cocoapi/master/annotations/instances_val2017.json"
+COCO_ANNOTATIONS_URL = "https://images.cocodataset.org/annotations/annotations_trainval2017.zip"
 COCO_IMAGE_BASE = "https://images.cocodataset.org/val2017/"
 CLIP_MODEL = "openai/clip-vit-base-patch32"
 YOLO_MODEL = "yolov8n.pt"
@@ -66,7 +67,14 @@ def download(url: str, destination: Path) -> None:
 
 def get_images(limit: int) -> list[Path]:
     annotation_file = WORK / "instances_val2017.json"
-    download(COCO_ANNOTATIONS_URL, annotation_file)
+    if not annotation_file.exists():
+        archive = WORK / "annotations_trainval2017.zip"
+        download(COCO_ANNOTATIONS_URL, archive)
+        with zipfile.ZipFile(archive) as bundle:
+            member = "annotations/instances_val2017.json"
+            if member not in bundle.namelist():
+                raise RuntimeError("COCO annotation archive does not contain instances_val2017.json")
+            annotation_file.write_bytes(bundle.read(member))
     data = json.loads(annotation_file.read_text(encoding="utf-8"))
     valid_ids = {ann["image_id"] for ann in data.get("annotations", [])}
     images = [item for item in data["images"] if item["id"] in valid_ids][:limit]
