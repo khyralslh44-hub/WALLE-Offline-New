@@ -904,7 +904,7 @@ class MainActivity : ComponentActivity() {
             pendingFaceEnrollmentExpiresAt = now + 60_000L
             pendingFaceEnrollmentConfirmed = false
             val confirmation = "أستطيع حفظ مرجع وجه ${storedPerson.relationArabic} باسم ${storedPerson.name} على هذا الهاتف فقط. " +
-                "استأذن الشخص أولًا، ثم قل «نعم احفظ الوجه» للتأكيد. قل «إلغاء حفظ الوجه» للإلغاء."
+                "استأذن الشخص أولًا؛ وإذا كان طفلًا فيلزم إذن ولي أمره وموافقته المناسبة لعمره. ثم قل «نعم احفظ الوجه» للتأكيد. قل «إلغاء حفظ الوجه» للإلغاء."
             showDialogueText(confirmation, durationMs = 8_000L)
             Log.i(
                 "EVE_PEOPLE",
