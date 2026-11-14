@@ -205,7 +205,7 @@ jobs:
           "$RUNNER_TEMP/gradle-8.9/bin/gradle"             --no-daemon --stacktrace -p eve-project             testDebugUnitTest assembleDebug assembleRelease
 
 
-      - name: Verify LiteRT-LM integration and keep model weights outside APK
+      - name: Verify EVE private student integration and keep model weights outside APK
         shell: bash
         run: |
           set -euo pipefail
@@ -217,11 +217,11 @@ jobs:
               echo "FAIL: model weights or obsolete llama.cpp libraries are bundled in $APK."
               exit 1
             fi
-            if ! unzip -p "$APK" "classes*.dex" | strings | grep -F "EveLiteRtLanguageModel" > /dev/null; then
-              echo "FAIL: EVE LiteRT-LM integration class is missing from $APK."
+            if ! unzip -p "$APK" "classes*.dex" | strings | grep -F "EvePrivateStudentLanguageModel" > /dev/null; then
+              echo "FAIL: EVE private student integration class is missing from $APK."
               exit 1
             fi
-            echo "PASS: LiteRT-LM integration present; Qwen3 weights remain external to $APK."
+            echo "PASS: EVE private student integration present; EVE's trained weights remain external to $APK."
           done
       - name: Verify offline vision models are packaged in both APKs
         shell: bash
