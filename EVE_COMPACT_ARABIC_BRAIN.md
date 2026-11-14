@@ -18,6 +18,18 @@ The generative model is used for open-ended Arabic conversation and contextual g
 - The selected model is the pinned earlier INT4 `Qwen3-0.6B_dynamic_wi4b32_afp32.litertlm` export at revision `e6bb3e4a1eb3f663153f0c1c12b735d64be657a7`. It keeps weights inside the model graph and has lower reported peak memory than the newer external-weights export, which is preferable to try on a midrange phone. LiteRT-LM 0.19.1 is used.
 - The model file is separate from the APK, so it adds roughly 329 MiB of one-time device storage and does not inflate the install package by that amount.
 
+## Trained EVE Arabic student
+
+A separate compact student classifier is now trained by `.github/scripts/train_eve_student.py` before Android compilation:
+
+- 17 EVE-specific intent classes, including vision, camera, memory, people, curiosity, mood, play, and help.
+- 460 labeled Arabic training examples after conservative phrase augmentation.
+- A 1,024-bucket character/word n-gram softmax model trained with deterministic CPU SGD; the exported float32 weights are compressed into a small generated Kotlin source file.
+- The generated student runs fully on-device and offline. It is consulted before the older prototype classifier; weak or unsupported inputs fall through rather than being forced into a label.
+- The training corpus is reviewed EVE-specific supervision authored for this project. **It is not yet direct teacher-model distillation from Qwen3 or another large model**, and it is not a general-purpose generative language model. Qwen3 remains the optional generative layer described above.
+
+The next genuine distillation stage requires generating and reviewing teacher responses/labels from a capable teacher model, then training and evaluating a student on those outputs. Do not describe that stage as complete until the teacher dataset, training run, and evaluation report exist.
+
 ## Compact Arabic fallback
 
 The fallback remains project-specific and runs entirely in Kotlin:
