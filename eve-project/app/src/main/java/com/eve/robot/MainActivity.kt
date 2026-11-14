@@ -635,7 +635,7 @@ class MainActivity : ComponentActivity() {
         }
         if (!localLanguageBrain.isGenerativeModelReady) {
             showDialogueText(
-                "النموذج اللغوي التوليدي Qwen3 لم يُثبّت بعد. انقر شريط الحالة أعلى الشاشة ووافق على تنزيله أولاً.",
+                "نموذج إيف اللغوي الخاص لم يُثبّت بعد. انقر شريط الحالة أعلى الشاشة ووافق على تنزيله أولاً.",
                 durationMs = 8000L
             )
             Log.i("EVE_LLM", "SELF_TEST_DEFERRED reason=generative_model_not_installed state=${localLanguageBrain.currentState}")
@@ -844,7 +844,7 @@ class MainActivity : ComponentActivity() {
             return
         }
 
-        // Hidden voice diagnostic: prove the local LLM generated a fresh, unpredictable token.
+        // Hidden voice diagnostic: verify that EVE's local private language model generated a fresh token.
         // It runs before canned answers and never accepts a deterministic fallback as a pass.
         if (listOf(
                 "اختبار النموذج", "اختبري النموذج", "فحص النموذج",
@@ -1172,7 +1172,7 @@ class MainActivity : ComponentActivity() {
             android.app.AlertDialog.Builder(this)
                 .setTitle("إضافة الذكاء اللغوي الحقيقي إلى إيف")
                 .setMessage(
-                    "سيتم تنزيل نموذج Qwen3 صغير بحجم يقارب 329 ميغابايت مرة واحدة. " +
+                    "سيتم تنزيل نموذج إيف الخاص مرة واحدة بعد إتمام تدريبه. سيبقى محفوظاً على الهاتف ويعمل دون إنترنت. " +
                         "بعد حفظه على الهاتف سيعمل توليد اللغة دون إنترنت، ولن تُرسل محادثاتك إلى خادم. " +
                         "تأكد من توفر مساحة تخزين واتصال مناسب قبل البدء."
                 )
@@ -3302,7 +3302,7 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * The language model receives trusted metadata from the local vision stack and short local
+     * EVE's private language model receives trusted metadata from the local vision stack and short local
      * memories. It never gets raw frames and never generates a spoken line on each camera frame.
      */
     private fun maybeReflectWithLocalLanguage(
