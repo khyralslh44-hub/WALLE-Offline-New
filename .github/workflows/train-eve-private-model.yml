@@ -32,6 +32,16 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - name: Restore saved corpus and training checkpoints
+        uses: actions/cache@v4
+        with:
+          path: |
+            eve-model/teacher_corpus.jsonl
+            eve-model/teacher_corpus.progress.json
+            eve-model/dist/training_checkpoint.keras
+          key: eve-language-training-v1-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            eve-language-training-v1-
       - name: Install training dependencies
         run: python -m pip install --upgrade pip tensorflow-cpu==2.16.1 numpy
       - name: Generate resumable parallel teacher corpus and train EVE
