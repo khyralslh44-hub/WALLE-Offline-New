@@ -160,4 +160,32 @@ class EveConceptLearningTest {
         assertFalse(memory.isConfirmed("car"))
     }
 
+
+    @Test
+    fun aNewCorrectionReplacesAnOldConfirmedMappingOnlyAfterFreshVerification() {
+        val store = InMemoryStore()
+        val first = EveConceptLearning(store)
+        first.teachCurrentObservation(
+            "mug", 0.95f, 400L, "هذا كوب", false, 9_000_000L,
+            evidenceSource = EveConceptEvidenceSource.OBJECT_DETECTOR_BOX
+        )
+        listOf(9_003_000L, 9_006_000L, 9_009_000L, 9_012_000L).forEach { at ->
+            first.observe("mug", 0.94f, at, EveConceptEvidenceSource.OBJECT_DETECTOR_BOX)
+        }
+        assertEquals("كوب", first.confirmedNameFor("mug"))
+
+        val correction = first.teachCurrentObservation(
+            "mug", 0.96f, 500L, "هذا فنجان", false, 9_020_000L,
+            evidenceSource = EveConceptEvidenceSource.OBJECT_DETECTOR_BOX
+        )
+        assertEquals(EveConceptLearningStatus.WAITING_FOR_VERIFICATION, correction?.status)
+        assertNull(first.confirmedNameFor("mug"))
+
+        listOf(9_023_000L, 9_026_000L, 9_029_000L, 9_032_000L).forEach { at ->
+            first.observe("mug", 0.95f, at, EveConceptEvidenceSource.OBJECT_DETECTOR_BOX)
+        }
+        val afterRestart = EveConceptLearning(store)
+        assertEquals("فنجان", afterRestart.confirmedNameFor("mug"))
+    }
+
 }
