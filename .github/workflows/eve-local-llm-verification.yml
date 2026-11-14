@@ -5,7 +5,7 @@ on:
   push:
     paths:
       - 'eve-project/app/src/main/java/com/eve/robot/LocalLanguageBrain.kt'
-      - 'eve-project/app/src/main/java/com/eve/robot/EveLiteRtLanguageModel.kt'
+      - 'eve-project/app/src/main/java/com/eve/robot/EvePrivateStudentLanguageModel.kt'
       - 'eve-project/app/src/main/java/com/eve/robot/EveTinyArabicBrain.kt'
       - 'eve-project/app/src/main/java/com/eve/robot/EveArabicSemanticComposer.kt'
       - 'eve-project/app/src/main/java/com/eve/robot/EveArabicTextUnderstanding.kt'
@@ -76,11 +76,11 @@ jobs:
             echo "FAIL: language-model weights or obsolete llama.cpp libraries must not be bundled."
             exit 2
           fi
-          if ! unzip -p "$APP_APK" "classes*.dex" | strings | grep -F "EveLiteRtLanguageModel" > /dev/null; then
-            echo "FAIL: EVE LiteRT-LM integration class is missing from the APK."
+          if ! unzip -p "$APP_APK" "classes*.dex" | strings | grep -F "EvePrivateStudentLanguageModel" > /dev/null; then
+            echo "FAIL: EVE EVE private student runtime class is missing from the APK."
             exit 2
           fi
-          echo "PASS: LiteRT-LM integration is present and Qwen3 weights remain external."
+          echo "PASS: EVE private student runtime is present; trained weights remain external."
 
       - name: Run Android emulator test with radios disabled
         uses: reactivecircus/android-emulator-runner@v2
