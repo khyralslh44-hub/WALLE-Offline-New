@@ -19,7 +19,7 @@ API_URL = os.getenv("EVE_TEACHER_API_URL", "https://api.openai.com/v1/chat/compl
 TEACHER = os.getenv("EVE_TEACHER_MODEL", "gpt-4.1-mini")
 API_KEY = os.environ["OPENAI_API_KEY"]
 MAX_LEN = 384
-HIDDEN = 192
+HIDDEN = 256
 EMBED = 96
 BOS, EOS, VOCAB = 257, 258, 259
 SEED_TOPICS = [
@@ -135,9 +135,11 @@ def train(rows):
     tf.keras.utils.set_random_seed(20261114)
     inp=tf.keras.Input((MAX_LEN,),dtype=tf.int32,name="tokens")
     emb=tf.keras.layers.Embedding(VOCAB,EMBED,name="token_embedding")(inp)
-    cell=tf.keras.layers.GRUCell(HIDDEN,name="student_gru_cell")
-    seq=tf.keras.layers.RNN(cell,return_sequences=True,name="student_gru")(emb)
-    logits=tf.keras.layers.Dense(VOCAB,name="student_lm_head")(seq)
+    cell1=tf.keras.layers.GRUCell(HIDDEN,name="student_gru_cell_1")
+    cell2=tf.keras.layers.GRUCell(HIDDEN,name="student_gru_cell_2")
+    seq1=tf.keras.layers.RNN(cell1,return_sequences=True,name="student_gru_1")(emb)
+    seq2=tf.keras.layers.RNN(cell2,return_sequences=True,name="student_gru_2")(seq1)
+    logits=tf.keras.layers.Dense(VOCAB,name="student_lm_head")(seq2)
     model=tf.keras.Model(inp,logits)
     model.compile(optimizer=tf.keras.optimizers.Adam(2e-3),
       loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True))
@@ -145,19 +147,20 @@ def train(rows):
       callbacks=[tf.keras.callbacks.EarlyStopping(patience=2,restore_best_weights=True)])
     # Export a one-token step model with explicit recurrent state for efficient Android decoding.
     token=tf.keras.Input((1,),dtype=tf.int32,name="token")
-    state=tf.keras.Input((HIDDEN,),dtype=tf.float32,name="state")
+    state1=tf.keras.Input((HIDDEN,),dtype=tf.float32,name="state_1")
+    state2=tf.keras.Input((HIDDEN,),dtype=tf.float32,name="state_2")
     e=model.get_layer("token_embedding")(token)
-    new_out,new_states=cell(e[:,0,:],states=[state])
-    new_state=new_states[0]
-    step_logits=model.get_layer("student_lm_head")(new_out)
-    step=tf.keras.Model([token,state],[step_logits,new_state])
+    out1,states1=cell1(e[:,0,:],states=[state1])
+    out2,states2=cell2(out1,states=[state2])
+    step_logits=model.get_layer("student_lm_head")(out2)
+    step=tf.keras.Model([token,state1,state2],[step_logits,states1[0],states2[0]])
     converter=tf.lite.TFLiteConverter.from_keras_model(step)
     converter.optimizations=[tf.lite.Optimize.DEFAULT]
     tflite=converter.convert()
     (OUT/"eve_private_student.tflite").write_bytes(tflite)
     vocab={"version":1,"tokenization":"utf8-byte-plus-one","bos":BOS,"eos":EOS,
            "vocab_size":VOCAB,"hidden_size":HIDDEN,"max_len":MAX_LEN,
-           "teacher":TEACHER,"student":"EVE-GRU-192-random-init"}
+           "teacher":TEACHER,"student":"EVE-GRU-256-2L-random-init"}
     (OUT/"eve_private_student.json").write_text(json.dumps(vocab,ensure_ascii=False,indent=2))
     model.save(OUT/"training_checkpoint.keras")
     print("EXPORTED",len(tflite),"bytes",flush=True)
