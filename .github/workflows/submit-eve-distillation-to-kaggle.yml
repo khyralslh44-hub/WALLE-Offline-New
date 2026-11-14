@@ -1,0 +1,128 @@
+name: Submit EVE Qwen3 teacher-student distillation to Kaggle
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - eve-80mb-compact-brain
+    paths:
+      - "eve-model/distillation/**"
+      - "eve-model/notebooks/kaggle_distill_eve.ipynb"
+      - ".github/workflows/submit-eve-distillation-to-kaggle.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate-and-submit:
+    name: Validate pipeline and submit GPU training
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out the exact EVE branch
+        uses: actions/checkout@v4
+        with:
+          ref: eve-80mb-compact-brain
+
+      - name: Validate Python source and notebook JSON
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile eve-model/distillation/train_eve_qwen3_distillation.py
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path("eve-model/notebooks/kaggle_distill_eve.ipynb")
+          n = json.loads(p.read_text(encoding="utf-8"))
+          assert n.get("nbformat") == 4
+          assert any("train_eve_qwen3_distillation.py" in "".join(c.get("source", [])) for c in n["cells"])
+          print("PASS: distillation trainer syntax and Kaggle notebook structure.")
+          PY
+
+      - name: Set up Python and Kaggle CLI
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Kaggle CLI
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "kaggle==2.2.5"
+
+      - name: Configure Kaggle credentials securely
+        env:
+          KAGGLE_CREDENTIAL: \${{ secrets.KAGGLE_API_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          raw = os.environ.get("KAGGLE_CREDENTIAL", "").strip()
+          if not raw:
+              raise SystemExit("Missing repository secret KAGGLE_API_TOKEN.")
+          config_dir = Path.home() / ".kaggle"
+          config_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+          os.chmod(config_dir, 0o700)
+          if raw.startswith("KGAT_"):
+              target = config_dir / "access_token"
+              target.write_text(raw, encoding="ascii")
+          else:
+              try:
+                  parsed = json.loads(raw)
+              except json.JSONDecodeError:
+                  parsed = None
+              if isinstance(parsed, dict):
+                  username = str(parsed.get("username", "conangg")).strip()
+                  key = str(parsed.get("key", "")).strip()
+              else:
+                  username, key = "conangg", raw
+              if not username or not key:
+                  raise SystemExit("Invalid Kaggle credential format.")
+              target = config_dir / "kaggle.json"
+              target.write_text(json.dumps({"username": username, "key": key}), encoding="utf-8")
+          os.chmod(target, 0o600)
+          print("Kaggle credentials configured; secret value hidden.")
+          PY
+
+      - name: Verify Kaggle account access
+        shell: bash
+        run: |
+          set -euo pipefail
+          kaggle kernels list --mine --page-size 1 > "$RUNNER_TEMP/kaggle-auth.txt"
+          echo "Kaggle authentication succeeded."
+
+      - name: Prepare isolated Kaggle notebook package
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/eve-distillation"
+          cp eve-model/notebooks/kaggle_distill_eve.ipynb "$RUNNER_TEMP/eve-distillation/"
+          cat > "$RUNNER_TEMP/eve-distillation/kernel-metadata.json" <<'JSON'
+          {
+            "id": "conangg/eve-qwen3-06b-distillation",
+            "title": "EVE Qwen3 0.6B Teacher Student Distillation",
+            "code_file": "kaggle_distill_eve.ipynb",
+            "language": "python",
+            "kernel_type": "notebook",
+            "is_private": "true",
+            "enable_gpu": "true",
+            "enable_internet": "true",
+            "machine_shape": "NvidiaTeslaT4",
+            "dataset_sources": [],
+            "competition_sources": [],
+            "kernel_sources": [],
+            "model_sources": []
+          }
+          JSON
+          python -m json.tool "$RUNNER_TEMP/eve-distillation/kernel-metadata.json" >/dev/null
+
+      - name: Submit EVE distillation notebook and request Kaggle GPU session
+        shell: bash
+        run: |
+          set -euo pipefail
+          kaggle kernels push -p "$RUNNER_TEMP/eve-distillation" --accelerator NvidiaTeslaT4 --timeout 43200
+          echo "Kaggle notebook submitted: https://www.kaggle.com/code/conangg/eve-qwen3-06b-distillation"
+          echo "Submission acceptance is not proof of training completion; inspect Kaggle logs and output files."
