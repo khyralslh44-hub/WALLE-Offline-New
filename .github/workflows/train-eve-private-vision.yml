@@ -35,6 +35,9 @@ jobs:
           python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
           python -m pip install transformers==4.44.2 ultralytics==8.3.40
 
+      - name: Validate training script syntax
+        run: python -m py_compile eve-vision/train_eve_vision_student.py
+
       - name: Train compact EVE vision student from random initialization
         env:
           EVE_VISION_IMAGES: ${{ inputs.images }}
