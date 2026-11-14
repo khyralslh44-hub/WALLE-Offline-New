@@ -10,7 +10,7 @@ on:
       teacher_model:
         description: Large teacher model used only to generate training data
         required: true
-        default: "gpt-4.1-mini"
+        default: "gpt-4.1"
 
 permissions:
   contents: write
