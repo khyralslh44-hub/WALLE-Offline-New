@@ -15,6 +15,7 @@ on:
       - 'EVE_COMPACT_ARABIC_BRAIN.md'
       - 'eve-project/app/src/main/AndroidManifest.xml'
       - '.github/scripts/run-local-llm-test.sh'
+      - '.github/scripts/train_eve_student.py'
       - '.github/workflows/eve-local-llm-verification.yml'
       - '.github/workflows/android-build.yml'
 
