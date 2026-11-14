@@ -2135,10 +2135,26 @@ class MainActivity : ComponentActivity() {
                                 isIntroduction = false
                             )
                             react(decision, playSound = false)
-                            showDialogueText(
-                                "أهلًا ${match.profile.name}، أعتقد أنني تعرّفت عليك من الذاكرة المحلية.",
-                                durationMs = 5_500L
-                            )
+                            if (::localLanguageBrain.isInitialized && localLanguageBrain.isGenerativeModelReady) {
+                                val socialContext = localLanguageContext().copy(
+                                    knownPeople = (peopleMemory.summary() + "؛ الشخص أمامي الآن: " + match.profile.name).take(240)
+                                )
+                                localLanguageBrain.answerUserGenerativeOnly(
+                                    "قابلت الآن شخصًا أعرفه اسمه " + match.profile.name + ". ابدئي بتحية عفوية وطبيعية تناسب شخصيتك، ولا تستخدمي عبارة جاهزة.",
+                                    socialContext
+                                ) { result ->
+                                    if (isFinishing || isDestroyed) return@answerUserGenerativeOnly
+                                    val reply = result.getOrNull()?.replyArabic?.trim().orEmpty()
+                                    if (reply.isNotBlank()) {
+                                        memory.rememberDialogue("لقاء " + match.profile.name, reply)
+                                        showDialogueText(reply, durationMs = 6_500L)
+                                    } else {
+                                        Log.i("EVE_PEOPLE", "SPONTANEOUS_GREETING_SUPPRESSED no_usable_generation=true")
+                                    }
+                                }
+                            } else {
+                                Log.i("EVE_PEOPLE", "SPONTANEOUS_GREETING_WAITING_FOR_GENERATIVE_MODEL")
+                            }
                             Log.i(
                                 "EVE_PEOPLE",
                                 "FACE_PROFILE_MATCH id=${match.profile.id} relation=${match.profile.personKey} " +
