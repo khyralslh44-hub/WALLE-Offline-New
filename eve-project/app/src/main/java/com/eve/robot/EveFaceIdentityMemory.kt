@@ -165,7 +165,12 @@ class EveFaceIdentityMemory(context: Context) {
         val all = readProfiles().toMutableList()
         val identityKey = "${person.key}:${EvePersonUtteranceParser.normalize(person.name)}"
         val existing = all.firstOrNull { it.personKey == identityKey }
-        val fileName = existing?.imageFile ?: "face_${UUID.randomUUID()}.jpg"
+        // Keep several independent views for the same person (different angle/light), while
+        // retaining compatibility with old profiles whose imageFile contains one filename.
+        val previousFiles = existing?.imageFile?.split("|")
+            ?.filter { it.startsWith("face_") && !it.contains("/") }
+            .orEmpty()
+        val fileName = "face_${UUID.randomUUID()}.jpg"
         val destination = File(folder, fileName)
         val temporary = File(folder, "$fileName.tmp")
         val scaled = Bitmap.createScaledBitmap(faceCrop, INPUT_SIZE, INPUT_SIZE, true)
@@ -185,12 +190,14 @@ class EveFaceIdentityMemory(context: Context) {
             temporary.delete()
         }
 
+        val retainedFiles = (previousFiles + fileName).takeLast(MAX_SAMPLES_PER_PERSON)
+        (previousFiles - retainedFiles.toSet()).forEach { oldName -> File(folder, oldName).delete() }
         val profile = EveFaceIdentityProfile(
             id = existing?.id ?: UUID.randomUUID().toString(),
             personKey = identityKey,
             relationArabic = person.relationArabic,
             name = person.name,
-            imageFile = fileName,
+            imageFile = retainedFiles.joinToString("|"),
             createdAtMs = System.currentTimeMillis()
         )
         val replacement = all.filterNot { it.personKey == identityKey } + profile
@@ -206,18 +213,24 @@ class EveFaceIdentityMemory(context: Context) {
         minimumMargin: Float = 0.035f
     ): EveFaceIdentityMatch? {
         if (faceCrop.isRecycled || faceCrop.width < 24 || faceCrop.height < 24) return null
+        // Score each identity once using its best enrolled view. This avoids treating a
+        // person's multiple reference images as competing identities in the ambiguity margin.
         val scored = readProfiles().mapNotNull { profile ->
-            val file = File(folder, profile.imageFile)
-            if (!file.isFile || file.length() <= 0) return@mapNotNull null
-            val reference = BitmapFactory.decodeFile(file.absolutePath) ?: return@mapNotNull null
-            val score = try {
-                matcher.similarity(reference, faceCrop)
-            } catch (_: Exception) {
-                return@mapNotNull null
-            } finally {
-                reference.recycle()
-            }
-            profile to score
+            val bestScore = profile.imageFile.split("|")
+                .filter { it.startsWith("face_") && !it.contains("/") }
+                .mapNotNull { name ->
+                    val file = File(folder, name)
+                    if (!file.isFile || file.length() <= 0) return@mapNotNull null
+                    val reference = BitmapFactory.decodeFile(file.absolutePath) ?: return@mapNotNull null
+                    try {
+                        matcher.similarity(reference, faceCrop)
+                    } catch (_: Exception) {
+                        null
+                    } finally {
+                        reference.recycle()
+                    }
+                }.maxOrNull() ?: return@mapNotNull null
+            profile to bestScore
         }.sortedByDescending { it.second }
         val best = scored.firstOrNull() ?: return null
         val second = scored.getOrNull(1)?.second ?: 0f
@@ -247,7 +260,7 @@ class EveFaceIdentityMemory(context: Context) {
                         createdAtMs = item.optLong("createdAtMs")
                     )
                     if (profile.id.isNotBlank() && profile.personKey.isNotBlank() &&
-                        profile.name.isNotBlank() && profile.imageFile.startsWith("face_")
+                        profile.name.isNotBlank() && profile.imageFile.split("|").all { it.startsWith("face_") && !it.contains("/") }
                     ) add(profile)
                 }
             }
@@ -277,6 +290,7 @@ class EveFaceIdentityMemory(context: Context) {
     companion object {
         private const val KEY_PROFILES = "profiles_json"
         private const val MAX_PROFILES = 24
+        private const val MAX_SAMPLES_PER_PERSON = 5
         private const val INPUT_SIZE = 112
     }
 }
