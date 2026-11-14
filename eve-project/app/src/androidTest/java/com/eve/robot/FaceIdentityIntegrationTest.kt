@@ -63,6 +63,13 @@ class FaceIdentityIntegrationTest {
                 name = "اختبار وجه محلي"
             )
             val profile = memory.enroll(person, enrolledFace)
+            val secondView = memory.enroll(person, enrolledFace)
+            assertEquals("Additional views must extend the same identity profile.", profile.id, secondView.id)
+            assertEquals(
+                "A profile should retain up to five local reference views.",
+                2,
+                secondView.imageFile.split("|").size
+            )
             val match = memory.recognize(enrolledFace, matcher)
             assertNotNull("The newly enrolled local face should match the same face crop.", match)
             assertEquals(profile.id, match?.profile?.id)
