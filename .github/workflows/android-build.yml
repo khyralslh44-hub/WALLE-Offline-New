@@ -12,6 +12,7 @@ on:
       - 'eve-project/**'
       - '.github/scripts/fetch-moonshine-tiny-ar.sh'
       - '.github/scripts/create-moonshine-tokens.py'
+      - '.github/scripts/train_eve_student.py'
       - '.github/workflows/android-build.yml'
       - '.github/workflows/emulator-smoke-test.yml'
       - '.github/workflows/eve-deep-verification.yml'
