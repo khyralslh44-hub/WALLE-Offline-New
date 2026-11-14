@@ -26,7 +26,11 @@ class EveWellbeingConversationPolicy(context: Context) {
     )
 
     @Synchronized
-    fun shouldStart(evidence: EveWellbeingEvidence, nowElapsedMs: Long = SystemClock.elapsedRealtime()): Boolean {
+    fun shouldStart(
+        evidence: EveWellbeingEvidence,
+        nowElapsedMs: Long = SystemClock.elapsedRealtime(),
+        nowWallMs: Long = System.currentTimeMillis()
+    ): Boolean {
         if (!evidence.consented || evidence.personId.isBlank() ||
             evidence.observationArabic.isBlank() ||
             !evidence.confidence.isFinite() || evidence.confidence < MIN_CONFIDENCE ||
@@ -34,15 +38,25 @@ class EveWellbeingConversationPolicy(context: Context) {
             evidence.stableFrames < MIN_STABLE_FRAMES ||
             nowElapsedMs - evidence.capturedAtElapsedMs !in 0L..MAX_EVIDENCE_AGE_MS
         ) return false
-        val last = prefs.getLong("last_${safeKey(evidence.personId)}", 0L)
-        if (last > 0L && nowElapsedMs - last < PERSON_COOLDOWN_MS) return false
+        val lastWallMs = prefs.getLong("last_${safeKey(evidence.personId)}", 0L)
+        // Wall-clock storage survives phone restarts; elapsedRealtime is used only for fresh-frame age.
+        if (lastWallMs > 0L) {
+            val age = nowWallMs - lastWallMs
+            if (age < 0L || age < PERSON_COOLDOWN_MS) return false
+        }
         return true
     }
 
     @Synchronized
-    fun markStarted(evidence: EveWellbeingEvidence, nowElapsedMs: Long = SystemClock.elapsedRealtime()) {
-        require(shouldStart(evidence, nowElapsedMs)) { "Wellbeing dialogue evidence is not eligible." }
-        prefs.edit().putLong("last_${safeKey(evidence.personId)}", nowElapsedMs).apply()
+    fun markStarted(
+        evidence: EveWellbeingEvidence,
+        nowElapsedMs: Long = SystemClock.elapsedRealtime(),
+        nowWallMs: Long = System.currentTimeMillis()
+    ) {
+        require(shouldStart(evidence, nowElapsedMs, nowWallMs)) {
+            "Wellbeing dialogue evidence is not eligible."
+        }
+        prefs.edit().putLong("last_${safeKey(evidence.personId)}", nowWallMs).apply()
     }
 
     fun prompt(evidence: EveWellbeingEvidence): String = buildString {
