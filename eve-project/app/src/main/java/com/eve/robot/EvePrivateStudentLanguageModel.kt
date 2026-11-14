@@ -145,13 +145,13 @@ internal class EvePrivateStudentLanguageModel(context: Context) : AutoCloseable 
         private const val TAG = "EVE_PRIVATE_STUDENT"
         private const val MODEL_FILE_NAME = "eve_private_student.tflite"
         private const val MODEL_URL =
-            "https://github.com/khyralslh44-hub/WALLE-Offline-New/releases/latest/download/eve_private_student.tflite"
+            "https://github.com/khyralslh44-hub/WALLE-Offline-New/releases/download/eve-private-student/eve_private_student.tflite"
         private const val MIN_VALID_BYTES = 100_000L
         private const val HIDDEN_SIZE = 192
         private const val VOCAB_SIZE = 259
         private const val BOS = 257
         private const val EOS = 258
-        private const val MAX_CONTEXT_BYTES = 240
+        private const val MAX_CONTEXT_BYTES = 360
         private const val MAX_NEW_TOKENS = 420
         private const val MAX_REPLY_CHARS = 900
         private const val TOP_K = 8
