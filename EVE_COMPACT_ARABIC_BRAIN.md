@@ -11,7 +11,7 @@ The Android app uses TensorFlow Lite to run the trained EVE student locally. The
 - Source: `eve-model/train_private_eve_student.py`
 - Workflow: `.github/workflows/train-eve-private-model.yml`
 - Teacher: configurable OpenAI-compatible chat model (default `gpt-4.1`), used only to create a supervised corpus.
-- Student: TensorFlow/Keras GRUCell model, 192 hidden units, 96-dimensional byte embeddings, UTF-8 byte tokenizer, random initialization.
+- Student: TensorFlow/Keras GRUCell model, two 256-unit GRU layers, 96-dimensional byte embeddings, UTF-8 byte tokenizer, random initialization.
 - Export: `eve_private_student.tflite` and metadata JSON.
 - Artifact publishing: the workflow uploads the TFLite student to the GitHub release named `eve-private-student`, which the Android app downloads only after the user approves.
 
