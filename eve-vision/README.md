@@ -23,8 +23,8 @@ are not included in the student artifact or Android app.
 
 ## Run
 Open GitHub Actions → **Train EVE private vision student** → Run workflow.
-The defaults use 300 COCO validation images and up to 18 epochs. The workflow
-downloads the public COCO validation images, labels them with the teacher
+The defaults use up to 128 COCO128 images and up to 18 epochs. This is a small starter dataset for the first training run, not a large-scale vision model. The workflow
+downloads the 128-image COCO128 starter dataset from the Ultralytics GitHub release, labels them with the teacher
 ensemble, trains the student from random initialization, and uploads a TFLite
 model plus metadata as an Actions artifact.
 
