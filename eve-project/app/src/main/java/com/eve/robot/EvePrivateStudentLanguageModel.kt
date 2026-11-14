@@ -67,8 +67,9 @@ internal class EvePrivateStudentLanguageModel(context: Context) : AutoCloseable 
             if (next == EOS || next == 0 || next !in 1..256) break
             generated.write(next - 1)
             token[0][0] = next
-            active.runForMultipleInputsOutputs(arrayOf(token, state), outputs)
-            state = nextState.copyOfState()
+            active.runForMultipleInputsOutputs(arrayOf(token, state1, state2), outputs)
+            state1 = nextState1.copyOfState()
+            state2 = nextState2.copyOfState()
             next = sample(logits[0])
         }
         return generated.toByteArray().toString(Charsets.UTF_8)
@@ -89,7 +90,7 @@ internal class EvePrivateStudentLanguageModel(context: Context) : AutoCloseable 
     }
 
     private fun download(onProgress: (Int) -> Unit) {
-        val temporary = File(appContext.filesDir, "\${MODEL_FILE_NAME}.part")
+        val temporary = File(appContext.filesDir, "$MODEL_FILE_NAME.part")
         temporary.delete()
         val connection = (URL(MODEL_URL).openConnection() as HttpURLConnection).apply {
             connectTimeout = 30_000
@@ -101,7 +102,7 @@ internal class EvePrivateStudentLanguageModel(context: Context) : AutoCloseable 
         try {
             connection.connect()
             if (connection.responseCode !in 200..299) {
-                throw IllegalStateException("تعذر تنزيل نموذج إيف: HTTP \${connection.responseCode}")
+                throw IllegalStateException("تعذر تنزيل نموذج إيف: HTTP ${connection.responseCode}")
             }
             val expected = connection.contentLengthLong
             var copied = 0L
