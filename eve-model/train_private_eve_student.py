@@ -297,4 +297,13 @@ if __name__ == "__main__":
     if requested < 1:
         raise ValueError("EVE_TRAIN_EXAMPLES must be >= 1")
     corpus = build_corpus(requested)
-    train(corpus)
+    report_path = OUT / "training_report.json"
+    model_path = OUT / "eve_private_student.tflite"
+    if report_path.exists() and model_path.exists():
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        if report.get("examples") == requested and report.get("teacher") == TEACHER:
+            print("TRAINING_ALREADY_COMPLETE; reusing verified cached export.", flush=True)
+        else:
+            train(corpus)
+    else:
+        train(corpus)
