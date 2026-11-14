@@ -13,7 +13,7 @@ on:
         default: "gpt-4.1-mini"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   train:
@@ -29,9 +29,9 @@ jobs:
         run: python -m pip install --upgrade pip tensorflow-cpu==2.16.1 numpy
       - name: Generate teacher corpus and train EVE from random initialization
         env:
-          OPENAI_API_KEY: \${{ secrets.OPENAI_API_KEY }}
-          EVE_TRAIN_EXAMPLES: \${{ inputs.examples }}
-          EVE_TEACHER_MODEL: \${{ inputs.teacher_model }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          EVE_TRAIN_EXAMPLES: ${{ inputs.examples }}
+          EVE_TEACHER_MODEL: ${{ inputs.teacher_model }}
         run: |
           test -n "$OPENAI_API_KEY" || { echo "Missing OPENAI_API_KEY repository secret"; exit 2; }
           python eve-model/train_private_eve_student.py
@@ -46,3 +46,11 @@ jobs:
             eve-model/teacher_corpus.jsonl
           if-no-files-found: error
           retention-days: 30
+      - name: Publish the trained EVE student for one-time app download
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="eve-private-student"
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "EVE Private Student Model" --notes "EVE-GRU-192 trained from random initialization using teacher-generated Arabic examples. No teacher weights are included."
+          gh release upload "$TAG" eve-model/dist/eve_private_student.tflite eve-model/dist/eve_private_student.json --clobber
