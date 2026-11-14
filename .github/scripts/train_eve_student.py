@@ -91,7 +91,7 @@ internal object EveDistilledArabicStudent {{
         val tokens = text.split(Regex("\\\\s+")).filter {{ it.isNotBlank() }}
         tokens.forEach {{ add("w"+it,1.5f) }}
         for (i in 0 until tokens.size-1) add("b"+tokens[i]+"_"+tokens[i+1],1.2f)
-        val norm = sqrt(features.values.sumOf {{ it*it }}).takeIf {{ it>0f }} ?: 1f
+        val norm = sqrt(features.values.fold(0f) {{ total, value -> total + value*value }}).takeIf {{ it>0f }} ?: 1f
         val stride = FEATURE_COUNT+1
         val model = weights
         val logits = FloatArray(labels.size)
