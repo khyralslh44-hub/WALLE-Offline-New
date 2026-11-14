@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       images:
-        description: Number of COCO validation images used for teacher labelling (40-1500)
+        description: Number of COCO128 images used for teacher labelling (40-128)
         required: true
-        default: "300"
+        default: "128"
       epochs:
         description: Maximum student training epochs
         required: true
