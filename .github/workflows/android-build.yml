@@ -18,6 +18,8 @@ on:
       - '.github/scripts/fetch-arabic-vosk-model.sh'
       - '.github/scripts/run-local-llm-test.sh'
       - 'EVE_COMPACT_ARABIC_BRAIN.md'
+      - 'eve-model/**'
+      - '.github/workflows/train-eve-private-model.yml'
       - '.github/workflows/eve-local-llm-verification.yml'
 
 permissions:
