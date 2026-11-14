@@ -143,7 +143,7 @@ class MainActivity : ComponentActivity() {
     private val activityUnderstanding = EveActivityUnderstanding()
     private val environmentUnderstanding = EveEnvironmentUnderstanding()
     private val roomUnderstanding = EveRoomUnderstanding()
-    private val autonomousMind = EveAutonomousMind()
+    private lateinit var autonomousMind: EveAutonomousMind
     private val robotBaseNavigator = EveBaseNavigator()
     private val homeMapMemory = EveHomeMapMemory()
     private lateinit var homeMapStore: EveHomeMapStore
@@ -465,6 +465,7 @@ class MainActivity : ComponentActivity() {
         setContentView(root)
         memory = EveMemory(applicationContext)
         conceptLearning = EveConceptLearning(applicationContext)
+        autonomousMind = EveAutonomousMind(applicationContext)
         peopleMemory = EvePeopleMemory(applicationContext)
         faceIdentityMemory = EveFaceIdentityMemory(applicationContext)
         val relationshipPreferences = getSharedPreferences("eve_relationship", MODE_PRIVATE)
