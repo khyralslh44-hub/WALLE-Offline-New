@@ -406,7 +406,7 @@ jobs:
           retention-days: 14
 
       - name: Publish direct-install APK release
-        if: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' || (github.event_name == 'workflow_run' && github.event.workflow_run.head_branch == 'main') }}
+        if: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' || (github.event_name == 'workflow_run' && (github.event.workflow_run.head_branch == 'main' || github.event.workflow_run.head_branch == 'feature/eve-free-open-teacher-distillation')) }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: eve-build-${{ github.run_number }}
