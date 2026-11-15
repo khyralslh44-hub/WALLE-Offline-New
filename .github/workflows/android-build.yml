@@ -7,6 +7,10 @@ concurrency:
 
 on:
   workflow_dispatch:
+  workflow_run:
+    workflows: ["Train EVE private language model"]
+    types: [completed]
+    branches: [main]
   push:
     paths:
       - 'eve-project/**'
@@ -27,12 +31,15 @@ permissions:
 
 jobs:
   build:
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     name: Build and unit-test the EVE app
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      - name: Check out source
+      - name: Check out source revision (including workflow-triggered rebuilds)
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -202,6 +209,29 @@ jobs:
           file "$MODEL"
           echo "Pose model downloaded: $(wc -c < "$MODEL") bytes"
 
+      - name: Bundle the distilled EVE student inside the APK when published
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ASSETS="eve-project/app/src/main/assets"
+          mkdir -p "$ASSETS"
+          MODEL="$ASSETS/eve_private_student.tflite"
+          rm -f "$MODEL"
+          if gh release download eve-private-student --pattern eve_private_student.tflite --dir "$ASSETS" --clobber; then
+            test -s "$MODEL"
+            BYTES="$(stat -c '%s' "$MODEL")"
+            SHA256="$(sha256sum "$MODEL" | awk '{print $1}')"
+            echo "Bundled distilled EVE student: bytes=$BYTES sha256=$SHA256"
+            if [ "$BYTES" -gt 20000000 ]; then
+              echo "FAIL: compact EVE student unexpectedly exceeds 20 MB."
+              exit 1
+            fi
+          else
+            echo "::warning::No successful distilled-student release exists yet; this build will use EVE's compact Arabic fallback only."
+          fi
+
       - name: Validate EVE private-model training script syntax
         shell: bash
         run: |
@@ -214,7 +244,7 @@ jobs:
           "$RUNNER_TEMP/gradle-8.9/bin/gradle"             --no-daemon --stacktrace -p eve-project             testDebugUnitTest assembleDebug assembleRelease
 
 
-      - name: Verify EVE private student integration and keep model weights outside APK
+      - name: Verify embedded EVE student model in both APKs
         shell: bash
         run: |
           set -euo pipefail
@@ -230,7 +260,19 @@ jobs:
               echo "FAIL: EVE private student integration class is missing from $APK."
               exit 1
             fi
-            echo "PASS: EVE private student integration present; EVE's trained weights remain external to $APK."
+            if [ -s "eve-project/app/src/main/assets/eve_private_student.tflite" ]; then
+              unzip -Z1 "$APK" | grep -Fxq "assets/eve_private_student.tflite"
+              PACKAGED_SHA256="$(unzip -p "$APK" assets/eve_private_student.tflite | sha256sum | awk '{print $1}')"
+              SOURCE_SHA256="$(sha256sum eve-project/app/src/main/assets/eve_private_student.tflite | awk '{print $1}')"
+              test "$PACKAGED_SHA256" = "$SOURCE_SHA256"
+              echo "PASS: $APK embeds the exact distilled EVE student weights."
+            else
+              if unzip -Z1 "$APK" | grep -Fxq "assets/eve_private_student.tflite"; then
+                echo "FAIL: an unexpected student model is present in $APK."
+                exit 1
+              fi
+              echo "WARN: $APK has the EVE runtime but no trained student asset yet."
+            fi
           done
       - name: Verify offline vision models are packaged in both APKs
         shell: bash
@@ -293,6 +335,22 @@ jobs:
               exit 1
             fi
             echo "PASS: $APK contains the pinned offline identity model and license."
+          done
+
+      - name: Measure complete APK size against the 80 MB target
+        shell: bash
+        run: |
+          set -euo pipefail
+          LIMIT=$((80 * 1024 * 1024))
+          for APK in \
+            "eve-project/app/build/outputs/apk/debug/app-debug.apk" \
+            "eve-project/app/build/outputs/apk/release/app-release.apk"; do
+            BYTES="$(stat -c '%s' "$APK")"
+            MIB="$(awk -v n="$BYTES" 'BEGIN { printf "%.2f", n/1048576 }')"
+            echo "APK_SIZE_REPORT file=$APK bytes=$BYTES MiB=$MIB limit_bytes=$LIMIT"
+            if [ "$BYTES" -gt "$LIMIT" ]; then
+              echo "::warning file=$APK::APK is $MIB MiB, above the requested 80 MiB whole-app limit."
+            fi
           done
 
       - name: Verify APK signatures for installer compatibility
