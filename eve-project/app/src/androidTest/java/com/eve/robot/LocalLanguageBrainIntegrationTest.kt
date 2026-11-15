@@ -50,7 +50,7 @@ class LocalLanguageBrainIntegrationTest {
                 assertTrue(
                     "The embedded student returned no useful Arabic text.",
                     generated.replyArabic.length >= 8 &&
-                        generated.replyArabic.count { it in '\\u0600'..'\\u06FF' } >= 8
+                        generated.replyArabic.count { it in '\u0600'..'\u06FF' } >= 8
                 )
                 Log.i(
                     TAG,
