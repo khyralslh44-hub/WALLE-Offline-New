@@ -184,18 +184,18 @@ def teacher(prompt):
                         "لا تكتب سلسلة التفكير أو وسوم think؛ أخرج الجواب النهائي فقط."
                     ),
                 },
-                {"role": "user", "content": prompt},
+                {"role": "user", "content": prompt + "\n/no_think"},
             ],
-            temperature=0.65,
-            top_p=0.9,
+            temperature=0.7,
+            top_p=0.8,
             repeat_penalty=1.08,
-            max_tokens=180,
+            max_tokens=220,
             stop=["<|im_end|>"],
         )
     answer = (result["choices"][0]["message"].get("content") or "").strip()
     answer = re.sub(r"<think>.*?</think>", "", answer, flags=re.DOTALL).strip()
     answer = answer.replace("<|im_end|>", "").strip()
-    if len(answer) < 25:
+    if len(answer) < 12:
         raise ValueError(f"Open teacher answer too short ({len(answer)} chars)")
     return answer
 
