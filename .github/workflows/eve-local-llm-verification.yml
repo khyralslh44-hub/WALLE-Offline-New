@@ -2,6 +2,10 @@ name: EVE Hybrid Local Arabic Brain Offline Verification
 
 on:
   workflow_dispatch:
+  workflow_run:
+    workflows: ["Train EVE private language model"]
+    types: [completed]
+    branches: [main, feature/eve-free-open-teacher-distillation]
   push:
     paths:
       - 'eve-project/app/src/main/java/com/eve/robot/LocalLanguageBrain.kt'
@@ -19,6 +23,7 @@ on:
       - '.github/workflows/android-build.yml'
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
@@ -27,12 +32,25 @@ concurrency:
 
 jobs:
   tiny-arabic-offline:
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     name: EVE bespoke Arabic dialogue engine on Android
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
       - name: Check out exact source revision
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Bundle the exact distilled student from the completed training run
+        if: ${{ github.event_name == 'workflow_run' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: EVE-Student-APK-Asset
+          path: eve-project/app/src/main/assets
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ github.event.workflow_run.id }}
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -80,7 +98,11 @@ jobs:
             echo "FAIL: EVE EVE private student runtime class is missing from the APK."
             exit 2
           fi
-          echo "PASS: EVE private student runtime is present; trained weights remain external."
+          if [ -s eve-project/app/src/main/assets/eve_private_student.tflite ]; then
+            echo "PASS: EVE compact student weights are embedded in this verification APK."
+          else
+            echo "PASS: fallback-only verification APK has no separate teacher or generative weights."
+          fi
 
       - name: Run Android emulator test with radios disabled
         uses: reactivecircus/android-emulator-runner@v2

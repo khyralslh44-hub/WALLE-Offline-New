@@ -1,0 +1,75 @@
+name: Distil EVE Arabic ASR from Vosk
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/eve-free-open-teacher-distillation
+    paths:
+      - "eve-model/asr/**"
+      - ".github/workflows/train-eve-vosk-asr.yml"
+      - ".github/scripts/fetch-arabic-vosk-model.sh"
+permissions:
+  contents: read
+jobs:
+  distil-arabic-asr:
+    name: Vosk teacher to compact EVE audio student
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Restore Vosk teacher and dataset cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            eve-model/asr/teacher/
+            ~/.cache/huggingface/
+          key: eve-vosk-asr-teacher-v1
+          restore-keys: |
+            eve-vosk-asr-teacher-v1
+      - name: Install ASR teacher and student training dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install "numpy==1.26.4" "pyarrow==17.0.0" "huggingface-hub==0.36.0" \
+            "tensorflow-cpu==2.16.1" "datasets==2.21.0" \
+            "fsspec==2024.3.1" soundfile scipy "librosa==0.10.2.post1" "vosk==0.3.45"
+      - name: Download and verify Vosk Arabic teacher
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash .github/scripts/fetch-arabic-vosk-model.sh eve-model/asr/teacher
+          mkdir -p eve-model/asr/teacher/unpacked
+          unzip -q eve-model/asr/teacher/vosk-model-ar-mgb2-0.4.zip \
+            -d eve-model/asr/teacher/unpacked
+          MODEL_DIR="$(find eve-model/asr/teacher/unpacked -type f \
+            -path '*/am/final.mdl' -printf '%h\n' | sed 's#/am$##' | head -n 1)"
+          test -n "$MODEL_DIR"
+          test -s "$MODEL_DIR/conf/model.conf"
+          echo "VOSK_MODEL_PATH=$MODEL_DIR" >> "$GITHUB_ENV"
+          echo "Verified model folder: $MODEL_DIR"
+      - name: Validate distillation script
+        run: python -m py_compile eve-model/asr/train_vosk_asr_student.py
+      - name: Generate Vosk pseudo-labels and train compact audio student
+        env:
+          EVE_ASR_TRAIN_SAMPLES: "600"
+          EVE_ASR_VALID_SAMPLES: "120"
+          EVE_ASR_EPOCHS: "6"
+          EVE_ASR_BATCH_SIZE: "8"
+          TF_CPP_MIN_LOG_LEVEL: "2"
+        run: |
+          set -euo pipefail
+          python eve-model/asr/train_vosk_asr_student.py
+      - name: Upload student and held-out evaluation
+        uses: actions/upload-artifact@v4
+        with:
+          name: EVE-Vosk-Distilled-Arabic-ASR
+          path: |
+            eve-model/asr/dist/eve_vosk_asr_student.tflite
+            eve-model/asr/dist/eve_vosk_asr_student.json
+            eve-model/asr/dist/eve_vosk_asr_student.keras
+            eve-model/asr/dist/training_report.json
+          if-no-files-found: error
+          retention-days: 30

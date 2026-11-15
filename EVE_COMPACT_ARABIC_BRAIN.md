@@ -2,37 +2,52 @@
 
 ## Target architecture
 
-EVE's generative language student is **EVE-GRU-256-2L**, a compact byte-level recurrent model whose weights are initialized randomly and trained specifically for EVE. A large teacher is used only during dataset creation to provide Arabic explanations, dialogue, reasoning examples, and grounded responses. The teacher's weights, tokenizer, and inference runtime are not copied into EVE.
+EVE uses a compact byte-level GRU language student (two 256-unit recurrent layers, 96-dimensional
+embedding, 259-token byte vocabulary). Its training targets come from a local open-weight Qwen3
+teacher, but the teacher is not shipped to the phone.
 
-The Android app uses TensorFlow Lite to run the trained EVE student locally. The student model is a separate file downloaded once with the user's approval and stored in app-private storage. After installation, generation is offline.
+The teacher is downloaded on the GitHub training runner only:
+- Teacher: `ggml-org/Qwen3-0.6B-GGUF`, Q4_0 GGUF (Apache-2.0).
+- Loader: `llama-cpp-python`/llama.cpp CPU inference.
+- Checksum: pinned SHA-256 in `eve-model/train_private_eve_student.py`.
+- No OpenAI API key, paid API, or cloud inference call is used.
 
 ## Training pipeline
 
-- Source: `eve-model/train_private_eve_student.py`
-- Workflow: `.github/workflows/train-eve-private-model.yml`
-- Teacher: configurable OpenAI-compatible chat model (default `gpt-4.1`), used only to create a supervised corpus.
-- Student: TensorFlow/Keras GRUCell model, two 256-unit GRU layers, 96-dimensional byte embeddings, UTF-8 byte tokenizer, random initialization.
-- Export: `eve_private_student.tflite` and metadata JSON.
-- Artifact publishing: the workflow uploads the TFLite student to the GitHub release named `eve-private-student`, which the Android app downloads only after the user approves.
+- Source: `eve-model/train_private_eve_student.py`.
+- Workflow: `.github/workflows/train-eve-private-model.yml`.
+- Distillation type: sequence-level supervised targets. Qwen3 produces Arabic answers;
+  the byte-level GRU student learns from those answer tokens. This is not direct logit
+  distillation because the student and teacher tokenizers/architectures differ.
+- Export: `eve_private_student.tflite` and a JSON metadata file.
 
-The workflow requires an `OPENAI_API_KEY` repository secret. Training has **not** been run merely by adding the workflow. A successful run must produce the release asset before the app's generative student can be installed.
+The teacher weights remain a build-time dependency and are never copied into the APK.
+Only the compact TFLite student is eligible for bundling.
 
 ## Android integration
 
-- `EvePrivateStudentLanguageModel.kt` runs the custom TFLite student using TensorFlow Lite.
-- `LocalLanguageBrain.kt` calls this runtime and falls back to EVE's existing Arabic intent/composition engine if the private student is not yet installed or inference fails.
-- The previous Qwen3/LiteRT-LM runtime and dependency have been removed from the Android app.
-- Existing camera, object/face/gesture/pose perception, offline speech, local memory, personality, and game systems remain separate from the language student.
+- `EvePrivateStudentLanguageModel.kt` loads the TFLite student from
+  `app/src/main/assets/eve_private_student.tflite`, copies it into private app storage,
+  and runs it offline.
+- It no longer fetches model weights from GitHub or any other network endpoint.
+- If a build has no trained asset yet, EVE continues using its existing compact Arabic
+  intent/composition engine; it must not claim the generative student is ready.
+- Existing camera, perception, memory, personality, and game logic are independent
+  of the language student.
+
+## Size and capability constraints
+
+The requested total APK ceiling is 80 MB. The latest measured ARM64 APK was 427,827,473
+bytes (about 427.8 MB decimal). The Arabic Vosk model ZIP alone accounted for 333,241,610
+bytes. Other vision/gesture models and native libraries also exceed the remaining budget.
+Consequently, the language-student change by itself cannot make the whole app fit under 80 MB.
+The build workflow reports actual APK size; the Arabic offline speech/vision feature set
+must be reduced or replaced with materially smaller models before an 80 MB release can be
+honestly claimed. No existing perception/speech model is silently removed by this change.
 
 ## Honest limitations and acceptance tests
 
-A small GRU trained from scratch is not equivalent to a large foundation model. Its Arabic fluency and reasoning quality depend heavily on the teacher corpus, training time, and evaluation. The first training run is a prototype, not a claim of production-level intelligence.
-
-Before calling EVE ready, verify:
-1. Training completes and produces the model release asset.
-2. TFLite export opens in Android and generates valid UTF-8 Arabic.
-3. A held-out Arabic test set checks factuality, dialogue quality, unsupported questions, and repetition.
-4. Offline Android instrumentation passes with Wi-Fi/mobile data disabled after the one-time model download.
-5. Redmi 12 tests measure latency, RAM, heat, and battery use.
-
-The APK does not bundle model weights. The model file is downloaded separately; this avoids inflating the APK.
+A small GRU distilled from a 0.6B teacher will retain only a limited portion of the teacher's
+behavior. It is a compact Arabic dialogue prototype, not equivalent to Qwen3. A successful
+training workflow proves export and numerical TFLite execution only. A held-out Arabic quality
+suite and Redmi 12 offline latency/RAM/thermal tests remain required.

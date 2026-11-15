@@ -68,7 +68,7 @@ class LocalLanguageBrain(
         activeInstance = this
     }
 
-    // The compact Arabic engine remains available as a fallback while the generative model is absent/downloading.
+    // The compact Arabic engine remains available as a fallback if this build has no bundled distilled weights.
     val isReady: Boolean
         get() = !closed.get() && state != LocalLlmState.DOWNLOADING && state != LocalLlmState.LOADING
 
@@ -92,7 +92,7 @@ class LocalLanguageBrain(
                     publish(
                         LocalLlmState.WAITING_FOR_WIFI,
                         0,
-                        "نموذج إيف الخاص غير مثبت؛ انقر شريط الحالة لتنزيله بعد اكتمال التدريب."
+                        "أوزان الطالب اللغوي غير مضمّنة في هذا الإصدار؛ يعمل محرك العربية المدمج كبديل."
                     )
                 }
             } catch (error: Exception) {
@@ -107,29 +107,29 @@ class LocalLanguageBrain(
     val isModelInstalled: Boolean
         get() = generativeModel.isInstalled
 
-    fun downloadAndLoad() {
+    fun loadBundledStudent() {
         if (closed.get() || isGenerativeModelReady || state == LocalLlmState.DOWNLOADING ||
             state == LocalLlmState.LOADING || !modelLoadQueued.compareAndSet(false, true)
         ) return
         try {
             worker.execute {
                 try {
-                    publish(LocalLlmState.DOWNLOADING, 0, "تنزيل نموذج إيف الخاص لأول مرة؛ سيبقى محفوظاً على الهاتف.")
-                    generativeModel.downloadAndLoad { percent ->
-                        publish(LocalLlmState.DOWNLOADING, percent, "تنزيل النموذج اللغوي المحلي")
+                    publish(LocalLlmState.LOADING, 0, "تجهيز أوزان نموذج إيف المضمّنة داخل التطبيق.")
+                    generativeModel.installBundledAndLoad { percent ->
+                        publish(LocalLlmState.LOADING, percent, "تجهيز أوزان النموذج المضمّنة")
                     }
-                    publish(LocalLlmState.LOADING, 0, "اكتمل التنزيل؛ جارٍ تشغيل النموذج على الهاتف.")
-                    publish(LocalLlmState.READY, 100, "نموذج إيف الخاص جاهز • يعمل دون إنترنت")
+                    publish(LocalLlmState.LOADING, 0, "اكتمل تجهيز الأوزان؛ جارٍ تشغيل النموذج على الهاتف.")
+                    publish(LocalLlmState.READY, 100, "نموذج إيف المدمج جاهز • يعمل دون إنترنت")
                 } catch (error: Exception) {
-                    Log.e(TAG, "ON_DEVICE_LLM_DOWNLOAD_OR_LOAD_FAILED", error)
-                    publish(LocalLlmState.ERROR, 0, error.message ?: "تعذر تنزيل أو تشغيل النموذج.")
+                    Log.e(TAG, "ON_DEVICE_LLM_BUNDLED_MODEL_LOAD_FAILED", error)
+                    publish(LocalLlmState.ERROR, 0, error.message ?: "تعذر تجهيز أو تشغيل النموذج المضمّن.")
                 } finally {
                     modelLoadQueued.set(false)
                 }
             }
         } catch (error: Exception) {
             modelLoadQueued.set(false)
-            publish(LocalLlmState.ERROR, 0, error.message ?: "تعذر بدء تنزيل النموذج.")
+            publish(LocalLlmState.ERROR, 0, error.message ?: "تعذر بدء تحميل النموذج المضمّن.")
         }
     }
 
@@ -260,6 +260,13 @@ class LocalLanguageBrain(
         fallback: () -> LocalLlmResult,
         intent: String = "conversation"
     ): LocalLlmResult {
+        // Do not enter the TFLite generation path in fallback-only builds. This keeps the
+        // compact Arabic engine independent of model installation/loading and avoids treating
+        // an intentionally absent student as an inference error on every user turn.
+        if (!isGenerativeModelReady) {
+            Log.i(TAG, "LOCAL_ARABIC_FALLBACK_ONLY state=$state offline=true")
+            return fallback()
+        }
         return try {
             val generated = generativeModel.generate(prompt).trim()
             if (generated.isBlank() || generated.count { it in '\u0600'..'\u06FF' } < 2) fallback() else {

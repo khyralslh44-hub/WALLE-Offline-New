@@ -1168,22 +1168,6 @@ class MainActivity : ComponentActivity() {
 
     private fun handleCameraStatusTap() {
         lastDirectUserActionAt = SystemClock.elapsedRealtime()
-        if (::localLanguageBrain.isInitialized &&
-            (currentLocalLlmState == LocalLlmState.WAITING_FOR_WIFI || currentLocalLlmState == LocalLlmState.ERROR) &&
-            !localLanguageBrain.isModelInstalled
-        ) {
-            android.app.AlertDialog.Builder(this)
-                .setTitle("إضافة الذكاء اللغوي الحقيقي إلى إيف")
-                .setMessage(
-                    "سيتم تنزيل نموذج إيف الخاص مرة واحدة بعد إتمام تدريبه. سيبقى محفوظاً على الهاتف ويعمل دون إنترنت. " +
-                        "بعد حفظه على الهاتف سيعمل توليد اللغة دون إنترنت، ولن تُرسل محادثاتك إلى خادم. " +
-                        "تأكد من توفر مساحة تخزين واتصال مناسب قبل البدء."
-                )
-                .setPositiveButton("تنزيل النموذج") { _, _ -> localLanguageBrain.downloadAndLoad() }
-                .setNegativeButton("لاحقاً", null)
-                .show()
-            return
-        }
         if (hasCameraPermission()) {
             if (!cameraStarted) startCamera()
             val cameraLine = if (!cameraStarted) {
@@ -1197,7 +1181,7 @@ class MainActivity : ComponentActivity() {
                 LocalLlmState.READY -> "الدماغ اللغوي المحلي: جاهز دون إنترنت"
                 LocalLlmState.DOWNLOADING -> "الدماغ اللغوي: تنزيل $currentLocalLlmPercent%"
                 LocalLlmState.LOADING -> "الدماغ اللغوي: جارٍ التهيئة"
-                LocalLlmState.WAITING_FOR_WIFI -> "النموذج اللغوي: غير مثبت • انقر للتنزيل"
+                LocalLlmState.WAITING_FOR_WIFI -> "أوزان النموذج اللغوي غير مضمّنة في هذا الإصدار"
                 LocalLlmState.ERROR -> "الدماغ اللغوي غير جاهز: $currentLocalLlmDetail"
             }
             val micLine = when {
@@ -1376,7 +1360,7 @@ class MainActivity : ComponentActivity() {
             LocalLlmState.READY -> "الدماغ جاهز"
             LocalLlmState.DOWNLOADING -> "تنزيل الدماغ $currentLocalLlmPercent%"
             LocalLlmState.LOADING -> "تهيئة الدماغ اللغوي…"
-            LocalLlmState.WAITING_FOR_WIFI -> "النموذج غير مثبت • انقر للتنزيل"
+            LocalLlmState.WAITING_FOR_WIFI -> "أوزان النموذج غير مضمّنة"
             LocalLlmState.ERROR -> "خطأ في الدماغ اللغوي"
         }
         val shown = "$cameraDescription • $brainDescription"
@@ -2993,7 +2977,7 @@ class MainActivity : ComponentActivity() {
                 if (detail == "لم تكتمل تهيئة الدماغ اللغوي") {
                     showLocalBrainChip("جارٍ بدء الدماغ المحلي…", "تهيئة أولية", 0xFFB3E5FC.toInt())
                 } else {
-                    showLocalBrainChip("النموذج اللغوي غير مثبت • انقر للتنزيل", detail, 0xFFFFD180.toInt())
+                    showLocalBrainChip("أوزان النموذج غير مدمجة في هذا الإصدار", detail, 0xFFFFD180.toInt())
                     drainPendingLocalQuestionIfReady()
                 }
             }
@@ -3004,7 +2988,7 @@ class MainActivity : ComponentActivity() {
                 showLocalBrainChip("تشغيل الدماغ المحلي…", detail, 0xFFB3E5FC.toInt())
             }
             LocalLlmState.ERROR -> {
-                showLocalBrainChip("تعذر تشغيل النموذج • اضغط للتشخيص أو إعادة التنزيل", detail, 0xFFFFAB91.toInt())
+                showLocalBrainChip("تعذر تشغيل نموذج اللغة المدمج", detail, 0xFFFFAB91.toInt())
                 drainPendingLocalQuestionIfReady()
             }
         }

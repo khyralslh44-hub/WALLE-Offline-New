@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
-"""Train EVE's byte-level Arabic GRU student using resumable parallel teacher batches.
+"""Distil Arabic dialogue behavior from a local open-weight teacher into EVE's tiny GRU.
 
-Teacher calls are data-generation only. The student starts from random initialization;
-only the exported student weights are used at runtime.
+The teacher is downloaded only on the training runner. No API key or paid endpoint is used.
+This is sequence-level supervised distillation, not logit transfer: EVE's byte tokenizer
+and GRU architecture differ from the teacher's tokenizer and Transformer.
 """
 import concurrent.futures
+import hashlib
 import json
 import os
-import random
-import time
-import urllib.error
-import urllib.request
+import re
 from pathlib import Path
 from threading import Lock
 
+from huggingface_hub import hf_hub_download
+from llama_cpp import Llama
 import numpy as np
 import tensorflow as tf
 
@@ -22,15 +23,63 @@ DATA = ROOT / "teacher_corpus.jsonl"
 STATE = ROOT / "teacher_corpus.progress.json"
 OUT = ROOT / "dist"
 OUT.mkdir(parents=True, exist_ok=True)
-API_URL = os.getenv("EVE_TEACHER_API_URL", "https://api.openai.com/v1/chat/completions")
-TEACHER = os.getenv("EVE_TEACHER_MODEL", "gpt-4.1")
-API_KEY = os.environ["OPENAI_API_KEY"]
+
+TEACHER_REPO = "ggml-org/Qwen3-0.6B-GGUF"
+TEACHER_FILE = "Qwen3-0.6B-Q4_0.gguf"
+TEACHER_REVISION = "main"
+TEACHER = f"{TEACHER_REPO}:{TEACHER_FILE}"
+TEACHER_SHA256 = "da2572f16c06133561ce56accaa822216f2391ef4d37fba427801cd6736417d4"
+TEACHER_THREADS = max(1, min(int(os.getenv("EVE_TEACHER_THREADS", "4")), 8))
+TEACHER_CONTEXT = 2048
+
 MAX_LEN, HIDDEN, EMBED = 384, 256, 96
 BOS, EOS, VOCAB = 257, 258, 259
-WORKERS = max(1, min(int(os.getenv("EVE_TEACHER_WORKERS", "4")), 8))
-BATCH_SIZE = max(1, int(os.getenv("EVE_TEACHER_BATCH_SIZE", "100")))
-MAX_RETRIES = max(1, int(os.getenv("EVE_TEACHER_MAX_RETRIES", "6")))
+WORKERS = max(1, min(int(os.getenv("EVE_TEACHER_WORKERS", "1")), 4))
+BATCH_SIZE = max(1, int(os.getenv("EVE_TEACHER_BATCH_SIZE", "50")))
 PRINT_LOCK = Lock()
+TEACHER_INIT_LOCK = Lock()
+TEACHER_INFERENCE_LOCK = Lock()
+_TEACHER_MODEL = None
+
+def get_teacher_model():
+    """Download once, verify the pinned artifact, and load it locally via llama.cpp."""
+    global _TEACHER_MODEL
+    if _TEACHER_MODEL is not None:
+        return _TEACHER_MODEL
+    with TEACHER_INIT_LOCK:
+        if _TEACHER_MODEL is not None:
+            return _TEACHER_MODEL
+        cache_dir = ROOT / ".teacher_cache"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        model_path = hf_hub_download(
+            repo_id=TEACHER_REPO,
+            filename=TEACHER_FILE,
+            revision=TEACHER_REVISION,
+            local_dir=str(cache_dir),
+        )
+        digest = hashlib.sha256()
+        with open(model_path, "rb") as model_file:
+            for chunk in iter(lambda: model_file.read(8 * 1024 * 1024), b""):
+                digest.update(chunk)
+        actual = digest.hexdigest()
+        if actual != TEACHER_SHA256:
+            raise RuntimeError(
+                f"Open teacher checksum mismatch: expected {TEACHER_SHA256}, got {actual}"
+            )
+        print(
+            f"Verified local open teacher: {TEACHER} bytes={os.path.getsize(model_path)} "
+            f"sha256={actual}",
+            flush=True,
+        )
+        _TEACHER_MODEL = Llama(
+            model_path=model_path,
+            n_ctx=TEACHER_CONTEXT,
+            n_threads=TEACHER_THREADS,
+            n_batch=128,
+            n_gpu_layers=0,
+            verbose=False,
+        )
+    return _TEACHER_MODEL
 
 SEED_TOPICS = [
   "الشخصية والهوية والحدود الأخلاقية لإيف",
@@ -121,42 +170,38 @@ def make_prompt(index):
         topic=topic, case=CASES[(variant // len(TEMPLATES)) % len(CASES)])
 
 def teacher(prompt):
-    body = json.dumps({
-        "model": TEACHER, "temperature": 0.75, "max_tokens": 220,
-        "messages": [
-            {"role": "system", "content":
-             "أنت معلّم بيانات لنموذج إيف الروبوتية. اكتب إجابة عربية طبيعية دقيقة ومفيدة. "
-             "لا تدّع امتلاك إيف حواساً أو ذكريات غير موجودة. اذكر عدم اليقين عند الحاجة. "
-             "اجعل الإجابة مستقلة ومختصرة ومتنوعة، ولا تذكر أنك نموذج معلّم."},
-            {"role": "user", "content": prompt}
-        ]
-    }).encode()
-    for attempt in range(MAX_RETRIES):
-        req = urllib.request.Request(API_URL, data=body, headers={
-            "Authorization": "Bearer " + API_KEY, "Content-Type": "application/json"})
-        try:
-            with urllib.request.urlopen(req, timeout=90) as response:
-                obj = json.loads(response.read())
-            answer = obj["choices"][0]["message"]["content"].strip()
-            if len(answer) < 25:
-                raise ValueError("Teacher answer too short")
-            return answer
-        except urllib.error.HTTPError as exc:
-            detail = exc.read().decode("utf-8", "replace")[:1200]
-            retry_after = exc.headers.get("Retry-After")
-            retryable = exc.code in (408, 409, 429, 500, 502, 503, 504)
-            if not retryable or attempt + 1 == MAX_RETRIES:
-                raise RuntimeError(f"Teacher HTTP {exc.code}; retries exhausted/non-retryable: {detail}") from exc
-            delay = float(retry_after) if retry_after and retry_after.isdigit() else min(60, 2 ** attempt + random.random())
-            print(f"Temporary teacher HTTP {exc.code}; retry {attempt+1}/{MAX_RETRIES} in {delay:.1f}s", flush=True)
-            time.sleep(delay)
-        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, KeyError, ValueError) as exc:
-            if attempt + 1 == MAX_RETRIES:
-                raise RuntimeError(f"Teacher request failed after {MAX_RETRIES} attempts: {exc}") from exc
-            delay = min(60, 2 ** attempt + random.random())
-            print(f"Temporary teacher error; retry {attempt+1}/{MAX_RETRIES} in {delay:.1f}s: {exc}", flush=True)
-            time.sleep(delay)
-    raise RuntimeError("Unreachable retry state")
+    """Generate one Arabic target locally; inference never calls an external API."""
+    model = get_teacher_model()
+    last_error = None
+    with TEACHER_INFERENCE_LOCK:
+        for attempt in range(3):
+            result = model.create_chat_completion(
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "أنت معلّم عربي لنموذج إيف الروبوتية. أجب بالعربية الطبيعية الدقيقة. "
+                            "قدّم جواباً عملياً واضحاً لا يقل عن جملتين أو 30 حرفاً. "
+                            "ميّز الحقيقة من الاحتمال، واعترف بعدم المعرفة. "
+                            "لا تدّع أن إيف واعية أو ترى شيئاً لم يُعرض عليها. "
+                            "لا تكتب سلسلة التفكير أو وسوم think؛ أخرج الجواب النهائي فقط."
+                        ),
+                    },
+                    {"role": "user", "content": prompt + "\nاكتب جواباً نهائياً مفيداً من جملتين على الأقل.\n/no_think"},
+                ],
+                temperature=0.7 if attempt == 0 else 0.85,
+                top_p=0.8,
+                repeat_penalty=1.08,
+                max_tokens=260,
+                stop=["<|im_end|>"],
+            )
+            answer = (result["choices"][0]["message"].get("content") or "").strip()
+            answer = re.sub(r"<think>.*?</think>", "", answer, flags=re.DOTALL).strip()
+            answer = answer.replace("<|im_end|>", "").strip()
+            if len(answer) >= 12:
+                return answer
+            last_error = ValueError(f"Open teacher answer too short ({len(answer)} chars)")
+    raise last_error
 
 def load_corpus():
     rows = []
@@ -181,7 +226,7 @@ def load_corpus():
 
 def save_progress(done, target):
     tmp = STATE.with_suffix(".tmp")
-    tmp.write_text(json.dumps({"completed": done, "target": target, "teacher": TEACHER},
+    tmp.write_text(json.dumps({"completed": done, "target": target, "teacher": TEACHER, "teacher_sha256": TEACHER_SHA256},
                               ensure_ascii=False, indent=2), encoding="utf-8")
     tmp.replace(STATE)
 
@@ -370,13 +415,13 @@ def train(rows):
 
     vocab = {"version": 1, "tokenization": "utf8-byte-plus-one", "bos": BOS, "eos": EOS,
              "vocab_size": VOCAB, "hidden_size": HIDDEN, "max_len": MAX_LEN,
-             "teacher": TEACHER, "student": "EVE-GRU-256-2L-random-init",
+             "teacher": TEACHER, "teacher_sha256": TEACHER_SHA256, "distillation": "local sequence-level supervised targets", "student": "EVE-GRU-256-2L",
              "training_examples": len(rows), "teacher_workers": WORKERS}
     (OUT / "eve_private_student.json").write_text(
         json.dumps(vocab, ensure_ascii=False, indent=2), encoding="utf-8")
     model.save(checkpoint)
     report = {
-        "examples": len(rows), "teacher": TEACHER, "workers": WORKERS,
+        "examples": len(rows), "teacher": TEACHER, "teacher_sha256": TEACHER_SHA256, "distillation": "sequence_level_supervised_targets", "workers": WORKERS,
         "batch_size": BATCH_SIZE, "checkpoint": checkpoint.name,
         "student": vocab["student"], "tflite_bytes": len(tflite),
         "training_objective": "assistant_answer_tokens_only",
@@ -396,7 +441,8 @@ def train(rows):
     )
 
 if __name__ == "__main__":
-    requested = int(os.getenv("EVE_TRAIN_EXAMPLES", "5000"))
+    get_teacher_model()  # Fail early on model download, checksum, or local-runtime errors.
+    requested = int(os.getenv("EVE_TRAIN_EXAMPLES", "1000"))
     if requested < 1:
         raise ValueError("EVE_TRAIN_EXAMPLES must be >= 1")
     corpus = build_corpus(requested)

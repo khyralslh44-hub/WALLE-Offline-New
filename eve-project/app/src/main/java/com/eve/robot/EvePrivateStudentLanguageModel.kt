@@ -6,28 +6,32 @@ import org.tensorflow.lite.Interpreter
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
-import java.net.HttpURLConnection
-import java.net.URL
 import kotlin.math.exp
 import kotlin.random.Random
 
-/** EVE's randomly initialized, EVE-trained byte-level GRU student; no pretrained LLM weights. */
+/** EVE's compact GRU student, distilled from an open-weight Arabic-capable teacher at build time. */
 internal class EvePrivateStudentLanguageModel(context: Context) : AutoCloseable {
     private val appContext = context.applicationContext
     private val modelFile = File(appContext.filesDir, MODEL_FILE_NAME)
     private var interpreter: Interpreter? = null
 
     val isInstalled: Boolean
-        get() = modelFile.isFile && modelFile.length() >= MIN_VALID_BYTES
+        get() = (modelFile.isFile && modelFile.length() >= MIN_VALID_BYTES) || bundledAssetAvailable()
 
-    fun downloadAndLoad(onProgress: (Int) -> Unit) {
-        if (!isInstalled) download(onProgress)
+    /** Copy the model bundled in the APK into app-private storage; never uses the network. */
+    fun installBundledAndLoad(onProgress: (Int) -> Unit) {
+        onProgress(0)
+        installBundledAsset()
+        onProgress(100)
         load()
     }
 
     fun load() {
         if (interpreter != null) return
-        check(isInstalled) { "نموذج إيف الخاص غير مثبت أو أن تنزيله غير مكتمل." }
+        installBundledAsset()
+        check(modelFile.isFile && modelFile.length() >= MIN_VALID_BYTES) {
+            "أوزان نموذج إيف غير موجودة داخل هذا الإصدار من التطبيق."
+        }
         val candidate = Interpreter(modelFile, Interpreter.Options().apply {
             setNumThreads(4)
             setUseXNNPACK(true)
@@ -89,53 +93,38 @@ internal class EvePrivateStudentLanguageModel(context: Context) : AutoCloseable 
         return candidates.first()
     }
 
-    private fun download(onProgress: (Int) -> Unit) {
+    private fun bundledAssetAvailable(): Boolean = try {
+        appContext.assets.open(MODEL_FILE_NAME).use { }
+        true
+    } catch (_: Exception) {
+        false
+    }
+
+    private fun installBundledAsset() {
+        if (modelFile.isFile && modelFile.length() >= MIN_VALID_BYTES) return
+        check(bundledAssetAvailable()) {
+            "أوزان نموذج إيف غير مضمّنة داخل هذا الإصدار من التطبيق."
+        }
         val temporary = File(appContext.filesDir, "$MODEL_FILE_NAME.part")
         temporary.delete()
-        val connection = (URL(MODEL_URL).openConnection() as HttpURLConnection).apply {
-            connectTimeout = 30_000
-            readTimeout = 90_000
-            instanceFollowRedirects = true
-            requestMethod = "GET"
-            setRequestProperty("User-Agent", "EVE-Android/1.0")
-        }
         try {
-            connection.connect()
-            if (connection.responseCode !in 200..299) {
-                throw IllegalStateException("تعذر تنزيل نموذج إيف: HTTP ${connection.responseCode}")
-            }
-            val expected = connection.contentLengthLong
-            var copied = 0L
-            var lastPercent = -1
-            connection.inputStream.use { input ->
+            appContext.assets.open(MODEL_FILE_NAME).use { input ->
                 FileOutputStream(temporary).use { output ->
-                    val buffer = ByteArray(64 * 1024)
-                    while (true) {
-                        val count = input.read(buffer)
-                        if (count < 0) break
-                        output.write(buffer, 0, count)
-                        copied += count
-                        val percent = if (expected > 0) (copied * 100L / expected).toInt().coerceIn(0, 99) else 0
-                        if (percent != lastPercent) {
-                            lastPercent = percent
-                            onProgress(percent)
-                        }
-                    }
+                    input.copyTo(output)
                     output.flush()
                     output.fd.sync()
                 }
             }
-            check(copied >= MIN_VALID_BYTES && (expected <= 0 || copied == expected)) {
-                "ملف نموذج إيف غير مكتمل؛ أعد المحاولة."
+            check(temporary.length() >= MIN_VALID_BYTES) {
+                "ملف أوزان إيف المضمّن غير مكتمل."
             }
             if (modelFile.exists()) modelFile.delete()
-            check(temporary.renameTo(modelFile)) { "تعذر حفظ نموذج إيف في مساحة التطبيق." }
-            onProgress(100)
+            check(temporary.renameTo(modelFile)) {
+                "تعذر تجهيز أوزان إيف المضمّنة في مساحة التطبيق."
+            }
         } catch (error: Exception) {
             temporary.delete()
             throw error
-        } finally {
-            connection.disconnect()
         }
     }
 
@@ -150,8 +139,6 @@ internal class EvePrivateStudentLanguageModel(context: Context) : AutoCloseable 
     companion object {
         private const val TAG = "EVE_PRIVATE_STUDENT"
         private const val MODEL_FILE_NAME = "eve_private_student.tflite"
-        private const val MODEL_URL =
-            "https://github.com/khyralslh44-hub/WALLE-Offline-New/releases/download/eve-private-student/eve_private_student.tflite"
         private const val MIN_VALID_BYTES = 100_000L
         private const val HIDDEN_SIZE = 256
         private const val VOCAB_SIZE = 259
