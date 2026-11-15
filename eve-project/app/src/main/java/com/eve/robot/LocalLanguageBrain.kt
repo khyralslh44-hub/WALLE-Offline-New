@@ -68,7 +68,7 @@ class LocalLanguageBrain(
         activeInstance = this
     }
 
-    // The compact Arabic engine remains available as a fallback if this build has no distilled weights.
+    // The compact Arabic engine remains available as a fallback if this build has no bundled distilled weights.
     val isReady: Boolean
         get() = !closed.get() && state != LocalLlmState.DOWNLOADING && state != LocalLlmState.LOADING
 
@@ -107,7 +107,7 @@ class LocalLanguageBrain(
     val isModelInstalled: Boolean
         get() = generativeModel.isInstalled
 
-    fun downloadAndLoad() {
+    fun loadBundledStudent() {
         if (closed.get() || isGenerativeModelReady || state == LocalLlmState.DOWNLOADING ||
             state == LocalLlmState.LOADING || !modelLoadQueued.compareAndSet(false, true)
         ) return
@@ -115,13 +115,13 @@ class LocalLanguageBrain(
             worker.execute {
                 try {
                     publish(LocalLlmState.LOADING, 0, "تجهيز أوزان نموذج إيف المضمّنة داخل التطبيق.")
-                    generativeModel.downloadAndLoad { percent ->
+                    generativeModel.installBundledAndLoad { percent ->
                         publish(LocalLlmState.LOADING, percent, "تجهيز أوزان النموذج المضمّنة")
                     }
                     publish(LocalLlmState.LOADING, 0, "اكتمل التنزيل؛ جارٍ تشغيل النموذج على الهاتف.")
                     publish(LocalLlmState.READY, 100, "نموذج إيف المدمج جاهز • يعمل دون إنترنت")
                 } catch (error: Exception) {
-                    Log.e(TAG, "ON_DEVICE_LLM_DOWNLOAD_OR_LOAD_FAILED", error)
+                    Log.e(TAG, "ON_DEVICE_LLM_BUNDLED_MODEL_LOAD_FAILED", error)
                     publish(LocalLlmState.ERROR, 0, error.message ?: "تعذر تنزيل أو تشغيل النموذج.")
                 } finally {
                     modelLoadQueued.set(false)
