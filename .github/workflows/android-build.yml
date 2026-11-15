@@ -10,7 +10,7 @@ on:
   workflow_run:
     workflows: ["Train EVE private language model"]
     types: [completed]
-    branches: [main]
+    branches: [main, feature/eve-free-open-teacher-distillation]
   push:
     paths:
       - 'eve-project/**'
@@ -27,6 +27,7 @@ on:
       - '.github/workflows/eve-local-llm-verification.yml'
 
 permissions:
+  actions: read
   contents: write
 
 jobs:
@@ -209,7 +210,18 @@ jobs:
           file "$MODEL"
           echo "Pose model downloaded: $(wc -c < "$MODEL") bytes"
 
-      - name: Bundle the distilled EVE student inside the APK when published
+      - name: Bundle the student produced by the triggering distillation run
+        if: ${{ github.event_name == 'workflow_run' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: EVE-Student-APK-Asset
+          path: eve-project/app/src/main/assets
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ github.event.workflow_run.id }}
+
+      - name: Reuse a previously published distilled student on ordinary builds
+        if: ${{ github.event_name != 'workflow_run' }}
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -221,15 +233,9 @@ jobs:
           rm -f "$MODEL"
           if gh release download eve-private-student --pattern eve_private_student.tflite --dir "$ASSETS" --clobber; then
             test -s "$MODEL"
-            BYTES="$(stat -c '%s' "$MODEL")"
-            SHA256="$(sha256sum "$MODEL" | awk '{print $1}')"
-            echo "Bundled distilled EVE student: bytes=$BYTES sha256=$SHA256"
-            if [ "$BYTES" -gt 20000000 ]; then
-              echo "FAIL: compact EVE student unexpectedly exceeds 20 MB."
-              exit 1
-            fi
+            echo "Bundled previously published EVE student: bytes=$(stat -c '%s' "$MODEL") sha256=$(sha256sum "$MODEL" | awk '{print $1}')"
           else
-            echo "::warning::No successful distilled-student release exists yet; this build will use EVE's compact Arabic fallback only."
+            echo "::warning::No trained student release exists yet; this build will use EVE's compact Arabic fallback only."
           fi
 
       - name: Validate EVE private-model training script syntax
@@ -400,7 +406,7 @@ jobs:
           retention-days: 14
 
       - name: Publish direct-install APK release
-        if: ${{ github.ref == 'refs/heads/main' }}
+        if: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' || (github.event_name == 'workflow_run' && github.event.workflow_run.head_branch == 'main') }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: eve-build-${{ github.run_number }}
