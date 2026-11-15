@@ -1,0 +1,146 @@
+name: Build EVE 3.4.1 from uploaded project ZIP
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'eve-android-3.4.1.zip'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Test and build EVE 3.4.1 APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Validate uploaded source archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          ARCHIVE="$GITHUB_WORKSPACE/eve-android-3.4.1.zip"
+          test -s "$ARCHIVE"
+          unzip -t "$ARCHIVE"
+          unzip -Z1 "$ARCHIVE" > "$RUNNER_TEMP/eve-archive-files.txt"
+          grep -Fxq 'settings.gradle.kts' "$RUNNER_TEMP/eve-archive-files.txt"
+          grep -Fxq 'build.gradle.kts' "$RUNNER_TEMP/eve-archive-files.txt"
+          grep -Fxq 'app/build.gradle.kts' "$RUNNER_TEMP/eve-archive-files.txt"
+          grep -Fxq 'ear/itest22_android_package.js' "$RUNNER_TEMP/eve-archive-files.txt"
+          echo "Source archive is structurally valid."
+
+      - name: Extract source into an isolated build directory
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$RUNNER_TEMP/eve-341-source"
+          mkdir -p "$SRC"
+          unzip -q "$GITHUB_WORKSPACE/eve-android-3.4.1.zip" -d "$SRC"
+          test -s "$SRC/app/src/main/AndroidManifest.xml"
+          test -s "$SRC/app/src/main/java/com/eve/companion/MainActivity.kt"
+          echo "EVE_SRC=$SRC" >> "$GITHUB_ENV"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Run EVE offline regression suites (125 checks)
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$EVE_SRC"
+          node ear/itest13.js
+          node ear/itest14.js
+          node ear/itest15.js
+          node ear/itest18_companion.js
+          node ear/itest19_camera.js
+          node ear/itest20_native_audio.js
+          node ear/itest21_semantic_learning.js
+          node ear/itest22_android_package.js
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        run: sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+
+      - name: Set up Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Download on-device vision models (build time only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$EVE_SRC"
+          BASE="https://storage.googleapis.com/mediapipe-models"
+          DIR="$SRC/app/src/main/assets/models"
+          mkdir -p "$DIR"
+          curl --fail --location --retry 3 "$BASE/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite" -o "$DIR/objects.tflite"
+          curl --fail --location --retry 3 "$BASE/face_landmarker/face_landmarker/float16/1/face_landmarker.task" -o "$DIR/face.task"
+          curl --fail --location --retry 3 "$BASE/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task" -o "$DIR/gesture.task"
+          curl --fail --location --retry 3 "$BASE/image_embedder/mobilenet_v3_small/float32/1/mobilenet_v3_small.tflite" -o "$DIR/embed.tflite"
+          curl --fail --location --retry 3 "$BASE/image_classifier/efficientnet_lite0/int8/1/efficientnet_lite0.tflite" -o "$DIR/classify.tflite" || curl --fail --location --retry 3 "$BASE/image_classifier/efficientnet_lite0/float32/1/efficientnet_lite0.tflite" -o "$DIR/classify.tflite"
+          for model in objects.tflite face.task gesture.task embed.tflite classify.tflite; do
+            test -s "$DIR/$model"
+          done
+
+      - name: Build debug and release APKs
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle --no-daemon --stacktrace -p "$EVE_SRC" testDebugUnitTest assembleDebug assembleRelease
+
+      - name: Verify APK package, version, signature and offline permissions
+        shell: bash
+        run: |
+          set -euo pipefail
+          AAPT="$ANDROID_HOME/build-tools/34.0.0/aapt"
+          APKSIGNER="$ANDROID_HOME/build-tools/34.0.0/apksigner"
+          for variant in debug release; do
+            APK="$EVE_SRC/app/build/outputs/apk/$variant/app-$variant.apk"
+            test -s "$APK"
+            BADGING="$("$AAPT" dump badging "$APK")"
+            grep -Fq "package: name='com.eve.companion' versionCode='8' versionName='3.4.1'" <<< "$BADGING"
+            "$APKSIGNER" verify "$APK"
+            PERMS="$("$AAPT" dump permissions "$APK")"
+            if grep -q 'android.permission.INTERNET' <<< "$PERMS"; then
+              echo "Unexpected INTERNET permission in $variant APK" >&2
+              exit 1
+            fi
+            for model in objects.tflite face.task gesture.task embed.tflite classify.tflite; do
+              unzip -Z1 "$APK" | grep -Fxq "assets/models/$model"
+            done
+          done
+          ls -lh "$EVE_SRC"/app/build/outputs/apk/{debug,release}/*.apk
+
+      - name: Upload EVE 3.4.1 APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: EVE-3.4.1-APK
+          if-no-files-found: error
+          path: |
+            ${{ runner.temp }}/eve-341-source/app/build/outputs/apk/debug/app-debug.apk
+            ${{ runner.temp }}/eve-341-source/app/build/outputs/apk/release/app-release.apk
+
+      - name: Publish build summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## EVE 3.4.1 build"
+            echo "- Package: com.eve.companion"
+            echo "- Version: 3.4.1 (8)"
+            echo "- Offline check: INTERNET permission must be absent"
+            echo "- APK artifact: EVE-3.4.1-APK"
+          } >> "$GITHUB_STEP_SUMMARY"
