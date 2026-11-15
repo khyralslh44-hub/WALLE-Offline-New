@@ -69,6 +69,7 @@ class MainActivity : ComponentActivity() {
     @Volatile private var currentLocalLlmPercent = 0
     @Volatile private var currentLocalLlmDetail = "لم تكتمل تهيئة الدماغ اللغوي"
     private var offlineArabicSpeech: OfflineArabicSpeech? = null
+    private lateinit var personalHearing: EvePersonalHearing
     @Volatile private var offlineSpeechStatus = "OFFLINE_SPEECH_NOT_STARTED"
     private var lastSpeechText = ""
     private var lastSpeechAt = 0L
@@ -465,6 +466,7 @@ class MainActivity : ComponentActivity() {
         }
         setContentView(root)
         memory = EveMemory(applicationContext)
+        personalHearing = EvePersonalHearing(applicationContext)
         conceptLearning = EveConceptLearning(applicationContext)
         autonomousMind = EveAutonomousMind(applicationContext)
         peopleMemory = EvePeopleMemory(applicationContext)
@@ -674,8 +676,28 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleRecognizedSpeech(rawText: String, source: String) {
-        val text = normalizeArabicSpeech(rawText)
+        var text = normalizeArabicSpeech(rawText)
         if (text.isBlank()) return
+
+        // EVE learns explicit user corrections locally. The immediately preceding utterance is
+        // treated as the misheard phrase; arbitrary speech is never silently used as training data.
+        val correction = EvePersonalHearing.parseCorrection(text)
+        if (correction != null && lastSpeechText.isNotBlank()) {
+            val saved = personalHearing.learnCorrection(lastSpeechText, correction)
+            if (saved) {
+                showDialogueText("تعلمت تصحيحك وسأحفظه في ذاكرتي السمعية على هذا الهاتف.", durationMs = 5200L)
+                Log.i("EVE_AUDIO", "PERSONAL_HEARING_CORRECTION_SAVED count=${personalHearing.correctionCount()} local=true")
+                lastSpeechText = correction
+            }
+            return
+        }
+
+        val beforePersonalCorrection = text
+        text = personalHearing.correctTranscript(text)
+        if (text != beforePersonalCorrection) {
+            Log.i("EVE_AUDIO", "PERSONAL_HEARING_CORRECTION_APPLIED original=$beforePersonalCorrection corrected=$text")
+        }
+
         val now = SystemClock.elapsedRealtime()
         if (text == lastSpeechText && now - lastSpeechAt < 2800L) return
         lastSpeechText = text
