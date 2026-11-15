@@ -35,7 +35,7 @@ class LocalLanguageBrainIntegrationTest {
             brain.start()
             assertTrue("The compact offline fallback must remain available without a model download.", brain.isReady)
             assertTrue(
-                "A fresh test install should wait for the user-approved EVE private student download.",
+                "A verification build without the trained APK asset should keep using the compact Arabic fallback.",
                 brain.currentState == LocalLlmState.WAITING_FOR_WIFI || brain.currentState == LocalLlmState.READY
             )
             assertFalse("The test must not pretend EVE student weights were downloaded.", brain.isGenerativeModelReady)
