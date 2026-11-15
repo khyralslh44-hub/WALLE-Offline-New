@@ -69,6 +69,7 @@ class MainActivity : ComponentActivity() {
     @Volatile private var currentLocalLlmPercent = 0
     @Volatile private var currentLocalLlmDetail = "لم تكتمل تهيئة الدماغ اللغوي"
     private var offlineArabicSpeech: OfflineArabicSpeech? = null
+    private lateinit var personalHearing: EvePersonalHearing
     @Volatile private var offlineSpeechStatus = "OFFLINE_SPEECH_NOT_STARTED"
     private var lastSpeechText = ""
     private var lastSpeechAt = 0L
@@ -465,6 +466,7 @@ class MainActivity : ComponentActivity() {
         }
         setContentView(root)
         memory = EveMemory(applicationContext)
+        personalHearing = EvePersonalHearing(applicationContext)
         conceptLearning = EveConceptLearning(applicationContext)
         autonomousMind = EveAutonomousMind(applicationContext)
         peopleMemory = EvePeopleMemory(applicationContext)
@@ -620,6 +622,24 @@ class MainActivity : ComponentActivity() {
                     status.contains("FAILED") || status.contains("ERROR") ->
                         showCameraStatus("تعذر تشغيل الاستماع العربي؛ انقر للتشخيص", active = false)
                 }
+            },
+            onAudioChunk = { pcm ->
+                val event = personalHearing.consumePcmFrame(pcm)
+                if (event != null) {
+                    main.post {
+                        if (isFinishing || isDestroyed) return@post
+                        when {
+                            event.enrolledPhrase != null -> {
+                                showDialogueText("تعلمت نطق «${event.enrolledPhrase}» وحفظت نموذجه الصوتي محلياً.", durationMs = 6000L)
+                                Log.i("EVE_AUDIO", "OWN_ACOUSTIC_PHRASE_ENROLLED phrase=${event.enrolledPhrase} local=true")
+                            }
+                            event.match != null -> {
+                                Log.i("EVE_AUDIO", "OWN_ACOUSTIC_PHRASE_MATCH phrase=${event.match.phrase} confidence=${event.match.confidence}")
+                                handleRecognizedSpeech(event.match.phrase, "eve_mfcc_dtw")
+                            }
+                        }
+                    }
+                }
             }
         )
         offlineArabicSpeech?.start()
@@ -674,8 +694,47 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleRecognizedSpeech(rawText: String, source: String) {
-        val text = normalizeArabicSpeech(rawText)
+        var text = normalizeArabicSpeech(rawText)
         if (text.isBlank()) return
+
+        // Teach EVE a new personal phrase by voice: say "تعلمي عبارة <label>", then speak it once.
+        // The following microphone utterance is enrolled as an EVE-owned MFCC/DTW acoustic template.
+        val teachPrefix = listOf("تعلمي عباره ", "تعلمي كلمه ", "علمي ايف ")
+            .firstOrNull { text.startsWith(it) }
+        if (teachPrefix != null) {
+            val label = text.removePrefix(teachPrefix).trim()
+            if (personalHearing.armAudioEnrollment(label)) {
+                showDialogueText("سأتعلم نطق «$label». قُل العبارة الآن بوضوح.", durationMs = 6000L)
+                Log.i("EVE_AUDIO", "OWN_ACOUSTIC_ENROLLMENT_ARMED label=$label")
+            } else {
+                showDialogueText("لم أستطع بدء التعلم؛ أعد نطق اسم العبارة.", durationMs = 4500L)
+            }
+            return
+        }
+        if (text.contains("كم عباره تعلمت") || text.contains("كم كلمه تعلمت")) {
+            showDialogueText("تعلمت ${personalHearing.learnedPhraseCount()} عبارة صوتية خاصة، وحفظت ${personalHearing.correctionCount()} تصحيحاً.", durationMs = 6000L)
+            return
+        }
+
+        // EVE learns explicit user corrections locally. The immediately preceding utterance is
+        // treated as the misheard phrase; arbitrary speech is never silently used as training data.
+        val correction = EvePersonalHearing.parseCorrection(text)
+        if (correction != null && lastSpeechText.isNotBlank()) {
+            val saved = personalHearing.learnCorrection(lastSpeechText, correction)
+            if (saved) {
+                showDialogueText("تعلمت تصحيحك وسأحفظه في ذاكرتي السمعية على هذا الهاتف.", durationMs = 5200L)
+                Log.i("EVE_AUDIO", "PERSONAL_HEARING_CORRECTION_SAVED count=${personalHearing.correctionCount()} local=true")
+                lastSpeechText = correction
+            }
+            return
+        }
+
+        val beforePersonalCorrection = text
+        text = personalHearing.correctTranscript(text)
+        if (text != beforePersonalCorrection) {
+            Log.i("EVE_AUDIO", "PERSONAL_HEARING_CORRECTION_APPLIED original=$beforePersonalCorrection corrected=$text")
+        }
+
         val now = SystemClock.elapsedRealtime()
         if (text == lastSpeechText && now - lastSpeechAt < 2800L) return
         lastSpeechText = text
