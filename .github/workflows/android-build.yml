@@ -343,11 +343,11 @@ jobs:
             echo "PASS: $APK contains the pinned offline identity model and license."
           done
 
-      - name: Enforce the 100 MiB maximum for each complete APK
+      - name: Enforce the 100 MB maximum for each complete APK
         shell: bash
         run: |
           set -euo pipefail
-          LIMIT=$((100 * 1024 * 1024))
+          LIMIT=100000000
           for APK in \
             "eve-project/app/build/outputs/apk/debug/app-debug.apk" \
             "eve-project/app/build/outputs/apk/release/app-release.apk"; do
@@ -355,7 +355,7 @@ jobs:
             MIB="$(awk -v n="$BYTES" 'BEGIN { printf "%.2f", n/1048576 }')"
             echo "APK_SIZE_REPORT file=$APK bytes=$BYTES MiB=$MIB limit_bytes=$LIMIT"
             if [ "$BYTES" -gt "$LIMIT" ]; then
-              echo "::error file=$APK::APK is $MIB MiB, above the strict 100 MiB whole-app maximum."
+              echo "::error file=$APK::APK is $MIB MiB, above the strict 100 MB whole-app maximum."
               exit 1
             fi
           done
