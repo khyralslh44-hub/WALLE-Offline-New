@@ -17,7 +17,7 @@ if grep -R -nE 'EveArabicLlmRuntime|eve-arabic-50m-q4|dev\.ffmpegkit\.maintained
 fi
 
 echo "EVE Bespoke Compact Arabic Brain Android verification" | tee "$RESULT_DIR/environment.txt"
-echo "Expected: compact Arabic fallback works offline; EVE's private student runtime is packaged; its trained weights remain a separate user-approved download." | tee -a "$RESULT_DIR/environment.txt"
+echo "Expected: compact Arabic fallback works offline when no trained student asset has been built; any student weights in production APKs are bundled as assets." | tee -a "$RESULT_DIR/environment.txt"
 
 for APK in "$APP_APK" "$TEST_APK"; do
   if [ ! -s "$APK" ]; then
@@ -127,4 +127,4 @@ if ! grep -Fq 'TINY_ARABIC_SEMANTIC_COMPOSITION_PASS' "$RESULT_DIR/logcat.txt"; 
   exit 12
 fi
 
-echo "PASS: EVE's compact Arabic fallback ran on Android with Wi-Fi/mobile data disabled; EVE private student weights were not downloaded or bundled." | tee -a "$RESULT_DIR/environment.txt"
+echo "PASS: EVE's compact Arabic fallback ran on Android with Wi-Fi/mobile data disabled; this verification build did not contain a trained student asset." | tee -a "$RESULT_DIR/environment.txt"
