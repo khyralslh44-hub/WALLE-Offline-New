@@ -118,18 +118,18 @@ class LocalLanguageBrain(
                     generativeModel.installBundledAndLoad { percent ->
                         publish(LocalLlmState.LOADING, percent, "تجهيز أوزان النموذج المضمّنة")
                     }
-                    publish(LocalLlmState.LOADING, 0, "اكتمل التنزيل؛ جارٍ تشغيل النموذج على الهاتف.")
+                    publish(LocalLlmState.LOADING, 0, "اكتمل تجهيز الأوزان؛ جارٍ تشغيل النموذج على الهاتف.")
                     publish(LocalLlmState.READY, 100, "نموذج إيف المدمج جاهز • يعمل دون إنترنت")
                 } catch (error: Exception) {
                     Log.e(TAG, "ON_DEVICE_LLM_BUNDLED_MODEL_LOAD_FAILED", error)
-                    publish(LocalLlmState.ERROR, 0, error.message ?: "تعذر تنزيل أو تشغيل النموذج.")
+                    publish(LocalLlmState.ERROR, 0, error.message ?: "تعذر تجهيز أو تشغيل النموذج المضمّن.")
                 } finally {
                     modelLoadQueued.set(false)
                 }
             }
         } catch (error: Exception) {
             modelLoadQueued.set(false)
-            publish(LocalLlmState.ERROR, 0, error.message ?: "تعذر بدء تنزيل النموذج.")
+            publish(LocalLlmState.ERROR, 0, error.message ?: "تعذر بدء تحميل النموذج المضمّن.")
         }
     }
 
