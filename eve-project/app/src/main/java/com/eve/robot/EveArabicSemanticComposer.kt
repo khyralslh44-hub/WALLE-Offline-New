@@ -17,7 +17,9 @@ internal object EveArabicSemanticComposer {
     }
     private enum class Feeling(val phrase: String) {
         BORED("بالملل"), SAD("بالحزن"), TIRED("بالتعب"),
-        WORRIED("بالقلق"), HAPPY("بالسعادة"), ANGRY("بالانزعاج")
+        WORRIED("بالقلق"), HAPPY("بالسعادة"), ANGRY("بالانزعاج"),
+        LONELY("بالوحدة"), STRESSED("بالضغط"), OVERWHELMED("بتراكم الضغوط"),
+        DISAPPOINTED("بالخيبة"), UNCERTAIN("بالحيرة")
     }
     private data class Frame(
         val normalized: String,
@@ -194,6 +196,11 @@ internal object EveArabicSemanticComposer {
             has(text, "قلقان", "قلقة", "خائف", "خايف", "متوتر") -> Feeling.WORRIED
             has(text, "سعيد", "سعيدة", "فرحان", "فرحانة", "مبسوط") -> Feeling.HAPPY
             has(text, "غاضب", "غاضبة", "معصب", "معصبة") -> Feeling.ANGRY
+            has(text, "وحيد", "وحيدة", "وحيداً", "الوحدة", "حاسس بالوحدة") -> Feeling.LONELY
+            has(text, "مضغوط", "مضغوطة", "متوتر جدا", "ضغط نفسي", "متوتر") -> Feeling.STRESSED
+            has(text, "منهار", "منهارة", "مرهق نفسيا", "فوق طاقتي", "مش قادر اتحمل", "لا استطيع التحمل") -> Feeling.OVERWHELMED
+            has(text, "محبط", "محبطة", "خيبة", "خاب املي") -> Feeling.DISAPPOINTED
+            has(text, "محتار", "محتارة", "متردد", "مترددة") -> Feeling.UNCERTAIN
             else -> null
         }
         return feeling?.takeIf { firstPerson || tokens.size <= 2 }
@@ -205,6 +212,14 @@ internal object EveArabicSemanticComposer {
                 "يبدو أنك مللت من اللعبة الحالية، وليس بالضرورة من اللعب كله. يمكننا تغيير نوع التحدي أو أخذ استراحة."
             feeling == Feeling.TIRED ->
                 "أفهم من كلامك أنك تشعر بالتعب. لن أضغط عليك بمزيد من الأسئلة؛ يمكننا التوقف أو جعل التفاعل أخف."
+            feeling == Feeling.LONELY ->
+                "الشعور بالوحدة قد يكون ثقيلاً. أستطيع أن أسمعك هنا دون حكم أو استعجال؛ هل تريد أن تخبرني ما الذي جعلك تشعر هكذا؟"
+            feeling == Feeling.STRESSED || feeling == Feeling.OVERWHELMED ->
+                "يبدو أن الضغوط أصبحت كثيرة عليك. لنحاول ترتيبها واحدة واحدة؛ ما أكثر أمر يضغط عليك الآن أو يحتاج إلى حل أولاً؟"
+            feeling == Feeling.DISAPPOINTED ->
+                "يبدو أن شيئاً لم يسر كما كنت تأمل. لا أريد التقليل من خيبة أملك؛ ما النتيجة التي كنت تتمنى حدوثها؟"
+            feeling == Feeling.UNCERTAIN ->
+                "الحيرة تجعل القرار أصعب أحياناً. أخبرني ما الخيارات أمامك وما أكثر شيء تخشى خسارته، وسنقارنها بهدوء."
             feeling == Feeling.WORRIED || feeling == Feeling.SAD || feeling == Feeling.ANGRY ->
                 "أفهم من كلامك أنك تشعر " + feeling.phrase + ". لن أفترض السبب من جملة واحدة؛ يمكنك إخباري بما حدث بالقدر الذي ترتاح له."
             feeling == Feeling.HAPPY ->

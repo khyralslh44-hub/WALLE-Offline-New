@@ -262,4 +262,32 @@ class EveTinyArabicBrainTest {
         assertTrue(reply.contains("خلاصات") || reply.contains("المحفوظة"))
     }
 
+
+    @Test fun companionRecognizesLonelinessAndOffersNonJudgmentalListening() {
+        val answer = EveTinyArabicBrain.answerUser("أنا أشعر بالوحدة", LocalLlmContext())
+        assertTrue(answer.replyArabic.contains("الوحدة"))
+        assertTrue(answer.replyArabic.contains("دون حكم") || answer.replyArabic.contains("أسمعك"))
+        assertEquals("concerned", answer.moodHint)
+    }
+
+    @Test fun companionHelpsBreakOverwhelmingProblemsIntoManageableSteps() {
+        val answer = EveTinyArabicBrain.answerUser("أنا مضغوط وفوق طاقتي", LocalLlmContext())
+        assertTrue(answer.replyArabic.contains("الضغوط"))
+        assertTrue(answer.replyArabic.contains("واحدة واحدة"))
+        assertTrue(answer.replyArabic.contains("أكثر أمر"))
+        assertEquals("concerned", answer.moodHint)
+    }
+
+    @Test fun companionSupportsDecisionMakingWithoutChoosingForTheUser() {
+        val answer = EveTinyArabicBrain.answerUser("أنا محتار بين خيارين", LocalLlmContext())
+        assertTrue(answer.replyArabic.contains("الخيارات"))
+        assertTrue(answer.replyArabic.contains("نقارنها"))
+    }
+
+    @Test fun companionRespondsToDisappointmentWithoutDismissingIt() {
+        val answer = EveTinyArabicBrain.answerUser("أنا محبط جداً", LocalLlmContext())
+        assertTrue(answer.replyArabic.contains("خيبة") || answer.replyArabic.contains("تأمل"))
+        assertFalse(answer.replyArabic.contains("لا تحزن"))
+    }
+
 }
