@@ -18,8 +18,8 @@ internal class EvePrivateStudentLanguageModel(context: Context) : AutoCloseable 
     val isInstalled: Boolean
         get() = (modelFile.isFile && modelFile.length() >= MIN_VALID_BYTES) || bundledAssetAvailable()
 
-    /** Compatibility name retained for callers; this now copies the bundled asset and never uses the network. */
-    fun downloadAndLoad(onProgress: (Int) -> Unit) {
+    /** Copy the model bundled in the APK into app-private storage; never uses the network. */
+    fun installBundledAndLoad(onProgress: (Int) -> Unit) {
         onProgress(0)
         installBundledAsset()
         onProgress(100)
