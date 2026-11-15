@@ -260,6 +260,13 @@ class LocalLanguageBrain(
         fallback: () -> LocalLlmResult,
         intent: String = "conversation"
     ): LocalLlmResult {
+        // Do not enter the TFLite generation path in fallback-only builds. This keeps the
+        // compact Arabic engine independent of model installation/loading and avoids treating
+        // an intentionally absent student as an inference error on every user turn.
+        if (!isGenerativeModelReady) {
+            Log.i(TAG, "LOCAL_ARABIC_FALLBACK_ONLY state=$state offline=true")
+            return fallback()
+        }
         return try {
             val generated = generativeModel.generate(prompt).trim()
             if (generated.isBlank() || generated.count { it in '\u0600'..'\u06FF' } < 2) fallback() else {
