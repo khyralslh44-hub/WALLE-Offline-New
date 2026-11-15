@@ -196,7 +196,7 @@ internal object EveArabicSemanticComposer {
             has(text, "قلقان", "قلقة", "خائف", "خايف", "متوتر") -> Feeling.WORRIED
             has(text, "سعيد", "سعيدة", "فرحان", "فرحانة", "مبسوط") -> Feeling.HAPPY
             has(text, "غاضب", "غاضبة", "معصب", "معصبة") -> Feeling.ANGRY
-            has(text, "وحيد", "وحيدة", "وحيداً", "اشعر بالوحدة", "حاسس بالوحدة") -> Feeling.LONELY
+            has(text, "وحيد", "وحيدة", "وحيداً", "الوحدة", "حاسس بالوحدة") -> Feeling.LONELY
             has(text, "مضغوط", "مضغوطة", "متوتر جدا", "ضغط نفسي", "متوتر") -> Feeling.STRESSED
             has(text, "منهار", "منهارة", "مرهق نفسيا", "فوق طاقتي", "مش قادر اتحمل", "لا استطيع التحمل") -> Feeling.OVERWHELMED
             has(text, "محبط", "محبطة", "خيبة", "خاب املي") -> Feeling.DISAPPOINTED
