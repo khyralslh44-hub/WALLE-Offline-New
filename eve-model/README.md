@@ -45,3 +45,23 @@ A successful CI training run proves only that corpus generation, student trainin
 and the TFLite smoke test succeeded. Before calling EVE's conversation quality ready, we
 still need held-out Arabic dialogue/factuality tests and Redmi 12 latency, memory, heat, and
 offline tests. A small distilled GRU is not equivalent to Qwen3 or a large foundation model.
+
+
+## Separate Arabic speech-recognition distillation (Vosk teacher)
+
+The .github/workflows/train-eve-vosk-asr.yml workflow uses the pinned
+vosk-model-ar-mgb2-0.4 only on the GitHub training runner:
+
+1. Stream Egyptian Arabic FLEURS audio (google/fleurs, ar_eg; CC-BY-4.0).
+2. Vosk transcribes the training audio. Those pseudo-transcripts supervise a
+   compact character-level CTC acoustic student (audio-to-text).
+3. Human FLEURS validation transcripts are held out and used only to compare
+   the student's word error rate (WER) with Vosk's WER.
+4. Export a TFLite student and evaluation report. Vosk weights are not copied.
+
+Do not remove Vosk from Android merely because this training/export succeeds.
+The student first has to beat Vosk on held-out WER, then pass unseen-speaker and
+dialect, noisy audio, live microphone, Redmi-class latency/memory, and fully
+offline device tests. Until those pass, Vosk remains the runtime fallback.
+FLEURS is licensed CC-BY-4.0; redistribution must retain attribution and comply
+with that license.
