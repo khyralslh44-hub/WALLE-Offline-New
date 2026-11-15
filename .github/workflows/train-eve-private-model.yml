@@ -17,7 +17,6 @@ on:
         default: "50"
   push:
     branches:
-      - main
       - feature/eve-free-open-teacher-distillation
     paths:
       - 'eve-model/train_private_eve_student.py'
