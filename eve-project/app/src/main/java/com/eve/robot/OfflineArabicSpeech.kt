@@ -1,46 +1,51 @@
 package com.eve.robot
 
 import android.content.Context
+import android.media.AudioFormat
+import android.media.AudioRecord
+import android.media.MediaRecorder
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import org.json.JSONObject
 import org.vosk.Model
 import org.vosk.Recognizer
-import org.vosk.android.RecognitionListener
-import org.vosk.android.SpeechService
 import java.io.BufferedInputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
-import java.util.zip.ZipInputStream
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 /**
- * Fully local Arabic speech-to-text using the bundled Vosk Arabic model.
+ * One local microphone stream feeds two layers:
+ * 1) the existing general Arabic transcript fallback;
+ * 2) EVE's own MFCC+DTW learner, which enrolls and recognizes user-taught phrases.
  *
- * This class does not synthesize words or send audio to a cloud service. It only emits
- * locally recognized text so MainActivity can map it to offline robot actions.
+ * The PCM frames are captured once and shared locally. No audio is uploaded.
  */
 class OfflineArabicSpeech(
     context: Context,
     private val onTranscript: (String) -> Unit,
-    private val onStatus: (String) -> Unit
-) : RecognitionListener {
-
+    private val onStatus: (String) -> Unit,
+    private val onAudioChunk: (ShortArray) -> Unit = {}
+) {
     private val appContext = context.applicationContext
     private val mainHandler = Handler(Looper.getMainLooper())
     private val recoveryExecutor = Executors.newSingleThreadExecutor()
+    private val audioExecutor = Executors.newSingleThreadExecutor()
     @Volatile private var closed = false
     @Volatile private var preparing = false
-    @Volatile private var speechService: SpeechService? = null
+    @Volatile private var audioRecord: AudioRecord? = null
     @Volatile private var recognizer: Recognizer? = null
     @Volatile private var model: Model? = null
+    @Volatile private var audioLoopDone: CountDownLatch = CountDownLatch(0)
 
     private val retryListening = Runnable {
-        if (!closed) {
-            recoveryExecutor.execute { recoverAudioInput() }
-        }
+        if (!closed) recoveryExecutor.execute { recoverAudioInput() }
     }
 
     fun start() {
@@ -76,43 +81,26 @@ class OfflineArabicSpeech(
         }
     }
 
-    /**
-     * Extract the bundled model ZIP once. Extraction happens on the speech worker thread,
-     * never the UI thread, and path validation prevents archive entries escaping private storage.
-     * Existing model directories from previous installs are reused when their core files are intact.
-     */
     private fun unpackBundledModelArchive(): File {
         val target = File(appContext.filesDir, MODEL_STORAGE_DIRECTORY)
         findModelRoot(target)?.let { return it }
-
         val staging = File(appContext.filesDir, MODEL_STORAGE_DIRECTORY + ".extracting")
-        if (staging.exists() && !staging.deleteRecursively()) {
-            throw IOException("Could not remove incomplete Arabic model extraction.")
-        }
+        if (staging.exists() && !staging.deleteRecursively()) throw IOException("Could not remove incomplete Arabic model extraction.")
         if (!staging.mkdirs()) throw IOException("Could not create Arabic model staging directory.")
-
         try {
             appContext.assets.open(MODEL_ARCHIVE_ASSET).use { raw ->
-                ZipInputStream(BufferedInputStream(raw, ZIP_BUFFER_SIZE)).use { zip ->
+                java.util.zip.ZipInputStream(BufferedInputStream(raw, ZIP_BUFFER_SIZE)).use { zip ->
                     val buffer = ByteArray(ZIP_BUFFER_SIZE)
                     var entry = zip.nextEntry
                     while (entry != null) {
                         val output = File(staging, entry.name)
                         val canonicalRoot = staging.canonicalPath + File.separator
-                        val canonicalOutput = output.canonicalPath
-                        if (!canonicalOutput.startsWith(canonicalRoot)) {
-                            throw IOException("Rejected unsafe ZIP entry path.")
-                        }
-
+                        if (!output.canonicalPath.startsWith(canonicalRoot)) throw IOException("Rejected unsafe ZIP entry path.")
                         if (entry.isDirectory) {
-                            if (!output.exists() && !output.mkdirs()) {
-                                throw IOException("Could not create model directory.")
-                            }
+                            if (!output.exists() && !output.mkdirs()) throw IOException("Could not create model directory.")
                         } else {
                             val parent = output.parentFile
-                            if (parent != null && !parent.exists() && !parent.mkdirs()) {
-                                throw IOException("Could not create model parent directory.")
-                            }
+                            if (parent != null && !parent.exists() && !parent.mkdirs()) throw IOException("Could not create model parent directory.")
                             FileOutputStream(output).use { sink ->
                                 while (true) {
                                     val count = zip.read(buffer)
@@ -130,33 +118,21 @@ class OfflineArabicSpeech(
             staging.deleteRecursively()
             throw error
         }
-
-        val stagedRoot = findModelRoot(staging)
-        if (stagedRoot == null) {
+        val stagedRoot = findModelRoot(staging) ?: run {
             staging.deleteRecursively()
             throw IOException("Extracted archive did not contain a complete Vosk model.")
         }
         val relativeRoot = stagedRoot.relativeTo(staging).path
-
         if (target.exists() && !target.deleteRecursively()) {
             staging.deleteRecursively()
-            throw IOException("Could not replace the old Arabic model directory.")
+            throw IOException("Could not replace old Arabic model directory.")
         }
         if (!staging.renameTo(target)) {
-            try {
-                staging.copyRecursively(target, overwrite = true)
-            } catch (error: Exception) {
-                staging.deleteRecursively()
-                throw IOException("Could not move the extracted Arabic model into private storage.", error)
-            }
+            staging.copyRecursively(target, overwrite = true)
             staging.deleteRecursively()
         }
-
-        val modelRoot = if (relativeRoot.isBlank() || relativeRoot == ".") target
-            else File(target, relativeRoot)
-        if (!isValidModelRoot(modelRoot)) {
-            throw IOException("The extracted Arabic Vosk model failed integrity checks.")
-        }
+        val modelRoot = if (relativeRoot.isBlank() || relativeRoot == ".") target else File(target, relativeRoot)
+        if (!isValidModelRoot(modelRoot)) throw IOException("Extracted Arabic model failed integrity checks.")
         Log.i(TAG, "OFFLINE_SPEECH_MODEL_EXTRACTED path=" + modelRoot.absolutePath)
         return modelRoot
     }
@@ -175,27 +151,84 @@ class OfflineArabicSpeech(
 
     @Synchronized
     private fun startRecognition() {
-        if (closed || speechService != null) return
+        if (closed || audioRecord != null) return
         val loadedModel = model ?: return
         try {
-            val localRecognizer = Recognizer(loadedModel, SAMPLE_RATE_HZ)
-            val localService = SpeechService(localRecognizer, SAMPLE_RATE_HZ)
-            recognizer = localRecognizer
-            speechService = localService
-            if (!localService.startListening(this)) {
-                speechService = null
-                recognizer = null
-                try { localService.shutdown() } catch (_: Exception) { }
-                try { localRecognizer.close() } catch (_: Exception) { }
-                throw IOException("Vosk microphone listener was already running.")
+            val localRecognizer = Recognizer(loadedModel, SAMPLE_RATE_HZ.toFloat())
+            val minBytes = AudioRecord.getMinBufferSize(
+                SAMPLE_RATE_HZ, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT
+            )
+            if (minBytes <= 0) throw IOException("Android returned invalid microphone buffer size: $minBytes")
+            val bufferBytes = maxOf(minBytes * 2, FRAME_BYTES * 4)
+            val record = AudioRecord(
+                MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                SAMPLE_RATE_HZ,
+                AudioFormat.CHANNEL_IN_MONO,
+                AudioFormat.ENCODING_PCM_16BIT,
+                bufferBytes
+            )
+            if (record.state != AudioRecord.STATE_INITIALIZED) {
+                record.release()
+                localRecognizer.close()
+                throw IOException("Android microphone recorder did not initialize.")
             }
-            report("OFFLINE_SPEECH_LISTENING language=ar source=bundled_vosk")
+            record.startRecording()
+            if (record.recordingState != AudioRecord.RECORDSTATE_RECORDING) {
+                record.release()
+                localRecognizer.close()
+                throw IOException("Android microphone did not enter recording state.")
+            }
+            recognizer = localRecognizer
+            audioRecord = record
+            val done = CountDownLatch(1)
+            audioLoopDone = done
+            audioExecutor.execute { readMicrophoneLoop(record, localRecognizer, done) }
+            report("OFFLINE_SPEECH_LISTENING language=ar source=local_pcm_dual_ear")
         } catch (error: Exception) {
-            Log.e(TAG, "Vosk could not start the local microphone recognizer.", error)
+            Log.e(TAG, "Could not start the local PCM microphone.", error)
             report("OFFLINE_SPEECH_FAILED reason=audio_start")
-            mainHandler.removeCallbacks(retryListening)
-            mainHandler.postDelayed(retryListening, RETRY_DELAY_MS)
+            scheduleRetry()
         }
+    }
+
+    private fun readMicrophoneLoop(record: AudioRecord, localRecognizer: Recognizer, done: CountDownLatch) {
+        val bytes = ByteArray(FRAME_BYTES)
+        try {
+            while (!closed && audioRecord === record) {
+                val count = record.read(bytes, 0, bytes.size, AudioRecord.READ_BLOCKING)
+                if (count == AudioRecord.ERROR_DEAD_OBJECT || count < 0) {
+                    throw IOException("AudioRecord read failed: $count")
+                }
+                if (count < 2) continue
+                val evenCount = count - (count % 2)
+                val pcm = ShortArray(evenCount / 2)
+                for (i in pcm.indices) {
+                    val low = bytes[i * 2].toInt() and 0xff
+                    val high = bytes[i * 2 + 1].toInt()
+                    pcm[i] = (low or (high shl 8)).toShort()
+                }
+                try { onAudioChunk(pcm) } catch (error: Exception) {
+                    Log.w(TAG, "EVE personal hearing frame callback failed.", error)
+                }
+                if (localRecognizer.acceptWaveForm(bytes, evenCount)) {
+                    deliverCompleteUtterance(localRecognizer.result)
+                }
+            }
+            if (!closed && audioRecord === record) deliverCompleteUtterance(localRecognizer.finalResult)
+        } catch (error: Exception) {
+            if (!closed) {
+                Log.e(TAG, "Local microphone loop failed.", error)
+                report("OFFLINE_SPEECH_AUDIO_ERROR retrying=true")
+                scheduleRetry()
+            }
+        } finally {
+            done.countDown()
+        }
+    }
+
+    private fun scheduleRetry() {
+        mainHandler.removeCallbacks(retryListening)
+        mainHandler.postDelayed(retryListening, RETRY_DELAY_MS)
     }
 
     private fun recoverAudioInput() {
@@ -205,18 +238,21 @@ class OfflineArabicSpeech(
     }
 
     private fun releaseAudioObjects(closeModel: Boolean) {
-        val service = speechService
-        val localRecognizer = recognizer
-        speechService = null
-        recognizer = null
-        if (service != null) {
-            try { service.stop() } catch (error: Exception) {
-                Log.w(TAG, "Stopping Vosk audio service failed.", error)
+        val record = audioRecord
+        audioRecord = null
+        if (record != null) {
+            try { record.stop() } catch (error: Exception) {
+                Log.w(TAG, "Stopping AudioRecord failed.", error)
             }
-            try { service.shutdown() } catch (error: Exception) {
-                Log.w(TAG, "Releasing Vosk audio recorder failed.", error)
+            try { audioLoopDone.await(1200L, TimeUnit.MILLISECONDS) } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
+            }
+            try { record.release() } catch (error: Exception) {
+                Log.w(TAG, "Releasing AudioRecord failed.", error)
             }
         }
+        val localRecognizer = recognizer
+        recognizer = null
         try { localRecognizer?.close() } catch (error: Exception) {
             Log.w(TAG, "Closing Vosk recognizer failed.", error)
         }
@@ -229,50 +265,17 @@ class OfflineArabicSpeech(
         }
     }
 
-    override fun onPartialResult(hypothesis: String) {
-        // Partial transcripts are intentionally not executed as commands to avoid reacting
-        // to half-spoken phrases. Execute only a complete utterance after a pause.
-    }
-
-    override fun onResult(hypothesis: String) {
-        deliverCompleteUtterance(hypothesis)
-    }
-
-    override fun onFinalResult(hypothesis: String) {
-        deliverCompleteUtterance(hypothesis)
-    }
-
-    override fun onError(exception: Exception) {
-        if (closed) return
-        Log.e(TAG, "Offline Arabic microphone recognition failed; retrying locally.", exception)
-        report("OFFLINE_SPEECH_AUDIO_ERROR retrying=true")
-        mainHandler.removeCallbacks(retryListening)
-        mainHandler.postDelayed(retryListening, RETRY_DELAY_MS)
-    }
-
-    override fun onTimeout() {
-        // Continuous microphone mode does not use a speech timeout.
-    }
-
     private fun deliverCompleteUtterance(hypothesis: String) {
         if (closed) return
-        val text = try {
-            JSONObject(hypothesis).optString("text", "").trim()
-        } catch (_: Exception) {
-            ""
-        }
+        val text = try { JSONObject(hypothesis).optString("text", "").trim() } catch (_: Exception) { "" }
         if (text.isBlank()) return
         Log.i(TAG, "RECOGNIZED_OFFLINE text=$text")
-        mainHandler.post {
-            if (!closed) onTranscript(text)
-        }
+        mainHandler.post { if (!closed) onTranscript(text) }
     }
 
     private fun report(message: String) {
         Log.i(TAG, message)
-        mainHandler.post {
-            if (!closed) onStatus(message)
-        }
+        mainHandler.post { if (!closed) onStatus(message) }
     }
 
     fun close() {
@@ -285,14 +288,16 @@ class OfflineArabicSpeech(
         } catch (error: Exception) {
             Log.w(TAG, "Could not schedule offline speech cleanup.", error)
         }
+        audioExecutor.shutdown()
     }
 
     companion object {
         private const val TAG = "EVE_AUDIO"
-        private const val SAMPLE_RATE_HZ = 16_000.0f
+        private const val SAMPLE_RATE_HZ = 16_000
         private const val RETRY_DELAY_MS = 1_500L
         private const val MODEL_ARCHIVE_ASSET = "vosk-model-ar-mgb2-0.4.zip"
         private const val MODEL_STORAGE_DIRECTORY = "eve-offline-arabic-model"
         private const val ZIP_BUFFER_SIZE = 64 * 1024
+        private const val FRAME_BYTES = 3_200 // 100 ms at 16 kHz, mono, PCM16
     }
 }
