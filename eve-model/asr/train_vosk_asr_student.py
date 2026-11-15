@@ -102,8 +102,10 @@ def collect_valid(teacher):
 def model_new():
     inp=tf.keras.Input((MAX_FRAMES,MEL),name="log_mel")
     x=tf.keras.layers.Conv1D(96,11,strides=2,padding="same",activation="relu")(inp)
-    x=tf.keras.layers.Bidirectional(tf.keras.layers.GRU(96,return_sequences=True))(x)
-    x=tf.keras.layers.Bidirectional(tf.keras.layers.GRU(96,return_sequences=True))(x)
+    # Keras LSTM has a documented native TensorFlow Lite conversion path;
+    # avoid GRU operators that may require Flex/custom runtime support on Android.
+    x=tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(64,return_sequences=True))(x)
+    x=tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(64,return_sequences=True))(x)
     return tf.keras.Model(inp,tf.keras.layers.Dense(len(CHARS),name="char_logits")(x))
 def sparse_y(batch):
     ix=[]; vals=[]
@@ -141,7 +143,11 @@ def train(training,validation):
         lens=np.asarray([int(np.ceil(r["n"]/2)) for r in batch],np.int32)
         hyps.extend(decoder(model(x,training=False),lens)); refs.extend(r["ref"] for r in batch)
     score=wer(refs,hyps); model.save(OUT/"eve_vosk_asr_student.keras")
-    converter=tf.lite.TFLiteConverter.from_keras_model(model); converter.optimizations=[tf.lite.Optimize.DEFAULT]
+    converter=tf.lite.TFLiteConverter.from_keras_model(model)
+    converter.optimizations=[tf.lite.Optimize.DEFAULT]
+    # Require built-in LiteRT operators only; never emit Flex/custom ops that would
+    # silently add a large runtime dependency to EVE's Android APK.
+    converter.target_spec.supported_ops=[tf.lite.OpsSet.TFLITE_BUILTINS]
     data=converter.convert(); (OUT/"eve_vosk_asr_student.tflite").write_bytes(data)
     it=tf.lite.Interpreter(model_content=data); it.allocate_tensors()
     inp=it.get_input_details()[0]; out=it.get_output_details()[0]
