@@ -81,6 +81,14 @@ jobs:
             eve-model/teacher_corpus.progress.json
           if-no-files-found: error
           retention-days: 30
+      - name: Publish the distilled student as a single APK asset artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: EVE-Student-APK-Asset
+          path: eve-model/dist/eve_private_student.tflite
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Publish the compact distilled student for embedding in the APK
         if: ${{ github.ref == 'refs/heads/main' }}
         env:
