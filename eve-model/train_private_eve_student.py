@@ -172,32 +172,36 @@ def make_prompt(index):
 def teacher(prompt):
     """Generate one Arabic target locally; inference never calls an external API."""
     model = get_teacher_model()
+    last_error = None
     with TEACHER_INFERENCE_LOCK:
-        result = model.create_chat_completion(
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "أنت معلّم عربي لنموذج إيف الروبوتية. أجب بالعربية الطبيعية الدقيقة. "
-                        "قدّم جواباً عملياً ومختصراً، وميّز الحقيقة من الاحتمال، واعترف بعدم المعرفة. "
-                        "لا تدّع أن إيف واعية أو ترى شيئاً لم يُعرض عليها. "
-                        "لا تكتب سلسلة التفكير أو وسوم think؛ أخرج الجواب النهائي فقط."
-                    ),
-                },
-                {"role": "user", "content": prompt + "\n/no_think"},
-            ],
-            temperature=0.7,
-            top_p=0.8,
-            repeat_penalty=1.08,
-            max_tokens=220,
-            stop=["<|im_end|>"],
-        )
-    answer = (result["choices"][0]["message"].get("content") or "").strip()
-    answer = re.sub(r"<think>.*?</think>", "", answer, flags=re.DOTALL).strip()
-    answer = answer.replace("<|im_end|>", "").strip()
-    if len(answer) < 12:
-        raise ValueError(f"Open teacher answer too short ({len(answer)} chars)")
-    return answer
+        for attempt in range(3):
+            result = model.create_chat_completion(
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "أنت معلّم عربي لنموذج إيف الروبوتية. أجب بالعربية الطبيعية الدقيقة. "
+                            "قدّم جواباً عملياً واضحاً لا يقل عن جملتين أو 30 حرفاً. "
+                            "ميّز الحقيقة من الاحتمال، واعترف بعدم المعرفة. "
+                            "لا تدّع أن إيف واعية أو ترى شيئاً لم يُعرض عليها. "
+                            "لا تكتب سلسلة التفكير أو وسوم think؛ أخرج الجواب النهائي فقط."
+                        ),
+                    },
+                    {"role": "user", "content": prompt + "\nاكتب جواباً نهائياً مفيداً من جملتين على الأقل.\n/no_think"},
+                ],
+                temperature=0.7 if attempt == 0 else 0.85,
+                top_p=0.8,
+                repeat_penalty=1.08,
+                max_tokens=260,
+                stop=["<|im_end|>"],
+            )
+            answer = (result["choices"][0]["message"].get("content") or "").strip()
+            answer = re.sub(r"<think>.*?</think>", "", answer, flags=re.DOTALL).strip()
+            answer = answer.replace("<|im_end|>", "").strip()
+            if len(answer) >= 12:
+                return answer
+            last_error = ValueError(f"Open teacher answer too short ({len(answer)} chars)")
+    raise last_error
 
 def load_corpus():
     rows = []
