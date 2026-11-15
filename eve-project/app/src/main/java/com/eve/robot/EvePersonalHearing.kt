@@ -14,8 +14,71 @@ import kotlin.math.*
  */
 class EvePersonalHearing(context: Context) {
     private val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    private var pendingEnrollmentLabel: String? = null
+    private val liveUtterance = ArrayList<Short>(16_000 * 3)
+    private var liveSpeechStarted = false
+    private var liveSilenceSamples = 0
+    private var liveSpeechSamples = 0
 
     data class Match(val phrase: String, val distance: Float, val confidence: Float)
+    data class AudioEvent(val enrolledPhrase: String? = null, val match: Match? = null)
+
+    @Synchronized
+    fun armAudioEnrollment(label: String): Boolean {
+        val normalized = normalize(label)
+        if (normalized.isBlank() || normalized.length > 80) return false
+        pendingEnrollmentLabel = normalized
+        liveUtterance.clear()
+        liveSpeechStarted = false
+        liveSilenceSamples = 0
+        liveSpeechSamples = 0
+        return true
+    }
+
+    /** Consume the same microphone PCM frames that feed EVE's general transcript engine. */
+    @Synchronized
+    fun consumePcmFrame(frame: ShortArray, sampleRate: Int = 16_000): AudioEvent? {
+        if (frame.isEmpty() || sampleRate <= 0) return null
+        var energy = 0.0
+        for (sample in frame) {
+            val value = sample.toDouble() / 32768.0
+            energy += value * value
+        }
+        val rms = sqrt(energy / frame.size)
+        val voice = rms >= 0.012
+        if (voice) {
+            liveSpeechStarted = true
+            liveSilenceSamples = 0
+            liveSpeechSamples += frame.size
+        } else if (liveSpeechStarted) {
+            liveSilenceSamples += frame.size
+        }
+        if (liveSpeechStarted) {
+            for (sample in frame) liveUtterance.add(sample)
+            val maximumSamples = sampleRate * 4
+            if (liveUtterance.size > maximumSamples) {
+                val overflow = liveUtterance.size - maximumSamples
+                repeat(overflow) { liveUtterance.removeAt(0) }
+            }
+        }
+        val silenceLimit = (sampleRate * 0.45).toInt()
+        val maximumReached = liveUtterance.size >= sampleRate * 4
+        if (!liveSpeechStarted || (!maximumReached && liveSilenceSamples < silenceLimit)) return null
+        val minimumSpeech = (sampleRate * 0.25).toInt()
+        val samples = liveUtterance.toShortArray()
+        val enoughSpeech = liveSpeechSamples >= minimumSpeech
+        val enrollment = pendingEnrollmentLabel
+        pendingEnrollmentLabel = null
+        liveUtterance.clear()
+        liveSpeechStarted = false
+        liveSilenceSamples = 0
+        liveSpeechSamples = 0
+        if (!enoughSpeech) return null
+        if (enrollment != null) {
+            return if (learnAudioPhrase(enrollment, samples, sampleRate)) AudioEvent(enrolledPhrase = enrollment) else null
+        }
+        return recognizeLearnedPhrase(samples, sampleRate)?.let { AudioEvent(match = it) }
+    }
 
     fun learnCorrection(misheard: String, corrected: String): Boolean {
         val source = normalize(misheard)
