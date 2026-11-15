@@ -32,13 +32,40 @@ class LocalLanguageBrainIntegrationTest {
         )
 
         try {
+            val bundledStudent = hasBundledStudentAsset(context)
             brain.start()
-            assertTrue("The compact offline fallback must remain available without a model download.", brain.isReady)
+            if (bundledStudent) {
+                val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(60)
+                while (!brain.isGenerativeModelReady &&
+                    brain.currentState != LocalLlmState.ERROR &&
+                    System.nanoTime() < deadline
+                ) {
+                    Thread.sleep(100L)
+                }
+                assertTrue(
+                    "The TFLite student bundled in the APK did not load: ${states.get()} / ${brain.currentState}",
+                    brain.isGenerativeModelReady
+                )
+                val generated = awaitGenerativeAnswer(brain, "أهلاً يا إيف، عرّفي بنفسك باختصار.")
+                assertTrue(
+                    "The embedded student returned no useful Arabic text.",
+                    generated.replyArabic.length >= 8 &&
+                        generated.replyArabic.count { it in '\\u0600'..'\\u06FF' } >= 8
+                )
+                Log.i(
+                    TAG,
+                    "EVE_DISTILLED_STUDENT_ANDROID_PASS embedded=true offline=true " +
+                        "replyChars=${generated.replyArabic.length}"
+                )
+                return
+            }
+
+            assertTrue("The compact offline fallback must remain available without a model asset.", brain.isReady)
             assertTrue(
-                "A verification build without the trained APK asset should keep using the compact Arabic fallback.",
+                "A verification build without the trained APK asset should use the compact Arabic fallback.",
                 brain.currentState == LocalLlmState.WAITING_FOR_WIFI || brain.currentState == LocalLlmState.READY
             )
-            assertFalse("The test must not pretend EVE student weights were downloaded.", brain.isGenerativeModelReady)
+            assertFalse("A build without a student asset must not report generative weights ready.", brain.isGenerativeModelReady)
 
             val greeting = awaitAnswer(brain, "أهلاً يا إيف")
             assertTrue("Arabic greeting returned no text.", greeting.replyArabic.isNotBlank())
@@ -167,6 +194,26 @@ class LocalLanguageBrainIntegrationTest {
         } finally {
             brain.close()
         }
+    }
+
+    private fun hasBundledStudentAsset(context: Context): Boolean = try {
+        context.assets.open("eve_private_student.tflite").use { }
+        true
+    } catch (_: Exception) {
+        false
+    }
+
+    private fun awaitGenerativeAnswer(brain: LocalLanguageBrain, prompt: String): LocalLlmResult {
+        val latch = CountDownLatch(1)
+        val result = AtomicReference<Result<LocalLlmResult>?>(null)
+        brain.answerUserGenerativeOnly(prompt, LocalLlmContext()) {
+            result.set(it)
+            latch.countDown()
+        }
+        assertTrue("Timed out waiting for embedded student generation.", latch.await(60L, TimeUnit.SECONDS))
+        return result.get()?.getOrElse {
+            throw AssertionError("Embedded EVE student generation failed.", it)
+        } ?: throw AssertionError("No generation result was returned.")
     }
 
     private fun awaitAnswer(
