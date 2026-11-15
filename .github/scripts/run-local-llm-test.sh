@@ -28,8 +28,8 @@ done
 
 APP_BYTES="$(stat -c '%s' "$APP_APK")"
 echo "Debug APK bytes: $APP_BYTES" | tee -a "$RESULT_DIR/environment.txt"
-if [ "$APP_BYTES" -gt 300000000 ]; then
-  echo "FAIL: APK exceeds the 300 MB fallback-test ceiling before any generative model weights." | tee -a "$RESULT_DIR/environment.txt"
+if [ "$APP_BYTES" -gt 600000000 ]; then
+  echo "FAIL: debug APK exceeds the 600 MB CI emulator installation ceiling." | tee -a "$RESULT_DIR/environment.txt"
   exit 3
 fi
 
@@ -45,7 +45,7 @@ if ! unzip -p "$APP_APK" "classes*.dex" | strings | grep -F "EvePrivateStudentLa
   echo "FAIL: EVE private student integration is missing from the app APK." | tee -a "$RESULT_DIR/environment.txt"
   exit 4
 fi
-echo "PASS: EVE private student runtime is packaged, trained weights remain external, and no llama.cpp library is bundled." | tee -a "$RESULT_DIR/environment.txt"
+echo "PASS: EVE private student runtime is packaged; any trained TFLite asset is embedded in the APK; no teacher GGUF or llama.cpp library is bundled." | tee -a "$RESULT_DIR/environment.txt"
 
 wait_for_device() {
   adb start-server >/dev/null 2>&1 || true
@@ -62,6 +62,23 @@ wait_for_device() {
 }
 
 wait_for_device
+
+# Android sometimes reports sys.boot_completed before PackageManager is reachable.
+# Poll the actual package service to avoid racing emulator startup and adb install.
+wait_for_package_manager() {
+  for attempt in $(seq 1 60); do
+    if timeout 8s adb shell pm list packages >/dev/null 2>&1; then
+      echo "PASS: Android PackageManager is ready after $attempt attempt(s)." | tee -a "$RESULT_DIR/environment.txt"
+      return 0
+    fi
+    sleep 2
+  done
+  echo "FAIL: Android PackageManager did not become ready." | tee -a "$RESULT_DIR/environment.txt"
+  adb shell getprop > "$RESULT_DIR/emulator-getprop.txt" 2>&1 || true
+  return 1
+}
+
+wait_for_package_manager
 adb install -r "$APP_APK" | tee "$RESULT_DIR/install-app.txt"
 adb install -r "$TEST_APK" | tee "$RESULT_DIR/install-test.txt"
 adb shell pm clear com.eve.robot | tee "$RESULT_DIR/clear-app-data.txt"
@@ -127,4 +144,4 @@ if ! grep -Fq 'TINY_ARABIC_SEMANTIC_COMPOSITION_PASS' "$RESULT_DIR/logcat.txt"; 
   exit 12
 fi
 
-echo "PASS: EVE's compact Arabic fallback ran on Android with Wi-Fi/mobile data disabled; this verification build did not contain a trained student asset." | tee -a "$RESULT_DIR/environment.txt"
+echo "PASS: EVE's compact Arabic fallback ran on Android with Wi-Fi/mobile data disabled. This run validates the fallback only; a trained student is tested separately when embedded." | tee -a "$RESULT_DIR/environment.txt"
