@@ -148,6 +148,18 @@ jobs:
           print(f"Disabled R8 minification in {count} enabled declaration(s) for diagnostic-safe release.")
           PY
 
+      - name: Inspect launcher icon resources in original project
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$RUNNER_TEMP/eve14"
+          echo "---- Manifest application icon declarations ----"
+          grep -n -E 'android:(icon|roundIcon)|<application' "$SRC/app/src/main/AndroidManifest.xml" || true
+          echo "---- Launcher icon resource files ----"
+          find "$SRC/app/src/main/res" -type f | grep -E '/(mipmap|drawable).*(launcher|ic_launcher)' | sort || true
+          echo "---- All mipmap resources ----"
+          find "$SRC/app/src/main/res" -type f -path '*/mipmap*/*' | sort || true
+
       - name: Set up Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
         with:
