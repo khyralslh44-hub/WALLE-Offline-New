@@ -1,6 +1,10 @@
 name: EVE Vosk Arabic Student Training
 
 on:
+  push:
+    paths:
+      - ".github/scripts/train-eve-vosk-student.py"
+      - ".github/workflows/eve-vosk-arabic-student-training.yml"
   workflow_dispatch:
     inputs:
       train_limit:
@@ -35,7 +39,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install vosk==0.3.45 datasets==3.6.0 librosa soundfile numpy
           python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
-          python -m pip install "transformers>=4.44,<5" "datasets>=3.0,<4" accelerate jiwer
+          python -m pip install "transformers==4.44.2" "datasets>=3.0,<4" accelerate jiwer
       - name: Download verified Vosk Arabic teacher
         run: bash .github/scripts/fetch-arabic-vosk-model.sh "$RUNNER_TEMP/eve-vosk-teacher"
       - name: Extract Vosk teacher
