@@ -13,7 +13,7 @@ encoder_path = root / "encoder_model_quantized.onnx"
 decoder_path = root / "decoder_model_quantized.onnx"
 tokenizer = Tokenizer.from_file(str(root / "tokenizer.json"))
 config = json.loads((root / "config.json").read_text())
-bos = int(config.get("bos_token_id", config.get("decoder_start_token_id", 1)))
+bos = int(config.get("decoder_start_token_id", config.get("bos_token_id", 1)))
 eos = int(config.get("eos_token_id", 2))
 pad = int(config.get("pad_token_id", 0))
 
@@ -24,10 +24,10 @@ encoder = ort.InferenceSession(str(encoder_path), sess_options=opts, providers=[
 decoder = ort.InferenceSession(str(decoder_path), sess_options=opts, providers=["CPUExecutionProvider"])
 
 def norm(s):
-    s = re.sub(r"[\\u064b-\\u065f\\u0670\\u0640]", "", str(s))
+    s = re.sub(r"[\u064b-\u065f\u0670\u0640]", "", str(s))
     s = re.sub(r"[إأآٱ]", "ا", s)
-    s = re.sub(r"[\\u0649]", "ي", s)
-    s = re.sub(r"[^\\w\\s]", " ", s, flags=re.UNICODE)
+    s = re.sub(r"ى", "ي", s)
+    s = re.sub(r"[^\w\s]", " ", s, flags=re.UNICODE)
     return " ".join(s.split())
 
 def transcribe(audio, sr):
@@ -66,7 +66,8 @@ def edit_distance(a, b):
         prev = cur
     return prev[-1]
 
-print("Loading public Arabic FLEURS Egyptian Arabic test split")\nds = load_dataset("google/fleurs", "ar_eg", split="test")
+print("Loading public Arabic FLEURS Egyptian Arabic test split")
+ds = load_dataset("google/fleurs", "ar_eg", split="test")
 if len(ds) == 0:
     raise SystemExit("FAIL: Arabic evaluation split is empty.")
 print("Dataset columns:", ds.column_names)
