@@ -1,0 +1,70 @@
+name: EVE Vosk Arabic Student Training
+
+on:
+  workflow_dispatch:
+    inputs:
+      train_limit:
+        description: "Maximum Vosk-accepted Arabic training clips"
+        required: true
+        default: "240"
+      eval_limit:
+        description: "Held-out validation/test clips per split"
+        required: true
+        default: "80"
+      epochs:
+        description: "Student fine-tuning epochs"
+        required: true
+        default: "1"
+
+permissions:
+  contents: read
+
+jobs:
+  train-student:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: eve-moonshine-arabic-trial
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Vosk corpus and CTC training dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install vosk==0.3.45 datasets==3.6.0 librosa soundfile numpy
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install "transformers>=4.44,<5" "datasets>=3.0,<4" accelerate jiwer
+      - name: Download verified Vosk Arabic teacher
+        run: bash .github/scripts/fetch-arabic-vosk-model.sh "$RUNNER_TEMP/eve-vosk-teacher"
+      - name: Extract Vosk teacher
+        run: |
+          mkdir -p "$RUNNER_TEMP/eve-vosk-model"
+          unzip -q "$RUNNER_TEMP/eve-vosk-teacher/vosk-model-ar-mgb2-0.4.zip" -d "$RUNNER_TEMP/eve-vosk-model"
+          MODEL_DIR="$(find "$RUNNER_TEMP/eve-vosk-model" -type f -path '*/am/final.mdl' -printf '%h\n' | sed 's#/am$##' | head -n1)"
+          test -n "$MODEL_DIR"
+          echo "VOSK_MODEL_DIR=$MODEL_DIR" >> "$GITHUB_ENV"
+      - name: Prepare Vosk pseudo-labels and held-out reference audio
+        run: |
+          python .github/scripts/prepare-eve-bilingual-teacher-corpus.py \
+            --model "$VOSK_MODEL_DIR" \
+            --out "$RUNNER_TEMP/eve-corpus" \
+            --train-limit "${{ inputs.train_limit || '240' }}" \
+            --eval-limit "${{ inputs.eval_limit || '80' }}" \
+            --max-wer "0.55"
+      - name: Fine-tune Arabic CTC student on Vosk targets
+        run: |
+          python .github/scripts/train-eve-vosk-student.py \
+            --corpus "$RUNNER_TEMP/eve-corpus" \
+            --out "$RUNNER_TEMP/eve-student" \
+            --epochs "${{ inputs.epochs || '1' }}"
+      - name: Upload student model and measured report
+        uses: actions/upload-artifact@v4
+        with:
+          name: EVE-Vosk-Arabic-Student-Pilot
+          path: |
+            ${{ runner.temp }}/eve-student/student/
+            ${{ runner.temp }}/eve-student/training_report.json
+          if-no-files-found: error
+          retention-days: 30
