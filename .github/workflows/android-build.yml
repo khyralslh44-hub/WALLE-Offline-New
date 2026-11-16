@@ -16,6 +16,7 @@ on:
       - '.github/scripts/emulator-smoke-test.sh'
       - '.github/scripts/run-deep-face-test.sh'
       - '.github/scripts/fetch-arabic-vosk-model.sh'
+      - '.github/scripts/evaluate-arabic-asr.py'
       - '.github/scripts/run-local-llm-test.sh'
       - 'EVE_COMPACT_ARABIC_BRAIN.md'
       - 'eve-model/**'
@@ -201,6 +202,13 @@ jobs:
           # The task bundle must be present before Gradle packages app assets.
           file "$MODEL"
           echo "Pose model downloaded: $(wc -c < "$MODEL") bytes"
+
+      - name: Validate Arabic ASR evaluation tool syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile .github/scripts/evaluate-arabic-asr.py
+          echo "PASS: Arabic WER/CER evaluation tool parses successfully."
 
       - name: Validate EVE private-model training script syntax
         shell: bash
