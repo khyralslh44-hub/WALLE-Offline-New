@@ -141,8 +141,9 @@ jobs:
               print("No enabled minification declaration found; refusing to silently produce an unmodified release.")
               print(s)
               raise SystemExit(2)
-          s = re.sub(r'(?m)(\\bisShrinkResources\\s*=\\s*)true\\b', r'\g<1>false', s)
-          s = re.sub(r'(?m)(\\bshrinkResources\\s+)true\\b', r'\g<1>false', s)
+          s, resource_count_1 = re.subn(r'(?m)(\bisShrinkResources\s*=\s*)true\b', r'\g<1>false', s)
+          s, resource_count_2 = re.subn(r'(?m)(\bshrinkResources\s+)true\b', r'\g<1>false', s)
+          print(f"Disabled resource shrinking in {resource_count_1 + resource_count_2} declaration(s).")
           p.write_text(s)
           print(f"Disabled R8 minification in {count} enabled declaration(s) for diagnostic-safe release.")
           PY
