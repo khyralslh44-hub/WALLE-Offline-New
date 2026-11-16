@@ -4,17 +4,25 @@ on:
   workflow_dispatch:
     inputs:
       train_limit:
-        description: "Maximum Common Voice Arabic training clips"
+        description: "Maximum clips per training source"
         required: true
         default: "240"
       eval_limit:
-        description: "Maximum clips per independent validation/test split"
+        description: "Maximum clips per held-out evaluation split"
         required: true
         default: "80"
       max_wer:
         description: "Maximum teacher WER for accepted training clips"
         required: true
         default: "0.55"
+      libyan_dataset:
+        description: "Optional Libyan dataset ID; leave blank until its license is confirmed"
+        required: false
+        default: ""
+      libyan_license_confirmed:
+        description: "Exact permissive license confirmed by the dataset owner (CC0-1.0 or CC-BY-4.0)"
+        required: false
+        default: ""
   push:
     paths:
       - ".github/scripts/prepare-eve-bilingual-teacher-corpus.py"
@@ -40,17 +48,19 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/eve-vosk-model"
           unzip -q "$RUNNER_TEMP/eve-vosk-teacher/vosk-model-ar-mgb2-0.4.zip" -d "$RUNNER_TEMP/eve-vosk-model"
-          MODEL_DIR="$(find "$RUNNER_TEMP/eve-vosk-model" -type f -path '*/am/final.mdl' -printf '%h\n' | sed 's#/am$##' | head -n1)"
+          MODEL_DIR="$(find "$RUNNER_TEMP/eve-vosk-model" -type f -path '*/am/final.mdl' -printf '%h\\n' | sed 's#/am$##' | head -n1)"
           test -n "$MODEL_DIR"
           echo "VOSK_MODEL_DIR=$MODEL_DIR" >> "$GITHUB_ENV"
-      - name: Prepare Arabic read-speech targets and separate evaluation sets
+      - name: Prepare separate Arabic and optional Libyan targets
         run: |
-          python .github/scripts/prepare-eve-bilingual-teacher-corpus.py \
-            --model "$VOSK_MODEL_DIR" \
-            --out "$RUNNER_TEMP/eve-bilingual-teacher-corpus" \
-            --train-limit "${{ inputs.train_limit || '240' }}" \
-            --eval-limit "${{ inputs.eval_limit || '80' }}" \
-            --max-wer "${{ inputs.max_wer || '0.55' }}"
+          python .github/scripts/prepare-eve-bilingual-teacher-corpus.py \\
+            --model "$VOSK_MODEL_DIR" \\
+            --out "$RUNNER_TEMP/eve-bilingual-teacher-corpus" \\
+            --train-limit "${{ inputs.train_limit || '240' }}" \\
+            --eval-limit "${{ inputs.eval_limit || '80' }}" \\
+            --max-wer "${{ inputs.max_wer || '0.55' }}" \\
+            --libyan-dataset "${{ inputs.libyan_dataset || '' }}" \\
+            --libyan-license-confirmed "${{ inputs.libyan_license_confirmed || '' }}"
       - uses: actions/upload-artifact@v4
         with:
           name: EVE-Bilingual-Arabic-Teacher-Corpus
