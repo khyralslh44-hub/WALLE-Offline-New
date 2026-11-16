@@ -1,44 +1,82 @@
-# EVE Arabic ASR prototype — engineering decision
+# EVE Arabic language stack — verified assessment and ASR prototype
 
-Status: research/prototype only. This branch does not replace the stable EVE speech engine.
+Status: isolated research branch. No production speech engine has been replaced. No APK has yet been built or tested on Redmi 12.
 
-## Current baseline
+## 1. Existing EVE Arabic language work (verified in this repository)
 
-The current Android app bundles `vosk-model-ar-mgb2-0.4.zip` (318 MB) and loads it with Vosk/JNA in `OfflineArabicSpeech.kt`. The upstream Vosk model table reports 16.40 WER on MGB-2 dev. The model is much too large for the requested compact package, but it is currently the stronger documented general-Arabic baseline.
+The project already contains several distinct Arabic layers:
 
-## Candidate: Moonshine Streaming Tiny Arabic (INT8 ONNX)
+- `OfflineArabicSpeech.kt`: Vosk-based local speech-to-text (ASR). It loads the bundled `vosk-model-ar-mgb2-0.4.zip`.
+- `EveArabicTextUnderstanding.kt`: Arabic normalization, dialect aliases and conservative clitic/inflection variants.
+- `EveTinyArabicBrain.kt`: a compact, deterministic intent classifier based on hashed Arabic character n-grams and class prototypes. It has curated examples and confidence/margin rejection. It is not an acoustic speech model and is not a general-purpose LLM.
+- `EveArabicIntentRouter.kt`: dialogue intent/slot routing.
+- `EveArabicSemanticComposer.kt`: bounded Arabic response composition grounded in EVE context; explicitly not a free-form generative LLM.
+- Unit tests cover common intents, dialect normalization, uncertainty rejection, contextual replies, and grounding of vision claims.
 
-- Model card: https://huggingface.co/Sharjeelbaig/moonshine-streaming-tiny-ar-onnx
-- Base model: `moonshine-ai/moonshine-streaming-tiny-ar`
-- License stated by candidate card: MIT (verify upstream license and redistribution terms before shipping).
-- 27 million parameters; Arabic vocabulary 12,288; mono 16 kHz input.
-- Quantized encoder: 9.59 MB; quantized decoder: 18.00 MB; tokenizer: 1.44 MB; total about 28 MB.
-- The candidate card's claimed 15–25 ms phrase latency is not independently verified on Redmi 12.
-- It is not yet proven more accurate than Vosk for EVE's everyday conversational Arabic. Do not present it as better until it passes the same recorded test set.
+This means the app's text-understanding and response layers are more developed than the current command-only `ArabicCommandEar` description suggests. The actual bottleneck for a small voice package is still the acoustic ASR model and its integration.
 
-## Important quality warning
+## 2. Current ASR baseline
 
-A separate Arabic ASR benchmark listing reports Moonshine Streaming Tiny Arabic with an aggregate WER of about 50.08 on its open evaluation set. That figure is dataset-dependent and must not be compared directly with Vosk's MGB-2 number, but it is a warning that this tiny model may be unsuitable for unrestricted Arabic dictation. It may still be useful for short, constrained EVE commands after local evaluation.
+The Android app currently bundles `vosk-model-ar-mgb2-0.4.zip` and loads it with Vosk/JNA. The model download script pins a SHA-256 and checks the expected Vosk model files before packaging. This is a real offline ASR path, but its model archive is too large for a 20 MB total target.
 
-## Integration plan
+Do not remove this baseline until an alternative has passed comparative tests.
 
-1. Keep the existing Vosk engine available as a fallback during experiments.
-2. Add ONNX Runtime Android only in this prototype branch.
-3. Implement the candidate's actual encoder/decoder contract and Arabic tokenizer; do not assume a generic Whisper or sherpa API is compatible.
-4. Add a model-download/build step with pinned revision, SHA-256 checksums, and exact file-size checks. Do not check large model binaries into Git.
-5. Build a repeatable Arabic evaluation set covering MSA plus Egyptian, Levantine, Gulf, and Maghrebi speech, male/female voices, quiet/noisy recordings, and EVE's real command phrases.
-6. Measure WER/CER, command success, cold-start time, real-time factor, peak RAM, APK size, and battery/thermal behavior on Redmi 12.
-7. Only replace the default engine if the candidate is demonstrably acceptable. Otherwise keep Vosk or use a two-tier design (tiny command recognizer + larger optional general transcription model).
+## 3. Candidate: official Moonshine Arabic Tiny Streaming
 
-## Acceptance gates
+The official Moonshine model table currently lists Arabic Tiny Streaming as:
+- 34 million parameters
+- 15.5% WER on the official non-English streaming evaluation (400-clip macro)
+- MIT license
 
-- Offline test succeeds with airplane mode enabled and no network permission/path used by ASR.
-- No existing vision models or EVE features are removed.
-- No claim of a 20 MB total package: the published quantized candidate is about 28 MB before runtime/tokenizer overhead.
-- Report measured results, not estimates, before calling the prototype complete.
+The official table says these non-English streaming scores use its own evaluation panels and are not directly comparable with other benchmark harnesses. The candidate is worth a measured trial, but this WER does not establish broad dialect coverage or Redmi 12 performance.
 
-## Sources checked
+Official model table: https://github.com/moonshine-ai/moonshine/blob/main/docs/models/available-models.md
 
-- Vosk model list: https://alphacephei.com/vosk/models
-- Moonshine Arabic INT8 ONNX model card: https://huggingface.co/Sharjeelbaig/moonshine-streaming-tiny-ar-onnx
-- Arabic ASR benchmark: https://github.com/kadirnar/arabic-arena
+## 4. Third-party quantized ONNX conversion
+
+A third-party Arabic Moonshine ONNX conversion was previously identified with reported component sizes around 9.59 MB (encoder), 18.00 MB (decoder), and 1.44 MB (tokenizer), approximately 29 MB before app/runtime overhead. These are claims for that conversion, not official app-package size guarantees. Verify exact model files, hashes, tensor signatures, preprocessing, decoder loop, tokenizer, license chain, and output quality before integration.
+
+Candidate card: https://huggingface.co/Sharjeelbaig/moonshine-streaming-tiny-ar-onnx
+
+An independent Arabic benchmark repository lists `moonshine-streaming-tiny-ar` with substantially weaker aggregate results than the official 15.5% figure on its own open evaluation panel. Because datasets and evaluation protocols differ, these values must not be compared as if they were the same test. They do show why EVE needs its own fixed evaluation corpus.
+
+Benchmark: https://github.com/kadirnar/arabic-arena
+
+## 5. Integration decision
+
+Do not replace Vosk yet. First create a separate ASR adapter and evaluate Moonshine in isolation. Preserve the existing EVE text brain and response pipeline; feed both engines the same audio corpus and compare transcripts and downstream EVE command success.
+
+Before Android integration, confirm:
+1. The ONNX model is a genuine compatible streaming Arabic model, with documented input/output tensor names and state handling.
+2. The selected Android ONNX Runtime version supports the model's operators and ARM64 execution provider.
+3. Streaming chunking, sample rate, normalization, tokenizer, and decoder state match the model's reference implementation.
+4. Model files are pinned by immutable revision and SHA-256; no runtime network fetch is required.
+5. License and redistribution terms are verified for every model/tokenizer asset.
+
+## 6. Required EVE evaluation
+
+Build one fixed, locally stored evaluation set with consented recordings:
+- Modern Standard Arabic and Egyptian, Levantine, Gulf, and Maghrebi varieties.
+- Multiple speakers and speaking rates.
+- Quiet room, moderate background noise, and realistic phone-microphone recordings.
+- Both EVE command phrases and ordinary conversational sentences.
+
+Measure:
+- WER and CER using a documented Arabic normalization policy.
+- Exact intent accuracy and false-trigger rate after EVE's text brain.
+- Cold-start time, streaming latency/real-time factor, peak RAM, CPU load, battery/thermal behavior.
+- Downloaded model bytes, installed APK size, and extracted on-device storage.
+
+Use identical audio, references, normalization, and hardware for Vosk and Moonshine. Publish per-dialect results, not only one aggregate.
+
+## 7. Acceptance gates
+
+- Airplane-mode test confirms ASR and the Arabic brain work with no network access.
+- Existing vision, memory, personality, and game features remain intact.
+- No claim that the total package is 20 MB unless measured APK and installed-storage sizes meet that target.
+- No claim that Moonshine is more accurate than Vosk until the same EVE test set proves it.
+- Redmi 12 performance must be measured on the physical device; CI build success is not device validation.
+
+## 8. Current outcome
+
+The repository already has a bespoke lightweight Arabic text brain and semantic response layers. The next meaningful engineering task is a separate acoustic ASR prototype, not rewriting the existing text brain or claiming that a text intent classifier is speech recognition.
