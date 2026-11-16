@@ -5,7 +5,6 @@ on:
   push:
     paths:
       - 'eve-android (14).zip'
-      - '.github/workflows/build-eve14.yml'
 
 permissions:
   contents: read
