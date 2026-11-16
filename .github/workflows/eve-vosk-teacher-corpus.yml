@@ -1,0 +1,55 @@
+name: EVE Arabic Vosk Teacher Corpus
+
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "Maximum Egyptian Arabic clips to process"
+        required: true
+        default: "120"
+      max_wer:
+        description: "Reject teacher labels above this reference WER"
+        required: true
+        default: "0.45"
+  push:
+    paths:
+      - ".github/scripts/prepare-vosk-teacher-corpus.py"
+      - ".github/workflows/eve-vosk-teacher-corpus.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build-teacher-corpus:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      - name: Install corpus tools
+        run: python -m pip install --disable-pip-version-check vosk==0.3.45 datasets==3.6.0 librosa soundfile
+      - name: Download and verify Vosk Arabic teacher model
+        run: bash .github/scripts/fetch-arabic-vosk-model.sh "$RUNNER_TEMP/eve-vosk-teacher"
+      - name: Extract verified model
+        run: |
+          mkdir -p "$RUNNER_TEMP/eve-vosk-model"
+          unzip -q "$RUNNER_TEMP/eve-vosk-teacher/vosk-model-ar-mgb2-0.4.zip" -d "$RUNNER_TEMP/eve-vosk-model"
+          MODEL_DIR="$(find "$RUNNER_TEMP/eve-vosk-model" -type f -path '*/am/final.mdl' -printf '%h\n' | sed 's#/am$##' | head -n1)"
+          test -n "$MODEL_DIR"
+          echo "VOSK_MODEL_DIR=$MODEL_DIR" >> "$GITHUB_ENV"
+      - name: Generate filtered pseudo-label corpus
+        run: |
+          python .github/scripts/prepare-vosk-teacher-corpus.py \
+            --model "$VOSK_MODEL_DIR" \
+            --out "$RUNNER_TEMP/eve-vosk-teacher-corpus" \
+            --limit "${{ inputs.limit || '120' }}" \
+            --max-wer "${{ inputs.max_wer || '0.45' }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: EVE-Vosk-Arabic-Teacher-Corpus
+          path: ${{ runner.temp }}/eve-vosk-teacher-corpus/
+          if-no-files-found: error
+          retention-days: 14
