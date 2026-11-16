@@ -35,12 +35,17 @@ def main():
     out=pathlib.Path(args.out); audio_dir=out/"audio"; audio_dir.mkdir(parents=True,exist_ok=True)
     model=Model(args.model)
     ds=load_dataset("google/fleurs","ar_eg",split="train")
-    rows=[]; rejected=0; tested=0; errors=0; words=0
+    required_columns={"audio","transcription"}
+    missing=required_columns.difference(ds.column_names)
+    if missing:
+        raise SystemExit("FLEURS schema mismatch; missing: "+", ".join(sorted(missing)))
+    rows=[]; rejected=0; tested=0; errors=0; words=0; skipped=0
     for idx,item in enumerate(ds):
         if tested>=args.limit: break
         obj=item.get("audio")
-        ref=item.get("sentence")
-        if not isinstance(obj,dict) or "array" not in obj or not ref: continue
+        ref=item.get("transcription")
+        if not isinstance(obj,dict) or "array" not in obj or not ref:
+            skipped+=1; continue
         audio=np.asarray(obj["array"],dtype=np.float32)
         if audio.ndim==2: audio=audio.mean(axis=1) if audio.shape[0]>audio.shape[1] else audio.mean(axis=0)
         sr=int(obj.get("sampling_rate",16000))
@@ -69,7 +74,7 @@ def main():
     manifest=out/"train.jsonl"
     with manifest.open("w",encoding="utf-8") as f:
         for row in rows: f.write(json.dumps(row,ensure_ascii=False)+"\n")
-    report={"dataset":"google/fleurs:ar_eg/train","teacher":"vosk-model-ar-mgb2-0.4","tested":tested,"accepted":len(rows),"rejected":rejected,"teacher_wer_on_filtered_source":round(errors/max(1,words),4),"max_wer_filter":args.max_wer,"student_targets":"Vosk hypotheses; FLEURS references are only used for filtering"}
+    report={"dataset":"google/fleurs:ar_eg/train","teacher":"vosk-model-ar-mgb2-0.4","tested":tested,"accepted":len(rows),"rejected":rejected,"teacher_wer_on_tested_source":round(errors/max(1,words),4),"max_wer_filter":args.max_wer,"skipped_missing_or_invalid":skipped,"student_targets":"Vosk hypotheses; FLEURS transcription references are only used for filtering","training_status":"corpus_only_student_not_trained"}
     (out/"report.json").write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding="utf-8")
     print(json.dumps(report,ensure_ascii=False,indent=2))
     if len(rows)<10: raise SystemExit("FAIL: fewer than 10 clean pseudo-labelled clips; do not train a student.")
