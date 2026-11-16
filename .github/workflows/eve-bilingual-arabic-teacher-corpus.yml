@@ -48,18 +48,18 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/eve-vosk-model"
           unzip -q "$RUNNER_TEMP/eve-vosk-teacher/vosk-model-ar-mgb2-0.4.zip" -d "$RUNNER_TEMP/eve-vosk-model"
-          MODEL_DIR="$(find "$RUNNER_TEMP/eve-vosk-model" -type f -path '*/am/final.mdl' -printf '%h\\n' | sed 's#/am$##' | head -n1)"
+          MODEL_DIR="$(find "$RUNNER_TEMP/eve-vosk-model" -type f -path '*/am/final.mdl' -printf '%h\n' | sed 's#/am$##' | head -n1)"
           test -n "$MODEL_DIR"
           echo "VOSK_MODEL_DIR=$MODEL_DIR" >> "$GITHUB_ENV"
       - name: Prepare separate Arabic and optional Libyan targets
         run: |
-          python .github/scripts/prepare-eve-bilingual-teacher-corpus.py \\
-            --model "$VOSK_MODEL_DIR" \\
-            --out "$RUNNER_TEMP/eve-bilingual-teacher-corpus" \\
-            --train-limit "${{ inputs.train_limit || '240' }}" \\
-            --eval-limit "${{ inputs.eval_limit || '80' }}" \\
-            --max-wer "${{ inputs.max_wer || '0.55' }}" \\
-            --libyan-dataset "${{ inputs.libyan_dataset || '' }}" \\
+          python .github/scripts/prepare-eve-bilingual-teacher-corpus.py \
+            --model "$VOSK_MODEL_DIR" \
+            --out "$RUNNER_TEMP/eve-bilingual-teacher-corpus" \
+            --train-limit "${{ inputs.train_limit || '240' }}" \
+            --eval-limit "${{ inputs.eval_limit || '80' }}" \
+            --max-wer "${{ inputs.max_wer || '0.55' }}" \
+            --libyan-dataset "${{ inputs.libyan_dataset || '' }}" \
             --libyan-license-confirmed "${{ inputs.libyan_license_confirmed || '' }}"
       - uses: actions/upload-artifact@v4
         with:
