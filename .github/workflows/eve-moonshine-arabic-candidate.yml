@@ -23,7 +23,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install ONNX Runtime CPU validator
-        run: python -m pip install --disable-pip-version-check onnxruntime datasets==3.6.0 tokenizers scipy soundfile
+        run: python -m pip install --disable-pip-version-check onnxruntime datasets==3.6.0 tokenizers scipy soundfile librosa
       - name: Fetch immutable Moonshine Arabic model snapshot and validate graphs
         shell: bash
         run: bash .github/scripts/fetch-moonshine-arabic-candidate.sh "$RUNNER_TEMP/eve-moonshine-arabic"
