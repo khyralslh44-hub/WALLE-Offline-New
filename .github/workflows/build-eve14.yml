@@ -97,6 +97,26 @@ jobs:
             echo "$f: $(stat -c '%s' "$DEST/$f") bytes"
           done
 
+      - name: Apply compile-only receiver disambiguation (keep uploaded ZIP unchanged)
+        shell: bash
+        run: |
+          set -euo pipefail
+          FILE="$RUNNER_TEMP/eve14/app/src/main/java/com/eve/companion/MainActivity.kt"
+          # Inside TextToSpeech.apply, the unqualified name "voice" resolves to
+          # TextToSpeech.voice. Explicitly reference MainActivity's EveVoice object.
+          python3 - "$FILE" <<'PY'
+          from pathlib import Path
+          import sys
+          p = Path(sys.argv[1])
+          s = p.read_text()
+          old = 'setSpeechRate((rate / voice.factor(style)).coerceIn(0.4f, 2.0f))'
+          new = 'setSpeechRate((rate / this@MainActivity.voice.factor(style)).coerceIn(0.4f, 2.0f))'
+          if s.count(old) != 1:
+              raise SystemExit("Expected exactly one voice.factor call; source was not changed")
+          p.write_text(s.replace(old, new, 1))
+          print("Applied one compile-only receiver qualification in the extracted build workspace.")
+          PY
+
       - name: Set up Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
         with:
