@@ -1,0 +1,45 @@
+name: EVE Arabic Student Distillation Training
+
+on:
+  push:
+    branches:
+      - eve-moonshine-arabic-trial
+    paths:
+      - ".github/workflows/eve-arabic-student-distillation.yml"
+      - ".github/scripts/train-eve-arabic-student.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  train-distilled-student:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install CPU training dependencies
+        run: |
+          python -m pip install --disable-pip-version-check --upgrade pip
+          python -m pip install --disable-pip-version-check torch==2.4.1 --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install --disable-pip-version-check transformers==4.44.2 datasets==3.6.0 librosa==0.10.2.post1 soundfile onnx==1.16.2 onnxruntime==1.19.2
+      - name: Train EVE student by knowledge distillation
+        env:
+          HF_HUB_DISABLE_TELEMETRY: "1"
+          TOKENIZERS_PARALLELISM: "false"
+        run: |
+          python .github/scripts/train-eve-arabic-student.py \
+            --train-per-source 48 \
+            --eval-per-source 16 \
+            --epochs 3 \
+            --out eve-arabic-student
+      - name: Upload trained student and evaluation
+        uses: actions/upload-artifact@v4
+        with:
+          name: EVE-Arabic-Distilled-Student-Pilot
+          path: eve-arabic-student/
+          if-no-files-found: error
+          retention-days: 30
