@@ -6,6 +6,7 @@ on:
     paths:
       - '.github/scripts/fetch-moonshine-arabic-candidate.sh'
       - '.github/scripts/validate-moonshine-arabic-onnx.py'
+      - '.github/scripts/test-moonshine-arabic-inference.py'
       - '.github/workflows/eve-moonshine-arabic-candidate.yml'
       - 'docs/ARABIC_ASR_PROTOTYPE.md'
 
@@ -22,10 +23,13 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install ONNX Runtime CPU validator
-        run: python -m pip install --disable-pip-version-check onnxruntime
+        run: python -m pip install --disable-pip-version-check onnxruntime datasets==3.6.0 tokenizers scipy soundfile
       - name: Fetch immutable Moonshine Arabic model snapshot and validate graphs
         shell: bash
         run: bash .github/scripts/fetch-moonshine-arabic-candidate.sh "$RUNNER_TEMP/eve-moonshine-arabic"
+      - name: Run end-to-end Arabic speech inference on public evaluation clips
+        shell: bash
+        run: python .github/scripts/test-moonshine-arabic-inference.py "$RUNNER_TEMP/eve-moonshine-arabic"
       - name: Upload candidate snapshot manifest
         uses: actions/upload-artifact@v4
         with:
