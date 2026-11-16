@@ -9,6 +9,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: eve14-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     name: Build APK from eve-android (14).zip
@@ -18,20 +22,32 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Verify uploaded archive
+      - name: Validate uploaded archive
         shell: bash
         run: |
           set -euo pipefail
-          test -s "eve-android (14).zip"
-          unzip -t "eve-android (14).zip"
+          ZIP="eve-android (14).zip"
+          if [[ ! -f "$ZIP" ]]; then
+            echo "::error::Required archive was not found: $ZIP"
+            exit 1
+          fi
+          ls -lh "$ZIP"
+          unzip -t "$ZIP" >/dev/null
           mkdir -p "$RUNNER_TEMP/eve14"
-          unzip -q "eve-android (14).zip" -d "$RUNNER_TEMP/eve14"
+          unzip -q "$ZIP" -d "$RUNNER_TEMP/eve14"
+
           SRC="$RUNNER_TEMP/eve14"
-          test -s "$SRC/settings.gradle.kts"
-          test -s "$SRC/build.gradle.kts"
-          test -s "$SRC/app/build.gradle.kts"
-          test -s "$SRC/app/src/main/AndroidManifest.xml"
-          test -s "$SRC/app/src/main/java/com/eve/companion/MainActivity.kt"
+          for f in \
+            "settings.gradle.kts" \
+            "build.gradle.kts" \
+            "app/build.gradle.kts" \
+            "app/src/main/AndroidManifest.xml" \
+            "app/src/main/java/com/eve/companion/MainActivity.kt"; do
+            if [[ ! -s "$SRC/$f" ]]; then
+              echo "::error::Missing required file in archive: $SRC/$f"
+              exit 1
+            fi
+          done
           echo "Original source archive extracted and essential files verified."
 
       - name: Set up Java 17
