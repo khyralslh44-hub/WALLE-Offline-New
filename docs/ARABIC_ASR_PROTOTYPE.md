@@ -77,6 +77,14 @@ Use identical audio, references, normalization, and hardware for Vosk and Moonsh
 - No claim that Moonshine is more accurate than Vosk until the same EVE test set proves it.
 - Redmi 12 performance must be measured on the physical device; CI build success is not device validation.
 
-## 8. Current outcome
+## 8. Isolated Moonshine candidate validation (trial branch)
+
+The trial branch adds a separate CI workflow that resolves the candidate repository to an immutable Hugging Face commit, downloads the quantized encoder/decoder and tokenizer/config files, records SHA-256 hashes, and asks ONNX Runtime CPU to load both graphs and verify the documented tensor names.
+
+This is deliberately an isolated gate. It does not alter `OfflineArabicSpeech.kt`, Gradle dependencies, APK assets, or the existing Vosk path. A successful structural check proves only that the files and graphs can be loaded; it does not prove end-to-end decoding, tokenizer compatibility in Android, Arabic conversational accuracy, real streaming, or Redmi 12 performance.
+
+The candidate model card describes a 16 kHz mono phrase-recognition path and reports roughly 28 MB for quantized weights/tokenizer. Its sample decoder loop is autoregressive phrase decoding, so do not describe this ONNX conversion as verified live streaming. The next gate after structural validation is an actual audio inference test using the same fixed Arabic corpus for Vosk and Moonshine. Only after that should an Android adapter and APK-size/performance comparison be attempted.
+
+## 9. Current outcome
 
 The repository already has a bespoke lightweight Arabic text brain and semantic response layers. The next meaningful engineering task is a separate acoustic ASR prototype, not rewriting the existing text brain or claiming that a text intent classifier is speech recognition.
