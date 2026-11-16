@@ -17,10 +17,10 @@ from transformers import (
 )
 
 def norm(text):
-    text = re.sub(r"[\\u064b-\\u065f\\u0670\\u0640]", "", str(text or ""))
+    text = re.sub(r"[\u064b-\u065f\u0670\u0640]", "", str(text or ""))
     text = re.sub(r"[إأآٱ]", "ا", text)
     text = re.sub(r"ى", "ي", text)
-    text = re.sub(r"[^\\w\\s]", " ", text, flags=re.UNICODE)
+    text = re.sub(r"[^\w\s]", " ", text, flags=re.UNICODE)
     return " ".join(text.split())
 
 def read_jsonl(path):
