@@ -117,6 +117,36 @@ jobs:
           print("Applied one compile-only receiver qualification in the extracted build workspace.")
           PY
 
+      - name: Prevent MediaPipe startup crash from R8 shrinking (temporary build workspace only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          FILE="$RUNNER_TEMP/eve14/app/build.gradle.kts"
+          python3 - "$FILE" <<'PY'
+          from pathlib import Path
+          import re, sys
+          p = Path(sys.argv[1])
+          s = p.read_text()
+          # MediaPipe/Flogger uses runtime stack inspection; R8 obfuscation/shrinking
+          # can break this lookup in release builds. Keep the original ZIP untouched.
+          patterns = [
+              r'(?m)(\\bisMinifyEnabled\\s*=\\s*)true\\b',
+              r'(?m)(\\bminifyEnabled\\s+)true\\b',
+          ]
+          count = 0
+          for pattern in patterns:
+              s, n = re.subn(pattern, r'\\g<1>false', s)
+              count += n
+          if count == 0:
+              print("No enabled minification declaration found; refusing to silently produce an unmodified release.")
+              print(s)
+              raise SystemExit(2)
+          s = re.sub(r'(?m)(\\bisShrinkResources\\s*=\\s*)true\\b', r'\\g<1>false', s)
+          s = re.sub(r'(?m)(\\bshrinkResources\\s+)true\\b', r'\\g<1>false', s)
+          p.write_text(s)
+          print(f"Disabled R8 minification in {count} enabled declaration(s) for diagnostic-safe release.")
+          PY
+
       - name: Set up Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
         with:
