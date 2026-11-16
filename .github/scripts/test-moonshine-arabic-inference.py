@@ -66,8 +66,7 @@ def edit_distance(a, b):
         prev = cur
     return prev[-1]
 
-print("Loading public Arabic evaluation split UsefulSensors/multilingual_examples:ar")
-ds = load_dataset("UsefulSensors/multilingual_examples", split="ar")
+print("Loading public Arabic FLEURS Egyptian Arabic test split")\nds = load_dataset("google/fleurs", "ar_eg", split="test")
 if len(ds) == 0:
     raise SystemExit("FAIL: Arabic evaluation split is empty.")
 print("Dataset columns:", ds.column_names)
@@ -77,7 +76,7 @@ for i in range(min(8, len(ds))):
     audio_obj = item.get("audio")
     if not isinstance(audio_obj, dict) or "array" not in audio_obj:
         continue
-    reference = next((item[k] for k in ("text", "sentence", "transcription", "transcript") if isinstance(item.get(k), str)), None)
+    reference = next((item[k] for k in ("sentence", "text", "transcription", "transcript") if isinstance(item.get(k), str)), None)
     if not reference:
         continue
     started = time.perf_counter()
