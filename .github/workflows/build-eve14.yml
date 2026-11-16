@@ -1,0 +1,103 @@
+name: Build EVE 14 APK (original source)
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'eve-android (14).zip'
+      - '.github/workflows/build-eve14.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build APK from eve-android (14).zip
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Verify uploaded archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s "eve-android (14).zip"
+          unzip -t "eve-android (14).zip"
+          mkdir -p "$RUNNER_TEMP/eve14"
+          unzip -q "eve-android (14).zip" -d "$RUNNER_TEMP/eve14"
+          SRC="$RUNNER_TEMP/eve14"
+          test -s "$SRC/settings.gradle.kts"
+          test -s "$SRC/build.gradle.kts"
+          test -s "$SRC/app/build.gradle.kts"
+          test -s "$SRC/app/src/main/AndroidManifest.xml"
+          test -s "$SRC/app/src/main/java/com/eve/companion/MainActivity.kt"
+          echo "Original source archive extracted and essential files verified."
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Install Android SDK packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+          sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools"
+
+      - name: Add required vision model assets to build workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$RUNNER_TEMP/eve14"
+          BASE="https://storage.googleapis.com/mediapipe-models"
+          DEST="$SRC/app/src/main/assets/models"
+          mkdir -p "$DEST"
+          curl --fail --location --retry 4 --retry-delay 2 "$BASE/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite" --output "$DEST/objects.tflite"
+          curl --fail --location --retry 4 --retry-delay 2 "$BASE/face_landmarker/face_landmarker/float16/1/face_landmarker.task" --output "$DEST/face.task"
+          curl --fail --location --retry 4 --retry-delay 2 "$BASE/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task" --output "$DEST/gesture.task"
+          curl --fail --location --retry 4 --retry-delay 2 "$BASE/image_embedder/mobilenet_v3_small/float32/1/mobilenet_v3_small.tflite" --output "$DEST/embed.tflite"
+          curl --fail --location --retry 4 --retry-delay 2 "$BASE/image_classifier/efficientnet_lite0/int8/1/efficientnet_lite0.tflite" --output "$DEST/classify.tflite"
+          for f in objects.tflite face.task gesture.task embed.tflite classify.tflite; do
+            test -s "$DEST/$f"
+            echo "$f: $(stat -c '%s' "$DEST/$f") bytes"
+          done
+
+      - name: Set up Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Build original lite APK variants
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle --no-daemon --stacktrace -p "$RUNNER_TEMP/eve14" assembleLiteDebug assembleLiteRelease
+
+      - name: Verify generated APKs
+        shell: bash
+        run: |
+          set -euo pipefail
+          APKDIR="$RUNNER_TEMP/eve14/app/build/outputs/apk"
+          test -s "$APKDIR/lite/debug/app-lite-debug.apk"
+          test -s "$APKDIR/lite/release/app-lite-release.apk"
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify "$APKDIR/lite/debug/app-lite-debug.apk"
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify "$APKDIR/lite/release/app-lite-release.apk"
+          ls -lh "$APKDIR/lite/"*/*.apk
+
+      - name: Upload EVE 14 APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: EVE-14-APK
+          path: |
+            ${{ runner.temp }}/eve14/app/build/outputs/apk/lite/debug/*.apk
+            ${{ runner.temp }}/eve14/app/build/outputs/apk/lite/release/*.apk
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
