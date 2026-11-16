@@ -88,3 +88,6 @@ The candidate model card describes a 16 kHz mono phrase-recognition path and rep
 ## 9. Current outcome
 
 The repository already has a bespoke lightweight Arabic text brain and semantic response layers. The next meaningful engineering task is a separate acoustic ASR prototype, not rewriting the existing text brain or claiming that a text intent classifier is speech recognition.
+
+
+Arabic inference evaluation now uses the public FLEURS Egyptian Arabic test split and installs audio decoding dependencies.
