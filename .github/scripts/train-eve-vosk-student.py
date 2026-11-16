@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Fine-tune an Arabic CTC recognizer on Vosk pseudo-transcripts.
+"""Train a compact Arabic CTC student from Vosk pseudo-transcripts.
 
-This is transcript-level teacher/student adaptation (not logit-level KD):
-Vosk supplies targets; a pretrained Arabic acoustic model is the student.
-Evaluation always uses held-out human reference text, never teacher hypotheses.
+The compact acoustic network is initialized from scratch; Vosk hypotheses are
+transcript targets. This is NOT logit-level knowledge distillation. Evaluation
+uses held-out human references and must gate any Android replacement.
 """
 import argparse, json, os, re
 from pathlib import Path
@@ -13,7 +13,8 @@ import soundfile as sf
 import torch
 from datasets import Dataset
 from transformers import (
-    AutoProcessor, AutoModelForCTC, Trainer, TrainingArguments
+    AutoProcessor, Trainer, TrainingArguments,
+    Wav2Vec2Config, Wav2Vec2ForCTC,
 )
 
 def norm(text):
@@ -24,11 +25,7 @@ def norm(text):
     return " ".join(text.split())
 
 def read_jsonl(path):
-    rows = []
-    for line in Path(path).read_text(encoding="utf-8").splitlines():
-        if line.strip():
-            rows.append(json.loads(line))
-    return rows
+    return [json.loads(x) for x in Path(path).read_text(encoding="utf-8").splitlines() if x.strip()]
 
 def wer(refs, hyps):
     edits = words = 0
@@ -84,54 +81,102 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--corpus", required=True)
     ap.add_argument("--out", required=True)
-    ap.add_argument("--base-model", default="jonatasgrosman/wav2vec2-large-xlsr-53-arabic")
-    ap.add_argument("--epochs", type=float, default=1.0)
-    ap.add_argument("--batch-size", type=int, default=1)
+    ap.add_argument("--tokenizer-model", default="jonatasgrosman/wav2vec2-large-xlsr-53-arabic")
+    ap.add_argument("--epochs", type=float, default=12.0)
+    ap.add_argument("--batch-size", type=int, default=2)
+    ap.add_argument("--hidden-size", type=int, default=256)
+    ap.add_argument("--layers", type=int, default=4)
+    ap.add_argument("--heads", type=int, default=4)
     args = ap.parse_args()
+    if args.hidden_size % args.heads:
+        raise SystemExit("--hidden-size must be divisible by --heads")
     torch.set_num_threads(max(1, min(4, os.cpu_count() or 1)))
     root, out = Path(args.corpus), Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     train_rows = read_jsonl(root / "msa_train.jsonl")
     eval_rows = read_jsonl(root / "msa_test.jsonl")
-    processor = AutoProcessor.from_pretrained(args.base_model)
+    processor = AutoProcessor.from_pretrained(args.tokenizer_model)
     train = prepare(train_rows, root, processor, True)
     test = prepare(eval_rows, root, processor, False)
     if len(train) < 20 or len(test) < 10:
         raise SystemExit(f"Insufficient usable examples: train={len(train)} test={len(test)}")
-    model = AutoModelForCTC.from_pretrained(args.base_model)
-    model.freeze_feature_encoder()
-    train_ds = Dataset.from_list(train)
-    eval_ds = Dataset.from_list(test)
+
+    # Compact Wav2Vec2: 7 narrow convolution stages + a small 4-layer encoder.
+    # This is deliberately independent of the large XLS-R acoustic weights.
+    config = Wav2Vec2Config(
+        vocab_size=len(processor.tokenizer),
+        hidden_size=args.hidden_size,
+        num_hidden_layers=args.layers,
+        num_attention_heads=args.heads,
+        intermediate_size=args.hidden_size * 4,
+        conv_dim=(128, 128, 128, 128, 128, 128, 128),
+        conv_stride=(5, 2, 2, 2, 2, 2, 2),
+        conv_kernel=(10, 3, 3, 3, 3, 2, 2),
+        feat_proj_dropout=0.0,
+        hidden_dropout=0.1,
+        attention_dropout=0.1,
+        final_dropout=0.1,
+        layerdrop=0.05,
+        ctc_loss_reduction="mean",
+        pad_token_id=processor.tokenizer.pad_token_id,
+        bos_token_id=processor.tokenizer.bos_token_id,
+        eos_token_id=processor.tokenizer.eos_token_id,
+    )
+    model = Wav2Vec2ForCTC(config)
+    params = sum(p.numel() for p in model.parameters())
+    train_ds, eval_ds = Dataset.from_list(train), Dataset.from_list(test)
+
     def metrics(pred):
-        logits = pred.predictions
-        pred_ids = np.argmax(logits, axis=-1)
+        pred_ids = np.argmax(pred.predictions, axis=-1)
         hyp = processor.batch_decode(pred_ids)
         labels = pred.label_ids.copy()
         labels[labels == -100] = processor.tokenizer.pad_token_id
         refs = processor.batch_decode(labels, group_tokens=False)
         return {"wer": wer(refs, hyp)}
+
     training_args = TrainingArguments(
-        output_dir=str(out / "checkpoints"), per_device_train_batch_size=args.batch_size,
-        per_device_eval_batch_size=1, gradient_accumulation_steps=4,
-        learning_rate=1e-5, num_train_epochs=args.epochs, fp16=False,
-        evaluation_strategy="epoch", save_strategy="epoch", logging_steps=10,
-        report_to=[], dataloader_num_workers=0, gradient_checkpointing=True,
-        group_by_length=False, remove_unused_columns=False,
+        output_dir=str(out / "checkpoints"),
+        per_device_train_batch_size=args.batch_size,
+        per_device_eval_batch_size=1,
+        gradient_accumulation_steps=2,
+        learning_rate=3e-4,
+        warmup_ratio=0.1,
+        weight_decay=0.01,
+        num_train_epochs=args.epochs,
+        fp16=False,
+        evaluation_strategy="epoch",
+        save_strategy="epoch",
+        save_total_limit=2,
+        logging_steps=10,
+        report_to=[],
+        dataloader_num_workers=0,
+        group_by_length=False,
+        remove_unused_columns=False,
     )
-    trainer = Trainer(model=model, args=training_args, train_dataset=train_ds,
-        eval_dataset=eval_ds, data_collator=Collator(processor), tokenizer=processor,
-        compute_metrics=metrics)
+    trainer = Trainer(
+        model=model, args=training_args, train_dataset=train_ds,
+        eval_dataset=eval_ds, data_collator=Collator(processor),
+        tokenizer=processor, compute_metrics=metrics,
+    )
     trainer.train()
-    metrics_out = trainer.evaluate()
-    model.save_pretrained(out / "student")
-    processor.save_pretrained(out / "student")
+    measured = trainer.evaluate()
+    student_dir = out / "student"
+    model.save_pretrained(student_dir, safe_serialization=True)
+    processor.save_pretrained(student_dir)
+    weight_bytes = sum(p.stat().st_size for p in student_dir.glob("*.safetensors"))
     report = {
-        "student": args.base_model,
-        "training_method": "Vosk transcript pseudo-label fine-tuning; not logit-level distillation",
+        "student_architecture": "compact_wav2vec2_ctc",
+        "initialization": "random acoustic weights; Arabic tokenizer/processor reused",
+        "training_method": "Vosk transcript pseudo-label supervised CTC training; NOT logit-level knowledge distillation",
         "teacher": "vosk-model-ar-mgb2-0.4",
-        "train_examples": len(train), "heldout_reference_examples": len(test),
-        "heldout_metrics": metrics_out,
-        "limitations": "MSA-oriented Common Voice only in this first run; Libyan is not included until its data pipeline and rights are verified. Not yet integrated into Android."
+        "parameters": params,
+        "parameter_count_millions": round(params / 1e6, 3),
+        "safetensors_weight_bytes": weight_bytes,
+        "safetensors_weight_mib": round(weight_bytes / (1024**2), 2),
+        "train_examples": len(train),
+        "heldout_human_reference_examples": len(test),
+        "heldout_metrics": measured,
+        "limitations": "Pilot corpus is small and MSA-oriented. Libyan speech is not included. This model is not integrated into Android and must not replace Vosk until it passes broader held-out and on-device tests."
     }
     (out / "training_report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps(report, ensure_ascii=False, indent=2))
