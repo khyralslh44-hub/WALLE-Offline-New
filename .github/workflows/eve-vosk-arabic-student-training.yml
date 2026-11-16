@@ -18,7 +18,7 @@ on:
       epochs:
         description: "Student fine-tuning epochs"
         required: true
-        default: "1"
+        default: "12"
 
 permissions:
   contents: read
@@ -62,7 +62,7 @@ jobs:
           python .github/scripts/train-eve-vosk-student.py \
             --corpus "$RUNNER_TEMP/eve-corpus" \
             --out "$RUNNER_TEMP/eve-student" \
-            --epochs "${{ inputs.epochs || '1' }}"
+            --epochs "${{ inputs.epochs || '12' }}"
       - name: Upload student model and measured report
         uses: actions/upload-artifact@v4
         with:
